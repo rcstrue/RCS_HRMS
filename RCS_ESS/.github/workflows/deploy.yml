@@ -1,0 +1,54 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build static site (Vite)
+        run: bun run build
+
+      - name: Install lftp
+        run: sudo apt-get update && sudo apt-get install -y lftp
+
+      - name: Deploy frontend + API via FTP
+        run: |
+          lftp -c "
+            set ftp:ssl-allow no;
+            set ftp:passive-mode on;
+            set net:timeout 60;
+            set net:max-retries 5;
+            set net:reconnect-interval-base 5;
+            set net:reconnect-interval-multiplier 2;
+            open -u '${{ secrets.FTP_USER }},${{ secrets.FTP_PASS }}' ${{ secrets.FTP_HOST }};
+
+            # Deploy frontend (dist/ → public_html root)
+            cd /;
+            lcd dist;
+            mirror -R --no-symlinks --parallel=4 --no-perms --overwrite;
+
+            # Deploy API PHP files (exclude config.php — it has real DB credentials on server)
+            cd /api/ess;
+            lcd ../api/ess;
+            mirror -R --no-symlinks --parallel=4 --no-perms --overwrite -x ^config\.php$ -x ^\.htaccess$;
+
+            quit
+          "
+          echo "✅ Deploy completed"

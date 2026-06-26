@@ -1,0 +1,436 @@
+import { apiRequest } from '@/lib/api/config';
+import type {
+  LoginResponse, AttendanceRecord, AttendanceSummary,
+  LeaveRequest, LeaveBalance, Task, Expense,
+  HelpdeskTicket, Announcement, PaginatedResponse,
+  ClientOption, UnitOption, Employee, AdvanceAllocation, EmployeeRole, UnitVisit,
+  ChecklistCategory, VisitChecklistItem, VisitDashboardData,
+  ManpowerEntry, ManpowerDashboardData
+} from './ess-types';
+
+// ══════════════════════════════════════════════════════════════
+// unwrap - PHP wraps responses in { success, message, data }
+// apiRequest gives { data: <PHP envelope>, error }
+// This helper strips the envelope so callers get the actual payload
+// Handles: { success: true, data: ... } → { data: ..., error: null }
+//          { success: false, message/error: "..." } → { data: null, error: "..." }
+//          Raw responses (no envelope) → pass through unchanged
+// ══════════════════════════════════════════════════════════════
+function unwrap<T>(result: Promise<{ data: T | null; error: string | null }>): Promise<{ data: T | null; error: string | null }> {
+  return result.then((res) => {
+    if (res.error) return res;
+    const d = res.data as Record<string, unknown> | null;
+    if (d && typeof d === 'object' && 'success' in d) {
+      // PHP returned a success:false envelope — extract error message
+      if (d.success === false) {
+        const msg = (d.message as string) || (d.error as string) || 'Request failed';
+        return { data: null, error: msg };
+      }
+      // PHP returned a success:true envelope — extract inner data
+      // Guard: data key may exist but be null (e.g. { success: true, data: null })
+      if ('data' in d && d.data != null) {
+        return { data: d.data as T, error: null };
+      }
+      // success:true but data is null/missing → treat as empty result
+      if (d.success === true) {
+        return { data: null, error: null };
+      }
+    }
+    return res;
+  });
+}
+
+// ===== Auth =====
+// Login is special: PHP may return { success: false, is_locked: true, lockout_remaining: ... }
+// alongside the error. We must NOT unwrap success:false into data:null for login,
+// because the caller needs access to is_locked, rate_limit_remaining, etc.
+export async function essLogin(mobileNumber: string, pin: string) {
+  return apiRequest<LoginResponse>('/ess/login', {
+    method: 'POST',
+    body: JSON.stringify({ mobile_number: mobileNumber, pin }),
+  }).then((res) => {
+    if (res.error) return res;
+    const d = res.data as Record<string, unknown> | null;
+    if (d && typeof d === 'object' && 'success' in d) {
+      if (d.success === false) {
+        // Return the FULL envelope as data so LoginScreen can read is_locked, etc.
+        return { data: d as unknown as LoginResponse, error: (d.message as string) || (d.error as string) || 'Login failed' };
+      }
+      if ('data' in d && d.data != null) {
+        return { data: d.data as LoginResponse, error: null };
+      }
+      // success:true but data is null/missing → treat as empty result
+      if (d.success === true) {
+        return { data: null, error: null };
+      }
+    }
+    return res;
+  });
+}
+
+export async function changePin(employee_id: number, current_pin: string, new_pin: string, is_first_login: boolean = false) {
+  return unwrap(apiRequest('/ess/pin', {
+    method: 'POST',
+    body: JSON.stringify({ employee_id, current_pin, new_pin, is_first_login }),
+  }));
+}
+
+// ===== Attendance =====
+export async function fetchAttendance(employee_id: number, month?: string) {
+  const params = new URLSearchParams({ employee_id: String(employee_id) });
+  if (month) params.set('month', month);
+  return unwrap<PaginatedResponse<AttendanceRecord>>(apiRequest<PaginatedResponse<AttendanceRecord>>(`/ess/attendance?${params}`));
+}
+
+export async function checkIn(data: { employee_id: number; latitude?: number; longitude?: number; location?: string }) {
+  return unwrap<AttendanceRecord>(apiRequest<AttendanceRecord>('/ess/attendance', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }));
+}
+
+export async function checkOut(id: number) {
+  return unwrap<AttendanceRecord>(apiRequest<AttendanceRecord>('/ess/attendance', {
+    method: 'PUT',
+    body: JSON.stringify({ id }),
+  }));
+}
+
+// ===== Leaves =====
+export async function fetchLeaves(employee_id: number, status?: string) {
+  const params = new URLSearchParams({ employee_id: String(employee_id) });
+  if (status) params.set('status', status);
+  return unwrap<PaginatedResponse<LeaveRequest>>(apiRequest<PaginatedResponse<LeaveRequest>>(`/ess/leaves?${params}`));
+}
+
+export async function fetchLeaveBalance(employee_id: number) {
+  return unwrap<LeaveBalance[]>(apiRequest<LeaveBalance[]>(`/ess/leaves?employee_id=${employee_id}&view=balance`));
+}
+
+export async function applyLeave(data: { employee_id: number; type: string; start_date: string; end_date: string; days: number; reason: string }) {
+  return unwrap<LeaveRequest>(apiRequest<LeaveRequest>('/ess/leaves', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }));
+}
+
+export async function approveLeave(id: number, status: string, approved_by: number, rejection_reason?: string) {
+  return unwrap<LeaveRequest>(apiRequest<LeaveRequest>('/ess/leaves', {
+    method: 'PUT',
+    body: JSON.stringify({ id, status, approved_by, rejection_reason }),
+  }));
+}
+
+// ===== Tasks =====
+export async function fetchTasks(params: { assigned_to?: number; assigned_by?: number; status?: string }) {
+  const searchParams = new URLSearchParams();
+  if (params.assigned_to) searchParams.set('assigned_to', String(params.assigned_to));
+  if (params.assigned_by) searchParams.set('assigned_by', String(params.assigned_by));
+  if (params.status) searchParams.set('status', params.status);
+  return unwrap<PaginatedResponse<Task>>(apiRequest<PaginatedResponse<Task>>(`/ess/tasks?${searchParams}`));
+}
+
+export async function createTask(data: { title: string; description?: string; priority: string; deadline?: string; assigned_to?: number }) {
+  return unwrap<Task>(apiRequest<Task>('/ess/tasks', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }));
+}
+
+export async function updateTask(id: number, data: Partial<Task>) {
+  return unwrap<Task>(apiRequest<Task>('/ess/tasks', {
+    method: 'PUT',
+    body: JSON.stringify({ id, ...data }),
+  }));
+}
+
+// ===== Expenses =====
+export async function fetchExpenses(employee_id: number, options?: { status?: string; month?: string }) {
+  const params = new URLSearchParams({ employee_id: String(employee_id) });
+  if (options?.status) params.set('status', options.status);
+  if (options?.month) params.set('month', options.month);
+  return unwrap<PaginatedResponse<Expense> & {
+    month_summary?: {
+      advance_received: number;
+      this_month_advance: number;
+      opening_balance: number;
+      approved_expenses: number;
+      closing_balance: number;
+    };
+  }>(
+    apiRequest(`/ess/expenses?${params}`)
+  );
+}
+
+export async function fetchPendingTeamExpenses() {
+  return unwrap<{ items: Expense[] }>(apiRequest<{ items: Expense[] }>('/ess/expenses?view=pending_team'));
+}
+
+export async function fetchExpenseTypes() {
+  return unwrap<{ categories: string[]; types: string[] }>(apiRequest<{ categories: string[]; types: string[] }>('/ess/expenses?view=types'));
+}
+
+export async function fetchAdvanceAllocations(employee_id: number) {
+  return unwrap<{
+    items: AdvanceAllocation[];
+    total_allocated: number;
+    total_used: number;
+    running_balance: number;
+  }>(apiRequest('/ess/expenses?view=advances&employee_id=' + employee_id));
+}
+
+export async function createExpense(data: { employee_id: number; category: string; type: string; amount: number; expense_date: string; description?: string; bill_url?: string; bill_type?: string }) {
+  return unwrap<Expense>(apiRequest<Expense>('/ess/expenses', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }));
+}
+
+export async function approveExpense(id: number, status: string, approved_by: number, rejection_reason?: string) {
+  return unwrap<Expense>(apiRequest<Expense>('/ess/expenses', {
+    method: 'PUT',
+    body: JSON.stringify({ id, status, approved_by, rejection_reason }),
+  }));
+}
+
+// ===== Helpdesk =====
+export async function fetchHelpdeskTickets(employee_id: number, status?: string) {
+  const params = new URLSearchParams({ employee_id: String(employee_id) });
+  if (status) params.set('status', status);
+  return unwrap<PaginatedResponse<HelpdeskTicket>>(apiRequest<PaginatedResponse<HelpdeskTicket>>(`/ess/helpdesk?${params}`));
+}
+
+export async function createHelpdeskTicket(data: { employee_id: number; category: string; subject: string; description?: string; priority: string }) {
+  return unwrap<HelpdeskTicket>(apiRequest<HelpdeskTicket>('/ess/helpdesk', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }));
+}
+
+// ===== Announcements =====
+export async function fetchAnnouncements(target_scope?: string, target_id?: number) {
+  const params = new URLSearchParams();
+  if (target_scope) params.set('target_scope', target_scope);
+  if (target_id) params.set('target_id', String(target_id));
+  return unwrap<Announcement[]>(apiRequest<Announcement[]>(`/ess/announcements?${params}`));
+}
+
+export async function createAnnouncement(data: { title: string; content: string; priority: string; target_scope: string; target_id?: number }) {
+  return unwrap<Announcement>(apiRequest<Announcement>('/ess/announcements', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }));
+}
+
+// ===== Filters =====
+export async function fetchClients(scope?: string, requester_id?: number, unit_ids?: number[]) {
+  const params = new URLSearchParams();
+  if (scope) params.set('scope', scope);
+  if (requester_id) params.set('requester_id', String(requester_id));
+  if (unit_ids?.length) params.set('unit_ids', unit_ids.join(','));
+  return unwrap<ClientOption[]>(apiRequest<ClientOption[]>(`/ess/filters?view=clients&${params}`));
+}
+
+export async function fetchUnits(scope?: string, requester_id?: number, client_id?: number, unit_ids?: number[]) {
+  const params = new URLSearchParams();
+  if (scope) params.set('scope', scope);
+  if (requester_id) params.set('requester_id', String(requester_id));
+  if (client_id) params.set('client_id', String(client_id));
+  if (unit_ids?.length) params.set('unit_ids', unit_ids.join(','));
+  return unwrap<UnitOption[]>(apiRequest<UnitOption[]>(`/ess/filters?view=units&${params}`));
+}
+
+// ===== Employees (Directory) =====
+export async function fetchEmployeeById(employeeId: number) {
+  return unwrap<Employee>(apiRequest<Employee>(`/ess/ess-employees?id=${employeeId}`));
+}
+
+export async function fetchEmployees(params: {
+  scope?: string;
+  requester_id?: number;
+  limit?: number;
+  page?: number;
+  q?: string;
+  client_id?: number;
+  unit_id?: number;
+  unit_ids?: number[];
+}) {
+  const searchParams = new URLSearchParams();
+  if (params.scope) searchParams.set('scope', params.scope);
+  if (params.requester_id) searchParams.set('requester_id', String(params.requester_id));
+  if (params.limit) searchParams.set('limit', String(params.limit));
+  if (params.page) searchParams.set('page', String(params.page));
+  if (params.q) searchParams.set('q', params.q);
+  if (params.client_id) searchParams.set('client_id', String(params.client_id));
+  if (params.unit_id) searchParams.set('unit_id', String(params.unit_id));
+  // Access allocation params (payroll-driven unit filtering)
+  if (params.unit_ids?.length) searchParams.set('unit_ids', params.unit_ids.join(','));
+  return unwrap<PaginatedResponse<Employee>>(apiRequest<PaginatedResponse<Employee>>(`/ess/employees?${searchParams}`));
+}
+
+// ===== Access Allocation (from Payroll) =====
+export async function fetchAccessAllocation() {
+  return unwrap<{
+    user_id: number;
+    role: EmployeeRole;
+    cities: number[];
+    units: number[];
+    cities_detail: { id: number; name: string; state: string }[];
+  }>(apiRequest('/ess/access'));
+}
+
+export async function fetchCities() {
+  return unwrap<{ id: number; name: string; state: string }[]>(
+    apiRequest('/ess/filters?view=cities'),
+  );
+}
+
+// ===== Unit Visits =====
+export async function fetchChecklistCategories(): Promise<{ data: ChecklistCategory[] | null; error: string | null }> {
+  return unwrap<ChecklistCategory[]>(apiRequest<ChecklistCategory[]>('/ess/checklist-master?view=categories'));
+}
+
+export async function fetchUnitVisits(params: {
+  employee_id: number;
+  month?: number;
+  year?: number;
+  unit_id?: number;
+  status?: string;
+  page?: number;
+  limit?: number;
+  include_checklist?: boolean;
+}) {
+  const searchParams = new URLSearchParams({ employee_id: String(params.employee_id) });
+  if (params.month) searchParams.set('month', String(params.month));
+  if (params.year) searchParams.set('year', String(params.year));
+  if (params.unit_id) searchParams.set('unit_id', String(params.unit_id));
+  if (params.status) searchParams.set('status', params.status);
+  if (params.page) searchParams.set('page', String(params.page));
+  if (params.limit) searchParams.set('limit', String(params.limit));
+  if (params.include_checklist) searchParams.set('include_checklist', '1');
+  return unwrap(apiRequest(`/ess/unit-visits?${searchParams}`));
+}
+
+export async function fetchUnitVisitDetail(id: number) {
+  return unwrap<UnitVisit>(apiRequest<UnitVisit>(`/ess/unit-visits?view=detail&id=${id}`));
+}
+
+export async function submitUnitVisit(data: {
+  employee_id: number;
+  unit_id: number;
+  visit_number: 1 | 2;
+  visit_month: number;
+  visit_year: number;
+  document_url: string;
+  document_type: 'image' | 'pdf';
+  notes?: string;
+  checklist_items?: { checklist_item_id: number; status: 'yes' | 'no' | 'na'; remarks?: string; photo_url?: string }[];
+}) {
+  return unwrap<UnitVisit>(apiRequest<UnitVisit>('/ess/unit-visits', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }));
+}
+
+export async function approveUnitVisit(id: number, approved_by: number) {
+  return unwrap<UnitVisit>(apiRequest<UnitVisit>('/ess/unit-visits', {
+    method: 'PUT',
+    body: JSON.stringify({ id, action: 'approve', approved_by }),
+  }));
+}
+
+export async function rejectUnitVisit(id: number, approved_by: number, rejection_reason: string) {
+  return unwrap<UnitVisit>(apiRequest<UnitVisit>('/ess/unit-visits', {
+    method: 'PUT',
+    body: JSON.stringify({ id, action: 'reject', approved_by, rejection_reason }),
+  }));
+}
+
+export async function deleteUnitVisit(id: number) {
+  return unwrap(apiRequest('/ess/unit-visits', {
+    method: 'DELETE',
+    body: JSON.stringify({ id }),
+  }));
+}
+
+export async function fetchVisitDashboard(employee_id: number) {
+  return unwrap<VisitDashboardData>(apiRequest<VisitDashboardData>(`/ess/unit-visits?view=dashboard&employee_id=${employee_id}`));
+}
+
+export async function sendVisitReportEmail(visit_id: number) {
+  return unwrap(apiRequest('/ess/unit-visits', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'send_email', visit_id }),
+  }));
+}
+
+// ===== Payslip =====
+export async function fetchPayslipPeriods(employee_id: number) {
+  return unwrap(apiRequest(`/ess/payslip?employee_id=${employee_id}`));
+}
+
+export async function fetchPayslipData(employee_id: number, month: number, year: number) {
+  return unwrap(apiRequest(`/ess/payslip?employee_id=${employee_id}&month=${month}&year=${year}`));
+}
+
+// ===== Profile =====
+export async function fetchProfile(employee_id: number) {
+  return unwrap<{ employee: Employee; attendance_summary: AttendanceSummary; leave_balance: LeaveBalance[]; recent_attendance: AttendanceRecord[] }>(
+    apiRequest<{ employee: Employee; attendance_summary: AttendanceSummary; leave_balance: LeaveBalance[]; recent_attendance: AttendanceRecord[] }>(`/ess/filters?view=profile&employee_id=${employee_id}`)
+  );
+}
+
+// ===== Manpower Status =====
+export async function fetchManpowerEntries(params: {
+  date?: string;
+  unit_id?: number;
+  client_id?: number;
+  unit_ids?: number[];
+}) {
+  const searchParams = new URLSearchParams();
+  if (params.date) searchParams.set('date', params.date);
+  if (params.unit_id) searchParams.set('unit_id', String(params.unit_id));
+  if (params.client_id) searchParams.set('client_id', String(params.client_id));
+  if (params.unit_ids?.length) searchParams.set('unit_ids', params.unit_ids.join(','));
+  return unwrap<ManpowerEntry[]>(apiRequest<ManpowerEntry[]>(`/ess/manpower-status?${searchParams}`));
+}
+
+export async function fetchManpowerDashboard(params: {
+  period: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  client_id?: number;
+  unit_ids?: number[];
+  offset?: number;
+}) {
+  const searchParams = new URLSearchParams({ period: params.period });
+  if (params.client_id) searchParams.set('client_id', String(params.client_id));
+  if (params.unit_ids?.length) searchParams.set('unit_ids', params.unit_ids.join(','));
+  if (params.offset) searchParams.set('offset', String(params.offset));
+  return unwrap<ManpowerDashboardData>(apiRequest<ManpowerDashboardData>(`/ess/manpower-status?view=dashboard&${searchParams}`));
+}
+
+export async function saveManpowerStatus(data: {
+  unit_id: number;
+  client_id: number;
+  report_date: string;
+  morning_worker_budget: number;
+  morning_worker_actual: number;
+  morning_supervisor_budget: number;
+  morning_supervisor_actual: number;
+  evening_worker_budget: number;
+  evening_worker_actual: number;
+  evening_supervisor_budget: number;
+  evening_supervisor_actual: number;
+  remarks?: string;
+}) {
+  return unwrap(apiRequest('/ess/manpower-status', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }));
+}
+
+export async function deleteManpowerStatus(id: number) {
+  return unwrap(apiRequest('/ess/manpower-status', {
+    method: 'DELETE',
+    body: JSON.stringify({ id }),
+  }));
+}

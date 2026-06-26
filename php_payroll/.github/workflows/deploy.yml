@@ -1,0 +1,86 @@
+name: Deploy via FTP (Stable)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout code
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Install lftp
+      - name: Install lftp
+        run: sudo apt-get update && sudo apt-get install -y lftp
+
+      # 3. Detect changed files
+      - name: Get changed files
+        id: changed
+        run: |
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.after }}"
+
+          # First push → deploy all files
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            CHANGED=$(git ls-files)
+            echo "First push — deploying all files"
+          else
+            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER")
+            echo "Deploying only changed files"
+          fi
+
+          > /tmp/deploy_files.txt
+          COUNT=0
+
+          for file in $CHANGED; do
+            [ -f "$file" ] || continue
+
+            # Exclude unnecessary files/folders
+            case "$file" in
+              .git*|.github/*|*.md|node_modules/*|logs/*|upload/*)
+                continue
+                ;;
+            esac
+
+            echo "$file" >> /tmp/deploy_files.txt
+            COUNT=$((COUNT + 1))
+          done
+
+          echo "DEPLOY_COUNT=$COUNT" >> $GITHUB_OUTPUT
+          echo "Total files to upload: $COUNT"
+
+      # 4. Upload via FTP
+      - name: Upload via FTP
+        if: steps.changed.outputs.DEPLOY_COUNT != '0'
+        run: |
+          echo "🚀 Starting FTP Deploy..."
+
+          SCRIPT="set ftp:ssl-allow no;
+          set ftp:passive-mode on;
+          set net:timeout 30;
+          set net:max-retries 3;
+          set net:reconnect-interval-base 5;"
+
+          while IFS= read -r file; do
+            REMOTE_DIR="/hrms/$(dirname "$file")"
+            FILE_NAME=$(basename "$file")
+
+            echo "Uploading: $file"
+
+            SCRIPT="$SCRIPT mkdir -p $REMOTE_DIR; put $file -o $REMOTE_DIR/$FILE_NAME;"
+          done < /tmp/deploy_files.txt
+
+          lftp -u "${{ secrets.FTP_USER }},${{ secrets.FTP_PASS }}" ${{ secrets.FTP_HOST }} -e "$SCRIPT bye"
+
+          echo "✅ FTP Deploy Completed"
+
+      # 5. Skip if no changes
+      - name: No changes
+        if: steps.changed.outputs.DEPLOY_COUNT == '0'
+        run: echo "No files changed — skipping deploy"

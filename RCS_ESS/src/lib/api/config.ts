@@ -1,0 +1,243 @@
+// API Configuration - direct calls to backend server
+const API_BASE_URL = 'https://join.rcsfacility.com';
+
+// API Key for server-side validation (Vite uses import.meta.env)
+const API_KEY = typeof import.meta !== 'undefined' && (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY
+  ? (import.meta as Record<string, Record<string, string>>).env.VITE_API_KEY
+  : 'RCS_HRMS_SECURE_KEY_982374982374';
+
+// Guard against duplicate session-expired toasts
+let _sessionExpiredFired = false;
+
+/** Reset the session-expired guard (call after successful login) */
+export function resetSessionExpiredGuard() { _sessionExpiredFired = false; }
+
+// Files base URL for displaying uploaded images
+export const FILES_BASE_URL = `${API_BASE_URL}/uploads`;
+
+// Helper to get full file URL from path returned by server
+// Server returns paths like "/uploads/profile/xxx.jpg" or "profile/xxx.jpg"
+// We need to convert to "https://join.rcsfacility.com/uploads/profile/xxx.jpg"
+export function getFileUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+
+  // If already a full URL, return as-is
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+
+  // Remove leading /uploads/ if present (server sometimes returns "/uploads/profile/xxx.jpg")
+  const cleanPath = path.replace(/^\/uploads\//, '');
+
+  // Construct full URL: https://join.rcsfacility.com/uploads/profile/xxx.jpg
+  return `${FILES_BASE_URL}/${cleanPath}`;
+}
+
+// API request helper - direct fetch to backend
+export async function apiRequest<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<{ data: T | null; error: string | null }> {
+  try {
+    // Resolve token from multiple sources for mobile reliability
+    let token: string | null = null;
+
+    // Priority 1: ess_employee session object (most complete, has structured data)
+    const essSession = localStorage.getItem('ess_employee');
+    if (essSession) {
+      try {
+        const parsed = JSON.parse(essSession);
+        if (parsed?.token) token = parsed.token;
+      } catch { /* invalid session */ }
+    }
+
+    // Priority 2: standalone ess_token (backup)
+    if (!token) token = localStorage.getItem('ess_token');
+
+    // Priority 3: admin_token (fallback)
+    if (!token) token = localStorage.getItem('admin_token');
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-API-KEY': API_KEY,
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    // Also set X-Employee-ID from ess_employee session
+    if (essSession) {
+      try {
+        const parsed = JSON.parse(essSession);
+        if (parsed?.employee?.id) {
+          headers['X-Employee-ID'] = String(parsed.employee.id);
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Custom headers override auto-resolved values (e.g., admin token vs ess token)
+    Object.assign(headers, options.headers as Record<string, string>);
+
+    const response = await fetch(`${API_BASE_URL}/api${endpoint}`, {
+      ...options,
+      headers,
+    });
+
+    // Check if response is JSON
+    const contentType = response.headers.get('content-type');
+    const responseText = await response.text();
+    
+    let data;
+    if (contentType && contentType.includes('application/json')) {
+      if (!responseText.trim()) {
+        if (response.ok) {
+          return { data: null, error: null };
+        }
+        return { data: null, error: 'Empty server response. Please try again.' };
+      }
+
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        console.error(`Failed to parse JSON response for ${endpoint} (status ${response.status}):`, responseText.substring(0, 200));
+        return { data: null, error: 'Invalid server response. Please try again.' };
+      }
+    } else {
+      // Response is HTML or something else
+      console.error('Non-JSON response received:', responseText.substring(0, 500));
+      console.error('Response status:', response.status);
+      console.error('Content-Type:', contentType);
+      console.error('Endpoint:', endpoint);
+      
+      if (response.status === 404) {
+        return { data: null, error: 'API endpoint not found. Please contact support.' };
+      }
+      if (response.status === 403) {
+        return { data: null, error: 'Access denied. Please check your permissions.' };
+      }
+      if (response.status === 500) {
+        return { data: null, error: 'Server error. Please try again later.' };
+      }
+      return { data: null, error: 'Server is temporarily unavailable. Please try again.' };
+    }
+
+    if (!response.ok) {
+      // ── Token expiry / invalid → force re-login ──
+      if (response.status === 401) {
+        const isEss = localStorage.getItem('ess_token') || localStorage.getItem('ess_employee');
+        if (isEss) {
+          // Don't nuke tokens if user is in force PIN change flow (has_custom_pin=false)
+          // This prevents cascade failure on mobile where PIN change API call might race
+          try {
+            const sessionStr = localStorage.getItem('ess_employee');
+            if (sessionStr) {
+              const s = JSON.parse(sessionStr);
+              if (!s.has_custom_pin) {
+                // User is changing PIN — just return the error, don't clear tokens
+                return { data: null, error: data?.error || data?.message || 'Authentication error. Please try again.' };
+              }
+            }
+          } catch { /* parse error — proceed with normal clear */ }
+          localStorage.removeItem('ess_token');
+          localStorage.removeItem('ess_employee');
+          // Dispatch only ONCE to prevent toast spam from concurrent 401s
+          if (!_sessionExpiredFired) {
+            _sessionExpiredFired = true;
+            window.dispatchEvent(new CustomEvent('ess:session-expired'));
+          }
+          return { data: null, error: data?.error || data?.message || 'Session expired. Please login again.' };
+        }
+      }
+      return { data: null, error: data?.error || data?.message || 'Request failed' };
+    }
+
+    return { data: data as T, error: null };
+  } catch (error) {
+    console.error('API Error:', error);
+    return { data: null, error: 'Network error. Please check your connection.' };
+  }
+}
+
+// File upload helper
+export async function uploadFile(
+  file: File,
+  folder: string = 'documents'
+): Promise<{ url: string | null; error: string | null }> {
+  try {
+    const base64Data = await fileToBase64(file);
+    return uploadBase64Image(base64Data, file.name, folder);
+
+  } catch (error) {
+    console.error('Upload Error:', error);
+    return { url: null, error: 'Upload failed. Please try again.' };
+  }
+}
+
+// Base64 image upload helper (for camera captures)
+export async function uploadBase64Image(
+  base64Data: string,
+  filename: string,
+  folder: string = 'documents'
+): Promise<{ url: string | null; error: string | null }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/upload/base64`, {
+      method: 'POST',
+      headers: (() => {
+        const h: Record<string, string> = { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY };
+        const t = localStorage.getItem('admin_token') || localStorage.getItem('ess_token');
+        if (t) h['Authorization'] = `Bearer ${t}`;
+        const ess = localStorage.getItem('ess_employee');
+        if (ess) {
+          try {
+            const parsed = JSON.parse(ess);
+            if (parsed?.employee?.id) h['X-Employee-ID'] = String(parsed.employee.id);
+            if (parsed?.token) h['Authorization'] = `Bearer ${parsed.token}`;
+          } catch { /* invalid session */ }
+        }
+        return h;
+      })(),
+      body: JSON.stringify({ base64Data, filename, folder }),
+    });
+
+    // Check if response is JSON
+    const contentType = response.headers.get('content-type');
+    const responseText = await response.text();
+    
+    let data;
+    if (contentType && contentType.includes('application/json')) {
+      if (!responseText.trim()) {
+        return { url: null, error: 'Empty server response. Please try again.' };
+      }
+
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        console.error(`Failed to parse JSON response for /upload/base64 (status ${response.status}):`, responseText.substring(0, 200));
+        return { url: null, error: 'Invalid server response. Please try again.' };
+      }
+    } else {
+      // Response is HTML or something else
+      console.error('Non-JSON response from upload:', responseText.substring(0, 500));
+      return { url: null, error: 'Server error. Please try again later.' };
+    }
+
+    if (!response.ok || data?.error) {
+      return { url: null, error: data?.error || 'Upload failed' };
+    }
+
+    return { url: data?.url || null, error: null };
+  } catch (error) {
+    console.error('Upload Error:', error);
+    return { url: null, error: 'Upload failed. Please try again.' };
+  }
+}
+
+// Helper to convert File to base64
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
