@@ -1,0 +1,18 @@
+{
+    "name": "rcstrue/php_payroll",
+    "description": "PHP HRMS and Payroll System for Labour Contractor",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=7.4"
+    },
+    "autoload": {
+        "classmap": [
+            "includes/",
+            "modules/"
+        ]
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
