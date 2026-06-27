@@ -46,8 +46,10 @@ jobs:
             set net:reconnect-interval-multiplier 2;
             open -u '${{ secrets.FTP_USER }},${{ secrets.FTP_PASS }}' ${{ secrets.FTP_HOST }};
 
+            # Ensure remote directories exist
+            mkdir -p /api/ess;
+
             # Deploy frontend (dist/ → public_html root)
-            cd /;
             lcd RCS_ESS/dist;
             mirror -R --no-symlinks --parallel=4 --no-perms --overwrite;
 
