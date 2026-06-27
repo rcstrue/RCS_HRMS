@@ -6,6 +6,8 @@ on:
     paths:
       - 'php_payroll/**'
       - 'database/**'
+      - '.github/workflows/deploy-php.yml'
+  workflow_dispatch:
 
 jobs:
   deploy:
