@@ -84,11 +84,10 @@ function _handleProfile(): void
         FROM employees e
         LEFT JOIN ess_employee_cache ec ON ec.employee_id = CAST(e.id AS CHAR COLLATE utf8mb4_unicode_ci)
         LEFT JOIN units u ON u.id = e.unit_id
-        WHERE e.id = ? AND e.status = ?
+        WHERE e.id = ? AND e.status IN ('approved', 'active')
     ');
-    $approvedStatus = 'approved';
     $intId = (int)$employeeId;
-    $stmt->bind_param('is', $intId, $approvedStatus);
+    $stmt->bind_param('i', $intId);
     $stmt->execute();
     $employee = $stmt->get_result()->fetch_assoc();
     $stmt->close();
@@ -387,9 +386,9 @@ function _handleEmployeeDirectory(): void
     [$page, $limit, $offset] = getPaginationParams();
 
     // Build base query with table aliases to avoid ambiguity
-    $whereClause = 'WHERE e.status = ?';
-    $types = 's';
-    $params = [$approvedStatus = 'approved'];
+    $whereClause = "WHERE e.status IN ('approved', 'active')";
+    $types = '';
+    $params = [];
 
     if (!empty($search)) {
         $whereClause .= ' AND (e.full_name LIKE ? OR e.employee_code LIKE ? OR e.mobile_number LIKE ?)';

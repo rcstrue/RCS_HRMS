@@ -99,7 +99,7 @@ function handleGetById($conn, $targetId) {
         FROM employees e
         LEFT JOIN clients c ON e.client_id = c.id
         LEFT JOIN units u ON e.unit_id = u.id
-        WHERE e.id = ? AND e.status = "approved"
+        WHERE e.id = ? AND e.status IN ('approved', 'active')
         LIMIT 1
     ');
     $stmt->bind_param('i', $targetId);
@@ -131,7 +131,7 @@ function handleGet($conn) {
     $scope = getParam('scope');
     $requesterId = getParam('requester_id');
 
-    $where = ['e.status = "approved"'];
+    $where = ["e.status IN ('approved', 'active')"];
     $params = [];
     $types = '';
 
@@ -216,13 +216,10 @@ function handleGet($conn) {
                 u.name as unit_name,
                 COALESCE(u.city, e.district) as city,
                 CASE
-                    WHEN LOWER(e.employee_role) LIKE '%regional%' OR LOWER(e.worker_category) LIKE '%regional%'
-                        THEN 'regional_manager'
-                    WHEN LOWER(e.employee_role) LIKE '%manager%' OR LOWER(e.worker_category) LIKE '%manager%'
-                        THEN 'manager'
-                    WHEN LOWER(e.employee_role) LIKE '%supervisor%' OR LOWER(e.worker_category) LIKE '%supervisor%'
-                    OR LOWER(e.worker_category) LIKE '%team lead%'
-                        THEN 'supervisor'
+                    WHEN e.app_role IN ('admin','regional_manager','manager','supervisor') THEN e.app_role
+                    WHEN e.employee_role = 'admin' THEN 'manager'
+                    WHEN e.worker_category = 'Supervisor' THEN 'supervisor'
+                    WHEN e.worker_category = 'Manager' THEN 'manager'
                     ELSE 'employee'
                 END as role
             FROM employees e

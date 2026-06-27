@@ -9,6 +9,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/helpers.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -111,7 +112,7 @@ function handleBulkUpload(): void
             // Check if employee exists
             $empExists = _checkEmployeeExists($conn, $employeeId);
 
-            bindDynamicParams($stmt, 'ssdiidsd s', array(
+            bindDynamicParams($stmt, 'ssdiidsds', array(
                 $employeeId,
                 $employeeName,
                 $amount,

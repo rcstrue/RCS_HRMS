@@ -195,7 +195,7 @@ class Employee {
                 e.client_id, e.unit_id,
                 e.date_of_joining, e.confirmation_date,
                 e.probation_period, e.date_of_leaving, e.status, e.profile_completion,
-                e.employee_role, e.designation, e.department, e.employment_type,
+                e.employee_role, e.app_role, e.designation, e.department, e.employment_type,
                 e.worker_category, e.employee_code, e.created_at, e.updated_at,
                 e.nominee_name, e.nominee_relationship, e.nominee_dob, e.nominee_contact,
                 e.emergency_contact_name, e.emergency_contact_relation,
@@ -309,6 +309,8 @@ class Employee {
         
         // Set default status
         $data['status'] = $data['status'] ?? STATUS_PENDING_HR;
+        // Set default app_role to 'employee' if not provided
+        $data['app_role'] = $data['app_role'] ?? 'employee';
         $data['created_at'] = date(DATETIME_FORMAT_DB);
 
         // Map form fields to database columns
@@ -368,7 +370,7 @@ class Employee {
             'aadhaar_number', 'uan_number', 'esic_number',
             'address', 'pin_code', 'state', 'district',
             'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
-            'client_id', 'unit_id',
+            'client_id', 'unit_id', 'app_role',
             'designation', 'department',
             'worker_category', 'employment_type', 'date_of_joining', 'probation_period',
             'nominee_name', 'nominee_relationship', 'nominee_dob', 'nominee_contact',

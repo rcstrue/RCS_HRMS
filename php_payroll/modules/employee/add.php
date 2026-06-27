@@ -213,6 +213,13 @@ try {
     error_log('Failed to load units: ' . $e->getMessage());
 }
 
+$designations = [];
+try {
+    $designations = $db->query("SELECT id, name FROM designations ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    error_log('Failed to load designations: ' . $e->getMessage());
+}
+
 // Salary components for display
 $salaryComponents = [
     'basic_da' => ['label' => 'Basic + DA', 'default' => 0],
@@ -413,8 +420,14 @@ $relationships = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Bro
                         </div>
                         <div class="col-md-3 mb-3">
                             <label for="designation" class="form-label">Designation</label>
-                            <input type="text" class="form-control" id="designation" name="designation" 
-                                   value="<?php echo sanitize($employeeData['designation'] ?? ''); ?>">
+                            <select class="form-select" id="designation" name="designation">
+                                <option value="">Select Designation</option>
+                                <?php foreach ($designations as $des): ?>
+                                <option value="<?php echo sanitize($des['name']); ?>" <?php echo ($employeeData['designation'] ?? '') == $des['name'] ? 'selected' : ''; ?>>
+                                    <?php echo sanitize($des['name']); ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
                         <div class="col-md-3 mb-3">
                             <label for="department" class="form-label">Department</label>

@@ -172,7 +172,7 @@ function _handleApplyLeave(): void
     $endDate = trim($input['end_date'] ?? '');
     $reason = trim($input['reason'] ?? '');
 
-    $validTypes = ['CL', 'SL', 'EL', 'WFH', 'COMP_OFF', 'LWP'];
+    $validTypes = ['CL', 'SL', 'EL', 'PL', 'WFH', 'COMP_OFF', 'LWP'];
 
     if (empty($type) || !in_array($type, $validTypes)) {
         jsonOutput(['success' => false, 'error' => 'Invalid leave type. Allowed: ' . implode(', ', $validTypes)], 400);

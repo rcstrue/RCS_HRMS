@@ -211,9 +211,10 @@ function _resolveTargetLabels(mysqli $conn, array &$broadcasts, array $broadcast
             case 'city':
                 $labelMap = _fetchBroadcastLabels(
                     $conn, $ids,
-                    'INNER JOIN employees e ON CAST(e.id AS CHAR) = n.employee_id',
-                    'e.city',
-                    'AND e.city IS NOT NULL AND e.city != \'\''
+                    'INNER JOIN employees e ON CAST(e.id AS CHAR) = n.employee_id
+                     INNER JOIN units u ON u.id = e.unit_id',
+                    'u.city',
+                    'AND u.city IS NOT NULL AND u.city != \'\''
                 );
                 break;
 

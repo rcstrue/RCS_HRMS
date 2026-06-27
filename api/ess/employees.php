@@ -12,6 +12,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/helpers.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     jsonOutput(array('success' => false, 'error' => 'Method not allowed. Use GET.'), 405);
@@ -36,9 +37,9 @@ try {
     $unitIds = array_values(array_filter($unitIds, function($v) { return $v > 0; }));
 
     // ─── Build Base Query ─────────────────────────────────────────────────
-    $whereClause = 'WHERE e.status = ?';
-    $types = 's';
-    $params = array('approved');
+    $whereClause = "WHERE e.status IN ('approved', 'active')";
+    $types = '';
+    $params = array();
 
     // ─── Access allocation filtering (payroll-driven) ───────────────
     $hasAccessAllocation = false;
