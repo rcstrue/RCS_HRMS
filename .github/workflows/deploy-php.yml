@@ -14,27 +14,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout code
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. Install lftp
       - name: Install lftp
         run: sudo apt-get update && sudo apt-get install -y lftp
 
-      # 3. Detect changed files
       - name: Get changed files
         id: changed
         run: |
           BEFORE="${{ github.event.before }}"
           AFTER="${{ github.event.after }}"
 
-          # Manual trigger or first push → deploy all files
           if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
             CHANGED=$(git ls-files -- php_payroll/ database/)
-            echo "Manual trigger or first push — deploying all PHP & database files"
+            echo "Manual/first push — deploying all PHP & database files"
           else
             CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" -- php_payroll/ database/)
             echo "Deploying only changed files"
@@ -46,7 +42,6 @@ jobs:
           for file in $CHANGED; do
             [ -f "$file" ] || continue
 
-            # Exclude unnecessary files/folders
             case "$file" in
               .git*|.github/*|*.md|node_modules/*|logs/*|upload/*|vendor/*)
                 continue
@@ -60,7 +55,6 @@ jobs:
           echo "DEPLOY_COUNT=$COUNT" >> $GITHUB_OUTPUT
           echo "Total files to upload: $COUNT"
 
-      # 4. Upload via FTP
       - name: Upload via FTP
         if: steps.changed.outputs.DEPLOY_COUNT != '0'
         run: |
@@ -73,10 +67,13 @@ jobs:
           set net:reconnect-interval-base 5;"
 
           while IFS= read -r file; do
-            REMOTE_DIR="/hrms/$(dirname "$file")"
-            FILE_NAME=$(basename "$file")
+            # Strip php_payroll/ or database/ prefix → upload to /hrms/
+            RELATIVE="${file#php_payroll/}"
+            RELATIVE="${RELATIVE#database/}"
+            REMOTE_DIR="/hrms/$(dirname "$RELATIVE")"
+            FILE_NAME=$(basename "$RELATIVE")
 
-            echo "Uploading: $file"
+            echo "  $file → $REMOTE_DIR/$FILE_NAME"
 
             SCRIPT="$SCRIPT mkdir -p $REMOTE_DIR; put $file -o $REMOTE_DIR/$FILE_NAME;"
           done < /tmp/deploy_files.txt
@@ -85,7 +82,6 @@ jobs:
 
           echo "PHP Admin FTP Deploy Completed"
 
-      # 5. Skip if no changes
       - name: No changes
         if: steps.changed.outputs.DEPLOY_COUNT == '0'
         run: echo "No files changed — skipping deploy"

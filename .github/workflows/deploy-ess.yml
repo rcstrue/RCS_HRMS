@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'RCS_ESS/**'
+      - 'api/**'
       - '.github/workflows/deploy-ess.yml'
   workflow_dispatch:
 
@@ -52,7 +53,7 @@ jobs:
 
             # Deploy API PHP files (exclude config.php — it has real DB credentials on server)
             cd /api/ess;
-            lcd RCS_ESS/api/ess;
+            lcd api/ess;
             mirror -R --no-symlinks --parallel=4 --no-perms --overwrite -x ^config\.php$ -x ^\.htaccess$;
 
             quit

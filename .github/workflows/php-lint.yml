@@ -5,7 +5,7 @@ on:
     branches: [ "main", "master" ]
     paths:
       - 'php_payroll/**/*.php'
-      - 'RCS_ESS/api/**/*.php'
+      - 'api/**/*.php'
   pull_request:
     branches: [ "main", "master" ]
 
@@ -25,14 +25,14 @@ jobs:
 
     - name: Check PHP Syntax (ESS API)
       run: |
-        find RCS_ESS/api/ -name "*.php" -exec php -l {} \; 2>&1 | grep -v "No syntax errors" || true
+        find api/ -name "*.php" -exec php -l {} \; 2>&1 | grep -v "No syntax errors" || true
 
     - name: Validate PHP Files Exist
       run: |
         PHP_PAYROLL_COUNT=$(find php_payroll/ -name "*.php" -not -path "*/vendor/*" | wc -l)
-        ESS_API_COUNT=$(find RCS_ESS/api/ -name "*.php" | wc -l)
+        ESS_API_COUNT=$(find api/ -name "*.php" | wc -l)
         echo "Found $PHP_PAYROLL_COUNT PHP files in php_payroll/"
-        echo "Found $ESS_API_COUNT PHP files in RCS_ESS/api/"
+        echo "Found $ESS_API_COUNT PHP files in api/"
         if [ "$PHP_PAYROLL_COUNT" -lt 10 ]; then
           echo "Warning: Very few PHP files found in php_payroll/"
         fi
