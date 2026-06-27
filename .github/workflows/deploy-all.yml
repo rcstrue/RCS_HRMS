@@ -55,7 +55,7 @@ jobs:
           set net:max-retries 5;
           set ftp:use-mdtm off;
           open -u ${{ secrets.FTP_USER }},${{ secrets.FTP_PASS }} ${{ secrets.FTP_HOST }};
-          mirror --reverse --overwrite --verbose=1 \
+          mirror --reverse --overwrite --no-perms --verbose=1 \
             --exclude='.github/' \
             --exclude='.git/' \
             --exclude='node_modules/' \
