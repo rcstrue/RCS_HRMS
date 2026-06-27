@@ -60,15 +60,18 @@ try {
         }
 
         $storedPin = $cacheRow['pin'] ?? '';
+        $hasCustomPin = !empty($storedPin);
 
         // Check cache PIN
         $currentPinValid = false;
-        if (!empty($storedPin) && $storedPin === $currentPin) {
+        if ($hasCustomPin && $storedPin === $currentPin) {
             $currentPinValid = true;
         }
 
-        // Fallback: check birth year from employees table
-        if (!$currentPinValid) {
+        // Fallback: check birth year — ONLY when no custom PIN has been set yet.
+        // Mirrors the gate in login.php: birth year must never be accepted once
+        // a custom PIN exists, otherwise it becomes a permanent account-takeover key.
+        if (!$currentPinValid && !$hasCustomPin) {
             $empStmt = $conn->prepare('SELECT date_of_birth FROM employees WHERE id = ?');
             if ($empStmt) {
                 $intId = (int)$employeeId;
