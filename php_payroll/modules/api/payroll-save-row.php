@@ -32,6 +32,14 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+// Role check — payroll row save is admin/HR/manager only
+$roleCode = $_SESSION['role_code'] ?? '';
+if (!in_array($roleCode, ['admin', 'hr_executive', 'hr', 'manager'])) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Access denied. Insufficient permissions for payroll save.']);
+    exit;
+}
+
 // ── Only POST ───────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);

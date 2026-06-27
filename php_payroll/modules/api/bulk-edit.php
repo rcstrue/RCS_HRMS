@@ -13,6 +13,14 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+// Role check — bulk editing salary/bank/compliance data is admin/HR/manager only
+$roleCode = $_SESSION['role_code'] ?? '';
+if (!in_array($roleCode, ['admin', 'hr_executive', 'hr', 'manager'])) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Access denied. Insufficient permissions for bulk edit.']);
+    exit;
+}
+
 $employeeObj = new Employee();
 $db = Database::getInstance();
 

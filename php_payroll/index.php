@@ -149,14 +149,56 @@ if (isset($_GET['ajax']) || isset($_SERVER['HTTP_X_REQUESTED_WITH'])) {
 // Handle API requests
 if (strpos($page, 'api/') === 0) {
     header('Content-Type: application/json');
-    
+
     // Require authentication for API endpoints
     if (!$isLoggedIn) {
         http_response_code(401);
         echo json_encode(['error' => 'Authentication required']);
         exit;
     }
-    
+
+    // Role-based access control for API endpoints — same $moduleAccess table as
+    // normal page routing, export, and delete.  Without this, any logged-in user
+    // (including the lowest-privilege 'worker' role) could call admin-only API
+    // actions like bulk salary edits or employee approval.
+    $apiPageParts = explode('/', $page);
+    $apiModule = $apiPageParts[1] ?? '';  // e.g. 'bulk-edit' from 'api/bulk-edit'
+    // Map API sub-paths to their parent module for access checks
+    $apiModuleMap = [
+        'bulk-edit'       => 'employee',
+        'employees'       => 'employee',
+        'payroll-update'  => 'payroll',
+        'payroll-save-row'=> 'payroll',
+        'expense-api'     => 'expense',
+        'menu-permissions'=> 'settings',
+        'crop-save'       => 'employee',
+        'image-tool'      => 'employee',
+        'manager-units'   => 'employee',
+        'next-unit-code'  => 'unit',
+        'save-filter'     => 'dashboard',
+        'units'           => 'unit',
+        'whatsapp-salary' => 'payroll',
+        'zones'           => 'unit',
+    ];
+    $effectiveModule = $apiModuleMap[$apiModule] ?? $apiModule;
+
+    $roleCode = $_SESSION['role_code'] ?? '';
+    $apiModuleAccess = [
+        'admin'        => ['all'],
+        'hr_executive' => ['dashboard', 'employee', 'attendance', 'payroll', 'compliance', 'report', 'settings', 'profile', 'auth', 'notifications', 'expense', 'loan', 'entry', 'unit', 'client'],
+        'hr'           => ['dashboard', 'employee', 'attendance', 'payroll', 'compliance', 'report', 'settings', 'profile', 'auth', 'notifications', 'expense', 'loan', 'entry', 'unit', 'client'],
+        'manager'      => ['dashboard', 'employee', 'attendance', 'payroll', 'report', 'profile', 'auth', 'notifications', 'expense', 'loan', 'entry', 'unit'],
+        'supervisor'   => ['dashboard', 'employee', 'attendance', 'profile', 'auth', 'notifications'],
+        'worker'       => ['dashboard', 'portal', 'profile', 'auth', 'notifications', 'expense'],
+    ];
+
+    $apiAllowed = $apiModuleAccess[$roleCode] ?? ['dashboard', 'profile', 'auth', 'notifications'];
+    if (!in_array('all', $apiAllowed) && !in_array($effectiveModule, $apiAllowed)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Access denied. Insufficient permissions for this API endpoint.']);
+        exit;
+    }
+
     // Validate API path
     $apiPath = getSafeModulePath($page);
     if ($apiPath !== null) {

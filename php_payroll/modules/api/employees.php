@@ -16,6 +16,14 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+// Role check — employee listing and approval actions are admin/HR/manager only
+$roleCode = $_SESSION['role_code'] ?? '';
+if (!in_array($roleCode, ['admin', 'hr_executive', 'hr', 'manager'])) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Access denied. Insufficient permissions for this action.']);
+    exit;
+}
+
 $employeeObj = new Employee();
 
 // Get request method
