@@ -36,54 +36,125 @@ if (isset($_GET['id'])) {
  */
 function handleFileUpload($file, $uploadDir = 'uploads/profile/') {
     $response = null;
-    $allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'application/pdf'];
     $maxSize = 5 * 1024 * 1024; // 5MB
-    
-    // Check if file was uploaded
+
+    // Extension whitelist — NEVER trust the client-supplied filename extension
+    $allowedImageExtensions = ['jpg', 'jpeg', 'png', 'gif'];
+    $allowedPdfExtension    = ['pdf'];
+    $allowedExtensions      = array_merge($allowedImageExtensions, $allowedPdfExtension);
+
+    // Map of real MIME type (from finfo) → safe forced extension
+    $mimeToExtension = [
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/gif'  => 'gif',
+        'application/pdf' => 'pdf',
+    ];
+
+    // Check if file was uploaded via PHP
     if (!isset($file['tmp_name']) || empty($file['tmp_name'])) {
         return $response;
     }
-    
+
     // Check for upload errors
     if ($file['error'] !== UPLOAD_ERR_OK) {
         return $response;
     }
-    
-    // Validate file type
-    if (!in_array($file['type'], $allowedTypes)) {
-        $response = ['error' => 'Invalid file type. Only JPG, PNG, GIF, PDF allowed.'];
-        return $response;
-    }
-    
+
     // Validate file size
     if ($file['size'] > $maxSize) {
         $response = ['error' => 'File size must be less than 5MB.'];
         return $response;
     }
-    
+
+    // ─── Validate REAL file content with finfo (magic bytes), not client Content-Type ───
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $detectedMime = $finfo->file($file['tmp_name']);
+
+    if (!isset($mimeToExtension[$detectedMime])) {
+        $response = ['error' => 'Invalid file type. Only JPG, PNG, GIF, PDF allowed.'];
+        return $response;
+    }
+
+    // Force the extension from the detected MIME type — ignore the uploaded filename entirely
+    $safeExtension = $mimeToExtension[$detectedMime];
+
+    // For images, also validate with getimagesize() to confirm it's a real image
+    if (in_array($safeExtension, $allowedImageExtensions)) {
+        $imageInfo = @getimagesize($file['tmp_name']);
+        if ($imageInfo === false) {
+            $response = ['error' => 'Invalid image file. The content is not a valid image.'];
+            return $response;
+        }
+        // Re-encode images server-side to strip any embedded payloads
+        $destImage = null;
+        switch ($safeExtension) {
+            case 'jpg':
+            case 'jpeg':
+                $src = @imagecreatefromjpeg($file['tmp_name']);
+                if ($src) { $destImage = $src; }
+                break;
+            case 'png':
+                $src = @imagecreatefrompng($file['tmp_name']);
+                if ($src) { $destImage = $src; }
+                break;
+            case 'gif':
+                $src = @imagecreatefromgif($file['tmp_name']);
+                if ($src) { $destImage = $src; }
+                break;
+        }
+        if (!$destImage) {
+            $response = ['error' => 'Failed to process image. Please upload a valid image file.'];
+            return $response;
+        }
+    }
+
     // Get web root (parent of APP_ROOT which is hrms folder)
     $webRoot = dirname(APP_ROOT);
-    
+
     // Create upload directory if not exists
     $fullPath = $webRoot . '/' . $uploadDir;
     if (!is_dir($fullPath)) {
         mkdir($fullPath, 0755, true);
     }
-    
-    // Generate unique filename
-    $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-    $filename = uniqid() . '_' . time() . '.' . $extension;
-    
+
+    // Generate unique filename using ONLY the safe, forced extension
+    $filename = uniqid() . '_' . time() . '.' . $safeExtension;
+
     // Database path starts with / for web root
     $dbPath = '/' . $uploadDir . $filename;
-    
-    // Move uploaded file to web root
-    if (move_uploaded_file($file['tmp_name'], $fullPath . $filename)) {
-        $response = ['path' => $dbPath];
+
+    // Save file: re-encode images via GD to strip payloads; copy PDFs directly
+    $targetPath = $fullPath . $filename;
+    if (in_array($safeExtension, $allowedImageExtensions)) {
+        // Re-encode and save via GD (strips EXIF, comments, embedded scripts)
+        $saveOk = false;
+        switch ($safeExtension) {
+            case 'jpg':
+            case 'jpeg':
+                $saveOk = imagejpeg($destImage, $targetPath, 90);
+                break;
+            case 'png':
+                $saveOk = imagepng($destImage, $targetPath);
+                break;
+            case 'gif':
+                $saveOk = imagegif($destImage, $targetPath);
+                break;
+        }
+        imagedestroy($destImage);
+        if (!$saveOk) {
+            $response = ['error' => 'Failed to save processed image.'];
+            return $response;
+        }
     } else {
-        $response = ['error' => 'Failed to upload file.'];
+        // PDF: just move the validated file (finfo already confirmed it's a PDF)
+        if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
+            $response = ['error' => 'Failed to upload file.'];
+            return $response;
+        }
     }
-    
+
+    $response = ['path' => $dbPath];
     return $response;
 }
 
