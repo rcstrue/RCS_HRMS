@@ -70,9 +70,7 @@ jobs:
             --exclude='public/' \
             --exclude='examples/' \
             --exclude='db/' \
-            --exclude='*.md' \
-            --exclude='bun.lock' \
-            --exclude='bun.lockb' \
+            --exclude='\.(md|lock|lockb)$' \
             /tmp/deploy-hrms/ /hrms/;
           bye
           " 2>&1
