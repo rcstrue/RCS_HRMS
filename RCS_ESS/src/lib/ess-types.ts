@@ -55,7 +55,7 @@ export interface Employee {
   updated_at?: string;
 }
 
-export type EmployeeRole = 'employee' | 'supervisor' | 'manager' | 'regional_manager' | 'field_officer' | 'admin';
+export type EmployeeRole = 'employee' | 'supervisor' | 'manager' | 'regional_manager';
 
 // ===== Auth =====
 export interface LoginResponse {
@@ -100,12 +100,14 @@ export interface AttendanceSummary {
 }
 
 // ===== Leaves =====
+// NOTE: PHP Admin uses 'PL' (Privilege Leave), ESS uses 'EL' (Earned Leave).
+// They refer to the SAME leave type. The backend handles mapping via mapLeaveCode().
 export interface LeaveRequest {
   id: number;
   employee_id: number;
   employee_name?: string;
   employee_unit?: string;
-  type: 'CL' | 'SL' | 'EL' | 'WFH' | 'Comp_Off' | 'LWP';
+  type: 'CL' | 'SL' | 'EL' | 'PL' | 'WFH' | 'Comp_Off' | 'LWP'; // EL=ESS, PL=Admin (both valid)
   start_date: string;
   end_date: string;
   days: number;
@@ -119,7 +121,7 @@ export interface LeaveRequest {
 
 export interface LeaveBalance {
   id: number;
-  leave_type: 'CL' | 'SL' | 'EL' | 'WFH' | 'Comp_Off' | 'LWP';
+  leave_type: 'CL' | 'SL' | 'EL' | 'PL' | 'WFH' | 'Comp_Off' | 'LWP'; // EL=ESS, PL=Admin (both valid)
   total: number;
   used: number;
   balance: number;

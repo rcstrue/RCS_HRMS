@@ -316,10 +316,10 @@ function _handleFilters(mysqli $conn): void
     }
     $stmt->close();
 
-    // Cities (distinct from employees with active status)
+    // Cities (distinct from units table, not employees.city which doesn't exist)
     $cities = [];
     $stmt = $conn->prepare(
-        "SELECT DISTINCT city FROM employees WHERE city IS NOT NULL AND city != '' AND status = 'active' ORDER BY city ASC"
+        "SELECT DISTINCT city FROM units WHERE city IS NOT NULL AND city != '' ORDER BY city ASC"
     );
     $stmt->execute();
     $ciResult = $stmt->get_result();
@@ -328,10 +328,10 @@ function _handleFilters(mysqli $conn): void
     }
     $stmt->close();
 
-    // States (distinct from employees with active status)
+    // States (distinct from employees — state column exists on employees table)
     $states = [];
     $stmt = $conn->prepare(
-        "SELECT DISTINCT state FROM employees WHERE state IS NOT NULL AND state != '' AND status = 'active' ORDER BY state ASC"
+        "SELECT DISTINCT state FROM employees WHERE state IS NOT NULL AND state != '' AND status IN ('approved', 'active') ORDER BY state ASC"
     );
     $stmt->execute();
     $sResult = $stmt->get_result();
@@ -362,12 +362,13 @@ function _handleSearchEmployees(mysqli $conn): void
 
     $searchTerm = '%' . $q . '%';
     $stmt = $conn->prepare("
-        SELECT e.id, e.full_name, e.mobile_number, e.role,
+        SELECT e.id, e.full_name, e.mobile_number,
+               u.city AS city,
                u.name AS unit_name, c.name AS client_name
         FROM employees e
         LEFT JOIN units u ON u.id = e.unit_id
         LEFT JOIN clients c ON c.id = e.client_id
-        WHERE e.status = 'active'
+        WHERE e.status IN ('approved', 'active')
               AND (e.full_name LIKE ? OR e.mobile_number LIKE ?)
         ORDER BY e.full_name ASC
         LIMIT 20
@@ -382,7 +383,7 @@ function _handleSearchEmployees(mysqli $conn): void
             'id'           => (string)$row['id'],
             'full_name'    => $row['full_name'],
             'mobile_number' => $row['mobile_number'] ?? '',
-            'role'         => $row['role'] ?? '',
+            'city'         => $row['city'] ?? '',
             'unit_name'    => $row['unit_name'] ?? '',
             'client_name'  => $row['client_name'] ?? '',
         ];
@@ -494,12 +495,11 @@ function _handlePost(): void
 function _resolveTargetEmployees(mysqli $conn, string $targetType, array $targetIds): array
 {
     $employeeIds = [];
-    $activeStatus = 'active';
+    $activeStatus = 'approved';
 
     switch ($targetType) {
         case 'all':
-            $stmt = $conn->prepare("SELECT id FROM employees WHERE status = ?");
-            safeBindParam($stmt, 's', [$activeStatus]);
+            $stmt = $conn->prepare("SELECT id FROM employees WHERE status IN ('approved', 'active')");
             $stmt->execute();
             $result = $stmt->get_result();
             while ($row = $result->fetch_assoc()) {
@@ -512,10 +512,9 @@ function _resolveTargetEmployees(mysqli $conn, string $targetType, array $target
             $managerRoles = ['manager', 'regional_manager', 'field_officer'];
             $rolePlaceholders = implode(',', array_fill(0, count($managerRoles), '?'));
             $stmt = $conn->prepare(
-                "SELECT id FROM employees WHERE role IN ({$rolePlaceholders}) AND status = ?"
+                "SELECT id FROM employees WHERE app_role IN ({$rolePlaceholders}) AND status IN ('approved', 'active')"
             );
-            $allParams = array_merge($managerRoles, [$activeStatus]);
-            safeBindParam($stmt, str_repeat('s', count($allParams)), $allParams);
+            safeBindParam($stmt, str_repeat('s', count($managerRoles)), $managerRoles);
             $stmt->execute();
             $result = $stmt->get_result();
             while ($row = $result->fetch_assoc()) {
@@ -528,10 +527,10 @@ function _resolveTargetEmployees(mysqli $conn, string $targetType, array $target
             if (!empty($targetIds)) {
                 $placeholders = implode(',', array_fill(0, count($targetIds), '?'));
                 $stmt = $conn->prepare(
-                    "SELECT id FROM employees WHERE unit_id IN ({$placeholders}) AND status = ?"
+                    "SELECT id FROM employees WHERE unit_id IN ({$placeholders}) AND status IN ('approved', 'active')"
                 );
-                $params = array_merge($targetIds, [$activeStatus]);
-                safeBindParam($stmt, str_repeat('i', count($targetIds)) . 's', $params);
+                $params = $targetIds;
+                safeBindParam($stmt, str_repeat('i', count($targetIds)), $params);
                 $stmt->execute();
                 $result = $stmt->get_result();
                 while ($row = $result->fetch_assoc()) {
@@ -545,10 +544,10 @@ function _resolveTargetEmployees(mysqli $conn, string $targetType, array $target
             if (!empty($targetIds)) {
                 $placeholders = implode(',', array_fill(0, count($targetIds), '?'));
                 $stmt = $conn->prepare(
-                    "SELECT id FROM employees WHERE client_id IN ({$placeholders}) AND status = ?"
+                    "SELECT id FROM employees WHERE client_id IN ({$placeholders}) AND status IN ('approved', 'active')"
                 );
-                $params = array_merge($targetIds, [$activeStatus]);
-                safeBindParam($stmt, str_repeat('i', count($targetIds)) . 's', $params);
+                $params = $targetIds;
+                safeBindParam($stmt, str_repeat('i', count($targetIds)), $params);
                 $stmt->execute();
                 $result = $stmt->get_result();
                 while ($row = $result->fetch_assoc()) {
@@ -560,12 +559,15 @@ function _resolveTargetEmployees(mysqli $conn, string $targetType, array $target
 
         case 'city':
             if (!empty($targetIds)) {
+                // employees table doesn't have a city column — get from units
                 $placeholders = implode(',', array_fill(0, count($targetIds), '?'));
                 $stmt = $conn->prepare(
-                    "SELECT id FROM employees WHERE city IN ({$placeholders}) AND status = ?"
+                    "SELECT DISTINCT e.id FROM employees e
+                     INNER JOIN units u ON u.id = e.unit_id
+                     WHERE u.city IN ({$placeholders}) AND e.status IN ('approved', 'active')"
                 );
-                $params = array_merge($targetIds, [$activeStatus]);
-                safeBindParam($stmt, str_repeat('s', count($targetIds)) . 's', $params);
+                $params = $targetIds;
+                safeBindParam($stmt, str_repeat('s', count($targetIds)), $params);
                 $stmt->execute();
                 $result = $stmt->get_result();
                 while ($row = $result->fetch_assoc()) {
@@ -579,10 +581,10 @@ function _resolveTargetEmployees(mysqli $conn, string $targetType, array $target
             if (!empty($targetIds)) {
                 $placeholders = implode(',', array_fill(0, count($targetIds), '?'));
                 $stmt = $conn->prepare(
-                    "SELECT id FROM employees WHERE state IN ({$placeholders}) AND status = ?"
+                    "SELECT id FROM employees WHERE state IN ({$placeholders}) AND status IN ('approved', 'active')"
                 );
-                $params = array_merge($targetIds, [$activeStatus]);
-                safeBindParam($stmt, str_repeat('s', count($targetIds)) . 's', $params);
+                $params = $targetIds;
+                safeBindParam($stmt, str_repeat('s', count($targetIds)), $params);
                 $stmt->execute();
                 $result = $stmt->get_result();
                 while ($row = $result->fetch_assoc()) {
@@ -596,10 +598,10 @@ function _resolveTargetEmployees(mysqli $conn, string $targetType, array $target
             if (!empty($targetIds)) {
                 $placeholders = implode(',', array_fill(0, count($targetIds), '?'));
                 $stmt = $conn->prepare(
-                    "SELECT id FROM employees WHERE id IN ({$placeholders}) AND status = ?"
+                    "SELECT id FROM employees WHERE id IN ({$placeholders}) AND status IN ('approved', 'active')"
                 );
-                $params = array_merge($targetIds, [$activeStatus]);
-                safeBindParam($stmt, str_repeat('i', count($targetIds)) . 's', $params);
+                $params = $targetIds;
+                safeBindParam($stmt, str_repeat('i', count($targetIds)), $params);
                 $stmt->execute();
                 $result = $stmt->get_result();
                 while ($row = $result->fetch_assoc()) {

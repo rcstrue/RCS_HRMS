@@ -126,7 +126,7 @@ if ($conn) {
         $stmt = $conn->prepare("
             SELECT c.id, c.name, c.city, c.state, 
                    (SELECT COUNT(DISTINCT u.id) FROM units u WHERE u.client_id = c.id) as unit_count,
-                   (SELECT COUNT(DISTINCT e.id) FROM employees e WHERE e.client_id = c.id AND e.status = 'approved') as employee_count
+                   (SELECT COUNT(DISTINCT e.id) FROM employees e WHERE e.client_id = c.id AND e.status IN ('approved', 'active')) as employee_count
             FROM clients c
             WHERE c.is_active = 1
             AND EXISTS (
@@ -169,7 +169,7 @@ if ($conn) {
             FROM employees e
             LEFT JOIN clients c ON e.client_id = c.id
             LEFT JOIN units u ON e.unit_id = u.id
-            WHERE e.status = 'approved'
+            WHERE e.status IN ('approved', 'active')
             AND e.state = ?
             ORDER BY e.full_name ASC
             LIMIT 100

@@ -12,6 +12,11 @@ require_once __DIR__ . '/cors.php';
 @require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 
+// Ensure DB connection exists (helpers needs it for safePaginatedSelect)
+if (!function_exists('getDbConnection')) {
+    require_once __DIR__ . '/example.config.php';
+}
+
 $conn = getDbConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -34,6 +39,7 @@ function handleGet($conn) {
 
     if (!$employeeId) {
         jsonError('employee_id is required', 400);
+        return; // jsonError calls exit, but static analyzers prefer explicit return
     }
 
     $page  = max(1, intval(getQueryParam('page', 1)));
@@ -79,10 +85,13 @@ function handleGet($conn) {
     $result->free();
     $stmt->close();
 
-    jsonResponse([
-        'items' => $records,
-        'pagination' => buildPagination($total, $page, $limit, [])['pagination'],
-        'unread_count' => $unreadCount,
+    jsonOutput([
+        'success' => true,
+        'data' => [
+            'items' => $records,
+            'pagination' => buildPagination($total, $page, $limit),
+            'unread_count' => $unreadCount,
+        ],
     ]);
 }
 
@@ -92,9 +101,12 @@ function handleGet($conn) {
 function handlePost($conn) {
     $data = getJsonInput();
 
-    $employeeId = getRequiredParam($data, 'employee_id');
-    $title      = getRequiredParam($data, 'title');
-    $message    = getRequiredParam($data, 'message');
+    $employeeId = $data['employee_id'] ?? null;
+    if (!$employeeId) { jsonError('employee_id is required', 400); }
+    $title      = $data['title'] ?? null;
+    if (!$title) { jsonError('title is required', 400); }
+    $message    = $data['message'] ?? null;
+    if (!$message) { jsonError('message is required', 400); }
     $type       = isset($data['type']) ? $data['type'] : 'info';
     $link       = isset($data['link']) ? $data['link'] : null;
 
@@ -130,7 +142,10 @@ function handlePut($conn) {
     }
 
     // Mark single notification as read
-    $id = intval(getRequiredParam($data, 'id'));
+    if (!isset($data['id'])) {
+        jsonError('id is required', 400);
+    }
+    $id = intval($data['id']);
     if ($employeeId) {
         $stmt = $conn->prepare("UPDATE ess_notifications SET is_read = 1 WHERE id = ? AND employee_id = ?");
         safeBindParam($stmt, 'is', [$id, $employeeId]);

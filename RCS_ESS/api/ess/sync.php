@@ -3,7 +3,7 @@
  * RCS ESS - Sync API
  * POST: Upsert employee data into cache
  * Uses INSERT ON DUPLICATE KEY UPDATE
- * 
+ *
  * Also used to populate ess_employee_cache from employees table
  */
 
@@ -11,6 +11,7 @@
 require_once __DIR__ . '/cors.php';
 @require_once __DIR__ . '/config.php';
 if (!function_exists('getDbConnection')) require_once __DIR__ . '/example.config.php';
+require_once __DIR__ . '/helpers.php';
 
 $conn = getDbConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -31,13 +32,14 @@ try {
 }
 
 // ============================================================================
-// GET - Sync all approved employees into cache
+// GET - Sync all active employees into cache
 // ============================================================================
 function handleGet($conn) {
-    // Sync all approved employees from employees table into ess_employee_cache
-    $syncSql = "INSERT INTO ess_employee_cache 
+    // Sync all active/approved employees from employees table into ess_employee_cache
+    // Uses app_role as primary role source, falls back to employee_role/worker_category
+    $syncSql = "INSERT INTO ess_employee_cache
                 (employee_id, employee_code, full_name, mobile_number, designation, department, role, unit_id, unit_name, city, state, client_id, client_name, profile_pic_url, updated_at)
-                SELECT 
+                SELECT
                     CAST(e.id AS CHAR),
                     e.employee_code,
                     e.full_name,
@@ -45,8 +47,17 @@ function handleGet($conn) {
                     e.designation,
                     e.department,
                     CASE
+                        -- PRIMARY: use app_role if it's a known ESS role
+                        WHEN LOWER(e.app_role) IN ('regional_manager','manager','supervisor','employee')
+                            THEN LOWER(e.app_role)
+                        -- Map admin/field_officer app_role to manager
+                        WHEN LOWER(e.app_role) IN ('admin','field_officer') THEN 'manager'
+                        -- FALLBACK: derive from employee_role / worker_category
                         WHEN LOWER(e.employee_role) LIKE '%regional%' OR LOWER(e.worker_category) LIKE '%regional%' THEN 'regional_manager'
-                        WHEN LOWER(e.employee_role) LIKE '%manager%' OR LOWER(e.worker_category) LIKE '%manager%' THEN 'manager'
+                        WHEN LOWER(e.employee_role) IN ('admin','manager','field_officer')
+                            OR LOWER(e.worker_category) LIKE '%manager%'
+                            OR LOWER(e.worker_category) LIKE '%field officer%'
+                            OR LOWER(e.worker_category) LIKE '%area manager%' THEN 'manager'
                         WHEN LOWER(e.employee_role) LIKE '%supervisor%' OR LOWER(e.worker_category) LIKE '%supervisor%'
                             OR LOWER(e.worker_category) LIKE '%team lead%' THEN 'supervisor'
                         ELSE 'employee'
@@ -62,7 +73,7 @@ function handleGet($conn) {
                 FROM employees e
                 LEFT JOIN clients c ON e.client_id = c.id
                 LEFT JOIN units u ON e.unit_id = u.id
-                WHERE e.status = 'approved'
+                WHERE e.status IN ('approved', 'active')
                 ON DUPLICATE KEY UPDATE
                     employee_code = VALUES(employee_code),
                     full_name = VALUES(full_name),
@@ -78,11 +89,11 @@ function handleGet($conn) {
                     client_name = VALUES(client_name),
                     profile_pic_url = VALUES(profile_pic_url),
                     updated_at = NOW()";
-    
+
     $stmt = $conn->prepare($syncSql);
     $stmt->execute();
     $affectedRows = $stmt->affected_rows;
-    
+
     jsonSuccess([
         'synced_rows' => $affectedRows,
         'message' => "Synced {$affectedRows} employee records from employees table"
@@ -93,7 +104,7 @@ function handleGet($conn) {
 // POST - Upsert Employee Cache (single or batch)
 // ============================================================================
 function handlePost($conn) {
-    $data = getJsonInput();
+    $data = getInput();
 
     // Support single object or array of employees
     $employees = [];
@@ -107,7 +118,7 @@ function handlePost($conn) {
         jsonError('Invalid input. Provide either a single employee object or { "employees": [...] }', 400);
     }
 
-    $sql = "INSERT INTO ess_employee_cache 
+    $sql = "INSERT INTO ess_employee_cache
             (employee_id, employee_code, role, unit_id, unit_name, city, state, client_name, client_id, full_name, mobile_number, designation, profile_pic_url, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE
@@ -151,8 +162,8 @@ function handlePost($conn) {
         $designation = isset($emp['designation']) ? $emp['designation'] : null;
         $profilePicUrl = isset($emp['profile_pic_url']) ? $emp['profile_pic_url'] : null;
 
-        // Validate role
-        $validRoles = ['employee', 'supervisor', 'manager', 'regional_manager'];
+        // Validate role — 'admin' is included so admin syncs don't silently downgrade
+        $validRoles = ['employee', 'supervisor', 'manager', 'regional_manager', 'admin'];
         if (!in_array($role, $validRoles)) {
             $role = 'employee';
         }

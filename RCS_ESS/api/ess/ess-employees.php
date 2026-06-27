@@ -272,7 +272,7 @@ function handleGet($conn) {
             COUNT(DISTINCT e.unit_id) as total_units,
             COUNT(DISTINCT e.state) as total_cities
             FROM employees e
-            WHERE e.status = 'approved' AND {$summaryWhereStr}";
+            WHERE e.status IN ('approved', 'active') AND {$summaryWhereStr}";
 
         $sumStmt = $conn->prepare($sumSql);
         if ($summaryParams) {

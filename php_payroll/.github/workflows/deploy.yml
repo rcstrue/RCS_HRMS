@@ -1,8 +1,11 @@
-name: Deploy via FTP (Stable)
+name: Deploy PHP Admin via FTP
 
 on:
   push:
     branches: [ "main", "master" ]
+    paths:
+      - 'php_payroll/**'
+      - 'database/**'
 
 jobs:
   deploy:
@@ -28,10 +31,10 @@ jobs:
 
           # First push → deploy all files
           if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            CHANGED=$(git ls-files)
-            echo "First push — deploying all files"
+            CHANGED=$(git ls-files -- php_payroll/ database/)
+            echo "First push — deploying all PHP & database files"
           else
-            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER")
+            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" -- php_payroll/ database/)
             echo "Deploying only changed files"
           fi
 
@@ -43,7 +46,7 @@ jobs:
 
             # Exclude unnecessary files/folders
             case "$file" in
-              .git*|.github/*|*.md|node_modules/*|logs/*|upload/*)
+              .git*|.github/*|*.md|node_modules/*|logs/*|upload/*|vendor/*)
                 continue
                 ;;
             esac
@@ -59,7 +62,7 @@ jobs:
       - name: Upload via FTP
         if: steps.changed.outputs.DEPLOY_COUNT != '0'
         run: |
-          echo "🚀 Starting FTP Deploy..."
+          echo "Starting PHP Admin FTP Deploy..."
 
           SCRIPT="set ftp:ssl-allow no;
           set ftp:passive-mode on;
@@ -78,7 +81,7 @@ jobs:
 
           lftp -u "${{ secrets.FTP_USER }},${{ secrets.FTP_PASS }}" ${{ secrets.FTP_HOST }} -e "$SCRIPT bye"
 
-          echo "✅ FTP Deploy Completed"
+          echo "PHP Admin FTP Deploy Completed"
 
       # 5. Skip if no changes
       - name: No changes

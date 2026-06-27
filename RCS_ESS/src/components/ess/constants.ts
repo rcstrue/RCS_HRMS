@@ -25,7 +25,7 @@ import {
   ClipboardEdit,
 } from 'lucide-react';
 
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '1.0.0'; // Must match php_payroll/config/config.php APP_VERSION
 
 export const NAV_ITEMS = [
   { key: 'dashboard', label: 'Home', icon: LayoutDashboard },

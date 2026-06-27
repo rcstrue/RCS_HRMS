@@ -77,12 +77,15 @@ try {
     }
 
     // ─── Determine authoritative role ──────────────────────────────────
-    // Priority: employees.app_role > employees.employee_role > cache.role
-    $appRole = strtolower(trim($empRow['app_role'] ?? ''));
-    $employeeRole = strtolower(trim($empRow['employee_role'] ?? ''));
+    // Use app_role as SINGLE SOURCE OF TRUTH (same logic as login.php)
+    require_once __DIR__ . '/helpers.php';
+    $role = determineEssRole($empRow);
     $designation = strtolower(trim($empRow['designation'] ?? ''));
 
     // Admin (employee_role in HRMS) → full access immediately
+    // In ESS, admin is mapped to 'manager' by determineEssRole(), but if the
+    // employee's employee_role is literally 'admin', give full access.
+    $employeeRole = strtolower(trim($empRow['employee_role'] ?? ''));
     if ($employeeRole === 'admin') {
         jsonOutput(array(
             'success' => true,
@@ -166,18 +169,16 @@ try {
     }
 
     // ─── Fallback: use own unit for any manager with no allocations ──
-    if (empty($unitIds) && $ownUnitId && ($appRole === 'manager')) {
+    if (empty($unitIds) && $ownUnitId && ($role === 'manager')) {
         $unitIds = array($ownUnitId);
     }
 
     // ─── Determine effective role ──────────────────────────────────────
-    // Unit allocations → manager; otherwise → employee
-    if ($appRole === 'manager' || $appRole === 'field_officer') {
-        $role = 'manager';
+    // Unit allocations → manager; otherwise → use the centralized role
+    if (empty($unitNames) && ($role === 'manager' || $role === 'supervisor')) {
+        // Keep role from determineEssRole even without allocations
     } elseif (!empty($unitNames)) {
         $role = 'manager';
-    } else {
-        $role = 'employee';
     }
 
     jsonOutput(array(

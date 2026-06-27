@@ -1,9 +1,11 @@
-name: Build & Deploy
+name: Build & Deploy ESS
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'RCS_ESS/**'
 
 jobs:
   build-and-deploy:
@@ -20,9 +22,11 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
+        working-directory: RCS_ESS
         run: bun install
 
       - name: Build static site (Vite)
+        working-directory: RCS_ESS
         run: bun run build
 
       - name: Install lftp
@@ -41,14 +45,14 @@ jobs:
 
             # Deploy frontend (dist/ → public_html root)
             cd /;
-            lcd dist;
+            lcd RCS_ESS/dist;
             mirror -R --no-symlinks --parallel=4 --no-perms --overwrite;
 
             # Deploy API PHP files (exclude config.php — it has real DB credentials on server)
             cd /api/ess;
-            lcd ../api/ess;
+            lcd RCS_ESS/api/ess;
             mirror -R --no-symlinks --parallel=4 --no-perms --overwrite -x ^config\.php$ -x ^\.htaccess$;
 
             quit
           "
-          echo "✅ Deploy completed"
+          echo "ESS Deploy completed"

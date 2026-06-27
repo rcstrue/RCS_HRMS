@@ -19,7 +19,8 @@ define('STATUS_PENDING_DOC', 'pending_document_verification');
 define('STATUS_INACTIVE', 'inactive');
 define('STATUS_REMOVED', 'removed');
 define('STATUS_TERMINATED', 'terminated');
-define('STATUS_ACTIVE', 'active');  // Alternative to approved
+// 'active' is now supported in DB ENUM (migration 001). Both 'approved' and 'active' are valid.
+define('STATUS_ACTIVE', 'active');
 
 // ============================================
 // Message/Alert Types
@@ -66,9 +67,69 @@ define('EMPLOYMENT_PROBATION', 'Probation');
 // ============================================
 define('CATEGORY_SKILLED', 'Skilled');
 define('CATEGORY_SEMI_SKILLED', 'Semi-Skilled');
-define('CATEGORY_UNSUPERVISOR', 'Unskilled');
+define('CATEGORY_UNSKILLED', 'Unskilled');
+// Legacy alias — remove all references to CATEGORY_UNSUPERVISOR in code
+if (!defined('CATEGORY_UNSUPERVISOR')) {
+    define('CATEGORY_UNSUPERVISOR', 'Unskilled'); // @deprecated Use CATEGORY_UNSKILLED
+}
 define('CATEGORY_SUPERVISOR', 'Supervisor');
 define('CATEGORY_MANAGER', 'Manager');
+
+// ============================================
+// Role Constants (ESS app_role values)
+// ============================================
+define('ROLE_ADMIN', 'admin');
+define('ROLE_REGIONAL_MANAGER', 'regional_manager');
+define('ROLE_MANAGER', 'manager');
+define('ROLE_FIELD_OFFICER', 'field_officer');
+define('ROLE_SUPERVISOR', 'supervisor');
+define('ROLE_EMPLOYEE', 'employee');
+
+// ============================================
+// Leave Type Constants
+// ============================================
+// PHP Admin uses 'PL' (Privilege Leave), ESS uses 'EL' (Earned Leave)
+// These map to the same leave type. Use the MAPPING constant for conversion.
+define('LEAVE_CL', 'CL');      // Casual Leave
+define('LEAVE_SL', 'SL');      // Sick Leave
+define('LEAVE_PL', 'PL');      // Privilege Leave (PHP Admin term)
+define('LEAVE_EL', 'EL');      // Earned Leave (ESS term) — maps to PL
+define('LEAVE_WFH', 'WFH');    // Work From Home
+define('LEAVE_COMP_OFF', 'Comp_Off'); // Compensatory Off
+define('LEAVE_LWP', 'LWP');    // Leave Without Pay
+
+/**
+ * Map between PHP Admin leave codes and ESS leave codes.
+ * @param string $code Leave code from either system
+ * @return string Normalized code for the target system
+ */
+function mapLeaveCode(string $code): string {
+    $map = [
+        'PL' => 'EL', // PHP Admin → ESS
+        'EL' => 'PL', // ESS → PHP Admin
+    ];
+    return $map[strtoupper($code)] ?? strtoupper($code);
+}
+
+// ============================================
+// Attendance Status Constants
+// ============================================
+define('ATTENDANCE_PRESENT', 'present');
+define('ATTENDANCE_CHECKED_IN', 'checked_in');
+define('ATTENDANCE_CHECKED_OUT', 'checked_out');
+define('ATTENDANCE_LATE', 'late');
+define('ATTENDANCE_ABSENT', 'absent');
+define('ATTENDANCE_LEAVE', 'leave');
+define('ATTENDANCE_HOLIDAY', 'holiday');
+define('ATTENDANCE_HALF_DAY', 'half_day');
+
+// ============================================
+// Expense Status Constants
+// ============================================
+define('EXPENSE_PENDING', 'pending');
+define('EXPENSE_APPROVED', 'approved');
+define('EXPENSE_REJECTED', 'rejected');
+define('EXPENSE_REIMBURSED', 'reimbursed');
 
 // ============================================
 // Default Values

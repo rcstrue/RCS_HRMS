@@ -824,7 +824,7 @@ class Notification {
         
         // Check for pending compliance
         $pendingCompliance = $this->db->fetchColumn(
-            "SELECT COUNT(*) FROM compliance_filings WHERE status = 'pending' AND due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY)"
+            "SELECT COUNT(*) FROM compliance_filings WHERE status = 'Pending' AND due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY)"
         );
         
         if ($pendingCompliance > 0) {

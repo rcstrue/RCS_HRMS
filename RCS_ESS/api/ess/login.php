@@ -65,14 +65,13 @@ try {
         FROM employees e
         LEFT JOIN clients c ON c.id = e.client_id
         LEFT JOIN units u ON u.id = e.unit_id
-        WHERE e.mobile_number = ? AND e.status = ?
+        WHERE e.mobile_number = ? AND e.status IN ('approved', 'active')
     ');
     if (!$stmt) {
         jsonOutput(array('success' => false, 'error' => 'Database query error'), 500);
         return;
     }
-    $approvedStatus = 'approved';
-    $stmt->bind_param('ss', $mobile, $approvedStatus);
+    $stmt->bind_param('s', $mobile);
     $stmt->execute();
     $result = $stmt->get_result();
     $employee = $result->fetch_assoc();
@@ -121,7 +120,9 @@ try {
         return;
     }
 
-    $role = _determineRole($employee);
+    // Use centralized role determination (app_role as primary source)
+    require_once __DIR__ . '/helpers.php';
+    $role = determineEssRole($employee);
 
     // ─── Update Employee Cache (WITHOUT pin — pin is set only by change-pin endpoint) ──
     $unitName = $employee['unit_name'] ?? '';
@@ -223,36 +224,6 @@ function _trackFailedAttempt($rateFile, $rateData): void
     @file_put_contents($rateFile, json_encode($rateData), LOCK_EX);
 }
 
-function _determineRole($employee): string
-{
-    $appRole = strtolower($employee['app_role'] ?? '');
-    $employeeRole = strtolower($employee['employee_role'] ?? '');
-    $workerCategory = strtolower($employee['worker_category'] ?? '');
-    $designation = strtolower($employee['designation'] ?? '');
-
-    // Regional Manager: highest priority
-    if ($appRole === 'regional_manager') return 'regional_manager';
-    if (strpos($employeeRole, 'regional') !== false) return 'regional_manager';
-    if (strpos($workerCategory, 'regional') !== false) return 'regional_manager';
-    if (strpos($designation, 'regional manager') !== false) return 'regional_manager';
-
-    // Manager / Field Officer / Area Manager
-    if ($appRole === 'manager') return 'manager';
-    if ($appRole === 'field_officer') return 'manager';
-    if (in_array($employeeRole, array('admin', 'manager'))) return 'manager';
-    if (strpos($workerCategory, 'manager') !== false) return 'manager';
-    if (strpos($workerCategory, 'field officer') !== false) return 'manager';
-    if (strpos($workerCategory, 'area manager') !== false) return 'manager';
-    if (strpos($designation, 'manager') !== false) return 'manager';
-    if (strpos($designation, 'field officer') !== false) return 'manager';
-    if (strpos($designation, 'area manager') !== false) return 'manager';
-
-    // Supervisor / Team Lead
-    if (strpos($workerCategory, 'supervisor') !== false) return 'supervisor';
-    if (strpos($workerCategory, 'team lead') !== false) return 'supervisor';
-    if (strpos($employeeRole, 'supervisor') !== false) return 'supervisor';
-    if (strpos($designation, 'supervisor') !== false) return 'supervisor';
-    if (strpos($designation, 'team lead') !== false) return 'supervisor';
-
-    return 'employee';
-}
+// NOTE: _determineRole() is replaced by determineEssRole() in helpers.php.
+// Kept for reference only — NOT called anymore.
+// @deprecated Use determineEssRole() from helpers.php instead.

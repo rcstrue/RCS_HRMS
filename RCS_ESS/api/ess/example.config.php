@@ -22,10 +22,15 @@ define('JWT_SECRET', 'your_jwt_secret_here');
 date_default_timezone_set('Asia/Kolkata');
 
 // ─── CORS Headers ─────────────────────────────────────────────────────────────
+// IMPORTANT: In production, use cors.php for proper origin whitelisting.
+// This fallback is for development ONLY.
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-API-KEY');
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$devOrigins = ['http://localhost:5173', 'http://localhost:3000'];
+if (in_array($origin, $devOrigins)) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Access-Control-Allow-Credentials: true');
+}
 
 // Handle preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -263,39 +268,15 @@ function getTeamMembers($conn, $employeeId)
 }
 
 // ─── Pagination Helper ────────────────────────────────────────────────────────
-/**
- * Build pagination metadata
- */
-function buildPagination(int $total, int $page, int $limit): array
-{
-    return [
-        'total' => $total,
-        'page' => $page,
-        'limit' => $limit,
-        'total_pages' => $limit > 0 ? (int) ceil($total / $limit) : 0
-    ];
-}
+// NOTE: buildPagination, buildPaginationResponse, getPaginationParams are now in helpers.php
+// This file only provides: jsonOutput, getInput, getBearerToken, validateApiKey, SimpleJWT,
+//   requireAuth, getDbConnection, getEmployeeRole, getTeamMembers
+// Legacy bindDynamicParams is now an alias for safeBindParam in helpers.php
 
-/**
- * Get pagination params from request with defaults
- */
-function getPaginationParams(): array
-{
-    $page = max(1, (int)($_GET['page'] ?? 1));
-    $limit = min(100, max(1, (int)($_GET['limit'] ?? 20)));
-    $offset = ($page - 1) * $limit;
-    return [$page, $limit, $offset];
-}
-
-// ─── Dynamic Bind Params Helper ─────────────────────────────────────────────
-/**
- * Bind variable number of params using references (required by mysqli)
- */
-function bindDynamicParams($stmt, $types, $params)
-{
-    $bindRefs = array($types);
-    foreach ($params as $k => $v) {
-        $bindRefs[] = &$params[$k];
+// ─── Dynamic Bind Params Helper (legacy — now delegates to helpers.php) ───────
+if (!function_exists('bindDynamicParams')) {
+    function bindDynamicParams($stmt, $types, $params)
+    {
+        safeBindParam($stmt, $types, $params);
     }
-    call_user_func_array(array($stmt, 'bind_param'), $bindRefs);
 }

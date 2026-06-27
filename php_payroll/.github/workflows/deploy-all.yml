@@ -37,6 +37,8 @@ jobs:
             --exclude='worklog.md' \
             --exclude='Caddyfile' \
             --exclude='*.md' \
+            --exclude='bun.lock' \
+            --exclude='bun.lockb' \
             ./ /tmp/deploy-hrms/
 
           FILE_COUNT=$(find /tmp/deploy-hrms -type f | wc -l)
@@ -69,6 +71,8 @@ jobs:
             --exclude='examples/' \
             --exclude='db/' \
             --exclude='*.md' \
+            --exclude='bun.lock' \
+            --exclude='bun.lockb' \
             /tmp/deploy-hrms/ /hrms/;
           bye
           " 2>&1

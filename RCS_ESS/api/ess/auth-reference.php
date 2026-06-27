@@ -274,7 +274,9 @@ function handleLogin(PDO $pdo, array $input): array {
     @unlink($rateFile);
 
     // ── Generate JWT ──
-    $role = detectRole($employee);
+    // Role detection — use determineEssRole() from helpers.php in production
+    // This reference uses a local inline version for self-containedness
+    $role = _refDetectRole($employee);
 
     $payload = [
         'employee_id'   => $employeeId,
@@ -432,22 +434,26 @@ function validateToken(string $secret = null): ?object {
 // HELPERS
 // ══════════════════════════════════════════════════════════════
 
-function detectRole(array $employee): string {
+// NOTE: Role detection is now centralized in helpers.php::determineEssRole().
+// This file (auth-reference.php) is a REFERENCE IMPLEMENTATION, not active code.
+// Do NOT include this file in production — it would cause duplicate function errors.
+// If you need role detection, use: require_once __DIR__ . '/helpers.php'; then call determineEssRole($employee);
+
+/**
+ * Local role detection for this self-contained reference file.
+ * In production, use determineEssRole() from helpers.php instead.
+ */
+function _refDetectRole(array $employee): string {
+    $appRole = strtolower(trim($employee['app_role'] ?? ''));
+    if (in_array($appRole, ['regional_manager','manager','supervisor','employee'])) return $appRole;
+    if (in_array($appRole, ['admin','field_officer'])) return 'manager';
+
+    $role = strtolower($employee['employee_role'] ?? '');
     $category = strtolower($employee['worker_category'] ?? '');
-    $role     = strtolower($employee['employee_role'] ?? '');
-
-    if (str_contains($category, 'regional') || str_contains($role, 'regional')) return 'regional_manager';
-    if (str_contains($category, 'manager') || str_contains($role, 'manager'))    return 'manager';
-    if (str_contains($category, 'supervisor') || str_contains($role, 'supervisor') || str_contains($category, 'team lead')) return 'supervisor';
+    if (strpos($category, 'regional') !== false || strpos($role, 'regional') !== false) return 'regional_manager';
+    if (strpos($category, 'manager') !== false || strpos($role, 'manager') !== false) return 'manager';
+    if (strpos($category, 'supervisor') !== false || strpos($role, 'supervisor') !== false) return 'supervisor';
     return 'employee';
-}
-
-function jsonOutput(array $data, int $code = 200): void {
-    http_response_code($code);
-    header('Content-Type: application/json');
-    header('X-Content-Type-Options: nosniff');
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
-    exit;
 }
 
 
