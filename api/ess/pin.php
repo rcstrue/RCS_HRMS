@@ -62,10 +62,10 @@ try {
         $storedPin = $cacheRow['pin'] ?? '';
         $hasCustomPin = !empty($storedPin);
 
-        // Check cache PIN
+        // Check cache PIN (handles both legacy plaintext and bcrypt hash)
         $currentPinValid = false;
-        if ($hasCustomPin && $storedPin === $currentPin) {
-            $currentPinValid = true;
+        if ($hasCustomPin) {
+            $currentPinValid = verifyPin($currentPin, $storedPin);
         }
 
         // Fallback: check birth year — ONLY when no custom PIN has been set yet.
@@ -99,14 +99,15 @@ try {
         }
     }
 
-    // ─── Update PIN in ess_employee_cache ONLY ───────────────────────────
+    // ─── Update PIN in ess_employee_cache ONLY (hashed with bcrypt) ──────
     // Do NOT update employees table — it has no has_custom_pin column
+    $hashedPin = hashPin($newPin);
     $updateStmt = $conn->prepare('UPDATE ess_employee_cache SET pin = ? WHERE employee_id = ?');
     if (!$updateStmt) {
         jsonOutput(array('success' => false, 'error' => 'Failed to update PIN'), 500);
         return;
     }
-    $updateStmt->bind_param('ss', $newPin, $employeeId);
+    $updateStmt->bind_param('ss', $hashedPin, $employeeId);
     $updateStmt->execute();
     $updateStmt->close();
 

@@ -261,6 +261,66 @@ if (!function_exists('safePaginatedSelect')) {
 }
 
 // ============================================================================
+// PIN Hashing Helpers
+// ============================================================================
+
+if (!function_exists('isPinHashed')) {
+    /**
+     * Check if a stored PIN value is a bcrypt hash (starts with $2y$).
+     * Used to transparently support migration from plaintext to hashed PINs.
+     */
+    function isPinHashed(string $storedPin): bool
+    {
+        return strlen($storedPin) >= 60 && strpos($storedPin, '$2y$') === 0;
+    }
+}
+
+if (!function_exists('verifyPin')) {
+    /**
+     * Verify a PIN against a stored value that may be plaintext or bcrypt.
+     * Returns true if valid. If plaintext matches, also upgrades to bcrypt.
+     */
+    function verifyPin(string $inputPin, string $storedPin, ?mysqli $conn = null, ?string $employeeId = null): bool
+    {
+        if (isPinHashed($storedPin)) {
+            return password_verify($inputPin, $storedPin);
+        }
+        // Legacy plaintext — verify then upgrade to bcrypt
+        if ($storedPin === $inputPin) {
+            if ($conn && $employeeId) {
+                upgradePinToHash($conn, $employeeId, $inputPin);
+            }
+            return true;
+        }
+        return false;
+    }
+}
+
+if (!function_exists('upgradePinToHash')) {
+    /**
+     * Upgrade a plaintext PIN to a bcrypt hash in ess_employee_cache.
+     */
+    function upgradePinToHash(mysqli $conn, string $employeeId, string $plainPin): void
+    {
+        $hash = password_hash($plainPin, PASSWORD_DEFAULT);
+        $stmt = $conn->prepare('UPDATE ess_employee_cache SET pin = ? WHERE employee_id = ?');
+        $stmt->bind_param('ss', $hash, $employeeId);
+        $stmt->execute();
+        $stmt->close();
+    }
+}
+
+if (!function_exists('hashPin')) {
+    /**
+     * Hash a PIN with bcrypt for storage.
+     */
+    function hashPin(string $plainPin): string
+    {
+        return password_hash($plainPin, PASSWORD_DEFAULT);
+    }
+}
+
+// ============================================================================
 // Role Helper — Single authoritative role determination
 // ============================================================================
 

@@ -99,9 +99,10 @@ try {
         if ($cacheRow && !empty($cacheRow['pin'])) {
             // Custom PIN exists in cache — validate against it
             $hasCustomPin = true;
-            if ($cacheRow['pin'] === $pin) {
-                $validPin = true;
-            }
+            $storedPin = $cacheRow['pin'];
+            // verifyPin() handles both legacy plaintext and bcrypt hash transparently.
+            // If plaintext matches, it auto-upgrades to bcrypt.
+            $validPin = verifyPin($pin, $storedPin, $conn, $employeeId);
         }
     }
 
