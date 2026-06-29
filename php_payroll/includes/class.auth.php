@@ -45,6 +45,13 @@ class Auth {
     
     // Login user
     public function login($username, $password, $remember = false) {
+        // ── Rate limiting / lockout check ──
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $lockout = $this->_checkLoginLockout($username, $ip);
+        if ($lockout) {
+            return ['success' => false, 'error' => $lockout];
+        }
+
         // Get user with role info
         $user = $this->db->fetch(
             "SELECT u.id, u.username, u.email, u.password, u.role_id, u.first_name, u.last_name, u.is_active,
@@ -57,6 +64,7 @@ class Auth {
         
         // Check if user exists
         if (!$user) {
+            $this->_recordFailedLogin($username, $ip);
             return ['success' => false, 'error' => 'Invalid username or password.'];
         }
         
@@ -67,8 +75,12 @@ class Auth {
         
         // Verify password
         if (!password_verify($password, $user['password'])) {
+            $this->_recordFailedLogin($username, $ip);
             return ['success' => false, 'error' => 'Invalid username or password.'];
         }
+
+        // Clear failed attempts on successful login
+        $this->_clearFailedLogins($username, $ip);
         
         // Set session variables
         $_SESSION['user_id'] = $user['id'];
@@ -914,6 +926,130 @@ class Auth {
         }
         
         return $visible;
+    }
+
+    // ── Login Lockout / Rate-Limiting (DB-backed) ──────────────────────────
+
+    private function _ensureLoginAttemptsTable(): void
+    {
+        static $created = false;
+        if ($created) return;
+        $this->db->query("
+            CREATE TABLE IF NOT EXISTS login_attempts (
+                id          INT AUTO_INCREMENT PRIMARY KEY,
+                username    VARCHAR(255) NOT NULL,
+                ip          VARCHAR(45)  NOT NULL,
+                attempts    INT          NOT NULL DEFAULT 0,
+                last_attempt DATETIME    NOT NULL,
+                locked_until DATETIME    NULL,
+                created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_user_ip (username, ip)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+        $created = true;
+    }
+
+    /**
+     * Check if the username+IP is currently locked out.
+     * Returns an error message string if locked, or null if allowed.
+     */
+    private function _checkLoginLockout($username, $ip): ?string
+    {
+        $this->_ensureLoginAttemptsTable();
+
+        $row = $this->db->fetch(
+            "SELECT attempts, locked_until FROM login_attempts WHERE username = :u AND ip = :i",
+            ['u' => $username, 'i' => $ip]
+        );
+
+        if (!$row) {
+            return null;
+        }
+
+        // If there is a lockout window, check if it has expired
+        if ($row['locked_until'] !== null) {
+            $now  = new \DateTime('now');
+            $lock = new \DateTime($row['locked_until']);
+            if ($now < $lock) {
+                $diff  = $now->diff($lock);
+                $mins  = $diff->i + ($diff->h * 60) + ($diff->d * 1440);
+                $hours = (int)floor($mins / 60);
+                if ($hours >= 1) {
+                    return "Account temporarily locked due to too many failed login attempts. Try again in {$hours} hour" . ($hours > 1 ? 's' : '') . ".";
+                }
+                return "Account temporarily locked due to too many failed login attempts. Try again in {$mins} minute" . ($mins !== 1 ? 's' : '') . ".";
+            }
+            // Lockout expired — reset
+            $this->_clearFailedLogins($username, $ip);
+        }
+
+        return null;
+    }
+
+    /**
+     * Record a failed login attempt. Increments counter and applies lockout.
+     */
+    private function _recordFailedLogin($username, $ip): void
+    {
+        $this->_ensureLoginAttemptsTable();
+
+        $row = $this->db->fetch(
+            "SELECT attempts FROM login_attempts WHERE username = :u AND ip = :i",
+            ['u' => $username, 'i' => $ip]
+        );
+
+        $now = date('Y-m-d H:i:s');
+
+        if ($row) {
+            $attempts = (int)$row['attempts'] + 1;
+            $lockedUntil = $this->_calcLockout($attempts);
+
+            $this->db->query(
+                "UPDATE login_attempts SET attempts = :a, last_attempt = :t, locked_until = :l WHERE username = :u AND ip = :i",
+                [
+                    'a' => $attempts,
+                    't' => $now,
+                    'l' => $lockedUntil,
+                    'u' => $username,
+                    'i' => $ip,
+                ]
+            );
+        } else {
+            $this->db->query(
+                "INSERT INTO login_attempts (username, ip, attempts, last_attempt, locked_until) VALUES (:u, :i, 1, :t, NULL)",
+                ['u' => $username, 'i' => $ip, 't' => $now]
+            );
+        }
+    }
+
+    /**
+     * Clear failed login counter on successful login.
+     */
+    private function _clearFailedLogins($username, $ip): void
+    {
+        $this->_ensureLoginAttemptsTable();
+        $this->db->query(
+            "DELETE FROM login_attempts WHERE username = :u AND ip = :i",
+            ['u' => $username, 'i' => $ip]
+        );
+    }
+
+    /**
+     * Calculate the lockout datetime based on attempt count.
+     * Returns NULL if no lockout, or a DATETIME string.
+     */
+    private function _calcLockout(int $attempts): ?string
+    {
+        if ($attempts >= 20) {
+            return date('Y-m-d H:i:s', strtotime('+24 hours'));
+        }
+        if ($attempts >= 10) {
+            return date('Y-m-d H:i:s', strtotime('+1 hour'));
+        }
+        if ($attempts >= 5) {
+            return date('Y-m-d H:i:s', strtotime('+15 minutes'));
+        }
+        return null;
     }
 }
 ?>
