@@ -69,7 +69,7 @@
     "tailwindcss-animate": "^1.0.7",
     "three": "^0.184.0",
     "vaul": "^0.9.9",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-latest/xlsx-latest.tgz",
     "zod": "^3.25.76"
   },
   "devDependencies": {
