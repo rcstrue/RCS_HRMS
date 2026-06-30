@@ -142,6 +142,12 @@ function prev_month_year() {
     return (int)date('Y');
 }
 
+// NOTE: php_payroll loads scripts/styles from CDN (jsdelivr, datatables.net, etc).
+// The policy below will BLOCK those. Test in browser with devtools console open.
+// You will likely need to add CDN domains to script-src and style-src,
+// or move inline scripts to external .js files.
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';");
+
 // Start Session with secure settings
 if (session_status() === PHP_SESSION_NONE) {
     // Set custom session save path inside app directory (avoids system tmp issues)
@@ -166,6 +172,16 @@ if (session_status() === PHP_SESSION_NONE) {
 
     session_name(SESSION_NAME);
     session_start();
+
+    // Idle session timeout — 30 minutes of inactivity logs the user out
+    $idleLimit = 1800;
+    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $idleLimit) {
+        session_unset();
+        session_destroy();
+        header('Location: index.php?page=auth/login&timeout=1');
+        exit;
+    }
+    $_SESSION['last_activity'] = time();
 }
 
 // Autoload Classes (PSR-4 compatible)
