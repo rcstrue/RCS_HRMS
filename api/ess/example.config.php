@@ -83,7 +83,7 @@ function getBearerToken(): ?string
 function validateApiKey(): bool
 {
     $key = $_SERVER['HTTP_X_API_KEY'] ?? '';
-    if ($key !== API_KEY) {
+    if (!hash_equals(API_KEY, (string)$key)) {
         jsonOutput(['success' => false, 'error' => 'Invalid API key'], 403);
         return false;
     }
