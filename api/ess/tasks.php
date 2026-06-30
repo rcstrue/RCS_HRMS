@@ -27,7 +27,7 @@ try {
             jsonOutput(['success' => false, 'error' => 'Method not allowed'], 405);
     }
 } catch (\Throwable $e) {
-    jsonOutput(['success' => false, 'error' => 'Server error: ' . $e->getMessage() . ' in ' . basename($e->getFile()) . ':' . $e->getLine()], 500);
+    jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
 }
 
 // ─── GET: List Tasks ──────────────────────────────────────────────────────────

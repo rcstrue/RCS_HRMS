@@ -13,6 +13,16 @@ require_once dirname(__FILE__) . '/config/config.php';
 // Include database connection
 require_once dirname(__FILE__) . '/includes/database.php';
 
+// ── Security Headers ──
+if (!headers_sent()) {
+    header('X-Frame-Options: SAMEORIGIN');
+    header('X-Content-Type-Options: nosniff');
+    header('X-XSS-Protection: 1; mode=block');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+    header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+}
+
 // Initialize all classes
 try {
     $auth = new Auth();

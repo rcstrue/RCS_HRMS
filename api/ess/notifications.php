@@ -28,7 +28,7 @@ try {
         default:     jsonError('Method not allowed. Use GET, POST, or PUT.', 405);
     }
 } catch (Exception $e) {
-    jsonError('Server error: ' . $e->getMessage(), 500);
+    jsonError('Internal server error. Please try again later.', 500);
 }
 
 // ============================================================================

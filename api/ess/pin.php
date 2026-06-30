@@ -14,6 +14,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/security-headers.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     jsonOutput(array('success' => false, 'error' => 'Method not allowed. Use POST.'), 405);
@@ -120,5 +121,6 @@ try {
     ));
 
 } catch (\Throwable $e) {
-    jsonOutput(array('success' => false, 'error' => 'Server error: ' . $e->getMessage() . ' in ' . basename($e->getFile()) . ':' . $e->getLine()), 500);
+    error_log('[ESS pin] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    jsonOutput(array('success' => false, 'error' => 'Internal server error. Please try again later.'), 500);
 }

@@ -34,7 +34,7 @@ try {
 } catch (\Throwable $e) {
     jsonOutput(array(
         'success' => false,
-        'error' => 'Server error: ' . $e->getMessage() . ' in ' . basename($e->getFile()) . ':' . $e->getLine()
+        'error' => 'Internal server error. Please try again later.'
     ), 500);
 }
 

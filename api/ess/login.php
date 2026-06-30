@@ -11,6 +11,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/security-headers.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     jsonOutput(array('success' => false, 'error' => 'Method not allowed. Use POST.'), 405);
@@ -34,26 +35,19 @@ try {
         return;
     }
 
-    // ─── Rate Limiting ───────────────────────────────────────────────────
+    // ─── Rate Limiting (DB-backed) ────────────────────────────────────────
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-    $rateKey = md5('ess_login_' . $mobile . '_' . $ip);
-    $rateFile = sys_get_temp_dir() . '/' . $rateKey . '.json';
-
-    $rateData = array('attempts' => 0, 'last_attempt' => 0);
-    if (file_exists($rateFile)) {
-        $rateData = json_decode(file_get_contents($rateFile), true) ?: $rateData;
-    }
-    if ($rateData['last_attempt'] < time() - 60) {
-        $rateData = array('attempts' => 0, 'last_attempt' => 0);
-    }
-    if ($rateData['attempts'] >= 5) {
-        $retryAfter = 60 - (time() - $rateData['last_attempt']);
-        jsonOutput(array('success' => false, 'error' => 'Too many attempts. Try later.', 'retry_after_seconds' => max(0, $retryAfter)), 429);
-        return;
-    }
+    $rateId = 'ess_' . $mobile . '_' . $ip;
 
     // ─── Database Lookup — JOIN units for city ───────────────────────────
     $conn = getDbConnection();
+
+    // Check rate limit / lockout (DB-backed, same table as HRMS admin)
+    $lockMsg = _checkRateLimit($conn, $rateId);
+    if ($lockMsg) {
+        jsonOutput(array('success' => false, 'error' => $lockMsg), 429);
+        return;
+    }
 
     $stmt = $conn->prepare('
         SELECT e.id, e.full_name, e.mobile_number, e.email, e.designation, e.department,
@@ -78,7 +72,7 @@ try {
     $stmt->close();
 
     if (!$employee) {
-        _trackFailedAttempt($rateFile, $rateData);
+        _recordFailedLogin($conn, $rateId);
         jsonOutput(array('success' => false, 'error' => 'Invalid mobile number or PIN'), 401);
         return;
     }
@@ -116,7 +110,7 @@ try {
     }
 
     if (!$validPin) {
-        _trackFailedAttempt($rateFile, $rateData);
+        _recordFailedLogin($conn, $rateId);
         jsonOutput(array('success' => false, 'error' => 'Invalid mobile number or PIN'), 401);
         return;
     }
@@ -181,7 +175,7 @@ try {
         'full_name' => $employee['full_name']
     ), 86400);
 
-    @unlink($rateFile);
+    _clearFailedLogins($conn, $rateId);
 
     jsonOutput(array(
         'success' => true,
@@ -215,16 +209,93 @@ try {
     ));
 
 } catch (\Throwable $e) {
-    jsonOutput(array('success' => false, 'error' => 'Server error: ' . $e->getMessage() . ' in ' . basename($e->getFile()) . ':' . $e->getLine()), 500);
+    error_log('[ESS login] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    jsonOutput(array('success' => false, 'error' => 'Internal server error. Please try again later.'), 500);
 }
 
-function _trackFailedAttempt($rateFile, $rateData): void
+function _ensureLoginAttemptsTable(mysqli $conn): void
 {
-    $rateData['attempts']++;
-    $rateData['last_attempt'] = time();
-    @file_put_contents($rateFile, json_encode($rateData), LOCK_EX);
+    static $done = false;
+    if ($done) return;
+    $conn->query("
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            id           INT AUTO_INCREMENT PRIMARY KEY,
+            username     VARCHAR(255) NOT NULL,
+            ip           VARCHAR(45)  NOT NULL,
+            attempts     INT          NOT NULL DEFAULT 0,
+            last_attempt DATETIME     NOT NULL,
+            locked_until DATETIME     NULL,
+            created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uk_user_ip (username, ip)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    $done = true;
 }
 
-// NOTE: _determineRole() is replaced by determineEssRole() in helpers.php.
-// Kept for reference only — NOT called anymore.
-// @deprecated Use determineEssRole() from helpers.php instead.
+function _calcLockout(int $attempts): ?string
+{
+    if ($attempts >= 20) return date('Y-m-d H:i:s', strtotime('+24 hours'));
+    if ($attempts >= 10) return date('Y-m-d H:i:s', strtotime('+1 hour'));
+    if ($attempts >= 5)  return date('Y-m-d H:i:s', strtotime('+15 minutes'));
+    return null;
+}
+
+function _checkRateLimit(mysqli $conn, string $rateId): ?string
+{
+    _ensureLoginAttemptsTable($conn);
+    $stmt = $conn->prepare('SELECT attempts, locked_until FROM login_attempts WHERE username = ?');
+    $stmt->bind_param('s', $rateId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if (!$row) return null;
+
+    if ($row['locked_until'] !== null) {
+        $now = new \DateTime('now');
+        $lock = new \DateTime($row['locked_until']);
+        if ($now < $lock) {
+            $mins = ($lock->getTimestamp() - $now->getTimestamp()) / 60;
+            $hours = (int)floor($mins / 60);
+            $m = (int)$mins;
+            if ($hours >= 1) {
+                return "Too many failed attempts. Try again in {$hours} hour" . ($hours > 1 ? 's' : '') . ".";
+            }
+            return "Too many failed attempts. Try again in {$m} minute" . ($m !== 1 ? 's' : '') . ".";
+        }
+        _clearFailedLogins($conn, $rateId);
+    }
+    return null;
+}
+
+function _recordFailedLogin(mysqli $conn, string $rateId): void
+{
+    _ensureLoginAttemptsTable($conn);
+    $stmt = $conn->prepare('SELECT attempts FROM login_attempts WHERE username = ?');
+    $stmt->bind_param('s', $rateId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    $now = date('Y-m-d H:i:s');
+    if ($row) {
+        $attempts = (int)$row['attempts'] + 1;
+        $lockedUntil = _calcLockout($attempts);
+        $stmt = $conn->prepare('UPDATE login_attempts SET attempts = ?, last_attempt = ?, locked_until = ? WHERE username = ?');
+        $stmt->bind_param('isss', $attempts, $now, $lockedUntil, $rateId);
+    } else {
+        $stmt = $conn->prepare('INSERT INTO login_attempts (username, ip, attempts, last_attempt, locked_until) VALUES (?, '', 1, ?, NULL)');
+        $stmt->bind_param('ss', $rateId, $now);
+    }
+    $stmt->execute();
+    $stmt->close();
+}
+
+function _clearFailedLogins(mysqli $conn, string $rateId): void
+{
+    _ensureLoginAttemptsTable($conn);
+    $stmt = $conn->prepare('DELETE FROM login_attempts WHERE username = ?');
+    $stmt->bind_param('s', $rateId);
+    $stmt->execute();
+    $stmt->close();
+}

@@ -30,7 +30,7 @@ try {
             jsonOutput(['success' => false, 'error' => 'Method not allowed. Use GET.'], 405);
     }
 } catch (Exception $e) {
-    jsonOutput(['success' => false, 'error' => 'Server error: ' . $e->getMessage()], 500);
+    jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
 }
 
 // ============================================================================

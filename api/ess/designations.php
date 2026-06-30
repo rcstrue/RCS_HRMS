@@ -25,5 +25,5 @@ try {
 
     echo jsonResponse(true, $data);
 } catch (Exception $e) {
-    echo jsonError($e->getMessage(), 500);
+    echo error_log('[ESS designations] ' . $e->getMessage()); jsonError('Internal server error.', 500);
 }

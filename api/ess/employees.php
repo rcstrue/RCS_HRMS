@@ -154,5 +154,5 @@ try {
     ));
 
 } catch (\Throwable $e) {
-    jsonOutput(array('success' => false, 'error' => 'Server error: ' . $e->getMessage() . ' in ' . basename($e->getFile()) . ':' . $e->getLine()), 500);
+    jsonOutput(array('success' => false, 'error' => 'Internal server error. Please try again later.'), 500);
 }

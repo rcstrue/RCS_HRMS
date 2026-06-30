@@ -12,6 +12,7 @@ require_once __DIR__ . '/cors.php';
 @require_once __DIR__ . '/config.php';
 if (!function_exists('getDbConnection')) require_once __DIR__ . '/example.config.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/security-headers.php';
 
 $conn = getDbConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -28,7 +29,7 @@ try {
             jsonError('Method not allowed. Use GET or POST.', 405);
     }
 } catch (Exception $e) {
-    jsonError('Server error: ' . $e->getMessage(), 500);
+    jsonError('Internal server error. Please try again later.', 500);
 }
 
 // ============================================================================

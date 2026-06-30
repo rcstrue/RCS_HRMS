@@ -29,7 +29,7 @@ try {
 } catch (\Throwable $e) {
     jsonOutput(array(
         'success' => false,
-        'error' => 'Server error: ' . $e->getMessage() . ' in ' . basename($e->getFile()) . ':' . $e->getLine()
+        'error' => 'Internal server error. Please try again later.'
     ), 500);
 }
 
@@ -154,7 +154,7 @@ function handleBulkUpload(): void
         ));
     } catch (\Throwable $e) {
         $conn->rollback();
-        jsonOutput(array('success' => false, 'error' => 'Upload failed: ' . $e->getMessage()), 500);
+        jsonOutput(array('success' => false, 'error' => 'Upload failed. Please try again later.'), 500);
     } finally {
         if ($stmt) $stmt->close();
     }
