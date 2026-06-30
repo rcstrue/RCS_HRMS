@@ -19,6 +19,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/security-headers.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     jsonOutput(array('success' => false, 'error' => 'Method not allowed'), 405);

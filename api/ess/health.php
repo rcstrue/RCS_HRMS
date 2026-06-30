@@ -4,6 +4,7 @@
  * Usage: GET /api/ess/health
  */
 header('Content-Type: application/json');
+require_once __DIR__ . '/security-headers.php';
 echo json_encode(array(
     'status' => 'ok',
     'php_version' => phpversion(),
