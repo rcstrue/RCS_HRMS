@@ -11,13 +11,8 @@ RewriteRule ^(.*)$ $1.php [QSA,L]
     Deny from all
 </FilesMatch>
 
-# CORS headers for API requests
-<IfModule mod_headers.c>
-    Header set Access-Control-Allow-Origin "*"
-    Header set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
-    Header set Access-Control-Allow-Headers "Content-Type, Authorization, X-API-KEY, X-Employee-ID"
-    Header set Access-Control-Max-Age "86400"
-</IfModule>
+# CORS is handled exclusively by cors.php (PHP-level origin whitelist).
+# No wildcard CORS headers here — cors.php is the single source of truth.
 
 # Handle preflight requests
 <IfModule mod_rewrite.c>
