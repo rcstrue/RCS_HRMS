@@ -6,6 +6,9 @@
 
 header('Content-Type: application/json');
 
+// Centralised audit logging
+require_once __DIR__ . '/../../includes/audit_log.php';
+
 // Authentication check
 if (!isset($_SESSION['user_id'])) {
     http_response_code(401);
@@ -101,6 +104,49 @@ try {
         
         foreach ($fields as $key => $value) {
             if (in_array($key, $empColumns)) {
+                // ── Field-level validation ──
+                if ($key === 'mobile_number' && $value !== '') {
+                    $digits = preg_replace('/[^0-9]/', '', $value);
+                    if (!preg_match('/^[0-9]{10,15}$/', $digits)) {
+                        $errors[] = "Employee ID {$id}: Invalid mobile number format";
+                        continue 2; // skip this field for this employee
+                    }
+                }
+                if ($key === 'alternate_mobile' && $value !== '') {
+                    $digits = preg_replace('/[^0-9]/', '', $value);
+                    if (!preg_match('/^[0-9]{10,15}$/', $digits)) {
+                        $errors[] = "Employee ID {$id}: Invalid alternate mobile format";
+                        continue 2;
+                    }
+                }
+                if ($key === 'email' && $value !== '' && !filter_var($value, FILTER_VALIDATE_EMAIL)) {
+                    $errors[] = "Employee ID {$id}: Invalid email format";
+                    continue 2;
+                }
+                if ($key === 'aadhaar_number' && $value !== '') {
+                    if (!preg_match('/^[0-9]{12}$/', preg_replace('/[^0-9]/', '', $value))) {
+                        $errors[] = "Employee ID {$id}: Aadhaar must be 12 digits";
+                        continue 2;
+                    }
+                }
+                if ($key === 'pin_code' && $value !== '') {
+                    if (!preg_match('/^[0-9]{6}$/', $value)) {
+                        $errors[] = "Employee ID {$id}: PIN code must be 6 digits";
+                        continue 2;
+                    }
+                }
+                if ($key === 'ifsc_code' && $value !== '') {
+                    if (!preg_match('/^[A-Z]{4}0[A-Z0-9]{6}$/i', $value)) {
+                        $errors[] = "Employee ID {$id}: Invalid IFSC code format";
+                        continue 2;
+                    }
+                }
+                if (in_array($key, ['date_of_birth', 'date_of_joining', 'date_of_leaving', 'nominee_dob']) && $value !== '') {
+                    if (!validateDate($value, 'Y-m-d')) {
+                        $errors[] = "Employee ID {$id}: Invalid date format for {$key}";
+                        continue 2;
+                    }
+                }
                 $empFields[$key] = $value;
             } elseif (in_array($key, $salaryColumns)) {
                 // Convert checkbox values: "on"/true/1 to 1, empty/false/0 to 0
@@ -168,19 +214,11 @@ try {
             }
         }
         
-        // Log to audit trail
+        // Log to audit trail (centralised function)
         try {
             $oldValues = json_encode($existingMap[$id]);
             $newValues = json_encode(array_merge($existingMap[$id], $empFields));
-            $db->insert('audit_log', [
-                'module' => 'employee_bulk_edit',
-                'record_id' => $id,
-                'action' => 'update',
-                'old_values' => $oldValues,
-                'new_values' => $newValues,
-                'performed_by' => $_SESSION['user_id'] ?? null,
-                'created_at' => date('Y-m-d H:i:s')
-            ]);
+            audit_log('update', 'employee_bulk_edit', $id, "Bulk edit employee ID {$id}: " . $newValues);
         } catch (Exception $e) {
             // Audit log failure should not block the update
         }

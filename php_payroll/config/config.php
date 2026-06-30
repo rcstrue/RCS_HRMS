@@ -146,7 +146,8 @@ function prev_month_year() {
 // The policy below will BLOCK those. Test in browser with devtools console open.
 // You will likely need to add CDN domains to script-src and style-src,
 // or move inline scripts to external .js files.
-header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';");
+// Phase 3 — CSP rollout (uncomment after adding CDN domains & testing):
+// header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';");
 
 // Start Session with secure settings
 if (session_status() === PHP_SESSION_NONE) {

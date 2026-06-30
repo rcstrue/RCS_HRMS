@@ -9,6 +9,9 @@
 
 header('Content-Type: application/json');
 
+// Centralised audit logging
+require_once __DIR__ . '/../../includes/audit_log.php';
+
 // Authentication check
 if (!isset($_SESSION['user_id'])) {
     http_response_code(401);
@@ -82,7 +85,9 @@ switch ($method) {
                     'approved_by' => $_SESSION['user_id'] ?? null,
                     'updated_at' => date('Y-m-d H:i:s')
                 ], 'id = :id', ['id' => $id]);
-                
+
+                audit_log('approve', 'employee', $id, "Approved employee ID {$id}");
+
                 echo json_encode(['success' => true, 'message' => 'Employee approved successfully']);
             } catch (Exception $e) {
                 http_response_code(500);
@@ -101,9 +106,12 @@ switch ($method) {
         if (isset($input['id']) && $input['id']) {
             // Update
             $result = $employeeObj->update((int)$input['id'], $input);
+            audit_log('update', 'employee', (int)$input['id'], "Updated employee ID {$input['id']}");
         } else {
             // Create
             $result = $employeeObj->create($input);
+            $newId = $result['id'] ?? $result['data']['id'] ?? null;
+            audit_log('create', 'employee', $newId, 'Created new employee: ' . ($input['full_name'] ?? ''));
         }
         
         if (isset($result['success'])) {
@@ -125,8 +133,9 @@ switch ($method) {
         }
         
         $result = $employeeObj->delete((int)$id);
-        
+
         if (isset($result['success'])) {
+            audit_log('delete', 'employee', (int)$id, "Deleted employee ID {$id}");
             echo json_encode(['success' => true, 'message' => 'Employee deleted']);
         } else {
             http_response_code(400);

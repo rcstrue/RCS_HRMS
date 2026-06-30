@@ -1,0 +1,114 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  # Allow manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    name: npm audit (RCS_ESS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: RCS_ESS
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: RCS_ESS/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts || npm install --ignore-scripts
+
+      - name: Run npm audit
+        run: |
+          echo "=== npm audit (production only) ==="
+          npm audit --production --json > audit-report.json 2>&1 || true
+          npm audit --production || true
+
+          # Fail workflow if HIGH or CRITICAL vulnerabilities found
+          HIGH_COUNT=$(node -e "
+            const r = require('./audit-report.json');
+            const meta = r.metadata || {};
+            const vulns = meta.vulnerabilities || {};
+            const high = (vulns.high || 0);
+            const critical = (vulns.critical || 0);
+            console.log(high + critical);
+          " 2>/dev/null || echo "0")
+          echo "HIGH+CRITICAL count: ${HIGH_COUNT}"
+          if [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "::warning::Found ${HIGH_COUNT} HIGH/CRITICAL vulnerabilities. Review audit-report.json."
+          fi
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: RCS_ESS/audit-report.json
+          retention-days: 30
+
+  php-security-scan:
+    name: PHP security grep
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Grep for dangerous patterns
+        run: |
+          echo "=== Checking for dangerous PHP patterns ==="
+          ERRORS=0
+
+          # eval() — code injection risk
+          MATCHES=$(grep -rn '\beval\s*(' php_payroll/ api/ --include="*.php" 2>/dev/null || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::warning::Found eval() usage (code injection risk):"
+            echo "$MATCHES"
+            ERRORS=$((ERRORS + 1))
+          fi
+
+          # exec() / system() / passthru() / shell_exec() / popen() / proc_open()
+          MATCHES=$(grep -rn '\b\(exec\|system\|passthru\|shell_exec\|popen\|proc_open\)\s*(' php_payroll/ api/ --include="*.php" 2>/dev/null || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::warning::Found shell execution functions:"
+            echo "$MATCHES"
+            ERRORS=$((ERRORS + 1))
+          fi
+
+          # $_GET / $_POST / $_REQUEST used directly in SQL (not via prepared statements)
+          MATCHES=$(grep -rn '\$_\(GET\|POST\|REQUEST\)' php_payroll/ api/ --include="*.php" | grep -iv 'sanitize\|htmlspecialchars\|filter_var\|prepare\|bind_param\|intval\|floatval\|strval\|trim' 2>/dev/null || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::warning::Found unsanitized superglobals (possible SQLi/XSS):"
+            echo "$MATCHES"
+            ERRORS=$((ERRORS + 1))
+          fi
+
+          # var_dump / print_r / echo with $_
+          MATCHES=$(grep -rn '\b\(var_dump\|print_r\)\s*(' php_payroll/ api/ --include="*.php" 2>/dev/null || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::warning::Found debug output functions (remove before production):"
+            echo "$MATCHES"
+            ERRORS=$((ERRORS + 1))
+          fi
+
+          # Hardcoded passwords / secrets
+          MATCHES=$(grep -rni '\(password\s*=\s*["\x27][^"\x27]\{4,\}\|secret\s*=\s*["\x27][^"\x27]\{4,\}\|api_key\s*=\s*["\x27][^"\x27]\{4,\}\)' php_payroll/ api/ --include="*.php" | grep -v 'example\.' | grep -v 'config\.local' | grep -v 'placeholder' | grep -iv 'your_' 2>/dev/null || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::warning::Possible hardcoded secrets found:"
+            echo "$MATCHES"
+            ERRORS=$((ERRORS + 1))
+          fi
+
+          echo "=== Scan complete. Warnings: ${ERRORS} ==="

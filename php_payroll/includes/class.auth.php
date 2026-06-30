@@ -100,7 +100,12 @@ class Auth {
         } catch (Exception $e) {
             // Ignore if last_login column doesn't exist
         }
-        
+
+        // Audit log — login
+        if (function_exists('audit_log')) {
+            audit_log('login', 'auth', $user['id'], "User '{$user['username']}' logged in");
+        }
+
         $this->user = $user;
         
         return [
@@ -112,6 +117,12 @@ class Auth {
     
     // Logout user
     public function logout() {
+        // Audit log — logout (session still active at this point)
+        if (function_exists('audit_log') && isset($_SESSION['user_id'])) {
+            $uid = $_SESSION['user_id'];
+            $uname = $_SESSION['username'] ?? 'unknown';
+            audit_log('logout', 'auth', $uid, "User '{$uname}' logged out");
+        }
         $_SESSION = [];
         session_destroy();
         $this->user = null;

@@ -12,6 +12,61 @@ let _sessionExpiredFired = false;
 /** Reset the session-expired guard (call after successful login) */
 export function resetSessionExpiredGuard() { _sessionExpiredFired = false; }
 
+// ── Silent token-refresh state ──────────────────────────────────
+let _refreshPromise: Promise<string | null> | null = null;
+
+/**
+ * Attempt to refresh the ESS JWT token silently.
+ * Returns the new token on success, or null on failure.
+ * Concurrent 401s share the same in-flight refresh promise.
+ */
+async function tryRefreshToken(): Promise<string | null> {
+  if (_refreshPromise) return _refreshPromise;
+
+  _refreshPromise = (async () => {
+    try {
+      // Collect token from both storage locations
+      const essSession = localStorage.getItem('ess_employee');
+      let token: string | null = null;
+      if (essSession) {
+        try { token = JSON.parse(essSession).token; } catch { /* */ }
+      }
+      if (!token) token = localStorage.getItem('ess_token');
+      if (!token) return null;
+
+      const resp = await fetch(`${API_BASE_URL}/api/ess/refresh.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
+        body: JSON.stringify({ token }),
+      });
+
+      if (!resp.ok) return null;
+
+      const json = await resp.json();
+      const newToken: string | undefined = json?.data?.token;
+      if (!newToken) return null;
+
+      // Persist the new token
+      localStorage.setItem('ess_token', newToken);
+      if (essSession) {
+        try {
+          const parsed = JSON.parse(essSession);
+          parsed.token = newToken;
+          localStorage.setItem('ess_employee', JSON.stringify(parsed));
+        } catch { /* */ }
+      }
+
+      return newToken;
+    } catch {
+      return null;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+
+  return _refreshPromise;
+}
+
 // Files base URL for displaying uploaded images
 export const FILES_BASE_URL = `${API_BASE_URL}/uploads`;
 
@@ -122,7 +177,7 @@ export async function apiRequest<T>(
     }
 
     if (!response.ok) {
-      // ── Token expiry / invalid → force re-login ──
+      // ── Token expiry / invalid → try silent refresh first ──
       if (response.status === 401) {
         const isEss = localStorage.getItem('ess_token') || localStorage.getItem('ess_employee');
         if (isEss) {
@@ -138,6 +193,38 @@ export async function apiRequest<T>(
               }
             }
           } catch { /* parse error — proceed with normal clear */ }
+
+          // ── Attempt silent token refresh ──
+          const newToken = await tryRefreshToken();
+          if (newToken) {
+            // Retry the original request with the new token
+            const retryHeaders: Record<string, string> = {
+              'Content-Type': 'application/json',
+              'X-API-KEY': API_KEY,
+              'Authorization': `Bearer ${newToken}`,
+            };
+            if (essSession) {
+              try {
+                const parsed = JSON.parse(essSession);
+                if (parsed?.employee?.id) retryHeaders['X-Employee-ID'] = String(parsed.employee.id);
+              } catch { /* ignore */ }
+            }
+            Object.assign(retryHeaders, options.headers as Record<string, string>);
+
+            const retryResp = await fetch(`${API_BASE_URL}/api${endpoint}`, {
+              ...options,
+              headers: retryHeaders,
+            });
+            const retryText = await retryResp.text();
+            if (retryResp.ok) {
+              let retryData;
+              try { retryData = JSON.parse(retryText); } catch { retryData = retryText; }
+              return { data: retryData as T, error: null };
+            }
+            // Refresh succeeded but retry still failed — fall through to logout
+          }
+
+          // Refresh failed or retry failed — clear session
           localStorage.removeItem('ess_token');
           localStorage.removeItem('ess_employee');
           // Dispatch only ONCE to prevent toast spam from concurrent 401s

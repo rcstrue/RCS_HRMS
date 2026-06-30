@@ -17,6 +17,10 @@ define('DB_NAME', 'your_db_name');
 // ─── Security Constants ──────────────────────────────────────────────────────
 define('API_KEY', 'your_api_key_here');
 define('JWT_SECRET', 'your_jwt_secret_here');
+define('JWT_EXPIRY', 3600); // 1 hour — shortened since token is stored in
+                             // localStorage (XSS-exfiltratable). Pair with
+                             // a refresh-token flow (item 3) so the user
+                             // experience doesn't degrade.
 
 // ─── Timezone ─────────────────────────────────────────────────────────────────
 date_default_timezone_set('Asia/Kolkata');
@@ -119,8 +123,12 @@ class SimpleJWT
 
     /**
      * Decode and validate JWT token. Returns payload array or null.
+     *
+     * @param string $token        The JWT string
+     * @param bool   $allowExpired When true, returns payload even if expired
+     *                              (used by refresh-token flow).
      */
-    public static function decode(string $token): ?array
+    public static function decode(string $token, bool $allowExpired = false): ?array
     {
         $parts = explode('.', $token);
         if (count($parts) !== 3) {
@@ -140,8 +148,8 @@ class SimpleJWT
             return null;
         }
 
-        // Check expiry
-        if (isset($data['exp']) && $data['exp'] < time()) {
+        // Check expiry (skip if allowExpired is true — used for refresh flow)
+        if (!$allowExpired && isset($data['exp']) && $data['exp'] < time()) {
             return null;
         }
 

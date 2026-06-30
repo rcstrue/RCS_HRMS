@@ -5,6 +5,9 @@
 const ESS_TOKEN_KEY = 'ess_token';
 const ESS_SESSION_KEY = 'ess_employee';
 const TOKEN_BUFFER_MS = 60_000; // Refresh 60s before expiry
+const PROACTIVE_REFRESH_INTERVAL_MS = 4 * 60_000; // Check every 4 minutes
+
+let _proactiveRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
 export interface JWTPayload {
   employee_id: number;
@@ -186,4 +189,76 @@ export function getRateLimitStatus(): {
   }
 
   return { remainingAttempts: 5, locked: false, lockoutRemaining: 0, cooldownRemaining: 0 };
+}
+
+// ── Proactive Token Refresh ───────────────────────────────────
+
+/**
+ * Silently refresh the JWT token before it expires.
+ * Call this after login to keep the session alive.
+ * Returns true if refresh succeeded, false otherwise.
+ */
+export async function proactiveRefresh(): Promise<boolean> {
+  const token = getEssToken();
+  if (!token) return false;
+
+  // Only refresh if token is nearing expiry (within buffer window)
+  if (!isTokenExpired(token)) return true; // still fresh
+
+  try {
+    const API_BASE = 'https://join.rcsfacility.com';
+    const API_KEY = typeof import.meta !== 'undefined' && (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY
+      ? (import.meta as Record<string, Record<string, string>>).env.VITE_API_KEY
+      : 'RCS_HRMS_SECURE_KEY_982374982374';
+
+    const resp = await fetch(`${API_BASE}/api/ess/refresh.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
+      body: JSON.stringify({ token }),
+    });
+
+    if (!resp.ok) return false;
+
+    const json = await resp.json();
+    const newToken: string | undefined = json?.data?.token;
+    if (!newToken) return false;
+
+    // Persist
+    localStorage.setItem(ESS_TOKEN_KEY, newToken);
+    const essSession = localStorage.getItem(ESS_SESSION_KEY);
+    if (essSession) {
+      try {
+        const parsed = JSON.parse(essSession);
+        parsed.token = newToken;
+        localStorage.setItem(ESS_SESSION_KEY, JSON.stringify(parsed));
+      } catch { /* */ }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Start the proactive refresh timer.
+ * Checks every PROACTIVE_REFRESH_INTERVAL_MS and refreshes when near expiry.
+ * Call after successful login; call stopProactiveRefresh() on logout.
+ */
+export function startProactiveRefresh(): void {
+  stopProactiveRefresh(); // clear any existing timer
+  _proactiveRefreshTimer = setInterval(() => {
+    proactiveRefresh().catch(() => { /* silent */ });
+  }, PROACTIVE_REFRESH_INTERVAL_MS);
+}
+
+/**
+ * Stop the proactive refresh timer.
+ * Call on logout to prevent refresh attempts with a cleared token.
+ */
+export function stopProactiveRefresh(): void {
+  if (_proactiveRefreshTimer !== null) {
+    clearInterval(_proactiveRefreshTimer);
+    _proactiveRefreshTimer = null;
+  }
 }

@@ -160,6 +160,59 @@ function handleFileUpload($file, $uploadDir = 'uploads/profile/') {
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // ── Server-side input validation ──
+    $validationErrors = [];
+    $rawPost = $_POST;
+
+    if (empty($rawPost['full_name'])) {
+        $validationErrors[] = 'Full name is required.';
+    }
+    if (empty($rawPost['mobile_number'])) {
+        $validationErrors[] = 'Mobile number is required.';
+    } elseif (!preg_match('/^[0-9]{10,15}$/', preg_replace('/[^0-9]/', '', $rawPost['mobile_number']))) {
+        $validationErrors[] = 'Mobile number must be 10-15 digits.';
+    }
+    if (!empty($rawPost['alternate_mobile']) && !preg_match('/^[0-9]{10,15}$/', preg_replace('/[^0-9]/', '', $rawPost['alternate_mobile']))) {
+        $validationErrors[] = 'Alternate mobile must be 10-15 digits.';
+    }
+    if (!empty($rawPost['email']) && !filter_var($rawPost['email'], FILTER_VALIDATE_EMAIL)) {
+        $validationErrors[] = 'Invalid email format.';
+    }
+    if (!empty($rawPost['aadhaar_number'])) {
+        $aadhaarDigits = preg_replace('/[^0-9]/', '', $rawPost['aadhaar_number']);
+        if (!preg_match('/^[0-9]{12}$/', $aadhaarDigits)) {
+            $validationErrors[] = 'Aadhaar number must be exactly 12 digits.';
+        }
+    }
+    if (!empty($rawPost['pin_code']) && !preg_match('/^[0-9]{6}$/', $rawPost['pin_code'])) {
+        $validationErrors[] = 'PIN code must be exactly 6 digits.';
+    }
+    if (!empty($rawPost['ifsc_code']) && !preg_match('/^[A-Z]{4}0[A-Z0-9]{6}$/i', $rawPost['ifsc_code'])) {
+        $validationErrors[] = 'Invalid IFSC code format (e.g. BARB0VJHYA).';
+    }
+    if (!empty($rawPost['date_of_birth']) && !validateDate($rawPost['date_of_birth'], 'Y-m-d')) {
+        $validationErrors[] = 'Invalid date of birth.';
+    }
+    if (!empty($rawPost['date_of_joining']) && !validateDate($rawPost['date_of_joining'], 'Y-m-d')) {
+        $validationErrors[] = 'Invalid date of joining.';
+    }
+    if (!empty($rawPost['nominee_contact']) && !preg_match('/^[0-9]{10,15}$/', preg_replace('/[^0-9]/', '', $rawPost['nominee_contact']))) {
+        $validationErrors[] = 'Nominee contact must be 10-15 digits.';
+    }
+    if (!empty($rawPost['emergency_contact_number']) && !preg_match('/^[0-9]{10,15}$/', preg_replace('/[^0-9]/', '', $rawPost['emergency_contact_number']))) {
+        $validationErrors[] = 'Emergency contact must be 10-15 digits.';
+    }
+
+    // Salary: ensure non-negative
+    foreach (['basic_da', 'hra', 'leave_encashment', 'bonus_encashment', 'washing_allowance'] as $salField) {
+        if (floatval($rawPost[$salField] ?? 0) < 0) {
+            $validationErrors[] = ucfirst(str_replace('_', ' ', $salField)) . ' cannot be negative.';
+        }
+    }
+
+    if (!empty($validationErrors)) {
+        setFlash('error', implode('<br>', $validationErrors));
+    } else {
     $data = [
         'full_name' => sanitize($_POST['full_name']),
         'father_name' => sanitize($_POST['father_name'] ?? ''),
@@ -261,6 +314,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         setFlash('error', $result['message'] ?? 'Failed to save employee');
     }
+    } // end else (validation passed)
 }
 
 // Get dropdown data

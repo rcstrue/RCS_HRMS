@@ -44,12 +44,30 @@ if (!$periodId || !$empCode) {
     exit;
 }
 
+// ── Input validation ──
+if ($periodId < 1) {
+    echo json_encode(['success' => false, 'message' => 'Invalid payroll period ID']);
+    exit;
+}
+if (!preg_match('/^[A-Za-z0-9_\-]+$/', $empCode)) {
+    echo json_encode(['success' => false, 'message' => 'Invalid employee code format']);
+    exit;
+}
+
 // Get salary components - Updated for new salary structure
 $basicDA = floatval($_POST['basic_da'] ?? 0);
 $hra = floatval($_POST['hra'] ?? 0);
 $leaveEncashment = floatval($_POST['leave_encashment'] ?? 0);
 $bonusEncashment = floatval($_POST['bonus_encashment'] ?? 0);
 $washing = floatval($_POST['washing'] ?? 0);
+
+// Validate salary components are non-negative
+foreach ([$basicDA, $hra, $leaveEncashment, $bonusEncashment, $washing] as $val) {
+    if ($val < 0) {
+        echo json_encode(['success' => false, 'message' => 'Salary components cannot be negative']);
+        exit;
+    }
+}
 
 
 // Calculate new values
