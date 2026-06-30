@@ -26,5 +26,6 @@ try {
 
     echo jsonResponse(true, $data);
 } catch (Exception $e) {
-    echo error_log('[ESS designations] ' . $e->getMessage()); jsonError('Internal server error.', 500);
+    error_log('[api/ess/designations] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    jsonError('Internal server error.', 500);
 }

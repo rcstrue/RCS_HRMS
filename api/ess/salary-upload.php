@@ -28,6 +28,7 @@ try {
             jsonOutput(array('success' => false, 'error' => 'Method not allowed'), 405);
     }
 } catch (\Throwable $e) {
+    error_log('[api/ess/salary-upload] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     jsonOutput(array(
         'success' => false,
         'error' => 'Internal server error. Please try again later.'
