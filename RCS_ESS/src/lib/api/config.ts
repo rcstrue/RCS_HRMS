@@ -2,9 +2,7 @@
 const API_BASE_URL = 'https://join.rcsfacility.com';
 
 // API Key for server-side validation (Vite uses import.meta.env)
-const API_KEY = typeof import.meta !== 'undefined' && (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY
-  ? (import.meta as Record<string, Record<string, string>>).env.VITE_API_KEY
-  : 'RCS_HRMS_SECURE_KEY_982374982374';
+const API_KEY = (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY ?? '';
 
 // Guard against duplicate session-expired toasts
 let _sessionExpiredFired = false;
@@ -34,7 +32,7 @@ async function tryRefreshToken(): Promise<string | null> {
       if (!token) token = localStorage.getItem('ess_token');
       if (!token) return null;
 
-      const resp = await fetch(`${API_BASE_URL}/api/ess/refresh.php`, {
+      const resp = await fetch(`${API_BASE_URL}/api/ess/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
         body: JSON.stringify({ token }),
