@@ -48,12 +48,12 @@ jobs:
             set net:reconnect-interval-multiplier 2;
             open -u '${{ secrets.FTP_USER }},${{ secrets.FTP_PASS }}' ${{ secrets.FTP_HOST }};
 
-            # Deploy frontend (dist/ → public_html root)
+            # Deploy frontend (dist/ → FTP root = public_html/)
             lcd RCS_ESS/dist;
             mirror -R --no-symlinks --parallel=4 --no-perms --overwrite;
 
             # Deploy API PHP files (exclude config.php and .htaccess — managed manually on server)
-            cd /api/ess || mkdir -p /api/ess && cd /api/ess;
+            cd api/ess || mkdir -p api/ess && cd api/ess;
             lcd api/ess;
             mirror -R --no-symlinks --parallel=4 --no-perms --overwrite -x ^config\.php$ -x ^\.htaccess$;
 
