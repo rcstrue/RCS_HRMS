@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 If you discover a security vulnerability in this repository, please report it
-privately rather than opening a public issue. Email: security@rcsfacility.com
+privately rather than opening a public issue. Email: rcstrue@gmail.com
 
 We will acknowledge receipt within 3 business days and aim to provide a fix
 timeline within 7 business days for confirmed issues.
