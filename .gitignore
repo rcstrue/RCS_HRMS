@@ -1,0 +1,15 @@
+# OS/editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# AI tool index files (auto-generated, noisy diffs)
+.ai/
+
+# Runtime
+*.pid
+*.log
