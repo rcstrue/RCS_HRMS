@@ -57,7 +57,7 @@ function _handleProfile(): void
     // Fetch employee profile with joins — USE TABLE ALIASES for ALL columns
     // NOTE: employees table does NOT have has_custom_pin column.
     // Custom PIN status is determined by: ec.pin IS NOT NULL
-    $stmt = $conn->prepare('
+    $stmt = $conn->prepare("
         SELECT
             e.id AS employee_id,
             e.full_name,
@@ -86,7 +86,7 @@ function _handleProfile(): void
         LEFT JOIN ess_employee_cache ec ON ec.employee_id = CAST(e.id AS CHAR COLLATE utf8mb4_unicode_ci)
         LEFT JOIN units u ON u.id = e.unit_id
         WHERE e.id = ? AND e.status IN ('approved', 'active')
-    ');
+    ");
     $intId = (int)$employeeId;
     $stmt->bind_param('i', $intId);
     $stmt->execute();

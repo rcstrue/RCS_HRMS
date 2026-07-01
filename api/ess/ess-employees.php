@@ -45,7 +45,7 @@ function getParam($key, $default = '') {
 // GET - Single Employee Detail by ID (full profile with all columns)
 // ============================================================================
 function handleGetById($conn, $targetId) {
-    $stmt = $conn->prepare('
+    $stmt = $conn->prepare("
         SELECT
             e.id as employee_id,
             e.employee_code,
@@ -102,7 +102,7 @@ function handleGetById($conn, $targetId) {
         LEFT JOIN units u ON e.unit_id = u.id
         WHERE e.id = ? AND e.status IN ('approved', 'active')
         LIMIT 1
-    ');
+    ");
     $stmt->bind_param('i', $targetId);
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();

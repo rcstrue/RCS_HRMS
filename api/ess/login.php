@@ -49,7 +49,7 @@ try {
         return;
     }
 
-    $stmt = $conn->prepare('
+    $stmt = $conn->prepare("
         SELECT e.id, e.full_name, e.mobile_number, e.email, e.designation, e.department,
                e.state AS emp_state, e.date_of_joining, e.employee_code, e.employee_role,
                e.app_role, e.worker_category, e.profile_pic_url, e.date_of_birth,
@@ -60,7 +60,7 @@ try {
         LEFT JOIN clients c ON c.id = e.client_id
         LEFT JOIN units u ON u.id = e.unit_id
         WHERE e.mobile_number = ? AND e.status IN ('approved', 'active')
-    ');
+    ");
     if (!$stmt) {
         jsonOutput(array('success' => false, 'error' => 'Database query error'), 500);
         return;
