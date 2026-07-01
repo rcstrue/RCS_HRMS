@@ -43,7 +43,7 @@ export const MORE_MENU_ITEMS = [
   { key: 'announcements', label: 'Notices', icon: Megaphone, description: 'Company announcements & updates' },
   { key: 'helpdesk', label: 'Help Desk', icon: CircleHelp, description: 'Submit support tickets' },
   { key: 'unit-visits', label: 'Unit Visit Checklist', icon: MapPin, description: 'Submit visit checklists' },
-  { key: 'manpower-status', label: 'Manpower Status', icon: ClipboardEdit, description: 'Daily manpower budget & actual' },
+  { key: 'manpower-status', label: 'Manpower Status', icon: ClipboardList, description: 'Daily manpower budget & actual' },
   { key: 'team-monthly', label: 'Team Monthly', icon: TableProperties, description: 'Attendance & advances for team' },
   { key: 'regularization', label: 'Regularization', icon: FileEdit, description: 'Regularize missed check-ins' },
   { key: 'holidays', label: 'Holidays', icon: PartyPopper, description: 'Company holiday calendar' },

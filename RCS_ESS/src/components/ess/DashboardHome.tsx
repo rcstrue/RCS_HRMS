@@ -25,7 +25,7 @@ import {
   Timer,
   MapPin,
   Loader2,
-  ClipboardEdit,
+  ClipboardList,
   ShieldCheck,
 } from 'lucide-react';
 
@@ -360,7 +360,7 @@ export default function DashboardHome({
           <SummaryCard loading={loading} icon={<ShieldCheck className="w-3.5 h-3.5 text-amber-500" />} label="Approvals" value={String((dashboardData?.pendingLeaves ?? 0) + (dashboardData?.pendingExpenses ?? 0))} subtext="Pending action" onClick={() => onNavigate('leaves')} />
         )}
         {canViewEmployees && (
-          <SummaryCard loading={loading} icon={<ClipboardEdit className="w-3.5 h-3.5 text-blue-500" />} label="Manpower" value="Update" subtext="Daily status" onClick={() => onNavigate('manpower-status')} />
+          <SummaryCard loading={loading} icon={<ClipboardList className="w-3.5 h-3.5 text-blue-500" />} label="Manpower" value="Update" subtext="Daily status" onClick={() => onNavigate('manpower-status')} />
         )}
         {canViewEmployees && (
           <SummaryCard loading={loading} icon={<MapPin className="w-3.5 h-3.5 text-teal-500" />} label="Unit Visits" value="Go" subtext="Submit checklists" onClick={() => onNavigate('unit-visits')} />

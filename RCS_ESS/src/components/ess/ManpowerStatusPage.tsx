@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ClipboardEdit, BarChart3 } from 'lucide-react';
+import { ClipboardList, BarChart3 } from 'lucide-react';
 
 import ManpowerStatusEntry from './ManpowerStatusEntry';
 import ManpowerStatusDashboard from './ManpowerStatusDashboard';
@@ -27,7 +27,7 @@ export default function ManpowerStatusPage({ employeeId, unitIds }: Props) {
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          <ClipboardEdit className="w-4 h-4" />
+          <ClipboardList className="w-4 h-4" />
           Entry
         </button>
         <button
