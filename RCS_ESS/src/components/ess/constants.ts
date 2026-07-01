@@ -54,3 +54,4 @@ export const MORE_MENU_ITEMS = [
   { key: 'new-registration', label: 'New Registration', icon: UserPlus, description: 'Register a new employee' },
   { key: 'install-app', label: 'Install App', icon: Download, description: 'Add to home screen for quick access' },
 ] as const;
+
