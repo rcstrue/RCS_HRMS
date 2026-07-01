@@ -284,8 +284,9 @@ function _recordFailedLogin(mysqli $conn, string $rateId): void
         $stmt = $conn->prepare('UPDATE login_attempts SET attempts = ?, last_attempt = ?, locked_until = ? WHERE username = ?');
         $stmt->bind_param('isss', $attempts, $now, $lockedUntil, $rateId);
     } else {
-        $stmt = $conn->prepare('INSERT INTO login_attempts (username, ip, attempts, last_attempt, locked_until) VALUES (?, '', 1, ?, NULL)');
-        $stmt->bind_param('ss', $rateId, $now);
+        $stmt = $conn->prepare('INSERT INTO login_attempts (username, ip, attempts, last_attempt, locked_until) VALUES (?, ?, 1, ?, NULL)');
+        $emptyIp = '';
+        $stmt->bind_param('sss', $rateId, $emptyIp, $now);
     }
     $stmt->execute();
     $stmt->close();
