@@ -26,6 +26,7 @@ import RegularizationPage from './RegularizationPage';
 import UnitVisitsPage from './UnitVisitsPage';
 import ManpowerStatusPage from './ManpowerStatusPage';
 import SendNotificationPage from './SendNotificationPage';
+import TeamMonthlyPage from './TeamMonthlyPage';
 import PayslipPage from './PayslipPage';
 import { InstallBanner, PermissionDialog } from './InstallBanner';
 
@@ -457,6 +458,13 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
         {currentPage === 'manpower-status' && (
           <ManpowerStatusPage
             employeeId={emp.id}
+            unitIds={access.allocation?.units ?? []}
+          />
+        )}
+        {currentPage === 'team-monthly' && (
+          <TeamMonthlyPage
+            employeeId={emp.id}
+            scope={scope}
             unitIds={access.allocation?.units ?? []}
           />
         )}

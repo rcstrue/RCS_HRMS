@@ -5,7 +5,8 @@ import type {
   HelpdeskTicket, Announcement, PaginatedResponse,
   ClientOption, UnitOption, Employee, AdvanceAllocation, EmployeeRole, UnitVisit,
   ChecklistCategory, VisitChecklistItem, VisitDashboardData,
-  ManpowerEntry, ManpowerDashboardData
+  ManpowerEntry, ManpowerDashboardData,
+  TeamSummaryResponse
 } from './ess-types';
 
 // ══════════════════════════════════════════════════════════════
@@ -432,5 +433,27 @@ export async function deleteManpowerStatus(id: number) {
   return unwrap(apiRequest('/ess/manpower-status', {
     method: 'DELETE',
     body: JSON.stringify({ id }),
+  }));
+}
+
+// ===== Team Monthly Summary (Attendance + Advances) =====
+export async function fetchTeamSummary(unitId: number, month: number, year: number) {
+  return unwrap<TeamSummaryResponse>(apiRequest<TeamSummaryResponse>(
+    `/ess/team-summary?unit_id=${unitId}&month=${month}&year=${year}`
+  ));
+}
+
+export async function saveTeamAdvance(data: {
+  employee_id: string;
+  unit_id: number;
+  month: number;
+  year: number;
+  adv1: number;
+  office_advance: number;
+  dress_advance: number;
+}) {
+  return unwrap(apiRequest('/ess/team-summary', {
+    method: 'POST',
+    body: JSON.stringify(data),
   }));
 }

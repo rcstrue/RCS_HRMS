@@ -391,3 +391,29 @@ export interface ManpowerDashboardData {
   units: ManpowerDashboardUnit[];
   daily_breakdown: ManpowerDailyBreakdown[];
 }
+
+// ===== Team Monthly Summary =====
+export interface TeamSummaryRow {
+  employee_id: string;
+  employee_code: string;
+  full_name: string;
+  present: number;
+  wo: number;
+  adv1: number;
+  office_advance: number;
+  dress_advance: number;
+}
+
+export interface TeamSummaryTotals {
+  present: number;
+  wo: number;
+  adv1: number;
+  office_advance: number;
+  dress_advance: number;
+}
+
+export interface TeamSummaryResponse {
+  items: TeamSummaryRow[];
+  totals: TeamSummaryTotals;
+  count: number;
+}
