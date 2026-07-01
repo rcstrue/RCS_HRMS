@@ -66,13 +66,11 @@ export function useNotifications(employeeId: number) {
     }
   }, [employeeId]);
 
-  // Initial load + polling every 30s
+  // Initial load only (no polling — refetch on demand via fetchNotifications)
   useEffect(() => {
     if (!employeeId) return;
     fetchNotifications();
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, [employeeId, fetchNotifications, fetchUnreadCount]);
+  }, [employeeId, fetchNotifications]);
 
   // Local add (for in-app events like leave/expense/task)
   const addNotification = useCallback(
