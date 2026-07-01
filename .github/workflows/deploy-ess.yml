@@ -53,7 +53,7 @@ jobs:
             mirror -R --no-symlinks --parallel=4 --no-perms --overwrite;
 
             # Deploy API PHP files (exclude config.php and .htaccess — managed manually on server)
-            cd api/ess || mkdir -p api/ess && cd api/ess;
+            cd api/ess;
             lcd api/ess;
             mirror -R --no-symlinks --parallel=4 --no-perms --overwrite -x ^config\.php$ -x ^\.htaccess$;
 
