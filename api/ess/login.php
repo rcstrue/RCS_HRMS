@@ -171,9 +171,11 @@ try {
     // ─── Generate JWT ─────────────────────────────────────────────────────
     $token = SimpleJWT::encode(array(
         'employee_id' => $employeeId,
-        'role' => $role,
-        'full_name' => $employee['full_name']
-    ), JWT_EXPIRY);
+        'role'        => $role,
+        'full_name'   => $employee['full_name'],
+        'iat'         => time(),
+        'exp'         => time() + JWT_EXPIRY,
+    ), JWT_SECRET);
 
     _clearFailedLogins($conn, $rateId);
 
