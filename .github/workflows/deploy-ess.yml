@@ -49,13 +49,10 @@ jobs:
             open -u '${{ secrets.FTP_USER }},${{ secrets.FTP_PASS }}' ${{ secrets.FTP_HOST }};
 
             # Deploy frontend (dist/ → FTP root = public_html/)
-            lcd RCS_ESS/dist;
-            mirror -R --no-symlinks --parallel=4 --no-perms --overwrite;
+            mirror -R --no-symlinks --parallel=4 --no-perms --overwrite RCS_ESS/dist .
 
-            # Deploy API PHP files (exclude config.php and .htaccess — managed manually on server)
-            cd api/ess;
-            lcd api/ess;
-            mirror -R --no-symlinks --parallel=4 --no-perms --overwrite -x ^config\.php$ -x ^\.htaccess$;
+            # Deploy API PHP files to api/ess/ (exclude config.php and .htaccess — managed manually on server)
+            mirror -R --no-symlinks --parallel=4 --no-perms --overwrite -x ^config\.php$ -x ^\.htaccess$ api/ess api/ess;
 
             quit
           "
