@@ -9,6 +9,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Plus,
+  Trash2,
+  X,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -17,6 +20,8 @@ import {
   fetchUnits,
   fetchTeamSummary,
   saveTeamAdvance,
+  addTempEmployee,
+  deleteTempEmployee,
 } from '@/lib/ess-api';
 import type { ClientOption, UnitOption, TeamSummaryRow, TeamSummaryTotals } from '@/lib/ess-types';
 
@@ -24,6 +29,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -31,6 +37,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 // ── Props ──────────────────────────────────────────
 interface TeamMonthlyPageProps {
@@ -66,6 +78,12 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
 
   // Track which rows have unsaved changes
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
+
+  // Temp employee dialog
+  const [showAddTemp, setShowAddTemp] = useState(false);
+  const [tempName, setTempName] = useState('');
+  const [addingTemp, setAddingTemp] = useState(false);
+  const [deletingTemp, setDeletingTemp] = useState<string | null>(null);
 
   // ── Load filters ──
   const loadFilters = useCallback(async () => {
@@ -189,6 +207,66 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
     }
   };
 
+  // ── Add temp employee ──
+  const handleAddTemp = async () => {
+    const name = tempName.trim();
+    if (!name) {
+      toast.error('Please enter a name');
+      return;
+    }
+    const unitId = Number(selectedUnit);
+    if (!unitId) return;
+
+    setAddingTemp(true);
+    try {
+      const res = await addTempEmployee({
+        name,
+        unit_id: unitId,
+        month: selectedMonth,
+        year: selectedYear,
+      });
+      if (!res.error) {
+        toast.success('Temp employee added');
+        setTempName('');
+        setShowAddTemp(false);
+        loadSummary();
+      } else {
+        toast.error(res.error || 'Failed to add temp employee');
+      }
+    } catch (err) {
+      console.error('Failed to add temp employee:', err);
+      toast.error('Failed to add temp employee');
+    } finally {
+      setAddingTemp(false);
+    }
+  };
+
+  // ── Delete temp employee ──
+  const handleDeleteTemp = async (row: TeamSummaryRow) => {
+    // employee_id is "TEMP-<id>"
+    const tempId = parseInt(row.employee_id.replace('TEMP-', ''), 10);
+    if (isNaN(tempId)) return;
+
+    setDeletingTemp(row.employee_id);
+    try {
+      const res = await deleteTempEmployee({
+        temp_id: tempId,
+        unit_id: Number(selectedUnit),
+      });
+      if (!res.error) {
+        toast.success('Temp employee removed');
+        loadSummary();
+      } else {
+        toast.error(res.error || 'Failed to remove');
+      }
+    } catch (err) {
+      console.error('Failed to remove temp employee:', err);
+      toast.error('Failed to remove temp employee');
+    } finally {
+      setDeletingTemp(null);
+    }
+  };
+
   // ── Export CSV ──
   const handleExport = () => {
     const headers = ['Employee Code', 'Name', 'Present', 'WO', 'Adv 1', 'Office Adv', 'Dress Adv'];
@@ -216,11 +294,18 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-gray-900">Team Attendance & Advances</h2>
-        {rows.length > 0 && (
-          <Button variant="outline" size="sm" onClick={handleExport} className="gap-1.5 text-xs">
-            <Download className="w-3.5 h-3.5" /> Export
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {selectedUnit && rows.length >= 0 && (
+            <Button variant="outline" size="sm" onClick={() => setShowAddTemp(true)} className="gap-1.5 text-xs">
+              <Plus className="w-3.5 h-3.5" /> Temp Employee
+            </Button>
+          )}
+          {rows.length > 0 && (
+            <Button variant="outline" size="sm" onClick={handleExport} className="gap-1.5 text-xs">
+              <Download className="w-3.5 h-3.5" /> Export
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -327,6 +412,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
                   <th className="text-center px-3 py-2.5 font-semibold text-blue-600 w-24">Adv 1</th>
                   <th className="text-center px-3 py-2.5 font-semibold text-blue-600 w-24">Office Adv</th>
                   <th className="text-center px-3 py-2.5 font-semibold text-blue-600 w-24">Dress Adv</th>
+                  <th className="w-10"></th>
                 </tr>
               </thead>
               <tbody>
@@ -335,11 +421,19 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
                     key={row.employee_id}
                     className={cn(
                       'border-b last:border-b-0 transition-colors',
-                      dirty[row.employee_id] ? 'bg-blue-50/50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
+                      dirty[row.employee_id] ? 'bg-blue-50/50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50',
+                      row.is_temp && 'bg-orange-50/30'
                     )}
                   >
-                    <td className="px-3 py-2 font-mono text-gray-700">{row.employee_code}</td>
-                    <td className="px-3 py-2 font-medium text-gray-900 truncate max-w-[120px]">{row.full_name}</td>
+                    <td className="px-3 py-2 font-mono text-gray-700">{row.employee_code || '—'}</td>
+                    <td className="px-3 py-2 font-medium text-gray-900 truncate max-w-[120px]">
+                      {row.full_name}
+                      {row.is_temp && (
+                        <Badge variant="outline" className="ml-1.5 text-[10px] px-1.5 py-0 text-orange-600 border-orange-300 bg-orange-50">
+                          TEMP
+                        </Badge>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-center text-gray-700">{row.present}</td>
                     <td className="px-3 py-2 text-center text-gray-700">{row.wo}</td>
                     <td className="px-1 py-1">
@@ -375,6 +469,21 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
                         placeholder="0"
                       />
                     </td>
+                    <td className="px-1 py-1 text-center">
+                      {row.is_temp && (
+                        <button
+                          onClick={() => handleDeleteTemp(row)}
+                          disabled={deletingTemp === row.employee_id}
+                          className="p-1.5 rounded-lg hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                          title="Remove temp employee"
+                        >
+                          {deletingTemp === row.employee_id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <Trash2 className="w-3.5 h-3.5" />
+                          }
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -386,6 +495,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
                   <td className="px-3 py-2.5 text-center text-blue-700">{totals.adv1}</td>
                   <td className="px-3 py-2.5 text-center text-blue-700">{totals.office_advance}</td>
                   <td className="px-3 py-2.5 text-center text-blue-700">{totals.dress_advance}</td>
+                  <td></td>
                 </tr>
               </tfoot>
             </table>
@@ -399,6 +509,40 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
           <p className="text-sm text-gray-500">No employees found for this unit</p>
         </div>
       )}
+
+      {/* Add Temp Employee Dialog */}
+      <Dialog open={showAddTemp} onOpenChange={setShowAddTemp}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base">Add Temp Employee</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <p className="text-xs text-gray-500">
+              Temp employees are valid for one month only ({MONTHS[selectedMonth - 1]} {selectedYear}). They are not registered in the system.
+            </p>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-600">Employee Name</Label>
+              <Input
+                value={tempName}
+                onChange={e => setTempName(e.target.value)}
+                placeholder="Enter full name"
+                className="h-10 text-sm"
+                onKeyDown={e => { if (e.key === 'Enter' && !addingTemp) handleAddTemp(); }}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => { setShowAddTemp(false); setTempName(''); }} className="text-xs">
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleAddTemp} disabled={addingTemp || !tempName.trim()} className="gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700">
+                {addingTemp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                Add
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
