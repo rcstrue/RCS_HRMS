@@ -11,6 +11,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
 
 // How long past expiry we still allow a refresh (grace period)
@@ -31,7 +32,7 @@ try {
     }
 
     // Decode with allowExpired = true — we want to accept recently-expired tokens
-    $payload = SimpleJWT::decode($token, allowExpired: true);
+    $payload = SimpleJWT::decode($token, true);
 
     if (!$payload) {
         jsonOutput(['success' => false, 'error' => 'Invalid or malformed token'], 401);

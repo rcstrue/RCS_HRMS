@@ -173,9 +173,7 @@ try {
         'employee_id' => $employeeId,
         'role'        => $role,
         'full_name'   => $employee['full_name'],
-        'iat'         => time(),
-        'exp'         => time() + JWT_EXPIRY,
-    ), JWT_SECRET);
+    ), JWT_EXPIRY);
 
     _clearFailedLogins($conn, $rateId);
 

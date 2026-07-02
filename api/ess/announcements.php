@@ -25,6 +25,7 @@ try {
             jsonOutput(['success' => false, 'error' => 'Method not allowed'], 405);
     }
 } catch (\Throwable $e) {
+    error_log('[ESS announcements] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
 }
 

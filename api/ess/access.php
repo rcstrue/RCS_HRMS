@@ -194,5 +194,6 @@ try {
     ));
 
 } catch (\Throwable $e) {
+    error_log('[ESS access] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     jsonOutput(array('success' => false, 'error' => 'Internal server error. Please try again later.'), 500);
 }

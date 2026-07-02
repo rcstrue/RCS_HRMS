@@ -10,6 +10,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
 
 try {
@@ -44,6 +45,7 @@ try {
             jsonOutput(['success' => false, 'error' => 'Invalid view parameter'], 400);
     }
 } catch (\Throwable $e) {
+    error_log('[ESS filters] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
 }
 

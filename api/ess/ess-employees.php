@@ -11,6 +11,7 @@
 
 require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
 validateApiKey();
 
@@ -31,6 +32,7 @@ try {
             jsonOutput(['success' => false, 'error' => 'Method not allowed. Use GET.'], 405);
     }
 } catch (Exception $e) {
+    error_log('[ESS ess-employees] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
 }
 
