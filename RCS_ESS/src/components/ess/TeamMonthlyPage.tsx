@@ -61,10 +61,19 @@ const MONTHS = [
   'July','August','September','October','November','December',
 ];
 
+// ── Field config ───────────────────────────────────
+const FIELDS: { key: keyof TeamSummaryRow; label: string; color: 'green' | 'blue' }[] = [
+  { key: 'present', label: 'Present', color: 'green' },
+  { key: 'wo', label: 'WO', color: 'green' },
+  { key: 'adv1', label: 'Adv 1', color: 'blue' },
+  { key: 'office_advance', label: 'Off Adv', color: 'blue' },
+  { key: 'dress_advance', label: 'Dress Adv', color: 'blue' },
+];
+
 // ── Helpers ────────────────────────────────────────
 function getPreviousMonth(): [number, number] {
   const now = new Date();
-  const m = now.getMonth(); // 0-indexed
+  const m = now.getMonth();
   if (m === 0) return [12, now.getFullYear() - 1];
   return [m, now.getFullYear()];
 }
@@ -156,7 +165,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
     if (selectedUnit) loadSummary();
   }, [selectedUnit, loadSummary]);
 
-  // ── Handle field change (present, wo, or advance) ──
+  // ── Handle field change ──
   const handleFieldChange = (empId: string, field: keyof TeamSummaryRow, value: string) => {
     const numVal = value === '' ? 0 : parseFloat(value);
     if (isNaN(numVal) || numVal < 0) return;
@@ -331,19 +340,19 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
   const hasDirty = Object.keys(dirty).length > 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-24">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-gray-900">Team Attendance</h2>
         <div className="flex gap-2">
           {selectedUnit && (
             <Button variant="outline" size="sm" onClick={() => setShowAddTemp(true)} className="gap-1.5 text-xs">
-              <Plus className="w-3.5 h-3.5" /> Temp Employee
+              <Plus className="w-3.5 h-3.5" /> Temp
             </Button>
           )}
           {rows.length > 0 && (
             <Button variant="outline" size="sm" onClick={handleExport} className="gap-1.5 text-xs">
-              <Download className="w-3.5 h-3.5" /> Export
+              <Download className="w-3.5 h-3.5" /> CSV
             </Button>
           )}
         </div>
@@ -419,155 +428,138 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
 
       {/* Loading */}
       {loading && (
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full" />
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-36 w-full rounded-xl" />
           ))}
         </div>
       )}
 
-      {/* Table */}
-      {!loading && rows.length > 0 && (
-        <div className="bg-white rounded-xl border overflow-hidden">
-          {/* Save button */}
-          {hasDirty && (
-            <div className="bg-amber-50 px-3 py-2 border-b flex items-center justify-between">
-              <span className="text-xs text-amber-700 font-medium">
-                {Object.keys(dirty).length} unsaved change{Object.keys(dirty).length > 1 ? 's' : ''}
-              </span>
-              <Button size="sm" onClick={handleSave} disabled={saving} className="gap-1.5 h-7 text-xs bg-emerald-600 hover:bg-emerald-700">
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                Save
-              </Button>
-            </div>
-          )}
+      {/* Save bar — sticky bottom */}
+      {hasDirty && !loading && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t shadow-lg px-4 py-3 flex items-center justify-between safe-area-bottom">
+          <span className="text-sm text-amber-700 font-medium">
+            {Object.keys(dirty).length} unsaved change{Object.keys(dirty).length > 1 ? 's' : ''}
+          </span>
+          <Button onClick={handleSave} disabled={saving} className="gap-2 h-10 px-5 bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save
+          </Button>
+        </div>
+      )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-gray-50 border-b">
-                  <th className="text-left px-2 py-2.5 font-semibold text-gray-600 whitespace-nowrap">Code</th>
-                  <th className="text-left px-2 py-2.5 font-semibold text-gray-600 whitespace-nowrap">Name</th>
-                  <th className="text-center px-1 py-2.5 font-semibold text-emerald-600 w-14">Present</th>
-                  <th className="text-center px-1 py-2.5 font-semibold text-emerald-600 w-12">WO</th>
-                  <th className="text-center px-1 py-2.5 font-semibold text-blue-600 w-20">Adv 1</th>
-                  <th className="text-center px-1 py-2.5 font-semibold text-blue-600 w-20">Off Adv</th>
-                  <th className="text-center px-1 py-2.5 font-semibold text-blue-600 w-20">Dress Adv</th>
-                  <th className="w-9"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, idx) => (
-                  <tr
-                    key={row.employee_id}
-                    className={cn(
-                      'border-b last:border-b-0 transition-colors',
-                      dirty[row.employee_id] ? 'bg-blue-50/50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50',
-                      row.is_temp && 'bg-orange-50/30'
-                    )}
+      {/* Employee Cards — mobile-first layout */}
+      {!loading && rows.length > 0 && (
+        <div className="space-y-3">
+          {rows.map((row, idx) => (
+            <div
+              key={row.employee_id}
+              className={cn(
+                'bg-white rounded-xl border overflow-hidden transition-all',
+                dirty[row.employee_id]
+                  ? 'border-blue-300 ring-1 ring-blue-200 bg-blue-50/30'
+                  : 'border-gray-200',
+                row.is_temp && 'border-orange-200 bg-orange-50/20',
+              )}
+            >
+              {/* Card header — employee info + remove button */}
+              <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100">
+                <div className="flex items-center gap-2 min-w-0">
+                  {row.employee_code && (
+                    <span className="text-xs font-mono text-gray-400 shrink-0">{row.employee_code}</span>
+                  )}
+                  <span className="text-sm font-semibold text-gray-900 truncate">
+                    {row.full_name}
+                  </span>
+                  {row.is_temp && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-orange-600 border-orange-300 bg-orange-50 shrink-0">
+                      TEMP
+                    </Badge>
+                  )}
+                </div>
+                {row.is_temp ? (
+                  <button
+                    onClick={() => handleDeleteTemp(row)}
+                    disabled={deletingTemp === row.employee_id}
+                    className="p-2 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50 shrink-0 ml-2"
+                    title="Remove temp employee"
                   >
-                    <td className="px-2 py-1.5 font-mono text-gray-700 text-[11px]">{row.employee_code || '—'}</td>
-                    <td className="px-2 py-1.5 font-medium text-gray-900 truncate max-w-[100px]">
-                      {row.full_name}
-                      {row.is_temp && (
-                        <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 text-orange-600 border-orange-300 bg-orange-50">
-                          TEMP
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="px-0.5 py-0.5">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={row.present || ''}
-                        onChange={e => handleFieldChange(row.employee_id, 'present', e.target.value)}
-                        className="h-7 text-[11px] text-center bg-emerald-50/50 border-emerald-200 focus:border-emerald-400"
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="px-0.5 py-0.5">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={row.wo || ''}
-                        onChange={e => handleFieldChange(row.employee_id, 'wo', e.target.value)}
-                        className="h-7 text-[11px] text-center bg-emerald-50/50 border-emerald-200 focus:border-emerald-400"
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="px-0.5 py-0.5">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={row.adv1 || ''}
-                        onChange={e => handleFieldChange(row.employee_id, 'adv1', e.target.value)}
-                        className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="px-0.5 py-0.5">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={row.office_advance || ''}
-                        onChange={e => handleFieldChange(row.employee_id, 'office_advance', e.target.value)}
-                        className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="px-0.5 py-0.5">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={row.dress_advance || ''}
-                        onChange={e => handleFieldChange(row.employee_id, 'dress_advance', e.target.value)}
-                        className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="px-0.5 py-0.5 text-center">
-                      {row.is_temp ? (
-                        <button
-                          onClick={() => handleDeleteTemp(row)}
-                          disabled={deletingTemp === row.employee_id}
-                          className="p-1 rounded hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors disabled:opacity-50"
-                          title="Remove temp employee"
-                        >
-                          {deletingTemp === row.employee_id
-                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            : <Trash2 className="w-3.5 h-3.5" />
-                          }
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => setRemoveTarget(row)}
-                          className="p-1 rounded hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors"
-                          title="Remove employee (mark as left)"
-                        >
-                          <UserMinus className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-gray-100 border-t-2 border-gray-300 font-bold">
-                  <td colSpan={2} className="px-2 py-2 text-gray-800 text-[11px]">TOTAL ({rows.length})</td>
-                  <td className="px-1 py-2 text-center text-emerald-700">{totals.present}</td>
-                  <td className="px-1 py-2 text-center text-emerald-700">{totals.wo}</td>
-                  <td className="px-1 py-2 text-center text-blue-700">{totals.adv1}</td>
-                  <td className="px-1 py-2 text-center text-blue-700">{totals.office_advance}</td>
-                  <td className="px-1 py-2 text-center text-blue-700">{totals.dress_advance}</td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
+                    {deletingTemp === row.employee_id
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Trash2 className="w-4 h-4" />
+                    }
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setRemoveTarget(row)}
+                    className="p-2 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors shrink-0 ml-2"
+                    title="Remove employee"
+                  >
+                    <UserMinus className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Card body — input fields grid */}
+              <div className="grid grid-cols-3 gap-0 divide-x divide-gray-100">
+                {FIELDS.map((field) => {
+                  const value = row[field.key] as number || 0;
+                  const isGreen = field.color === 'green';
+                  return (
+                    <div key={field.key} className="flex flex-col">
+                      <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 text-center pt-2 pb-0.5 px-1">
+                        {field.label}
+                      </label>
+                      <div className="px-2 pb-2 pt-0.5">
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min="0"
+                          step="1"
+                          value={value || ''}
+                          onChange={e => handleFieldChange(row.employee_id, field.key, e.target.value)}
+                          placeholder="0"
+                          className={cn(
+                            'w-full h-11 text-center text-base font-semibold rounded-lg border-2 transition-colors',
+                            'focus:outline-none focus:ring-0',
+                            'placeholder:text-gray-300 placeholder:font-normal',
+                            isGreen
+                              ? 'bg-emerald-50/80 border-emerald-200 text-emerald-700 focus:border-emerald-500'
+                              : 'bg-blue-50/80 border-blue-200 text-blue-700 focus:border-blue-500',
+                          )}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          {/* Totals card */}
+          <div className="bg-gray-50 rounded-xl border-2 border-gray-200 px-3 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total ({rows.length} employees)</span>
+            </div>
+            <div className="grid grid-cols-3 gap-0 divide-x divide-gray-200">
+              {FIELDS.map((field) => {
+                const value = totals[field.key as keyof TeamSummaryTotals] || 0;
+                const isGreen = field.color === 'green';
+                return (
+                  <div key={field.key} className="text-center px-2 py-1">
+                    <div className={cn(
+                      'text-lg font-bold',
+                      isGreen ? 'text-emerald-700' : 'text-blue-700',
+                    )}>
+                      {value}
+                    </div>
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                      {field.label}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
