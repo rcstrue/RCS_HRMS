@@ -11,7 +11,8 @@ import {
   Download,
   Plus,
   Trash2,
-  X,
+  UserMinus,
+  AlertTriangle,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -22,6 +23,7 @@ import {
   saveTeamAdvance,
   addTempEmployee,
   deleteTempEmployee,
+  removeEmployee,
 } from '@/lib/ess-api';
 import type { ClientOption, UnitOption, TeamSummaryRow, TeamSummaryTotals } from '@/lib/ess-types';
 
@@ -42,6 +44,8 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog';
 
 // ── Props ──────────────────────────────────────────
@@ -57,17 +61,26 @@ const MONTHS = [
   'July','August','September','October','November','December',
 ];
 
+// ── Helpers ────────────────────────────────────────
+function getPreviousMonth(): [number, number] {
+  const now = new Date();
+  const m = now.getMonth(); // 0-indexed
+  if (m === 0) return [12, now.getFullYear() - 1];
+  return [m, now.getFullYear()];
+}
+
 // ── Component ──────────────────────────────────────
 export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMonthlyPageProps) {
-  // Filters
+  // Filters — default to previous month
+  const [prevMonth, prevYear] = getPreviousMonth();
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [filtersLoading, setFiltersLoading] = useState(true);
 
   const [selectedClient, setSelectedClient] = useState('');
   const [selectedUnit, setSelectedUnit] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(prevMonth);
+  const [selectedYear, setSelectedYear] = useState(prevYear);
 
   // Data
   const [rows, setRows] = useState<TeamSummaryRow[]>([]);
@@ -84,6 +97,10 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
   const [tempName, setTempName] = useState('');
   const [addingTemp, setAddingTemp] = useState(false);
   const [deletingTemp, setDeletingTemp] = useState<string | null>(null);
+
+  // Remove employee confirmation dialog
+  const [removeTarget, setRemoveTarget] = useState<TeamSummaryRow | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   // ── Load filters ──
   const loadFilters = useCallback(async () => {
@@ -139,8 +156,8 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
     if (selectedUnit) loadSummary();
   }, [selectedUnit, loadSummary]);
 
-  // ── Handle advance field change ──
-  const handleAdvChange = (empId: string, field: 'adv1' | 'office_advance' | 'dress_advance', value: string) => {
+  // ── Handle field change (present, wo, or advance) ──
+  const handleFieldChange = (empId: string, field: keyof TeamSummaryRow, value: string) => {
     const numVal = value === '' ? 0 : parseFloat(value);
     if (isNaN(numVal) || numVal < 0) return;
 
@@ -185,6 +202,8 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
           unit_id: Number(selectedUnit),
           month: selectedMonth,
           year: selectedYear,
+          present: row.present,
+          wo: row.wo,
           adv1: row.adv1,
           office_advance: row.office_advance,
           dress_advance: row.dress_advance,
@@ -201,7 +220,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
     setDirty({});
 
     if (failed === 0) {
-      toast.success(`Saved advances for ${saved} employee${saved > 1 ? 's' : ''}`);
+      toast.success(`Saved for ${saved} employee${saved > 1 ? 's' : ''}`);
     } else {
       toast.error(`Saved ${saved}, failed ${failed}`);
     }
@@ -243,7 +262,6 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
 
   // ── Delete temp employee ──
   const handleDeleteTemp = async (row: TeamSummaryRow) => {
-    // employee_id is "TEMP-<id>"
     const tempId = parseInt(row.employee_id.replace('TEMP-', ''), 10);
     if (isNaN(tempId)) return;
 
@@ -267,13 +285,36 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
     }
   };
 
+  // ── Remove regular employee ──
+  const handleRemoveEmployee = async () => {
+    if (!removeTarget) return;
+    setRemoving(true);
+    try {
+      const res = await removeEmployee({
+        employee_id: Number(removeTarget.employee_id),
+        unit_id: Number(selectedUnit),
+      });
+      if (!res.error) {
+        toast.success(`${removeTarget.full_name} marked as left`);
+        setRemoveTarget(null);
+        loadSummary();
+      } else {
+        toast.error(res.error || 'Failed to remove');
+      }
+    } catch (err) {
+      console.error('Failed to remove employee:', err);
+      toast.error('Failed to remove employee');
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   // ── Export CSV ──
   const handleExport = () => {
     const headers = ['Employee Code', 'Name', 'Present', 'WO', 'Adv 1', 'Office Adv', 'Dress Adv'];
     const csvRows = rows.map(r =>
       [r.employee_code, r.full_name, r.present, r.wo, r.adv1, r.office_advance, r.dress_advance].join(',')
     );
-    // Totals row
     csvRows.push(['', 'TOTAL', totals.present, totals.wo, totals.adv1, totals.office_advance, totals.dress_advance].join(','));
 
     const csv = [headers.join(','), ...csvRows].join('\n');
@@ -281,7 +322,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `team-summary-${selectedUnit}-${selectedMonth}-${selectedYear}.csv`;
+    a.download = `team-attendance-${selectedUnit}-${selectedMonth}-${selectedYear}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -293,9 +334,9 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-900">Team Attendance & Advances</h2>
+        <h2 className="text-lg font-bold text-gray-900">Team Attendance</h2>
         <div className="flex gap-2">
-          {selectedUnit && rows.length >= 0 && (
+          {selectedUnit && (
             <Button variant="outline" size="sm" onClick={() => setShowAddTemp(true)} className="gap-1.5 text-xs">
               <Plus className="w-3.5 h-3.5" /> Temp Employee
             </Button>
@@ -405,14 +446,14 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-gray-50 border-b">
-                  <th className="text-left px-3 py-2.5 font-semibold text-gray-600 whitespace-nowrap">Emp Code</th>
-                  <th className="text-left px-3 py-2.5 font-semibold text-gray-600 whitespace-nowrap">Name</th>
-                  <th className="text-center px-3 py-2.5 font-semibold text-gray-600 w-16">Present</th>
-                  <th className="text-center px-3 py-2.5 font-semibold text-gray-600 w-14">WO</th>
-                  <th className="text-center px-3 py-2.5 font-semibold text-blue-600 w-24">Adv 1</th>
-                  <th className="text-center px-3 py-2.5 font-semibold text-blue-600 w-24">Office Adv</th>
-                  <th className="text-center px-3 py-2.5 font-semibold text-blue-600 w-24">Dress Adv</th>
-                  <th className="w-10"></th>
+                  <th className="text-left px-2 py-2.5 font-semibold text-gray-600 whitespace-nowrap">Code</th>
+                  <th className="text-left px-2 py-2.5 font-semibold text-gray-600 whitespace-nowrap">Name</th>
+                  <th className="text-center px-1 py-2.5 font-semibold text-emerald-600 w-14">Present</th>
+                  <th className="text-center px-1 py-2.5 font-semibold text-emerald-600 w-12">WO</th>
+                  <th className="text-center px-1 py-2.5 font-semibold text-blue-600 w-20">Adv 1</th>
+                  <th className="text-center px-1 py-2.5 font-semibold text-blue-600 w-20">Off Adv</th>
+                  <th className="text-center px-1 py-2.5 font-semibold text-blue-600 w-20">Dress Adv</th>
+                  <th className="w-9"></th>
                 </tr>
               </thead>
               <tbody>
@@ -425,62 +466,90 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
                       row.is_temp && 'bg-orange-50/30'
                     )}
                   >
-                    <td className="px-3 py-2 font-mono text-gray-700">{row.employee_code || '—'}</td>
-                    <td className="px-3 py-2 font-medium text-gray-900 truncate max-w-[120px]">
+                    <td className="px-2 py-1.5 font-mono text-gray-700 text-[11px]">{row.employee_code || '—'}</td>
+                    <td className="px-2 py-1.5 font-medium text-gray-900 truncate max-w-[100px]">
                       {row.full_name}
                       {row.is_temp && (
-                        <Badge variant="outline" className="ml-1.5 text-[10px] px-1.5 py-0 text-orange-600 border-orange-300 bg-orange-50">
+                        <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 text-orange-600 border-orange-300 bg-orange-50">
                           TEMP
                         </Badge>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-center text-gray-700">{row.present}</td>
-                    <td className="px-3 py-2 text-center text-gray-700">{row.wo}</td>
-                    <td className="px-1 py-1">
+                    <td className="px-0.5 py-0.5">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={row.present || ''}
+                        onChange={e => handleFieldChange(row.employee_id, 'present', e.target.value)}
+                        className="h-7 text-[11px] text-center bg-emerald-50/50 border-emerald-200 focus:border-emerald-400"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="px-0.5 py-0.5">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={row.wo || ''}
+                        onChange={e => handleFieldChange(row.employee_id, 'wo', e.target.value)}
+                        className="h-7 text-[11px] text-center bg-emerald-50/50 border-emerald-200 focus:border-emerald-400"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="px-0.5 py-0.5">
                       <Input
                         type="number"
                         min="0"
                         step="1"
                         value={row.adv1 || ''}
-                        onChange={e => handleAdvChange(row.employee_id, 'adv1', e.target.value)}
-                        className="h-8 text-xs text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
+                        onChange={e => handleFieldChange(row.employee_id, 'adv1', e.target.value)}
+                        className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
                         placeholder="0"
                       />
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="px-0.5 py-0.5">
                       <Input
                         type="number"
                         min="0"
                         step="1"
                         value={row.office_advance || ''}
-                        onChange={e => handleAdvChange(row.employee_id, 'office_advance', e.target.value)}
-                        className="h-8 text-xs text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
+                        onChange={e => handleFieldChange(row.employee_id, 'office_advance', e.target.value)}
+                        className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
                         placeholder="0"
                       />
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="px-0.5 py-0.5">
                       <Input
                         type="number"
                         min="0"
                         step="1"
                         value={row.dress_advance || ''}
-                        onChange={e => handleAdvChange(row.employee_id, 'dress_advance', e.target.value)}
-                        className="h-8 text-xs text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
+                        onChange={e => handleFieldChange(row.employee_id, 'dress_advance', e.target.value)}
+                        className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
                         placeholder="0"
                       />
                     </td>
-                    <td className="px-1 py-1 text-center">
-                      {row.is_temp && (
+                    <td className="px-0.5 py-0.5 text-center">
+                      {row.is_temp ? (
                         <button
                           onClick={() => handleDeleteTemp(row)}
                           disabled={deletingTemp === row.employee_id}
-                          className="p-1.5 rounded-lg hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                          className="p-1 rounded hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors disabled:opacity-50"
                           title="Remove temp employee"
                         >
                           {deletingTemp === row.employee_id
                             ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             : <Trash2 className="w-3.5 h-3.5" />
                           }
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setRemoveTarget(row)}
+                          className="p-1 rounded hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors"
+                          title="Remove employee (mark as left)"
+                        >
+                          <UserMinus className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </td>
@@ -489,12 +558,12 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
               </tbody>
               <tfoot>
                 <tr className="bg-gray-100 border-t-2 border-gray-300 font-bold">
-                  <td colSpan={2} className="px-3 py-2.5 text-gray-800 text-xs">TOTAL ({rows.length} employees)</td>
-                  <td className="px-3 py-2.5 text-center text-gray-800">{totals.present}</td>
-                  <td className="px-3 py-2.5 text-center text-gray-800">{totals.wo}</td>
-                  <td className="px-3 py-2.5 text-center text-blue-700">{totals.adv1}</td>
-                  <td className="px-3 py-2.5 text-center text-blue-700">{totals.office_advance}</td>
-                  <td className="px-3 py-2.5 text-center text-blue-700">{totals.dress_advance}</td>
+                  <td colSpan={2} className="px-2 py-2 text-gray-800 text-[11px]">TOTAL ({rows.length})</td>
+                  <td className="px-1 py-2 text-center text-emerald-700">{totals.present}</td>
+                  <td className="px-1 py-2 text-center text-emerald-700">{totals.wo}</td>
+                  <td className="px-1 py-2 text-center text-blue-700">{totals.adv1}</td>
+                  <td className="px-1 py-2 text-center text-blue-700">{totals.office_advance}</td>
+                  <td className="px-1 py-2 text-center text-blue-700">{totals.dress_advance}</td>
                   <td></td>
                 </tr>
               </tfoot>
@@ -515,11 +584,11 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base">Add Temp Employee</DialogTitle>
+            <DialogDescription className="text-xs text-gray-500">
+              Valid for {MONTHS[selectedMonth - 1]} {selectedYear} only. Not registered in the system.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
-            <p className="text-xs text-gray-500">
-              Temp employees are valid for one month only ({MONTHS[selectedMonth - 1]} {selectedYear}). They are not registered in the system.
-            </p>
             <div className="space-y-1.5">
               <Label className="text-xs text-gray-600">Employee Name</Label>
               <Input
@@ -541,6 +610,30 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Remove Employee Confirmation Dialog */}
+      <Dialog open={!!removeTarget} onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+              Remove Employee
+            </DialogTitle>
+            <DialogDescription className="text-sm text-gray-600 pt-1">
+              Are you sure you want to mark <span className="font-semibold">{removeTarget?.full_name}</span> as left? They will no longer appear in this unit.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setRemoveTarget(null)} disabled={removing} className="text-xs">
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleRemoveEmployee} disabled={removing} className="gap-1.5 text-xs bg-red-600 hover:bg-red-700">
+              {removing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserMinus className="w-3.5 h-3.5" />}
+              Remove
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
