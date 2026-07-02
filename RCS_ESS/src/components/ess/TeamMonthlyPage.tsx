@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   ClipboardList,
@@ -13,6 +13,7 @@ import {
   Trash2,
   UserMinus,
   AlertTriangle,
+  GripVertical,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -61,13 +62,25 @@ const MONTHS = [
   'July','August','September','October','November','December',
 ];
 
-// ── Field config ───────────────────────────────────
-const FIELDS: { key: keyof TeamSummaryRow; label: string; color: 'green' | 'blue' }[] = [
-  { key: 'present', label: 'Present', color: 'green' },
-  { key: 'wo', label: 'WO', color: 'green' },
-  { key: 'adv1', label: 'Adv 1', color: 'blue' },
-  { key: 'office_advance', label: 'Off Adv', color: 'blue' },
-  { key: 'dress_advance', label: 'Dress Adv', color: 'blue' },
+// ── Column definitions ─────────────────────────────
+interface ColDef {
+  key: string;            // field key in data row
+  label: string;          // header text
+  minWidth: number;       // minimum width in px
+  defaultWidth: number;   // starting width in px
+  editable: boolean;
+  type: 'attendance' | 'advance' | 'text' | 'action';
+}
+
+const COLUMNS: ColDef[] = [
+  { key: 'employee_code', label: 'Code',    minWidth: 60,  defaultWidth: 70,  editable: false, type: 'text' },
+  { key: 'full_name',     label: 'Name',    minWidth: 120, defaultWidth: 160, editable: false, type: 'text' },
+  { key: 'present',       label: 'Present', minWidth: 70,  defaultWidth: 80,  editable: true,  type: 'attendance' },
+  { key: 'wo',            label: 'WO',      minWidth: 60,  defaultWidth: 70,  editable: true,  type: 'attendance' },
+  { key: 'adv1',          label: 'Adv 1',   minWidth: 80,  defaultWidth: 90,  editable: true,  type: 'advance' },
+  { key: 'office_advance',label: 'Off Adv', minWidth: 80,  defaultWidth: 90,  editable: true,  type: 'advance' },
+  { key: 'dress_advance', label: 'Dress Adv',minWidth: 80, defaultWidth: 90, editable: true,  type: 'advance' },
+  { key: '_action',       label: '',        minWidth: 40,  defaultWidth: 44,  editable: false, type: 'action' },
 ];
 
 // ── Helpers ────────────────────────────────────────
@@ -76,6 +89,41 @@ function getPreviousMonth(): [number, number] {
   const m = now.getMonth();
   if (m === 0) return [12, now.getFullYear() - 1];
   return [m, now.getFullYear()];
+}
+
+// ── Column Resize Hook ─────────────────────────────
+function useColumnResize(defaultWidths: number[], minWidths: number[]) {
+  const [widths, setWidths] = useState(defaultWidths);
+  const resizingIdx = useRef<number | null>(null);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+  const tableRef = useRef<HTMLDivElement>(null);
+
+  const onPointerDown = useCallback((idx: number, e: React.PointerEvent) => {
+    e.preventDefault();
+    resizingIdx.current = idx;
+    startX.current = e.clientX;
+    startWidth.current = widths[idx];
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, [widths]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (resizingIdx.current === null) return;
+    const diff = e.clientX - startX.current;
+    const idx = resizingIdx.current;
+    const newWidth = Math.max(minWidths[idx], startWidth.current + diff);
+    setWidths(prev => {
+      const next = [...prev];
+      next[idx] = newWidth;
+      return next;
+    });
+  }, [minWidths]);
+
+  const onPointerUp = useCallback(() => {
+    resizingIdx.current = null;
+  }, []);
+
+  return { widths, tableRef, onPointerDown, onPointerMove, onPointerUp };
 }
 
 // ── Component ──────────────────────────────────────
@@ -110,6 +158,12 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
   // Remove employee confirmation dialog
   const [removeTarget, setRemoveTarget] = useState<TeamSummaryRow | null>(null);
   const [removing, setRemoving] = useState(false);
+
+  // Column resize
+  const { widths, tableRef, onPointerDown, onPointerMove, onPointerUp } = useColumnResize(
+    COLUMNS.map(c => c.defaultWidth),
+    COLUMNS.map(c => c.minWidth),
+  );
 
   // ── Load filters ──
   const loadFilters = useCallback(async () => {
@@ -336,9 +390,16 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
     URL.revokeObjectURL(url);
   };
 
-  // ── Render ──
+  // ── Render helpers ──
   const hasDirty = Object.keys(dirty).length > 0;
 
+  const getCellValue = (row: TeamSummaryRow, key: string): string | number => {
+    if (key === 'employee_code') return row.employee_code || '—';
+    if (key === 'full_name') return row.full_name;
+    return (row as Record<string, unknown>)[key] as number ?? 0;
+  };
+
+  // ── Render ──
   return (
     <div className="space-y-4 pb-24">
       {/* Header */}
@@ -428,9 +489,9 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
 
       {/* Loading */}
       {loading && (
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-36 w-full rounded-xl" />
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full" />
           ))}
         </div>
       )}
@@ -448,118 +509,208 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
         </div>
       )}
 
-      {/* Employee Cards — mobile-first layout */}
+      {/* Excel-like Resizable Table */}
       {!loading && rows.length > 0 && (
-        <div className="space-y-3">
-          {rows.map((row, idx) => (
-            <div
-              key={row.employee_id}
-              className={cn(
-                'bg-white rounded-xl border overflow-hidden transition-all',
-                dirty[row.employee_id]
-                  ? 'border-blue-300 ring-1 ring-blue-200 bg-blue-50/30'
-                  : 'border-gray-200',
-                row.is_temp && 'border-orange-200 bg-orange-50/20',
-              )}
+        <div
+          ref={tableRef}
+          className="bg-white rounded-xl border overflow-hidden"
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerLeave={onPointerUp}
+          style={{ touchAction: 'none' }}
+        >
+          {/* Unsaved changes banner */}
+          {hasDirty && (
+            <div className="bg-amber-50 px-3 py-1.5 border-b">
+              <span className="text-[11px] text-amber-600">
+                Drag column borders to resize
+              </span>
+            </div>
+          )}
+
+          <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
+            <table
+              className="border-collapse"
+              style={{ minWidth: widths.reduce((a, b) => a + b, 0) }}
             >
-              {/* Card header — employee info + remove button */}
-              <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100">
-                <div className="flex items-center gap-2 min-w-0">
-                  {row.employee_code && (
-                    <span className="text-xs font-mono text-gray-400 shrink-0">{row.employee_code}</span>
-                  )}
-                  <span className="text-sm font-semibold text-gray-900 truncate">
-                    {row.full_name}
-                  </span>
-                  {row.is_temp && (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-orange-600 border-orange-300 bg-orange-50 shrink-0">
-                      TEMP
-                    </Badge>
-                  )}
-                </div>
-                {row.is_temp ? (
-                  <button
-                    onClick={() => handleDeleteTemp(row)}
-                    disabled={deletingTemp === row.employee_id}
-                    className="p-2 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50 shrink-0 ml-2"
-                    title="Remove temp employee"
+              <colgroup>
+                {COLUMNS.map((col, i) => (
+                  <col key={col.key} style={{ width: widths[i] }} />
+                ))}
+              </colgroup>
+
+              {/* ── Header ── */}
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-gray-100 border-b-2 border-gray-300">
+                  {COLUMNS.map((col, i) => {
+                    const isLast = i === COLUMNS.length - 1;
+                    const isAtt = col.type === 'attendance';
+                    const isAdv = col.type === 'advance';
+                    return (
+                      <th
+                        key={col.key}
+                        className={cn(
+                          'relative text-[11px] font-bold uppercase tracking-wider whitespace-nowrap select-none',
+                          isAtt && 'text-emerald-700 bg-emerald-50',
+                          isAdv && 'text-blue-700 bg-blue-50',
+                          !isAtt && !isAdv && 'text-gray-600',
+                        )}
+                        style={{ height: 36, width: widths[i] }}
+                      >
+                        <span className="px-1.5 block truncate">
+                          {col.label}
+                        </span>
+                        {/* Resize handle */}
+                        {!isLast && (
+                          <div
+                            className="absolute top-0 right-0 bottom-0 w-2.5 cursor-col-resize hover:bg-blue-400/30 active:bg-blue-500/40 transition-colors flex items-center justify-center z-20"
+                            onPointerDown={(e) => onPointerDown(i, e)}
+                          >
+                            <div className="w-[3px] h-5 bg-gray-300 rounded-full" />
+                          </div>
+                        )}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+
+              {/* ── Body ── */}
+              <tbody>
+                {rows.map((row, rowIdx) => (
+                  <tr
+                    key={row.employee_id}
+                    className={cn(
+                      'border-b border-gray-100 transition-colors',
+                      dirty[row.employee_id] && 'bg-blue-50/40',
+                      row.is_temp && !dirty[row.employee_id] && 'bg-orange-50/20',
+                      rowIdx % 2 === 1 && !dirty[row.employee_id] && !row.is_temp && 'bg-gray-50/40',
+                    )}
                   >
-                    {deletingTemp === row.employee_id
-                      ? <Loader2 className="w-4 h-4 animate-spin" />
-                      : <Trash2 className="w-4 h-4" />
+                    {COLUMNS.map((col, colIdx) => {
+                      const val = getCellValue(row, col.key);
+
+                      // Action column
+                      if (col.type === 'action') {
+                        return (
+                          <td key={col.key} className="p-0.5 text-center" style={{ width: widths[colIdx] }}>
+                            {row.is_temp ? (
+                              <button
+                                onClick={() => handleDeleteTemp(row)}
+                                disabled={deletingTemp === row.employee_id}
+                                className="p-1.5 rounded hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                                title="Remove temp employee"
+                              >
+                                {deletingTemp === row.employee_id
+                                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                                  : <Trash2 className="w-4 h-4" />
+                                }
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => setRemoveTarget(row)}
+                                className="p-1.5 rounded hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors"
+                                title="Remove employee"
+                              >
+                                <UserMinus className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        );
+                      }
+
+                      // Editable number columns
+                      if (col.editable) {
+                        const numVal = val as number;
+                        const isAtt = col.type === 'attendance';
+                        return (
+                          <td key={col.key} className="p-0.5" style={{ width: widths[colIdx] }}>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min="0"
+                              step="1"
+                              value={numVal || ''}
+                              onChange={e => handleFieldChange(row.employee_id, col.key as keyof TeamSummaryRow, e.target.value)}
+                              placeholder="0"
+                              className={cn(
+                                'w-full h-9 text-center text-sm font-semibold border-0 outline-none',
+                                'focus:ring-2 focus:ring-inset',
+                                'placeholder:text-gray-300 placeholder:font-normal',
+                                isAtt
+                                  ? 'bg-emerald-50/60 text-emerald-800 focus:ring-emerald-400 focus:bg-emerald-50'
+                                  : 'bg-blue-50/60 text-blue-800 focus:ring-blue-400 focus:bg-blue-50',
+                              )}
+                            />
+                          </td>
+                        );
+                      }
+
+                      // Text columns (code, name)
+                      if (col.key === 'employee_code') {
+                        return (
+                          <td
+                            key={col.key}
+                            className="px-1.5 py-1 text-xs font-mono text-gray-500 whitespace-nowrap truncate"
+                            style={{ width: widths[colIdx] }}
+                          >
+                            {val as string}
+                          </td>
+                        );
+                      }
+
+                      // Name column
+                      return (
+                        <td
+                          key={col.key}
+                          className="px-1.5 py-1 text-sm font-medium text-gray-900 whitespace-nowrap"
+                          style={{ width: widths[colIdx], maxWidth: widths[colIdx] }}
+                        >
+                          <div className="flex items-center gap-1 min-w-0">
+                            <span className="truncate">{val as string}</span>
+                            {row.is_temp && (
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 text-orange-600 border-orange-300 bg-orange-50 shrink-0 leading-none">
+                                T
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+
+              {/* ── Totals Footer ── */}
+              <tfoot className="sticky bottom-0 z-10">
+                <tr className="bg-gray-200/90 border-t-2 border-gray-400">
+                  <td
+                    colSpan={2}
+                    className="px-2 py-2 text-xs font-bold text-gray-700 whitespace-nowrap"
+                  >
+                    TOTAL ({rows.length})
+                  </td>
+                  {COLUMNS.slice(2).map((col, i) => {
+                    if (col.type === 'action') {
+                      return <td key={col.key} className="p-1" />;
                     }
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setRemoveTarget(row)}
-                    className="p-2 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors shrink-0 ml-2"
-                    title="Remove employee"
-                  >
-                    <UserMinus className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              {/* Card body — input fields grid */}
-              <div className="grid grid-cols-3 gap-0 divide-x divide-gray-100">
-                {FIELDS.map((field) => {
-                  const value = row[field.key] as number || 0;
-                  const isGreen = field.color === 'green';
-                  return (
-                    <div key={field.key} className="flex flex-col">
-                      <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 text-center pt-2 pb-0.5 px-1">
-                        {field.label}
-                      </label>
-                      <div className="px-2 pb-2 pt-0.5">
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          min="0"
-                          step="1"
-                          value={value || ''}
-                          onChange={e => handleFieldChange(row.employee_id, field.key, e.target.value)}
-                          placeholder="0"
-                          className={cn(
-                            'w-full h-11 text-center text-base font-semibold rounded-lg border-2 transition-colors',
-                            'focus:outline-none focus:ring-0',
-                            'placeholder:text-gray-300 placeholder:font-normal',
-                            isGreen
-                              ? 'bg-emerald-50/80 border-emerald-200 text-emerald-700 focus:border-emerald-500'
-                              : 'bg-blue-50/80 border-blue-200 text-blue-700 focus:border-blue-500',
-                          )}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-
-          {/* Totals card */}
-          <div className="bg-gray-50 rounded-xl border-2 border-gray-200 px-3 py-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total ({rows.length} employees)</span>
-            </div>
-            <div className="grid grid-cols-3 gap-0 divide-x divide-gray-200">
-              {FIELDS.map((field) => {
-                const value = totals[field.key as keyof TeamSummaryTotals] || 0;
-                const isGreen = field.color === 'green';
-                return (
-                  <div key={field.key} className="text-center px-2 py-1">
-                    <div className={cn(
-                      'text-lg font-bold',
-                      isGreen ? 'text-emerald-700' : 'text-blue-700',
-                    )}>
-                      {value}
-                    </div>
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                      {field.label}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                    const totalVal = totals[col.key as keyof TeamSummaryTotals] || 0;
+                    const isAtt = col.type === 'attendance';
+                    return (
+                      <td
+                        key={col.key}
+                        className={cn(
+                          'px-1 py-2 text-center text-sm font-bold',
+                          isAtt ? 'text-emerald-800' : 'text-blue-800',
+                        )}
+                      >
+                        {totalVal}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tfoot>
+            </table>
           </div>
         </div>
       )}
