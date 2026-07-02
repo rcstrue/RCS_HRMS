@@ -323,7 +323,7 @@ function _handleSaveAdvance(array $input): void
                  VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
             );
             $source = 'ess_manager';
-            $insStmt->bind_param('iiidds', $numericEmpId, $unitId, $month, $year, $present, $wo, $source);
+            $insStmt->bind_param('iiiidds', $numericEmpId, $unitId, $month, $year, $present, $wo, $source);
             $insStmt->execute();
             $insStmt->close();
         }
