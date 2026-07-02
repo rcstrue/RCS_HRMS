@@ -1,0 +1,532 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - User Access Allocation
+     4→ * 
+     5→ * Unit-based access allocation for ESS employee viewing.
+     6→ * HK Supervisor / Forklift Driver → auto-assigned own unit, can be changed.
+     7→ * Unit selection always visible — allocate any unit to anyone.
+     8→ * 
+     9→ * Table: user_access (access_type: unit)
+    10→ */
+    11→
+    12→$pageTitle = 'User Access Allocation';
+    13→
+    14→// ─── Auto-migration: Create user_access table ───
+    15→try {
+    16→    $db->query("CREATE TABLE IF NOT EXISTS `user_access` (
+    17→        `id` int(11) NOT NULL AUTO_INCREMENT,
+    18→        `user_id` varchar(50) NOT NULL,
+    19→        `access_type` enum('city','unit') NOT NULL,
+    20→        `access_id` varchar(100) NOT NULL,
+    21→        `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    22→        PRIMARY KEY (`id`),
+    23→        UNIQUE KEY `unique_access` (`user_id`, `access_type`, `access_id`),
+    24→        KEY `idx_user` (`user_id`),
+    25→        KEY `idx_type` (`access_type`)
+    26→    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    27→} catch (Exception $e) { /* ignore */ }
+    28→
+    29→// ─── Helper ───
+    30→function isAutoAssignUnit($designation) {
+    31→    if (empty($designation)) return false;
+    32→    $d = strtolower(trim($designation));
+    33→    return (strpos($d, 'hk supervisor') !== false || strpos($d, 'forklift driver') !== false || strpos($d, 'fork lift driver') !== false);
+    34→}
+    35→
+    36→function ensureOwnUnitAllocated($db, $empCode, $unitName) {
+    37→    if (empty($empCode) || empty($unitName)) return;
+    38→    $existing = $db->fetch(
+    39→        "SELECT id FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id = ?",
+    40→        [$empCode, $unitName]
+    41→    );
+    42→    if (!$existing) {
+    43→        try {
+    44→            $db->insert('user_access', [
+    45→                'user_id' => $empCode,
+    46→                'access_type' => 'unit',
+    47→                'access_id' => $unitName
+    48→            ]);
+    49→        } catch (Exception $e) { /* skip dup */ }
+    50→    }
+    51→}
+    52→
+    53→// ─── POST Handlers ───
+    54→if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    55→    $action = $_POST['action'] ?? '';
+    56→    $empCode = sanitize($_POST['employee_code'] ?? '');
+    57→    
+    58→    if ($action === 'save_allocations') {
+    59→        if (empty($empCode)) {
+    60→            setFlash('error', 'Select an employee first!');
+    61→        } else {
+    62→            // Delete old allocations
+    63→            $db->delete('user_access', 'user_id = :uid', ['uid' => $empCode]);
+    64→            $db->delete('employee_city_allocations', 'employee_id = :eid', ['eid' => $empCode]);
+    65→            
+    66→            $added = 0;
+    67→            
+    68→            // Auto-assign own unit for HK Supervisor / Forklift Driver
+    69→            $emp = $db->fetch("SELECT e.designation, u.name as unit_name FROM employees e LEFT JOIN units u ON e.unit_id = u.id WHERE CAST(e.employee_code AS CHAR COLLATE utf8mb4_unicode_ci) = ?", [$empCode]);
+    70→            if ($emp && isAutoAssignUnit($emp['designation']) && !empty($emp['unit_name'])) {
+    71→                try {
+    72→                    $db->insert('user_access', [
+    73→                        'user_id' => $empCode,
+    74→                        'access_type' => 'unit',
+    75→                        'access_id' => $emp['unit_name']
+    76→                    ]);
+    77→                    $added++;
+    78→                } catch (Exception $e) { /* skip dup */ }
+    79→            }
+    80→            
+    81→            // Save selected units
+    82→            $units = $_POST['alloc_units'] ?? [];
+    83→            foreach ($units as $unitId) {
+    84→                $unitId = (int)$unitId;
+    85→                if ($unitId <= 0) continue;
+    86→                $unit = $db->fetch("SELECT name FROM units WHERE id = ?", [$unitId]);
+    87→                $unitName = $unit ? $unit['name'] : "Unit #$unitId";
+    88→                try {
+    89→                    $db->insert('user_access', [
+    90→                        'user_id' => $empCode,
+    91→                        'access_type' => 'unit',
+    92→                        'access_id' => $unitName
+    93→                    ]);
+    94→                    $added++;
+    95→                } catch (Exception $e) { /* skip dup */ }
+    96→            }
+    97→            
+    98→            setFlash('success', "$added unit(s) allocated.");
+    99→        }
+   100→        redirect('index.php?page=settings/manager-allocation' . ($empCode ? '&employee=' . urlencode($empCode) : ''));
+   101→    }
+   102→    
+   103→    if ($action === 'remove_allocation') {
+   104→        $allocId = (int)($_POST['alloc_id'] ?? 0);
+   105→        if ($allocId) {
+   106→            $db->delete('user_access', 'id = :id', ['id' => $allocId]);
+   107→            setFlash('success', 'Allocation removed!');
+   108→        }
+   109→        redirect('index.php?page=settings/manager-allocation' . ($empCode ? '&employee=' . urlencode($empCode) : ''));
+   110→    }
+   111→}
+   112→
+   113→// ─── Get selected employee ───
+   114→$selectedCode = isset($_GET['employee']) ? sanitize($_GET['employee']) : '';
+   115→$selectedEmp = null;
+   116→$allocations = [];
+   117→$isAutoAssign = false;
+   118→
+   119→if ($selectedCode) {
+   120→    $selectedEmp = $db->fetch("
+   121→        SELECT e.*, u.name as unit_name, u.city as unit_city, u.state as unit_state
+   122→        FROM employees e
+   123→        LEFT JOIN units u ON e.unit_id = u.id
+   124→        WHERE CAST(e.employee_code AS CHAR COLLATE utf8mb4_unicode_ci) = ?", [$selectedCode]);
+   125→    if ($selectedEmp) {
+   126→        $allocations = $db->fetchAll(
+   127→            "SELECT * FROM user_access WHERE user_id = ? AND access_type = 'unit' ORDER BY access_id",
+   128→            [$selectedCode]
+   129→        );
+   130→        if (empty($allocations)) {
+   131→            $legacy = $db->fetchAll(
+   132→                "SELECT id, employee_id as user_id, allocation_type as access_type, allocation_value as access_id, created_at FROM employee_city_allocations WHERE employee_id = ? AND allocation_type = 'unit' ORDER BY allocation_value",
+   133→                [$selectedCode]
+   134→            );
+   135→            if (!empty($legacy)) $allocations = $legacy;
+   136→        }
+   137→        
+   138→        $isAutoAssign = isAutoAssignUnit($selectedEmp['designation']);
+   139→        
+   140→        if ($isAutoAssign && !empty($selectedEmp['unit_name'])) {
+   141→            ensureOwnUnitAllocated($db, $selectedCode, $selectedEmp['unit_name']);
+   142→            $allocations = $db->fetchAll(
+   143→                "SELECT * FROM user_access WHERE user_id = ? AND access_type = 'unit' ORDER BY access_id",
+   144→                [$selectedCode]
+   145→            );
+   146→        }
+   147→    }
+   148→}
+   149→
+   150→// ─── Designation filter ───
+   151→$filterDesignation = isset($_GET['designation']) ? sanitize($_GET['designation']) : '';
+   152→
+   153→$allDesignations = $db->fetchAll("
+   154→    SELECT DISTINCT designation FROM employees 
+   155→    WHERE status = 'approved' AND designation IS NOT NULL AND designation != '' 
+   156→    ORDER BY designation");
+   157→
+   158→$empQuery = "
+   159→    SELECT e.employee_code, e.full_name, e.designation, e.mobile_number,
+   160→           e.app_role, e.pin, e.worker_category, e.unit_id,
+   161→           u.name as unit_name
+   162→    FROM employees e
+   163→    LEFT JOIN units u ON e.unit_id = u.id
+   164→    WHERE e.status = 'approved'";
+   165→$empParams = [];
+   166→if (!empty($filterDesignation)) {
+   167→    $empQuery .= " AND e.designation = ?";
+   168→    $empParams[] = $filterDesignation;
+   169→}
+   170→$empQuery .= " ORDER BY e.full_name";
+   171→$employees = $db->fetchAll($empQuery, $empParams);
+   172→
+   173→// ─── All units grouped by State > City ───
+   174→$allUnits = $db->fetchAll(
+   175→    "SELECT id, name, unit_code, city, state FROM units WHERE is_active = 1 ORDER BY state, city, name"
+   176→);
+   177→$groupedUnits = [];
+   178→foreach ($allUnits as $u) {
+   179→    $s = $u['state'] ?? 'Unknown';
+   180→    $c = $u['city'] ?? 'Unknown';
+   181→    $groupedUnits[$s][$c][] = $u;
+   182→}
+   183→ksort($groupedUnits);
+   184→
+   185→// Existing allocations
+   186→$existingUnits = [];
+   187→foreach ($allocations as $a) {
+   188→    $existingUnits[] = $a['access_id'];
+   189→}
+   190→?>
+   191→
+   192→<!-- ═══════════════ ALLOCATION FORM ═══════════════ -->
+   193→<div class="row">
+   194→    <div class="col-12">
+   195→        <div class="card">
+   196→            <div class="card-header d-flex justify-content-between align-items-center">
+   197→                <h5 class="card-title mb-0"><i class="bi bi-shield-lock me-2"></i>User Access Allocation</h5>
+   198→                <span class="badge bg-dark"><i class="bi bi-pin-angle me-1"></i>HK / Forklift = Own Unit Auto-Assigned</span>
+   199→            </div>
+   200→            
+   201→            <form method="POST" id="allocForm">
+   202→                <input type="hidden" name="action" value="save_allocations">
+   203→                <input type="hidden" name="employee_code" id="hiddenEmpCode" value="<?php echo htmlspecialchars($selectedCode, ENT_QUOTES); ?>">
+   204→                
+   205→                <div class="card-body">
+   206→                    <!-- Filter by Designation -->
+   207→                    <div class="row g-3 mb-3">
+   208→                        <div class="col-lg-4">
+   209→                            <label class="form-label fw-bold"><i class="bi bi-funnel me-1"></i>Filter by Designation</label>
+   210→                            <select class="form-select" id="designationFilter" onchange="onDesignationFilter(this.value)">
+   211→                                <option value="">-- All Designations --</option>
+   212→                                <?php foreach ($allDesignations as $des): ?>
+   213→                                <option value="<?php echo htmlspecialchars($des['designation'], ENT_QUOTES); ?>" <?php echo $filterDesignation === $des['designation'] ? 'selected' : ''; ?>>
+   214→                                    <?php echo sanitize($des['designation']); ?>
+   215→                                </option>
+   216→                                <?php endforeach; ?>
+   217→                            </select>
+   218→                        </div>
+   219→                        <div class="col-lg-8 d-flex align-items-end">
+   220→                            <div class="text-muted small">
+   221→                                <?php if (!empty($filterDesignation)): ?>
+   222→                                Showing <strong><?php echo count($employees); ?></strong> employees with designation "<strong><?php echo sanitize($filterDesignation); ?></strong>"
+   223→                                <a href="index.php?page=settings/manager-allocation<?php echo $selectedCode ? '&employee=' . urlencode($selectedCode) : ''; ?>" class="btn btn-outline-secondary btn-sm ms-2"><i class="bi bi-x-lg"></i> Clear</a>
+   224→                                <?php else: ?>
+   225→                                Showing <strong><?php echo count($employees); ?></strong> employees
+   226→                                <?php endif; ?>
+   227→                            </div>
+   228→                        </div>
+   229→                    </div>
+   230→
+   231→                    <!-- Select User -->
+   232→                    <div class="row g-3 mb-3">
+   233→                        <div class="col-lg-8">
+   234→                            <label class="form-label fw-bold">Select User <span class="text-danger">*</span></label>
+   235→                            <select class="form-select" name="employee_select" id="employeeSelect" onchange="onEmployeeChange(this.value)" required>
+   236→                                <option value="">-- Select Employee (<?php echo count($employees); ?> shown) --</option>
+   237→                                <?php 
+   238→                                $roleGroups = ['manager' => [], 'regional_manager' => [], 'employee' => []];
+   239→                                foreach ($employees as $emp) {
+   240→                                    $r = ($emp['app_role'] ?? '') === 'employee' || empty($emp['app_role']) ? 'employee' : $emp['app_role'];
+   241→                                    $roleGroups[$r][] = $emp;
+   242→                                }
+   243→                                ?>
+   244→                                <?php if (!empty($roleGroups['manager'])): ?>
+   245→                                <optgroup label="Managers">
+   246→                                    <?php foreach ($roleGroups['manager'] as $emp): ?>
+   247→                                    <option value="<?php echo (string)$emp['employee_code']; ?>" <?php echo $selectedCode == (string)$emp['employee_code'] ? 'selected' : ''; ?>>
+   248→                                        <?php echo sanitize($emp['full_name']); ?> (<?php echo (int)$emp['employee_code']; ?>)
+   249→                                        <?php if (isAutoAssignUnit($emp['designation'])): ?> [HK/Forklift]<?php endif; ?>
+   250→                                    </option>
+   251→                                    <?php endforeach; ?>
+   252→                                </optgroup>
+   253→                                <?php endif; ?>
+   254→                                <?php if (!empty($roleGroups['regional_manager'])): ?>
+   255→                                <optgroup label="Regional Managers">
+   256→                                    <?php foreach ($roleGroups['regional_manager'] as $emp): ?>
+   257→                                    <option value="<?php echo (string)$emp['employee_code']; ?>" <?php echo $selectedCode == (string)$emp['employee_code'] ? 'selected' : ''; ?>>
+   258→                                        <?php echo sanitize($emp['full_name']); ?> (<?php echo (int)$emp['employee_code']; ?>)
+   259→                                    </option>
+   260→                                    <?php endforeach; ?>
+   261→                                </optgroup>
+   262→                                <?php endif; ?>
+   263→                                <optgroup label="Others">
+   264→                                    <?php foreach ($roleGroups['employee'] as $emp): ?>
+   265→                                    <option value="<?php echo (string)$emp['employee_code']; ?>" <?php echo $selectedCode == (string)$emp['employee_code'] ? 'selected' : ''; ?>>
+   266→                                        <?php echo sanitize($emp['full_name']); ?> (<?php echo (int)$emp['employee_code']; ?>)
+   267→                                        <?php if (isAutoAssignUnit($emp['designation'])): ?> [HK/Forklift]<?php endif; ?>
+   268→                                    </option>
+   269→                                    <?php endforeach; ?>
+   270→                                </optgroup>
+   271→                            </select>
+   272→                        </div>
+   273→                        
+   274→                        <!-- Employee Info -->
+   275→                        <div class="col-lg-4">
+   276→                            <?php if ($selectedEmp): ?>
+   277→                            <div class="alert mb-0 py-2 px-3 <?php echo $isAutoAssign ? 'alert-info' : 'alert-light'; ?> border h-100 d-flex align-items-center">
+   278→                                <div>
+   279→                                    <div class="fw-bold small">
+   280→                                        <?php echo sanitize($selectedEmp['full_name']); ?>
+   281→                                        <?php if ($isAutoAssign): ?>
+   282→                                        <span class="badge bg-info text-dark ms-1"><i class="bi bi-pin-angle-fill"></i> HK/Forklift</span>
+   283→                                        <?php endif; ?>
+   284→                                    </div>
+   285→                                    <small class="text-muted">
+   286→                                        <?php echo sanitize($selectedEmp['designation']); ?> | 
+   287→                                        <?php echo sanitize($selectedEmp['unit_name'] ?? '-'); ?>
+   288→                                    </small>
+   289→                                </div>
+   290→                            </div>
+   291→                            <?php else: ?>
+   292→                            <div class="alert alert-secondary mb-0 py-2 px-3 text-center small text-muted h-100 d-flex align-items-center justify-content-center">
+   293→                                Select an employee above
+   294→                            </div>
+   295→                            <?php endif; ?>
+   296→                        </div>
+   297→                    </div>
+   298→                    
+   299→                    <?php if ($isAutoAssign && $selectedEmp): ?>
+   300→                    <div class="alert bg-info bg-opacity-10 border-info mb-3 py-2">
+   301→                        <i class="bi bi-pin-angle-fill me-1 text-info"></i>
+   302→                        <strong><?php echo sanitize($selectedEmp['designation']); ?>:</strong> Own unit <strong>"<?php echo sanitize($selectedEmp['unit_name'] ?? ''); ?>"</strong> is auto-assigned. You can add or change units below.
+   303→                    </div>
+   304→                    <?php endif; ?>
+   305→                    
+   306→                    <!-- ═══════════════ UNIT ALLOCATION (Always Visible) ═══════════════ -->
+   307→                    
+   308→                    <!-- Units grouped by State > City -->
+   309→                    <div class="card border-success">
+   310→                        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+   311→                            <h6 class="mb-0"><i class="bi bi-building me-1"></i>Units</h6>
+   312→                            <div class="d-flex align-items-center gap-2">
+   313→                                <div class="btn-group btn-group-sm">
+   314→                                    <button type="button" class="btn btn-outline-success btn-sm" onclick="toggleChecks('unitCheck', true)">All</button>
+   315→                                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="toggleChecks('unitCheck', false)">None</button>
+   316→                                </div>
+   317→                                <span class="badge bg-success"><strong id="selectedCount"><?php echo count($existingUnits); ?></strong> selected</span>
+   318→                            </div>
+   319→                        </div>
+   320→                        <div class="card-body p-2" style="max-height:400px; overflow-y:auto;">
+   321→                            <?php if (empty($groupedUnits)): ?>
+   322→                            <p class="text-muted small text-center mb-0">No units found.</p>
+   323→                            <?php else: ?>
+   324→                            <?php foreach ($groupedUnits as $state => $cities): ?>
+   325→                            <div class="fw-bold small text-uppercase text-muted ps-1 mt-2 mb-1">
+   326→                                <i class="bi bi-map me-1"></i><?php echo sanitize($state); ?>
+   327→                            </div>
+   328→                            <?php foreach ($cities as $city => $cityUnits): ?>
+   329→                            <?php 
+   330→                                $cityTotal = count($cityUnits);
+   331→                                $cityChecked = 0;
+   332→                                foreach ($cityUnits as $cu) {
+   333→                                    if (in_array($cu['name'], $existingUnits)) $cityChecked++;
+   334→                                }
+   335→                                $cityAllChecked = ($cityChecked === $cityTotal);
+   336→                            ?>
+   337→                            <div class="form-check ps-3 mb-1">
+   338→                                <input class="form-check-input cityCheck" type="checkbox" 
+   339→                                    id="city_<?php echo md5($city); ?>" 
+   340→                                    data-city="<?php echo htmlspecialchars($city, ENT_QUOTES); ?>"
+   341→                                    <?php echo $cityAllChecked ? 'checked' : ''; ?>
+   342→                                    onchange="toggleCityFromCheckbox(this)">
+   343→                                <label class="form-check-label small text-primary fw-medium" for="city_<?php echo md5($city); ?>">
+   344→                                    <i class="bi bi-geo-alt me-1"></i><?php echo sanitize($city); ?>
+   345→                                    <small class="text-muted ms-1"><?php echo $cityChecked; ?>/<?php echo $cityTotal; ?></small>
+   346→                                </label>
+   347→                            </div>
+   348→                            <?php foreach ($cityUnits as $u): ?>
+   349→                            <?php $isChecked = in_array($u['name'], $existingUnits) ? 'checked' : ''; ?>
+   350→                            <div class="form-check ps-5">
+   351→                                <input class="form-check-input unitCheck" type="checkbox" 
+   352→                                    name="alloc_units[]" value="<?php echo $u['id']; ?>" 
+   353→                                    data-unit-name="<?php echo htmlspecialchars($u['name'], ENT_QUOTES); ?>"
+   354→                                    data-city="<?php echo htmlspecialchars($u['city'] ?? '', ENT_QUOTES); ?>"
+   355→                                    id="unit_<?php echo $u['id']; ?>" <?php echo $isChecked; ?>
+   356→                                    onchange="updateCounts()">
+   357→                                <label class="form-check-label small" for="unit_<?php echo $u['id']; ?>">
+   358→                                    <?php echo sanitize($u['name']); ?>
+   359→                                </label>
+   360→                            </div>
+   361→                            <?php endforeach; ?>
+   362→                            <hr class="my-1">
+   363→                            <?php endforeach; ?>
+   364→                            <?php endforeach; ?>
+   365→                            <?php endif; ?>
+   366→                        </div>
+   367→                    </div>
+   368→                    
+   369→                    <!-- Save Button -->
+   370→                    <div class="mt-3 text-end">
+   371→                        <button type="submit" class="btn btn-primary btn-lg px-4" <?php echo !$selectedCode ? 'disabled' : ''; ?>>
+   372→                            <i class="bi bi-check-lg me-1"></i>Save Allocation
+   373→                        </button>
+   374→                    </div>
+   375→                </div>
+   376→            </form>
+   377→        </div>
+   378→    </div>
+   379→</div>
+   380→
+   381→<!-- ═══════════════ CURRENT ALLOCATIONS TABLE ═══════════════ -->
+   382→<div class="row mt-3">
+   383→    <div class="col-12">
+   384→        <div class="card">
+   385→            <div class="card-header d-flex justify-content-between align-items-center">
+   386→                <h5 class="card-title mb-0"><i class="bi bi-list-check me-2"></i>Current Allocations</h5>
+   387→                <small class="text-muted"><code>user_access</code> table</small>
+   388→            </div>
+   389→            <div class="card-body p-0">
+   390→                <div class="table-responsive">
+   391→                    <table class="table table-hover table-sm mb-0">
+   392→                        <thead class="table-light">
+   393→                            <tr>
+   394→                                <th>Employee</th>
+   395→                                <th>Code</th>
+   396→                                <th>Designation</th>
+   397→                                <th>Units Allocated</th>
+   398→                                <th></th>
+   399→                            </tr>
+   400→                        </thead>
+   401→                        <tbody>
+   402→                            <?php 
+   403→                            $allocatedEmps = $db->fetchAll("
+   404→                                SELECT DISTINCT user_id FROM user_access WHERE access_type = 'unit' ORDER BY user_id");
+   405→                            
+   406→                            $rows = [];
+   407→                            foreach ($allocatedEmps as $ae) {
+   408→                                $emp = $db->fetch("SELECT e.employee_code, e.full_name, e.designation, e.unit_id, u.name as unit_name FROM employees e LEFT JOIN units u ON e.unit_id = u.id WHERE CAST(e.employee_code AS CHAR COLLATE utf8mb4_unicode_ci) = ?", [$ae['user_id']]);
+   409→                                if (!$emp) continue;
+   410→                                $alocs = $db->fetchAll("SELECT * FROM user_access WHERE user_id = ? AND access_type = 'unit' ORDER BY access_id", [$ae['user_id']]);
+   411→                                $autoUnit = isAutoAssignUnit($emp['designation']) ? ($emp['unit_name'] ?? '') : '';
+   412→                                $unitNames = array_column($alocs, 'access_id');
+   413→                                
+   414→                                $rows[] = [
+   415→                                    'emp' => $emp,
+   416→                                    'autoUnit' => $autoUnit,
+   417→                                    'units' => $unitNames
+   418→                                ];
+   419→                            }
+   420→                            
+   421→                            if (empty($rows)): ?>
+   422→                            <tr>
+   423→                                <td colspan="5" class="text-center py-4 text-muted">No allocations configured yet.</td>
+   424→                            </tr>
+   425→                            <?php else: ?>
+   426→                            <?php foreach ($rows as $row): ?>
+   427→                            <?php $ec = (string)$row['emp']['employee_code']; ?>
+   428→                            <tr class="<?php echo $selectedCode == $ec ? 'table-primary' : ''; ?>">
+   429→                                <td>
+   430→                                    <a href="index.php?page=settings/manager-allocation&employee=<?php echo urlencode($ec); ?>" class="text-decoration-none fw-medium">
+   431→                                        <?php echo sanitize($row['emp']['full_name']); ?>
+   432→                                    </a>
+   433→                                    <?php if ($row['autoUnit']): ?>
+   434→                                    <br><small class="text-muted"><i class="bi bi-pin-angle"></i> HK/Forklift</small>
+   435→                                    <?php endif; ?>
+   436→                                </td>
+   437→                                <td><code><?php echo (int)$ec; ?></code></td>
+   438→                                <td><small><?php echo sanitize($row['emp']['designation']); ?></small></td>
+   439→                                <td>
+   440→                                    <?php foreach ($row['units'] as $v): ?>
+   441→                                    <?php 
+   442→                                    $isOwn = ($row['autoUnit'] && $v === $row['autoUnit']);
+   443→                                    $badgeClass = $isOwn ? 'bg-info text-dark' : 'bg-secondary text-white';
+   444→                                    $prefix = $isOwn ? '<i class="bi bi-pin-angle-fill me-1"></i>' : '';
+   445→                                    ?>
+   446→                                    <span class="badge <?php echo $badgeClass; ?> me-1 mb-1"><?php echo $prefix . sanitize($v); ?></span>
+   447→                                    <?php endforeach; ?>
+   448→                                    <small class="text-muted ms-1">(<?php echo count($row['units']); ?>)</small>
+   449→                                </td>
+   450→                                <td>
+   451→                                    <a href="index.php?page=settings/manager-allocation&employee=<?php echo urlencode($ec); ?>" class="btn btn-outline-primary btn-sm" title="Edit">
+   452→                                        <i class="bi bi-pencil"></i>
+   453→                                    </a>
+   454→                                </td>
+   455→                            </tr>
+   456→                            <?php endforeach; ?>
+   457→                            <?php endif; ?>
+   458→                        </tbody>
+   459→                    </table>
+   460→                </div>
+   461→            </div>
+   462→        </div>
+   463→    </div>
+   464→</div>
+   465→
+   466→<script>
+   467→function onDesignationFilter(designation) {
+   468→    var url = 'index.php?page=settings/manager-allocation';
+   469→    if (designation) url += '&designation=' + encodeURIComponent(designation);
+   470→    var empCode = document.getElementById('hiddenEmpCode').value;
+   471→    if (empCode) url += '&employee=' + encodeURIComponent(empCode);
+   472→    window.location.href = url;
+   473→}
+   474→
+   475→function onEmployeeChange(code) {
+   476→    var url = 'index.php?page=settings/manager-allocation';
+   477→    var desFilter = document.getElementById('designationFilter').value;
+   478→    if (desFilter) url += '&designation=' + encodeURIComponent(desFilter);
+   479→    if (code) url += '&employee=' + encodeURIComponent(code);
+   480→    window.location.href = url;
+   481→}
+   482→
+   483→function toggleChecks(className, checkAll) {
+   484→    document.querySelectorAll('.' + className).forEach(function(cb) {
+   485→        if (!cb.disabled) cb.checked = checkAll;
+   486→    });
+   487→    updateCounts();
+   488→}
+   489→
+   490→function toggleCityFromCheckbox(cityCheckbox) {
+   491→    var city = cityCheckbox.getAttribute('data-city');
+   492→    var checkAll = cityCheckbox.checked;
+   493→    document.querySelectorAll('.unitCheck[data-city="' + city + '"]').forEach(function(cb) {
+   494→        cb.checked = checkAll;
+   495→    });
+   496→    updateCounts();
+   497→}
+   498→
+   499→function updateCounts() {
+   500→    var allChecks = document.querySelectorAll('.unitCheck');
+   501→    var selectedTotal = 0;
+   502→    var cityCounts = {};
+   503→    
+   504→    allChecks.forEach(function(cb) {
+   505→        var city = cb.getAttribute('data-city');
+   506→        if (!cityCounts[city]) cityCounts[city] = {total: 0, checked: 0};
+   507→        cityCounts[city].total++;
+   508→        if (cb.checked) {
+   509→            selectedTotal++;
+   510→            cityCounts[city].checked++;
+   511→        }
+   512→    });
+   513→    
+   514→    var countEl = document.getElementById('selectedCount');
+   515→    if (countEl) countEl.textContent = selectedTotal;
+   516→    
+   517→    // Update city checkboxes and counts
+   518→    document.querySelectorAll('.cityCheck').forEach(function(cityCb) {
+   519→        var city = cityCb.getAttribute('data-city');
+   520→        if (cityCounts[city]) {
+   521→            var info = cityCounts[city];
+   522→            cityCb.checked = (info.checked === info.total);
+   523→            var label = cityCb.nextElementSibling;
+   524→            if (label) {
+   525→                var smallEl = label.querySelector('small');
+   526→                if (smallEl) smallEl.textContent = info.checked + '/' + info.total;
+   527→            }
+   528→        }
+   529→    });
+   530→}
+   531→</script>
+   532→
