@@ -29,7 +29,8 @@ try {
             jsonError('Method not allowed. Use GET or POST.', 405);
     }
 } catch (Exception $e) {
-    jsonError('Internal server error. Please try again later.', 500);
+    error_log('[ESS sync] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    jsonError(. Please try again later.', 500);
 }
 
 // ============================================================================

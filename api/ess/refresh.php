@@ -11,6 +11,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
 
 // How long past expiry we still allow a refresh (grace period)

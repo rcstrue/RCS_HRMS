@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -28,7 +29,8 @@ try {
             jsonOutput(['success' => false, 'error' => 'Method not allowed'], 405);
     }
 } catch (\Throwable $e) {
-    jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
+    error_log('[ESS helpdesk] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    jsonOutput(. Please try again later.'], 500);
 }
 
 // ─── GET: List Tickets ────────────────────────────────────────────────────────
