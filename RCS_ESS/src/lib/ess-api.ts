@@ -448,6 +448,8 @@ export async function saveTeamAdvance(data: {
   unit_id: number;
   month: number;
   year: number;
+  present?: number;
+  wo?: number;
   adv1: number;
   office_advance: number;
   dress_advance: number;
@@ -477,5 +479,15 @@ export async function deleteTempEmployee(data: {
   return unwrap(apiRequest('/ess/team-summary', {
     method: 'POST',
     body: JSON.stringify({ ...data, action: 'del_temp' }),
+  }));
+}
+
+export async function removeEmployee(data: {
+  employee_id: number;
+  unit_id: number;
+}) {
+  return unwrap(apiRequest('/ess/team-summary', {
+    method: 'POST',
+    body: JSON.stringify({ ...data, action: 'remove_emp' }),
   }));
 }

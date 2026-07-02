@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { canApprove, parseIST, getLocationName } from './helpers';
+import { parseIST, getLocationName } from './helpers';
 import type { Employee, EmployeeRole, LeaveBalance, AttendanceRecord } from '@/lib/ess-types';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,16 +17,13 @@ import {
   Receipt,
   Megaphone,
   CircleHelp,
-  Bell,
-  ChevronRight,
   Leaf,
   CheckCircle2,
   ListTodo,
   Timer,
   MapPin,
   Loader2,
-  ClipboardList,
-  ShieldCheck,
+  TableProperties,
 } from 'lucide-react';
 
 // ══════════════════════════════════════════════════════════════
@@ -78,35 +75,11 @@ export default function DashboardHome({
     return () => clearInterval(timer);
   }, []);
 
-  // Attendance helpers (declared early — used by useEffect dependency arrays)
+  // Attendance helpers
   const att = dashboardData?.todayAttendance;
-  const hasApprovals = canApprove(role) && dashboardData
-    && (dashboardData.pendingLeaves + dashboardData.pendingExpenses) > 0;
-
-  // Fire notification on mount if pending approvals exist
-  useEffect(() => {
-    if (hasApprovals && onAddNotification && dashboardData) {
-      const hash = `approvals-${dashboardData.pendingLeaves}-${dashboardData.pendingExpenses}-${new Date().toDateString()}`;
-      // Check if a similar notification already exists today
-      try {
-        const stored = localStorage.getItem(`ess_notifications_${employee.id}`);
-        if (stored) {
-          const existing = JSON.parse(stored) as Array<{ title: string; timestamp: string; read: boolean }>;
-          const todayNotif = existing.find(
-            (n) => n.title === 'Pending Approvals' && n.timestamp.startsWith(new Date().toISOString().slice(0, 10))
-          );
-          if (todayNotif) return; // Already notified today
-        }
-      } catch { /* ignore */ }
-      onAddNotification(
-        'Pending Approvals',
-        `${dashboardData.pendingLeaves} leave request(s) and ${dashboardData.pendingExpenses} expense claim(s) pending your approval.`,
-        'leave'
-      );
-    }
-  }, []);
 
   const quickActions = [
+    ...(canViewEmployees ? [{ key: 'team-monthly', label: 'Team Attendance', icon: TableProperties, color: 'text-indigo-600', bg: 'bg-indigo-50' }] : []),
     { key: 'leaves', label: 'Leave', icon: CalendarDays, color: 'text-amber-600', bg: 'bg-amber-50' },
     { key: 'expenses', label: 'Expenses', icon: Receipt, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { key: 'tasks', label: 'Tasks', icon: ClipboardList, color: 'text-violet-600', bg: 'bg-violet-50' },
@@ -219,27 +192,6 @@ export default function DashboardHome({
 
   return (
     <div className="space-y-5">
-      {/* Pending Approvals Alert */}
-      {hasApprovals && (
-        <button
-          onClick={() => onNavigate(dashboardData!.pendingLeaves > 0 ? 'leaves' : 'expenses')}
-          className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-left transition-colors hover:bg-amber-100"
-        >
-          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-amber-100 shrink-0">
-            <Bell className="w-5 h-5 text-amber-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-amber-800">
-              {dashboardData!.pendingLeaves + dashboardData!.pendingExpenses} Pending Approvals
-            </p>
-            <p className="text-xs text-amber-600 mt-0.5">
-              {dashboardData!.pendingLeaves} leave request{dashboardData!.pendingLeaves !== 1 ? 's' : ''} &middot; {dashboardData!.pendingExpenses} expense claim{dashboardData!.pendingExpenses !== 1 ? 's' : ''}
-            </p>
-          </div>
-          <ChevronRight className="w-4 h-4 text-amber-400 shrink-0" />
-        </button>
-      )}
-
       {/* ═══ Attendance Check In/Out Card ═══ */}
       <Card className="border-2 border-emerald-200 shadow-md overflow-hidden">
         {/* Live clock header */}
@@ -356,9 +308,6 @@ export default function DashboardHome({
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3">
-        {canApprove(role) && (
-          <SummaryCard loading={loading} icon={<ShieldCheck className="w-3.5 h-3.5 text-amber-500" />} label="Approvals" value={String((dashboardData?.pendingLeaves ?? 0) + (dashboardData?.pendingExpenses ?? 0))} subtext="Pending action" onClick={() => onNavigate('leaves')} />
-        )}
         {canViewEmployees && (
           <SummaryCard loading={loading} icon={<ClipboardList className="w-3.5 h-3.5 text-blue-500" />} label="Manpower" value="Update" subtext="Daily status" onClick={() => onNavigate('manpower-status')} />
         )}
