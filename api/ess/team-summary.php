@@ -55,7 +55,12 @@ function _handleGetSummary(): void
 
     // Verify caller has access to this unit (admin skips)
     if ($callerRole !== 'admin') {
-        $callerUnitId = getEmployeeUnitId($employeeId, $conn);
+        $uStmt = $conn->prepare('SELECT unit_id FROM ess_employee_cache WHERE employee_id = ?');
+        $uStmt->bind_param('s', $employeeId);
+        $uStmt->execute();
+        $uRow = $uStmt->get_result()->fetch_assoc();
+        $uStmt->close();
+        $callerUnitId = (int)($uRow['unit_id'] ?? 0);
         if ($callerUnitId !== $unitId) {
             jsonOutput(['success' => false, 'error' => 'You can only view your own unit'], 403);
         }
@@ -155,8 +160,18 @@ function _handleSaveAdvance(): void
 
     // Verify target employee is in manager's unit (admin skips)
     if ($callerRole !== 'admin') {
-        $callerUnitId = getEmployeeUnitId($employeeId, $conn);
-        $targetUnitId = getEmployeeUnitId($targetEmpId, $conn);
+        $uStmt = $conn->prepare('SELECT unit_id FROM ess_employee_cache WHERE employee_id = ?');
+        $uStmt->bind_param('s', $employeeId);
+        $uStmt->execute();
+        $callerUnitId = (int)($uStmt->get_result()->fetch_assoc()['unit_id'] ?? 0);
+        $uStmt->close();
+
+        $uStmt2 = $conn->prepare('SELECT unit_id FROM employees WHERE id = ?');
+        $uStmt2->bind_param('s', $targetEmpId);
+        $uStmt2->execute();
+        $targetUnitId = (int)($uStmt2->get_result()->fetch_assoc()['unit_id'] ?? 0);
+        $uStmt2->close();
+
         if ($callerUnitId !== $targetUnitId || $targetUnitId !== $unitId) {
             jsonOutput(['success' => false, 'error' => 'Employee not in your unit'], 403);
         }
