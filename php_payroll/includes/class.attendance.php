@@ -26,15 +26,16 @@ class Attendance {
         ];
         
         try {
+            // Use attendance_summary table (monthly aggregated data per employee)
             $result = $this->db->fetch(
-                "SELECT 
-                    SUM(CASE WHEN status = 'Present' THEN 1 ELSE 0 END) as total_present,
-                    SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) as total_absent,
-                    SUM(CASE WHEN status = 'Weekly Off' THEN 1 ELSE 0 END) as total_weekly_offs,
-                    SUM(CASE WHEN status = 'Holiday' THEN 1 ELSE 0 END) as total_holidays,
-                    SUM(overtime_hours) as total_overtime_hours
-                FROM attendance 
-                WHERE MONTH(attendance_date) = :month AND YEAR(attendance_date) = :year",
+                "SELECT
+                    COALESCE(SUM(total_present), 0) as total_present,
+                    0 as total_absent,
+                    COALESCE(SUM(total_wo), 0) as total_weekly_offs,
+                    0 as total_holidays,
+                    COALESCE(SUM(overtime_hours), 0) as total_overtime_hours
+                FROM attendance_summary
+                WHERE month = :month AND year = :year",
                 ['month' => $month, 'year' => $year]
             );
             
