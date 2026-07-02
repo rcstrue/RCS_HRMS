@@ -715,7 +715,7 @@
                                 FROM ess_announcements a
                                 LEFT JOIN ess_announcement_reads r ON a.id = r.announcement_id AND r.user_id = :uid
                                 LEFT JOIN ess_employee_cache e ON a.created_by = e.employee_id
-                                LEFT JOIN users u ON a.created_by = CAST(u.id AS CHAR)
+                                LEFT JOIN users u ON a.created_by = CAST(u.id AS CHAR COLLATE utf8mb4_unicode_ci)
                                 WHERE r.id IS NULL $headerScopeWhere
                                 ORDER BY FIELD(a.priority, 'urgent', 'high', 'normal', 'low'), a.created_at DESC
                                 LIMIT 5
