@@ -232,7 +232,7 @@ export default function LoginScreen({ onLogin, onBackToRegistration, onForcePinC
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-emerald-600 shadow-lg shadow-emerald-200 mb-4">
             <Building2 className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">RCS Facility</h1>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">RCS True Facilities</h1>
           <p className="text-sm text-gray-500 mt-1">Employee Self-Service</p>
         </div>
 
@@ -386,7 +386,7 @@ export default function LoginScreen({ onLogin, onBackToRegistration, onForcePinC
       </div>
 
       <div className="text-center py-4 text-xs text-gray-400">
-        RCS Facility Services Pvt. Ltd.
+        RCS True Facilities Pvt Ltd
       </div>
     </div>
   );

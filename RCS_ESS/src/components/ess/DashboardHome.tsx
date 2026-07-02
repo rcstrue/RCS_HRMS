@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { parseIST, getLocationName } from './helpers';
+import { cn } from '@/lib/utils';
 import type { Employee, EmployeeRole, LeaveBalance, AttendanceRecord } from '@/lib/ess-types';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,9 +18,7 @@ import {
   Receipt,
   Megaphone,
   CircleHelp,
-  Leaf,
   CheckCircle2,
-  ListTodo,
   Timer,
   MapPin,
   Loader2,
@@ -82,7 +81,6 @@ export default function DashboardHome({
     ...(canViewEmployees ? [{ key: 'team-monthly', label: 'Team Attendance', icon: TableProperties, color: 'text-indigo-600', bg: 'bg-indigo-50' }] : []),
     { key: 'leaves', label: 'Leave', icon: CalendarDays, color: 'text-amber-600', bg: 'bg-amber-50' },
     { key: 'expenses', label: 'Expenses', icon: Receipt, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { key: 'tasks', label: 'Tasks', icon: ClipboardList, color: 'text-violet-600', bg: 'bg-violet-50' },
     { key: 'announcements', label: 'Notices', icon: Megaphone, color: 'text-rose-600', bg: 'bg-rose-50' },
     { key: 'helpdesk', label: 'Help Desk', icon: CircleHelp, color: 'text-sky-600', bg: 'bg-sky-50' },
     { key: 'attendance', label: 'History', icon: Clock, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -105,7 +103,6 @@ export default function DashboardHome({
   const canCheckIn = !attStatus || attStatus === 'absent' || attStatus === 'holiday' || attStatus === 'leave';
 
   // Check-out available when: status is checked_in, OR has check_in time but no check_out
-  // (PHP sets status to 'present'/'late' on check-in, never 'checked_in')
   const hasCheckIn = !!att?.check_in;
   const hasNoCheckOut = !att?.check_out;
   const canCheckOut = attStatus === 'checked_in' || (hasCheckIn && hasNoCheckOut && (attStatus === 'present' || attStatus === 'late'));
@@ -114,7 +111,6 @@ export default function DashboardHome({
 
   const formatAttTime = (iso: string | undefined) => {
     if (!iso) return null;
-    // Handle time-only strings (e.g. "09:30:00") by prepending today's date
     const timeOnlyRegex = /^\d{1,2}:\d{2}(:\d{2})?$/;
     let parseStr = (iso || '').replace(' ', 'T');
     if (timeOnlyRegex.test(parseStr)) {
@@ -122,7 +118,6 @@ export default function DashboardHome({
     }
     const d = parseIST(parseStr);
     if (isNaN(d.getTime())) return null;
-    // For time-only strings, just format the time portion directly
     if (timeOnlyRegex.test((iso || '').trim())) {
       const parts = iso.split(':');
       const h = parseInt(parts[0]);
@@ -137,11 +132,9 @@ export default function DashboardHome({
     if (!cIn) return null;
     const timeOnlyRegex = /^\d{1,2}:\d{2}(:\d{2})?$/;
 
-    // Convert a time-only string to today's timestamp in IST
     const timeOnlyToTodayMs = (timeStr: string): number => {
       const [h, m, s] = timeStr.split(':').map(Number);
       const now = new Date();
-      // Get current date in IST
       const istStr = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
       const istDate = new Date(istStr);
       istDate.setHours(h, m, s || 0, 0);
@@ -172,10 +165,17 @@ export default function DashboardHome({
     return `${h}h ${m}m`;
   };
 
+  const isLate = attStatus === 'late' || attStatus === 'present';
+  const checkInTime = formatAttTime(att?.check_in);
+  const checkOutTime = formatAttTime(att?.check_out);
+  const hoursWorked = calcHours(att?.check_in, att?.check_out);
+  const showHoursLive = !!checkInTime && !checkOutTime;
+
+  // Status for the badge inside the attendance card
   const statusLabel = !attStatus ? 'Not Marked' :
     canCheckOut ? 'Checked In' :
     isCheckedOut ? 'Checked Out' :
-    attStatus === 'late' ? 'Late' :
+    attStatus === 'late' ? 'Present (Late)' :
     attStatus === 'present' ? 'Present' :
     attStatus === 'absent' ? 'Absent' : attStatus;
   const statusColor = canCheckOut ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
@@ -183,12 +183,7 @@ export default function DashboardHome({
     attStatus === 'late' ? 'bg-amber-100 text-amber-700 border-amber-200' :
     attStatus === 'present' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
     'bg-gray-100 text-gray-600 border-gray-200';
-  // Location flags
   const hasLocation = att?.latitude != null && att?.longitude != null;
-  const checkInTime = formatAttTime(att?.check_in);
-  const checkOutTime = formatAttTime(att?.check_out);
-  const hoursWorked = calcHours(att?.check_in, att?.check_out);
-  const showHoursLive = !!checkInTime && !checkOutTime;
 
   return (
     <div className="space-y-5">
@@ -206,6 +201,22 @@ export default function DashboardHome({
           <p className="text-xs text-white/70 mt-0.5">
             {currentTime.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </p>
+          {/* Present (Late) with check-in time — shown under the clock */}
+          {isLate && checkInTime && (
+            <div className="mt-3 inline-flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-lg px-4 py-1.5">
+              <Clock className="w-3.5 h-3.5 text-amber-200" />
+              <span className={cn(
+                'text-sm font-semibold',
+                attStatus === 'late' ? 'text-amber-200' : 'text-white',
+              )}>
+                {attStatus === 'late' ? 'Late' : 'Present'}
+              </span>
+              <span className="text-white/60">•</span>
+              <span className="text-sm font-mono font-medium text-white/90">
+                In: {checkInTime}
+              </span>
+            </div>
+          )}
         </div>
 
         <CardContent className="p-5 space-y-4">
@@ -306,27 +317,14 @@ export default function DashboardHome({
         </CardContent>
       </Card>
 
-      {/* Summary Cards */}
+      {/* Summary Cards — Today Attendance and Tasks removed */}
       <div className="grid grid-cols-2 gap-3">
         {canViewEmployees && (
           <SummaryCard loading={loading} icon={<ClipboardList className="w-3.5 h-3.5 text-blue-500" />} label="Manpower" value="Update" subtext="Daily status" onClick={() => onNavigate('manpower-status')} />
         )}
         {canViewEmployees && (
-          <SummaryCard loading={loading} icon={<MapPin className="w-3.5 h-3.5 text-teal-500" />} label="Unit Visits" value="Go" subtext="Submit checklists" onClick={() => onNavigate('unit-visits')} />
+          <SummaryCard loading={loading} icon={<MapPin className="w-3.5 h-3.5 text-teal-500" />} label="Unit Visits" value="Checklist" subtext="Submit checklists" onClick={() => onNavigate('unit-visits')} />
         )}
-        <SummaryCard loading={loading} icon={<LogIn className="w-3.5 h-3.5 text-emerald-500" />} label="Today" value={(() => {
-            const s = dashboardData?.todayAttendance?.status;
-            if (!s || s === 'absent') return 'Not marked';
-            if (s === 'checked_in') return 'Checked In';
-            if (s === 'checked_out') return 'Checked Out';
-            if (s === 'present') return 'Present';
-            if (s === 'late') return 'Late';
-            if (s === 'half_day') return 'Half Day';
-            if (s === 'leave') return 'On Leave';
-            if (s === 'holiday') return 'Holiday';
-            return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ');
-          })()} subtext="Attendance" />
-        <SummaryCard loading={loading} icon={<ListTodo className="w-3.5 h-3.5 text-violet-500" />} label="Tasks" value={String(dashboardData?.pendingTasks ?? 0)} subtext="Pending" />
       </div>
 
       {/* Quick Actions */}

@@ -340,7 +340,7 @@ export default function ForceChangePin({
 
       <div className="flex items-center justify-center gap-2 py-4 text-xs text-gray-400">
         <Building2 className="w-3 h-3" />
-        RCS Facility Services Pvt. Ltd.
+        RCS True Facilities Pvt Ltd
       </div>
     </div>
   );
