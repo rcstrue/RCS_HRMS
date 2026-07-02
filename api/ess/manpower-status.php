@@ -34,7 +34,7 @@ try {
     }
 } catch (\Throwable $e) {
     error_log('[ESS manpower-status] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-    jsonOutput(. Please try again later.'], 500);
+    jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
 }
 
 // ─── Create table if not exists ────────────────────────────────────────────────

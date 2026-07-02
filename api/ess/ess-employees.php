@@ -33,7 +33,7 @@ try {
     }
 } catch (Exception $e) {
     error_log('[ESS ess-employees] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-    jsonOutput(. Please try again later.'], 500);
+    jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
 }
 
 // ============================================================================
