@@ -454,6 +454,28 @@ export async function saveTeamAdvance(data: {
 }) {
   return unwrap(apiRequest('/ess/team-summary', {
     method: 'POST',
-    body: JSON.stringify(data),
+    body: JSON.stringify({ ...data, action: 'save_advance' }),
+  }));
+}
+
+export async function addTempEmployee(data: {
+  name: string;
+  unit_id: number;
+  month: number;
+  year: number;
+}) {
+  return unwrap(apiRequest('/ess/team-summary', {
+    method: 'POST',
+    body: JSON.stringify({ ...data, action: 'add_temp' }),
+  }));
+}
+
+export async function deleteTempEmployee(data: {
+  temp_id: number;
+  unit_id: number;
+}) {
+  return unwrap(apiRequest('/ess/team-summary', {
+    method: 'POST',
+    body: JSON.stringify({ ...data, action: 'del_temp' }),
   }));
 }

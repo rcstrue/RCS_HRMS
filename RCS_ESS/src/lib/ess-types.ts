@@ -402,6 +402,7 @@ export interface TeamSummaryRow {
   adv1: number;
   office_advance: number;
   dress_advance: number;
+  is_temp?: boolean;
 }
 
 export interface TeamSummaryTotals {
