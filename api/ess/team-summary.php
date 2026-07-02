@@ -54,15 +54,39 @@ function _handleGetSummary(): void
     }
 
     // Verify caller has access to this unit (admin skips)
+    // Managers/supervisors can access all allocated units (via user_access table)
     if ($callerRole !== 'admin') {
-        $uStmt = $conn->prepare('SELECT unit_id FROM ess_employee_cache WHERE employee_id = ?');
-        $uStmt->bind_param('s', $employeeId);
-        $uStmt->execute();
-        $uRow = $uStmt->get_result()->fetch_assoc();
-        $uStmt->close();
-        $callerUnitId = (int)($uRow['unit_id'] ?? 0);
-        if ($callerUnitId !== $unitId) {
-            jsonOutput(['success' => false, 'error' => 'You can only view your own unit'], 403);
+        // Get the unit name for the requested unit_id
+        $nameStmt = $conn->prepare('SELECT name FROM units WHERE id = ?');
+        $nameStmt->bind_param('i', $unitId);
+        $nameStmt->execute();
+        $unitRow = $nameStmt->get_result()->fetch_assoc();
+        $nameStmt->close();
+        $unitName = $unitRow['name'] ?? '';
+
+        if (empty($unitName)) {
+            jsonOutput(['success' => false, 'error' => 'Invalid unit'], 400);
+        }
+
+        // Check if this unit name is in user's allocations
+        $accStmt = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_value = ?");
+        $accStmt->bind_param('ss', $employeeId, $unitName);
+        $accStmt->execute();
+        $hasAccess = $accStmt->get_result()->num_rows > 0;
+        $accStmt->close();
+
+        // Fallback: if no allocations at all, allow own unit
+        if (!$hasAccess) {
+            $ownStmt = $conn->prepare('SELECT unit_id FROM ess_employee_cache WHERE employee_id = ?');
+            $ownStmt->bind_param('s', $employeeId);
+            $ownStmt->execute();
+            $ownRow = $ownStmt->get_result()->fetch_assoc();
+            $ownStmt->close();
+            $hasAccess = ($ownRow && (int)$ownRow['unit_id'] === $unitId);
+        }
+
+        if (!$hasAccess) {
+            jsonOutput(['success' => false, 'error' => 'Access denied to this unit'], 403);
         }
     }
 
@@ -158,22 +182,30 @@ function _handleSaveAdvance(): void
         jsonOutput(['success' => false, 'error' => 'employee_id, unit_id, month, and year are required'], 400);
     }
 
-    // Verify target employee is in manager's unit (admin skips)
+    // Verify caller has access to this unit (admin skips)
     if ($callerRole !== 'admin') {
-        $uStmt = $conn->prepare('SELECT unit_id FROM ess_employee_cache WHERE employee_id = ?');
-        $uStmt->bind_param('s', $employeeId);
-        $uStmt->execute();
-        $callerUnitId = (int)($uStmt->get_result()->fetch_assoc()['unit_id'] ?? 0);
-        $uStmt->close();
+        $nameStmt = $conn->prepare('SELECT name FROM units WHERE id = ?');
+        $nameStmt->bind_param('i', $unitId);
+        $nameStmt->execute();
+        $unitName = $nameStmt->get_result()->fetch_assoc()['name'] ?? '';
+        $nameStmt->close();
 
-        $uStmt2 = $conn->prepare('SELECT unit_id FROM employees WHERE id = ?');
-        $uStmt2->bind_param('s', $targetEmpId);
-        $uStmt2->execute();
-        $targetUnitId = (int)($uStmt2->get_result()->fetch_assoc()['unit_id'] ?? 0);
-        $uStmt2->close();
+        $accStmt = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_value = ?");
+        $accStmt->bind_param('ss', $employeeId, $unitName);
+        $accStmt->execute();
+        $hasAccess = $accStmt->get_result()->num_rows > 0;
+        $accStmt->close();
 
-        if ($callerUnitId !== $targetUnitId || $targetUnitId !== $unitId) {
-            jsonOutput(['success' => false, 'error' => 'Employee not in your unit'], 403);
+        if (!$hasAccess) {
+            $ownStmt = $conn->prepare('SELECT unit_id FROM ess_employee_cache WHERE employee_id = ?');
+            $ownStmt->bind_param('s', $employeeId);
+            $ownStmt->execute();
+            $ownRow = $ownStmt->get_result()->fetch_assoc();
+            $ownStmt->close();
+            $hasAccess = ($ownRow && (int)$ownRow['unit_id'] === $unitId);
+        }
+        if (!$hasAccess) {
+            jsonOutput(['success' => false, 'error' => 'Access denied to this unit'], 403);
         }
     }
 
