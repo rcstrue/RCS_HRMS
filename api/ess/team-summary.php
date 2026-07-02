@@ -1,8 +1,14 @@
 <?php
 /**
  * ESS API — Team Monthly Summary (Attendance + Advances)
+ *
+ * Data flow:
+ *   Attendance (Present/WO) → attendance_summary table (total_present, total_wo)
+ *   Advances (Adv1, Off Adv, Dress Adv) → employee_advances table
+ *   Temp employees → everything in employee_advances (no attendance_summary row)
+ *
  * GET:                Fetch all employees in a unit with attendance + advance data
- * POST (save_advance): Save present/wo/advance amounts for one employee
+ * POST (save_advance): Save present/wo to attendance_summary, advances to employee_advances
  * POST (add_temp):     Add a temporary employee (name-only, valid for one month)
  * POST (del_temp):     Remove a temporary employee
  * POST (remove_emp):   Mark a regular employee as 'removed' (left)
@@ -92,21 +98,22 @@ function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string 
     return ($ownRow && (int)$ownRow['unit_id'] === $unitId);
 }
 
-// ─── Helper: Ensure employee_advances has present/wo columns ──────────────────
-function _ensureAdvanceColumns(mysqli $conn): void
+// ─── Helper: Ensure temp_employees table exists ────────────────────────────────
+function _ensureTempTable(mysqli $conn): void
 {
-    // Add present and wo columns if they don't exist
-    $col = $conn->query("SHOW COLUMNS FROM employee_advances LIKE 'present'");
-    if ($col->num_rows === 0) {
-        $conn->query("ALTER TABLE employee_advances ADD COLUMN `present` DECIMAL(5,2) DEFAULT NULL AFTER `year`");
-    }
-    $col->close();
-
-    $col = $conn->query("SHOW COLUMNS FROM employee_advances LIKE 'wo'");
-    if ($col->num_rows === 0) {
-        $conn->query("ALTER TABLE employee_advances ADD COLUMN `wo` INT DEFAULT NULL AFTER `present`");
-    }
-    $col->close();
+    $conn->query("
+        CREATE TABLE IF NOT EXISTS temp_employees (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            unit_id INT NOT NULL,
+            name VARCHAR(150) NOT NULL,
+            month INT NOT NULL,
+            year INT NOT NULL,
+            created_by VARCHAR(50) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uk_unit_name_month (unit_id, name, month, year),
+            KEY idx_unit_month (unit_id, month, year)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ");
 }
 
 // ─── GET: Team Monthly Summary ──────────────────────────────────────────────
@@ -136,32 +143,18 @@ function _handleGetSummary(): void
         jsonOutput(['success' => false, 'error' => 'Access denied to this unit'], 403);
     }
 
-    // Ensure tables exist
-    _ensureAdvanceColumns($conn);
-
-    $conn->query("
-        CREATE TABLE IF NOT EXISTS temp_employees (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            unit_id INT NOT NULL,
-            name VARCHAR(150) NOT NULL,
-            month INT NOT NULL,
-            year INT NOT NULL,
-            created_by VARCHAR(50) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY uk_unit_name_month (unit_id, name, month, year),
-            KEY idx_unit_month (unit_id, month, year)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    ");
+    // Ensure temp_employees table exists
+    _ensureTempTable($conn);
 
     // Fetch regular employees
-    // Priority: employee_advances.present/wo (manager input) > attendance_summary (system)
+    // Attendance from attendance_summary, advances from employee_advances
     $stmt = $conn->prepare('
         SELECT
             e.id AS emp_id,
             e.employee_code,
             e.full_name,
-            COALESCE(adv.present, att.total_present, 0) AS present,
-            COALESCE(adv.wo, att.total_wo, 0) AS wo,
+            COALESCE(att.total_present, 0) AS present,
+            COALESCE(att.total_wo, 0) AS wo,
             COALESCE(adv.adv1, 0) AS adv1,
             COALESCE(adv.office_advance, 0) AS office_advance,
             COALESCE(adv.dress_advance, 0) AS dress_advance
@@ -264,7 +257,7 @@ function _handleGetSummary(): void
     ]);
 }
 
-// ─── POST: Save present/wo/advance for one employee ───────────────────────────
+// ─── POST: Save attendance (to attendance_summary) + advances (to employee_advances) ──
 
 function _handleSaveAdvance(array $input): void
 {
@@ -281,7 +274,7 @@ function _handleSaveAdvance(array $input): void
     $month       = (int)($input['month'] ?? 0);
     $year        = (int)($input['year'] ?? 0);
     $present     = ($input['present'] !== null && $input['present'] !== '') ? (float)$input['present'] : null;
-    $wo          = ($input['wo'] !== null && $input['wo'] !== '') ? (int)$input['wo'] : null;
+    $wo          = ($input['wo'] !== null && $input['wo'] !== '') ? (float)$input['wo'] : null;
     $adv1        = (float)($input['adv1'] ?? 0);
     $officeAdv   = (float)($input['office_advance'] ?? 0);
     $dressAdv    = (float)($input['dress_advance'] ?? 0);
@@ -298,27 +291,81 @@ function _handleSaveAdvance(array $input): void
         jsonOutput(['success' => false, 'error' => 'Advance amounts cannot be negative'], 400);
     }
 
-    _ensureAdvanceColumns($conn);
+    $isTemp = (str_starts_with($targetEmpId, 'TEMP-'));
 
-    // Upsert: include present and wo if provided
-    if ($present !== null && $wo !== null) {
-        $stmt = $conn->prepare('
-            INSERT INTO employee_advances
-                (employee_id, unit_id, month, year, present, wo, adv1, office_advance, dress_advance)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE
-                present = VALUES(present),
-                wo = VALUES(wo),
-                adv1 = VALUES(adv1),
-                office_advance = VALUES(office_advance),
-                dress_advance = VALUES(dress_advance)
-        ');
-        $stmt->bind_param('siiiddidd',
-            $targetEmpId, $unitId, $month, $year,
-            $present, $wo, $adv1, $officeAdv, $dressAdv
+    // ── 1. Save attendance (Present/WO) ──────────────────────────────────────
+    if ($present !== null && $wo !== null && !$isTemp) {
+        // Regular employee → save to attendance_summary
+        $numericEmpId = (int)$targetEmpId;
+
+        // Check if a row already exists for this employee/unit/month/year
+        $checkStmt = $conn->prepare(
+            'SELECT id FROM attendance_summary WHERE employee_id = ? AND unit_id = ? AND month = ? AND year = ? LIMIT 1'
         );
+        $checkStmt->bind_param('iiii', $numericEmpId, $unitId, $month, $year);
+        $checkStmt->execute();
+        $existing = $checkStmt->get_result()->fetch_assoc();
+        $checkStmt->close();
+
+        if ($existing) {
+            // Update existing row
+            $updStmt = $conn->prepare(
+                'UPDATE attendance_summary SET total_present = ?, total_wo = ?, source = ?, updated_at = NOW() WHERE id = ?'
+            );
+            $source = 'ess_manager';
+            $updStmt->bind_param('ddsi', $present, $wo, $source, (int)$existing['id']);
+            $updStmt->execute();
+            $updStmt->close();
+        } else {
+            // Insert new row
+            $insStmt = $conn->prepare(
+                'INSERT INTO attendance_summary (employee_id, unit_id, month, year, total_present, total_wo, source, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+            );
+            $source = 'ess_manager';
+            $insStmt->bind_param('iiidds', $numericEmpId, $unitId, $month, $year, $present, $wo, $source);
+            $insStmt->execute();
+            $insStmt->close();
+        }
+    }
+
+    // ── 2. Save advances to employee_advances ────────────────────────────────
+    // For temp employees, also save present/wo here (no attendance_summary row)
+    if ($isTemp) {
+        // Temp: save everything including present/wo in employee_advances
+        if ($present !== null && $wo !== null) {
+            $stmt = $conn->prepare('
+                INSERT INTO employee_advances
+                    (employee_id, unit_id, month, year, present, wo, adv1, office_advance, dress_advance)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    present = VALUES(present),
+                    wo = VALUES(wo),
+                    adv1 = VALUES(adv1),
+                    office_advance = VALUES(office_advance),
+                    dress_advance = VALUES(dress_advance)
+            ');
+            $stmt->bind_param('siiiddidd',
+                $targetEmpId, $unitId, $month, $year,
+                $present, $wo, $adv1, $officeAdv, $dressAdv
+            );
+        } else {
+            $stmt = $conn->prepare('
+                INSERT INTO employee_advances
+                    (employee_id, unit_id, month, year, adv1, office_advance, dress_advance)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    adv1 = VALUES(adv1),
+                    office_advance = VALUES(office_advance),
+                    dress_advance = VALUES(dress_advance)
+            ');
+            $stmt->bind_param('siiiddd',
+                $targetEmpId, $unitId, $month, $year,
+                $adv1, $officeAdv, $dressAdv
+            );
+        }
     } else {
-        // Only advances, no attendance
+        // Regular: save only advances (attendance already saved to attendance_summary)
         $stmt = $conn->prepare('
             INSERT INTO employee_advances
                 (employee_id, unit_id, month, year, adv1, office_advance, dress_advance)
@@ -340,10 +387,10 @@ function _handleSaveAdvance(array $input): void
         'success' => true,
         'message' => 'Saved successfully',
         'data' => [
-            'employee_id'   => $targetEmpId,
-            'present'       => $present,
-            'wo'            => $wo,
-            'adv1'          => $adv1,
+            'employee_id'    => $targetEmpId,
+            'present'        => $present,
+            'wo'             => $wo,
+            'adv1'           => $adv1,
             'office_advance' => $officeAdv,
             'dress_advance'  => $dressAdv,
         ]
@@ -375,19 +422,7 @@ function _handleAddTempEmployee(array $input): void
         jsonOutput(['success' => false, 'error' => 'Access denied to this unit'], 403);
     }
 
-    $conn->query("
-        CREATE TABLE IF NOT EXISTS temp_employees (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            unit_id INT NOT NULL,
-            name VARCHAR(150) NOT NULL,
-            month INT NOT NULL,
-            year INT NOT NULL,
-            created_by VARCHAR(50) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY uk_unit_name_month (unit_id, name, month, year),
-            KEY idx_unit_month (unit_id, month, year)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    ");
+    _ensureTempTable($conn);
 
     $stmt = $conn->prepare('INSERT INTO temp_employees (unit_id, name, month, year, created_by) VALUES (?, ?, ?, ?, ?)');
     $stmt->bind_param('isiis', $unitId, $name, $month, $year, $employeeId);
