@@ -37,7 +37,7 @@ function _handleGetSummary(): void
     $conn = getDbConnection();
 
     // Role check — managers/supervisors/admins only
-    $callerRole = getEmployeeRole($employeeId, $conn);
+    $callerRole = getEmployeeRole($conn, $employeeId);
     if (!in_array($callerRole, ['manager', 'supervisor', 'admin'], true)) {
         jsonOutput(['success' => false, 'error' => 'Access denied'], 403);
     }
@@ -134,7 +134,7 @@ function _handleSaveAdvance(): void
     $conn = getDbConnection();
 
     // Role check
-    $callerRole = getEmployeeRole($employeeId, $conn);
+    $callerRole = getEmployeeRole($conn, $employeeId);
     if (!in_array($callerRole, ['manager', 'supervisor', 'admin'], true)) {
         jsonOutput(['success' => false, 'error' => 'Access denied — only managers can edit advances'], 403);
     }
