@@ -30,7 +30,7 @@ try {
     }
 } catch (Exception $e) {
     error_log('[ESS sync] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-    jsonError(. Please try again later.', 500);
+    jsonError('Internal server error. Please try again later.', 500);
 }
 
 // ============================================================================
