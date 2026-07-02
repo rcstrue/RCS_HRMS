@@ -1,0 +1,229 @@
+/home/z/my-project/RCS_HRMS/api/ess/sync.php:68:                    u.name,
+/home/z/my-project/RCS_HRMS/api/ess/employees.php:101:            u.name AS unit_name,
+/home/z/my-project/RCS_HRMS/api/ess/login.php:58:               u.name AS unit_name, u.city AS unit_city, u.state AS unit_state,
+/home/z/my-project/RCS_HRMS/api/ess/payslip.php:110:               u.name AS unit_name
+/home/z/my-project/RCS_HRMS/api/ess/filters.php:293:    $query = 'SELECT u.id, u.client_id, u.name, u.city, u.state, u.is_active, c.name AS client_name
+/home/z/my-project/RCS_HRMS/api/ess/filters.php:317:    $query .= ' ORDER BY u.name ASC';
+/home/z/my-project/RCS_HRMS/api/ess/filters.php:449:            u.name AS unit_name,
+/home/z/my-project/RCS_HRMS/api/ess/visit-email.php:49:        SELECT v.*, u.name AS unit_name, c.name AS client_name,
+/home/z/my-project/RCS_HRMS/api/ess/admin-notifications.php:200:                    'u.name'
+/home/z/my-project/RCS_HRMS/api/ess/admin-notifications.php:370:               u.name AS unit_name, c.name AS client_name
+/home/z/my-project/RCS_HRMS/api/ess/manpower-status.php:90:               u.name AS unit_name,
+/home/z/my-project/RCS_HRMS/api/ess/manpower-status.php:124:    $query .= ' ORDER BY m.report_date DESC, u.name ASC';
+/home/z/my-project/RCS_HRMS/api/ess/manpower-status.php:239:            u.name AS unit_name,
+/home/z/my-project/RCS_HRMS/api/ess/manpower-status.php:271:    $query .= ' GROUP BY m.unit_id, u.name, c.name, m.client_id ORDER BY c.name, u.name';
+/home/z/my-project/RCS_HRMS/api/ess/unit-visits.php:243:               u.name AS unit_name, c.name AS client_name,
+/home/z/my-project/RCS_HRMS/api/ess/unit-visits.php:314:        SELECT v.*, u.name AS unit_name, c.name AS client_name,
+/home/z/my-project/RCS_HRMS/api/ess/unit-visits.php:450:        SELECT u.name AS unit_name, AVG(v.score_percent) AS score, COUNT(*) AS visits
+/home/z/my-project/RCS_HRMS/api/ess/unit-visits.php:454:        GROUP BY v.unit_id, u.name
+/home/z/my-project/RCS_HRMS/api/ess/unit-visits.php:627:    $unitStmt = $conn->prepare('SELECT u.name AS unit_name, c.name AS client_name FROM units u LEFT JOIN clients c ON c.id = u.client_id WHERE u.id = ?');
+/home/z/my-project/RCS_HRMS/api/ess/unit-visits.php:710:        SELECT v.*, u.name AS unit_name, c.name AS client_name,
+/home/z/my-project/RCS_HRMS/api/ess/unit-visits.php:782:        SELECT v.*, u.name AS unit_name, c.name AS client_name,
+/home/z/my-project/RCS_HRMS/api/ess/ess-employees.php:99:            u.name as unit_name,
+/home/z/my-project/RCS_HRMS/api/ess/ess-employees.php:218:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/templates/header.php:714:                                SELECT a.*, COALESCE(e.full_name, u.name, a.created_by) AS creator_name
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.employee.php:90:                           u.name as unit_name_display
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.employee.php:105:                           u.name as unit_name_display
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.employee.php:221:                        u.name as unit_name_display
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.employee.php:235:                        u.name as unit_name_display
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.employee.php:557:                           u.name as unit_name_display, e.worker_category,
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.employee.php:571:                           u.name as unit_name_display, e.worker_category
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.employee.php:608:                    u.name as unit_name_display 
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.employee.php:636:            "SELECT $baseColumns, u.name as unit_name_display 
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:161:                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:196:        $sql .= " ORDER BY c.name, u.name, e.employee_code";
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:206:                        c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:268:                       c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:1018:            "SELECT pe.*, e.full_name, e.employee_code, c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:1096:            "SELECT u.id, u.name as unit_name, c.name as client_name,
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:1108:             GROUP BY u.id, u.name, c.name
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:1164:                    c.name as client_name, u.name as unit_name, e.date_of_joining,
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:1184:                    c.name as client_name, u.name as unit_name, e.date_of_joining,
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:1234:                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:1252:        $sql .= " ORDER BY c.name, u.name, e.employee_code";
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.payroll.php:1453:                    c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.unit.php:16:        $sql = "SELECT u.id, u.unit_code, u.name as unit_name, u.client_id, 
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.unit.php:39:        $sql .= " ORDER BY c.name, u.name";
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.compliance.php:643:            "SELECT e.*, c.name as client_name, u.name as unit_name, ess.basic_da, ess.gross_salary
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.loan.php:135:                       c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.loan.php:153:                       c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/includes/class.attendance.php:62:             WHERE u.name = :unit_name AND e.status = 'approved'
+/home/z/my-project/RCS_HRMS/php_payroll/modules/compliance/minimum-wage-check.php:46:            u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/client/visit-checklist.php:86:           u.name as unit_name, u.unit_code,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/client/visit-checklist.php:127:    $viewVisit = $db->fetch("SELECT v.*, e.full_name as employee_name, u.name as unit_name 
+/home/z/my-project/RCS_HRMS/php_payroll/modules/loan/list.php:502:                html += '<option value="' + u.id + '">' + u.name + '</option>';
+/home/z/my-project/RCS_HRMS/php_payroll/modules/employee/bulk-edit.php:503:            opt.textContent = u.name;
+/home/z/my-project/RCS_HRMS/php_payroll/modules/employee/bulk-edit.php:557:        opt.textContent = u.name;
+/home/z/my-project/RCS_HRMS/php_payroll/modules/settlement/view.php:21:            u.name as unit_name, e.state, e.mobile_number,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/employee/add.php:862:                    html += `<option value="${u.id}">${u.name}</option>`;
+/home/z/my-project/RCS_HRMS/php_payroll/modules/ratecard/list.php:43:          u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/assets/issue.php:65:    $empSql = "SELECT e.id, e.employee_code, e.full_name, c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/employee/id-card.php:41:        "SELECT e.*, c.name as client_name, u.name as unit_name, u.city as unit_city
+/home/z/my-project/RCS_HRMS/php_payroll/modules/employee/id-card.php:168:        "SELECT e.*, c.name as client_name, u.name as unit_name, u.city as unit_city
+/home/z/my-project/RCS_HRMS/php_payroll/modules/employee/id-card.php:375:        "SELECT e.*, c.name as client_name, u.name as unit_name, u.city as unit_city 
+/home/z/my-project/RCS_HRMS/php_payroll/modules/employee/id-card.php:608:                (data.units || []).forEach(u => html += `<option value="${u.id}">${u.name}</option>`);
+/home/z/my-project/RCS_HRMS/php_payroll/modules/portal/payslip_view.php:36:            u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/portal/login.php:41:                           u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/portal/dashboard.php:28:            u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/portal/profile.php:22:            u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/portal/profile.php:73:                        u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/portal/profile.php:102:                        u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/portal/profile.php:131:                        u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/dashboard/index.php:30:                           u.name as unit_name, c.name as client_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/dashboard/index.php:39:$stmt = $db->query("SELECT u.name as unit_name, COUNT(e.id) as count 
+/home/z/my-project/RCS_HRMS/php_payroll/modules/dashboard/index.php:43:                    GROUP BY u.id, u.name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/service_certificate.php:18:$stmt = $db->prepare("SELECT e.*, c.name as client_name, u.name as unit_name 
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/form-f2.php:24:    $stmt = $db->prepare("SELECT u.id, u.name as unit_name, u.address, u.city,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/form-f2.php:30:                          ORDER BY u.name");
+/home/z/my-project/RCS_HRMS/php_payroll/modules/employee/id-card-fixed.php:56:                u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/employee/id-card-fixed.php:251:        "SELECT e.*, c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/nomination.php:48:                    c.name as client_name, u.name as unit_name, e.designation, ess.pf_applicable, ess.esi_applicable, ess.gross_salary
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/form-v.php:20:    $stmt = $db->prepare("SELECT u.id, u.name as unit_name, c.name as client_name FROM units u LEFT JOIN clients c ON u.client_id = c.id WHERE u.client_id = ? AND u.is_active = 1 ORDER BY u.name");
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/form-v.php:24:    $stmt = $db->query("SELECT u.id, u.name as unit_name, c.name as client_name FROM units u LEFT JOIN clients c ON u.client_id = c.id WHERE u.is_active = 1 ORDER BY c.name, u.name");
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/form-xvi.php:10:$stmt = $db->query("SELECT u.id, u.name as unit_name, c.name as client_name FROM units u LEFT JOIN clients c ON u.client_id = c.id WHERE u.is_active = 1 ORDER BY c.name, u.name");
+/home/z/my-project/RCS_HRMS/php_payroll/modules/employee/documents.php:68:                  c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/labour/form-13.php:33:        $stmt = $db->prepare("SELECT e.*, u.name as unit_name, c.name as client_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/labour/form-xxii.php:61:            u.name as unit_name, c.name as client_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/labour/form-xxii.php:70:        ORDER BY u.name, e.employee_code
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/labour/employment-card.php:16:               c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/labour/employment-card.php:40:            SELECT e.*, c.name as client_name, u.name as unit_name, u.state as unit_state
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/labour/form-15.php:38:        $stmt = $db->prepare("SELECT e.*, u.name as unit_name, c.name as client_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/form-xvii.php:21:    $stmt = $db->prepare("SELECT u.id, u.name as unit_name, c.name as client_name FROM units u LEFT JOIN clients c ON u.client_id = c.id WHERE u.client_id = ? AND u.is_active = 1 ORDER BY u.name");
+/home/z/my-project/RCS_HRMS/php_payroll/modules/forms/form-xvii.php:25:    $stmt = $db->query("SELECT u.id, u.name as unit_name, c.name as client_name FROM units u LEFT JOIN clients c ON u.client_id = c.id WHERE u.is_active = 1");
+/home/z/my-project/RCS_HRMS/php_payroll/modules/contract/add.php:154:<?php $extraJS = '<script>$("#client_id").on("change", function(){ const c=$(this).val(); if(!c){$("#unit_id").html("<option value=\"\">All Units</option>");return;} $.get("index.php?page=api/units&client_id="+c, function(d){let h="<option value=\"\">All Units</option>"; if(d.units) d.units.forEach(u=>h+="<option value=\""+u.id+"\">"+u.name+"</option>"); $("#unit_id").html(h);});});</script>'; ?>
+/home/z/my-project/RCS_HRMS/php_payroll/modules/contract/list.php:32:$sql = "SELECT c.*, cl.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/api/manager-units.php:92:        "SELECT u.id, u.unit_code, u.name as unit_name, u.city, u.state, u.contact_person, u.contact_phone,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/api/manager-units.php:98:         ORDER BY u.state, u.city, u.name",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/api/manager-units.php:164:                c.name as client_name, u.name as unit_name, u.city as unit_city
+/home/z/my-project/RCS_HRMS/php_payroll/modules/api/manager-units.php:169:         ORDER BY u.name, e.full_name",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/settings/manager-allocation.php:69:            $emp = $db->fetch("SELECT e.designation, u.name as unit_name FROM employees e LEFT JOIN units u ON e.unit_id = u.id WHERE CAST(e.employee_code AS CHAR COLLATE utf8mb4_unicode_ci) = ?", [$empCode]);
+/home/z/my-project/RCS_HRMS/php_payroll/modules/settings/manager-allocation.php:121:        SELECT e.*, u.name as unit_name, u.city as unit_city, u.state as unit_state
+/home/z/my-project/RCS_HRMS/php_payroll/modules/settings/manager-allocation.php:161:           u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/settings/manager-allocation.php:408:                                $emp = $db->fetch("SELECT e.employee_code, e.full_name, e.designation, e.unit_id, u.name as unit_name FROM employees e LEFT JOIN units u ON e.unit_id = u.id WHERE CAST(e.employee_code AS CHAR COLLATE utf8mb4_unicode_ci) = ?", [$ae['user_id']]);
+/home/z/my-project/RCS_HRMS/php_payroll/modules/expense/dashboard.php:199:        "SELECT e.id AS employee_id, e.full_name, e.designation, u.name AS unit_name, u.city
+/home/z/my-project/RCS_HRMS/php_payroll/modules/leave/balance.php:66:    u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/expense/allocations.php:105:        "SELECT e.id AS employee_id, e.full_name, e.designation, u.name AS unit_name, u.city
+/home/z/my-project/RCS_HRMS/php_payroll/modules/leave/apply.php:153:    "SELECT la.*, e.employee_code, e.full_name, c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/leave/apply.php:238:                            $emps = $db->fetchAll("SELECT e.id, e.employee_code, e.full_name, u.name as unit_name FROM employees e LEFT JOIN units u ON e.unit_id = u.id WHERE $balWhere ORDER BY e.employee_code LIMIT 200", $balParams);
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/process.php:278:                    u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/process.php:306:            $unitQuery .= " GROUP BY u.id ORDER BY c.name, u.name";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/process.php:331:                        c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/process.php:344:                 ORDER BY c.name, u.name, e.employee_code",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/attendance/report.php:37:    $where .= " AND u.name = ?";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/attendance/report.php:44:        "SELECT DISTINCT u.id, u.name as unit_name 
+/home/z/my-project/RCS_HRMS/php_payroll/modules/attendance/report.php:48:         WHERE c.name = ? AND u.name IS NOT NULL AND u.name != '' 
+/home/z/my-project/RCS_HRMS/php_payroll/modules/attendance/report.php:49:         ORDER BY u.name",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/attendance/report.php:57:    u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/attendance/report.php:68:    GROUP BY c.name, u.name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/attendance/report.php:69:    ORDER BY c.name, u.name";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/payslips.php:233:                opt.textContent = u.name;
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/salary-revision.php:48:                c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/salary-revision.php:287:    "SELECT sr.*, e.employee_code, e.full_name, c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/view.php:190:    $where .= " AND u.name = :unit";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/view.php:202:        u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/view.php:239:    $stmt = $db->prepare("SELECT DISTINCT u.name as unit_name FROM employees e LEFT JOIN units u ON e.unit_id = u.id LEFT JOIN clients c ON e.client_id = c.id WHERE c.name = ? AND u.name IS NOT NULL ORDER BY unit_name");
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/view.php:471:                options += '<option value="' + (u.unit_name || u.name) + '">' + (u.unit_name || u.name) + '</option>';
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/print_payslips.php:67:            c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/print_payslips.php:73:     ORDER BY c.name, u.name, e.employee_code",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/bank-advice.php:34:    $where .= " AND u.name = :unit_name";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/bank-advice.php:48:            u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/bank-advice.php:73:        "SELECT DISTINCT u.name as unit_name FROM employees e 
+/home/z/my-project/RCS_HRMS/php_payroll/modules/payroll/bank-advice.php:77:         AND u.name IS NOT NULL 
+/home/z/my-project/RCS_HRMS/php_payroll/modules/attendance/upload.php:239:                u.name as unit_name, c.name as client_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/requisition/list.php:46:              u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/unit/list.php:182:    $sql .= " ORDER BY c.{$nameCol}, u.name";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/unit/list.php:199:        $sql .= " ORDER BY c.{$nameCol}, u.name";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/unit/list.php:581:    $('#edit_unit_name').val(u.unit_name || u.name);
+/home/z/my-project/RCS_HRMS/php_payroll/modules/bulk-upload/salary.php:35:    "SELECT bul.*, c.name as client_name, u.name as unit_name, 
+/home/z/my-project/RCS_HRMS/php_payroll/modules/bulk-upload/salary.php:329:    $sql = "SELECT e.employee_code, e.full_name, c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/bulk-upload/salary.php:354:    $sql .= " ORDER BY c.name, u.name, e.employee_code";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/attendance/view.php:77:            u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/attendance/view.php:83:     ORDER BY u.name, e.full_name
+/home/z/my-project/RCS_HRMS/php_payroll/index.php:265:    $sql = "SELECT e.employee_code, e.full_name, c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/index.php:289:    $sql .= " ORDER BY c.name, u.name, e.employee_code";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/compliance.php:27:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/compliance.php:63:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/compliance.php:98:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/compliance.php:128:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/timesheet/list.php:36:          u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/lwf-report.php:66:            u.name as unit_name, c.name as client_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/lwf-report.php:77:        ORDER BY e.state, u.name, e.employee_code";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/employee.php:38:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/employee.php:47:            GROUP BY c.id, c.name, u.id, u.name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/employee.php:48:            ORDER BY c.name, u.name";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/employee.php:57:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/employee.php:68:            ORDER BY c.name, u.name, e.full_name";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/mis/advance-report.php:71:               c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/gumastadhara-salary-register.php:49:            c.name AS client_name, u.name AS unit_name, u.state AS unit_state,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/gumastadhara-salary-register.php:64:        ORDER BY c.name, u.name, e.employee_code";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/attendance.php:32:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/attendance.php:44:            GROUP BY c.name, u.name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/attendance.php:45:            ORDER BY c.name, u.name";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/attendance.php:52:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/attendance.php:62:            ORDER BY c.name, u.name, e.full_name";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/payroll.php:27:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/payroll.php:46:            GROUP BY c.name, u.name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/payroll.php:47:            ORDER BY c.name, u.name";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/payroll.php:54:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/payroll.php:70:            ORDER BY c.name, u.name, e.full_name";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/leave-register.php:48:               u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/mis/increment-report.php:48:               c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/feedback/list.php:29:          u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/muster-roll.php:42:                c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/muster-roll.php:50:         ORDER BY c.name, u.name, e.employee_code",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/esi/cover-exempt.php:84:               c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/esi/cover-exempt.php:109:               c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/bonus-register.php:53:            u.name as unit_name, c.name as client_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/gratuity-form-f.php:48:            u.name as unit_name, c.name as client_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/stipend-register.php:45:            u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/stipend-register.php:56:        ORDER BY u.name, e.employee_code";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/notifications/announcements.php:209:               COALESCE(e.full_name, u.name, a.created_by) AS creator_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/form-10.php:21:                   c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/form-10.php:40:                                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/form-2-revised.php:39:                                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/form-10c.php:96:                                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/form-10c.php:117:                                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/deployment/list.php:35:          u.name as unit_name, u.unit_code
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/form-13.php:93:                                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/form-13.php:117:                                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/form-5.php:188:                   c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/form-5.php:230:    $submissions = $db->fetchAll("SELECT s.*, c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/notifications/bulk-email.php:73:                           c.name as client_name, u.name as unit_name, u.address as site_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/form-19.php:94:                                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/form-19.php:115:                                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pt/employee-wise.php:26:                       u.name as unit_name, p.gross_earnings, p.professional_tax
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pt/employee-wise.php:67:                   u.name as unit_name, p.gross_earnings, p.professional_tax
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/cover-exempt.php:34:                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/cover-exempt.php:77:                       c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/cover-exempt.php:160:                   c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/pf/cover-exempt.php:209:                   c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/quick-salary.php:209:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/quick-salary.php:221:         ORDER BY u.name, e.employee_code",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/quick-salary.php:469:                    opt.textContent = u.name;
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/muster-entry.php:172:            "SELECT e.id, e.employee_code, e.full_name, e.designation, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/muster-entry.php:215:                u.name as unit_name, c.name as client_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/muster-entry.php:224:         ORDER BY c.name, u.name, e.employee_code",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/muster-entry.php:618:                    opt.textContent = u.name;
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/gumastadhara-ot-register.php:50:            c.name AS client_name, u.name AS unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/gumastadhara-ot-register.php:62:        ORDER BY c.name, u.name, e.employee_code";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/salary-entry.php:148:        "SELECT e.employee_code, e.full_name, e.designation, c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/salary-entry.php:157:         ORDER BY c.name, u.name, e.employee_code",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/salary-entry.php:198:                c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/salary-entry.php:215:         ORDER BY c.name, u.name, e.employee_code",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/gumastadhara-muster-roll.php:68:                    c.name AS client_name, u.name AS unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/gumastadhara-muster-roll.php:76:             ORDER BY c.name, u.name, e.employee_code",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/leave-entry.php:159:            c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/leave-entry.php:172:    "SELECT e.id, e.employee_code, e.full_name, c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/leave-entry.php:177:     ORDER BY c.name, u.name, e.full_name"
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/salary-register.php:39:            c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/salary-register.php:61:        ORDER BY c.name, u.name, e.employee_code";
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/overtime-entry.php:184:                u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/overtime-entry.php:198:         ORDER BY u.name, e.employee_code",
+/home/z/my-project/RCS_HRMS/php_payroll/modules/entry/overtime-entry.php:524:                    opt.textContent = u.name;
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/gumastadhara-fine-register.php:137:                c.name AS client_name, u.name AS unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/gumastadhara-form-d.php:61:                c.name AS client_name, u.name AS unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/mis-reports.php:28:                e.worker_category, c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/mis-reports.php:59:                e.designation, c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/mis-reports.php:72:        "SELECT e.employee_code, e.full_name, c.name as client_name, u.name as unit_name,
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/mis-reports.php:94:                c.name as client_name, u.name as unit_name
+/home/z/my-project/RCS_HRMS/php_payroll/modules/report/esi-reports.php:30:            c.name as client_name, u.name as unit_name
