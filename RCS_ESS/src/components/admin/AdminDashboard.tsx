@@ -41,7 +41,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-14 items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold">RCS Facility - HRMS</h1>
+            <h1 className="text-xl font-bold">RCS True Facilities Pvt Ltd - HRMS</h1>
             <span className={`text-xs px-2 py-1 rounded-full ${
               user.role === 'admin' 
                 ? 'bg-primary/10 text-primary' 

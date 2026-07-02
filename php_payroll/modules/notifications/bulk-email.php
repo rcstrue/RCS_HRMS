@@ -1204,7 +1204,7 @@ if (sendForm) {
 const templates = {
     kyc_pending: {
         subject: 'RCS KYC Update Required — {{name}}',
-        body: 'Dear {{name}},<br><br>Your RCS KYC may be pending.<br>Kindly go to <a href="https://join.rcsfacility.com"><b>join.rcsfacility.com</b></a> and enter your <b>Mobile No</b> and <b>Birthdate</b> to login and update your details.<br><br><b>Please ignore this mail if your profile is 100% complete.</b><br><br><b>Note:</b> If your birthdate is showing wrong (e.g. 01/02/1980 try 02/01/1980) and you are still getting a login issue, call <b>+91 8469241414</b> and ask for your birthdate from RCS Web App.<br><br>Thank You,<br><b>RCS True Facilities</b><br><br><span style="color:#888;font-size:12px;"><i>Please do not reply to this mail. This is a system generated mail.</i></span>'
+        body: 'Dear {{name}},<br><br>Your RCS KYC may be pending.<br>Kindly go to <a href="https://join.rcsfacility.com"><b>join.rcsfacility.com</b></a> and enter your <b>Mobile No</b> and <b>Birthdate</b> to login and update your details.<br><br><b>Please ignore this mail if your profile is 100% complete.</b><br><br><b>Note:</b> If your birthdate is showing wrong (e.g. 01/02/1980 try 02/01/1980) and you are still getting a login issue, call <b>+91 8469241414</b> and ask for your birthdate from RCS Web App.<br><br>Thank You,<br><b>RCS True Facilities Pvt Ltd</b><br><br><span style="color:#888;font-size:12px;"><i>Please do not reply to this mail. This is a system generated mail.</i></span>'
     },
     general: {
         subject: 'Important Notice for {{name}}',

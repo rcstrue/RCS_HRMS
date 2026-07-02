@@ -126,8 +126,7 @@ export default function VerifyPage() {
               <Shield className="w-6 h-6 text-primary" />
             </div>
             <div className="text-left">
-              <p className="font-bold text-sm">RCS True Facilities</p>
-              <p className="font-bold text-sm">Pvt Ltd</p>
+              <p className="font-bold text-sm">RCS True Facilities Pvt Ltd</p>
             </div>
           </div>
           <CardTitle className="text-lg">Employee Verification</CardTitle>

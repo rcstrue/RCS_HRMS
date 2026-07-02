@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import {
   fetchProfile, fetchLeaveBalance, fetchLeaves,
-  fetchExpenses, fetchPendingTeamExpenses, fetchTasks, checkIn, checkOut, fetchAttendance,
+  fetchExpenses, fetchPendingTeamExpenses, checkIn, checkOut, fetchAttendance,
 } from '@/lib/ess-api';
 import type { ESSSession, LeaveBalance, AttendanceRecord } from '@/lib/ess-types';
 import { todayDateString, getISTMonthKey, getHighAccuracyPosition } from '../helpers';
@@ -28,12 +28,11 @@ export function useDashboard(session: ESSSession | null) {
       const todayStr = todayDateString();
       const monthKey = getISTMonthKey();
 
-      const [profileRes, balanceRes, leavesRes, expensesRes, tasksRes, attRes] = await Promise.allSettled([
+      const [profileRes, balanceRes, leavesRes, expensesRes, attRes] = await Promise.allSettled([
         fetchProfile(empId),
         fetchLeaveBalance(empId),
         fetchLeaves(empId, 'pending'),
         fetchPendingTeamExpenses(),
-        fetchTasks({ assigned_to: empId, status: 'pending' }),
         fetchAttendance(empId, monthKey),
       ]);
 
@@ -41,7 +40,6 @@ export function useDashboard(session: ESSSession | null) {
       const balanceData = balanceRes.status === 'fulfilled' ? balanceRes.value?.data : null;
       const leavesData = leavesRes.status === 'fulfilled' ? leavesRes.value?.data : null;
       const expensesData = expensesRes.status === 'fulfilled' ? expensesRes.value?.data : null;
-      const tasksData = tasksRes.status === 'fulfilled' ? tasksRes.value?.data : null;
       const attData = attRes.status === 'fulfilled' ? attRes.value?.data : null;
 
       let todayAttendance: AttendanceRecord | null = null;
@@ -76,7 +74,7 @@ export function useDashboard(session: ESSSession | null) {
         todayAttendance,
         pendingLeaves: leavesData?.pagination?.total ?? leavesData?.items?.length ?? 0,
         pendingExpenses: expensesData?.pagination?.total ?? expensesData?.items?.length ?? 0,
-        pendingTasks: tasksData?.pagination?.total ?? tasksData?.items?.length ?? 0,
+        pendingTasks: 0,
       });
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
