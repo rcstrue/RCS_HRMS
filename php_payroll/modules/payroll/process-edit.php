@@ -677,7 +677,7 @@ $monthLabel = $monthNames[$month] ?? '';
             $existing = $ed['existing'];
             // Prefer saved loan_emi from existing payroll record, fall back to calculated
             $savedLoanEmi = floatval($existing['loan_emi'] ?? 0);
-            $loanEmiDisplay = $savedLoanEmi > 0 ? $savedLoanEmi : $loanEmi;
+            $loanEmiDisplay = $savedLoanEmi > 0 ? $savedLoanEmi : floatval($ed['loan_emi']);
 
             $empId      = (int)$emp['id'];
             $empCode    = $emp['employee_code'];
@@ -774,7 +774,7 @@ $monthLabel = $monthNames[$month] ?? '';
                 data-ot-multiplier="<?= $otMultiplier ?>"
                 data-ot-hrs-per-day="<?= $otHrsPerDay ?>"
                 data-existing-gross="<?= $existingGross ?>"
-                data-loan-emi="<?= $loanEmi ?>"
+                data-loan-emi="<?= floatval($ed['loan_emi']) ?>"
                 data-original-wages="<?= htmlspecialchars(json_encode([
                     'basic_da' => $wBasicDa, 'hra' => $wHra,
                     'leave_encashment' => $wLeaveEnc, 'bonus_encashment' => $wBonusEnc,
