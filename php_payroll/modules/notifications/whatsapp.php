@@ -6,7 +6,7 @@
  * Route: index.php?page=notifications/whatsapp
  */
 
-require_once __DIR__ . '/../includes/whatsapp.php';
+require_once __DIR__ . '/../../includes/whatsapp.php';
 
 $pageTitle = 'WhatsApp Messaging';
 
