@@ -273,7 +273,7 @@ if (!function_exists('waGetLogs')) {
         $offset = ($page - 1) * $limit;
         $dataSql = "SELECT wl.*,
                            e.employee_code, e.full_name,
-                           u.name as sender_name
+                           CONCAT(u.first_name, ' ', u.last_name) as sender_name
                     FROM whatsapp_logs wl
                     LEFT JOIN employees e ON wl.employee_id = e.id
                     LEFT JOIN users u ON wl.sent_by = u.id
