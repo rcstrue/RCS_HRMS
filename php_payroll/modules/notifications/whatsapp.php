@@ -132,7 +132,7 @@ $history = waGetLogs($historyPage, 50, $historyStatus, $historySearch);
         <div class="card border-0 shadow-sm">
             <div class="card-body text-center p-3">
                 <div class="text-muted small">Total Sent</div>
-                <div class="fs-4 fw-bold text-success"><?php echo number_format($waStats['sent']); ?></div>
+                <div class="fs-4 fw-bold text-success"><?php echo number_format($waStats['sent'] ?? 0); ?></div>
             </div>
         </div>
     </div>
@@ -140,7 +140,7 @@ $history = waGetLogs($historyPage, 50, $historyStatus, $historySearch);
         <div class="card border-0 shadow-sm">
             <div class="card-body text-center p-3">
                 <div class="text-muted small">Today</div>
-                <div class="fs-4 fw-bold text-primary"><?php echo number_format($waStats['today']); ?></div>
+                <div class="fs-4 fw-bold text-primary"><?php echo number_format($waStats['today'] ?? 0); ?></div>
             </div>
         </div>
     </div>
@@ -148,7 +148,7 @@ $history = waGetLogs($historyPage, 50, $historyStatus, $historySearch);
         <div class="card border-0 shadow-sm">
             <div class="card-body text-center p-3">
                 <div class="text-muted small">Queued</div>
-                <div class="fs-4 fw-bold text-warning"><?php echo number_format($waStats['queued']); ?></div>
+                <div class="fs-4 fw-bold text-warning"><?php echo number_format($waStats['queued'] ?? 0); ?></div>
             </div>
         </div>
     </div>
@@ -156,7 +156,7 @@ $history = waGetLogs($historyPage, 50, $historyStatus, $historySearch);
         <div class="card border-0 shadow-sm">
             <div class="card-body text-center p-3">
                 <div class="text-muted small">Failed</div>
-                <div class="fs-4 fw-bold text-danger"><?php echo number_format($waStats['failed']); ?></div>
+                <div class="fs-4 fw-bold text-danger"><?php echo number_format($waStats['failed'] ?? 0); ?></div>
             </div>
         </div>
     </div>

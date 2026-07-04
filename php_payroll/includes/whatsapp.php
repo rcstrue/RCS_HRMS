@@ -112,7 +112,7 @@ if (!function_exists('waSend')) {
 
         $ch = curl_init();
         curl_setopt_array($ch, [
-            CURLOPT_URL            => $config['api_url'] . '/send-message',
+            CURLOPT_URL            => $config['api_url'] . '/send',
             CURLOPT_POST           => true,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 30,
@@ -121,7 +121,7 @@ if (!function_exists('waSend')) {
                 'Content-Type: application/json',
                 'X-API-Key: ' . $config['api_key']
             ],
-            CURLOPT_POSTFIELDS     => json_encode(['mobile' => $mobile, 'message' => $message])
+            CURLOPT_POSTFIELDS     => json_encode(['number' => $mobile, 'message' => $message])
         ]);
 
         $response = curl_exec($ch);
