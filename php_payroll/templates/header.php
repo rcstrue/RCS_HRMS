@@ -225,10 +225,15 @@
 
                 <!-- Notifications -->
                 <?php if (showMenu($auth, 'notifications')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'notifications') === 0 ? 'active' : ''; ?>">
+                <li class="sidebar-item <?php echo (strpos($page, 'notifications') === 0) ? 'active open' : ''; ?>">
                     <a href="index.php?page=notifications/index" class="sidebar-link">
                         <i class="bi bi-bell"></i><span>Notifications</span><?= sidebarBadge($annUnreadCount) ?>
                     </a>
+                    <ul class="sidebar-submenu">
+                        <li><a href="index.php?page=notifications/whatsapp" class="<?php echo $page === 'notifications/whatsapp' ? 'active' : ''; ?>">
+                            <i class="bi bi-whatsapp text-success me-1"></i>WhatsApp Messaging
+                        </a></li>
+                    </ul>
                 </li>
                 <?php endif; ?>
 
@@ -399,6 +404,7 @@
                             'notifications/announcements'=> 'Announcements',
                             'notifications/bulk-email'   => 'Bulk Email',
                             'notifications/center'       => 'Notification Center',
+                            'notifications/whatsapp'      => 'WhatsApp',
                             // Settings
                             'settings/company'   => 'Company Profile',
                             'settings/users'     => 'User Management',
