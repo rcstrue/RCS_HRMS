@@ -106,7 +106,7 @@ if (empty($messages)) {
 // Send via WhatsApp Bot API (bulk endpoint)
 $ch = curl_init();
 curl_setopt_array($ch, [
-    CURLOPT_URL => $waUrl . '/api/send-bulk',
+    CURLOPT_URL => $waUrl . '/send-bulk',
     CURLOPT_POST => true,
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_TIMEOUT => 600, // 10 min for bulk
