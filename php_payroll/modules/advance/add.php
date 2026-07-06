@@ -67,16 +67,18 @@ if ($selectedClient) {
 // Get employees and their advances when unit is selected
 $employees = [];
 if ($selectedUnit && $_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['load'])) {
-    // Get employees for this unit
+    // Get employees for this unit with attendance summary
     $stmt = $db->prepare("
         SELECT e.id, e.employee_code, e.full_name, e.designation, e.worker_category,
-               ess.basic_da, ess.gross_salary
+               ess.basic_da, ess.gross_salary,
+               att.total_present, att.total_wo, att.total_extra, att.overtime_hours, att.total_paid_days
         FROM employees e
         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND ess.effective_to IS NULL
+        LEFT JOIN attendance_summary att ON e.id = att.employee_id AND att.month = ? AND att.year = ?
         WHERE e.unit_id = ? AND e.status = 'approved'
         ORDER BY e.employee_code
     ");
-    $stmt->execute([$selectedUnit]);
+    $stmt->execute([$selectedMonth, $selectedYear, $selectedUnit]);
     $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // Get existing advances if any
@@ -275,6 +277,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_advance'])) {
                                     <th style="width: 180px;">Employee Name</th>
                                     <th style="width: 120px;">Designation</th>
                                     <th style="width: 100px;">Category</th>
+                                    <th style="width: 70px;" class="text-center bg-secondary text-white">Present</th>
+                                    <th style="width: 70px;" class="text-center bg-secondary text-white">WO</th>
+                                    <th style="width: 70px;" class="text-center bg-secondary text-white">Extra</th>
+                                    <th style="width: 70px;" class="text-center bg-secondary text-white">OT Hrs</th>
+                                    <th style="width: 70px;" class="text-center bg-secondary text-white">Paid</th>
                                     <th style="width: 100px;" class="text-center bg-primary text-white">Adv 1<br><small>(Rs)</small></th>
                                     <th style="width: 100px;" class="text-center bg-primary text-white">Adv 2<br><small>(Rs)</small></th>
                                     <th style="width: 100px;" class="text-center bg-warning text-dark">Office Adv<br><small>(Rs)</small></th>
@@ -296,6 +303,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_advance'])) {
                                     <td><?php echo sanitize($emp['full_name']); ?></td>
                                     <td><?php echo sanitize($emp['designation']); ?></td>
                                     <td><span class="badge bg-light text-dark"><?php echo sanitize($emp['worker_category']); ?></span></td>
+                                    <td class="text-center"><?php echo (float)($emp['total_present'] ?? 0) ?: ''; ?></td>
+                                    <td class="text-center"><?php echo (float)($emp['total_wo'] ?? 0) ?: ''; ?></td>
+                                    <td class="text-center"><?php echo (float)($emp['total_extra'] ?? 0) ?: ''; ?></td>
+                                    <td class="text-center"><?php echo (float)($emp['overtime_hours'] ?? 0) ?: ''; ?></td>
+                                    <td class="text-center fw-bold"><?php echo (float)($emp['total_paid_days'] ?? 0) ?: ''; ?></td>
                                     <td>
                                         <input type="number" name="adv1[<?php echo $emp['id']; ?>]" 
                                                value="<?php echo $emp['adv1']; ?>" 
@@ -328,7 +340,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_advance'])) {
                             </tbody>
                             <tfoot class="table-light">
                                 <tr class="fw-bold">
-                                    <td colspan="5" class="text-end">TOTAL</td>
+                                    <td colspan="10" class="text-end">TOTAL</td>
                                     <td class="text-end" id="total-adv1">0</td>
                                     <td class="text-end" id="total-adv2">0</td>
                                     <td class="text-end" id="total-office">0</td>
