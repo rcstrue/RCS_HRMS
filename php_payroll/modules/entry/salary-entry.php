@@ -31,6 +31,8 @@ if ($clientFilter) {
 // Handle POST save
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_salary'])) {
     $employeeIds = $_POST['employee_id'] ?? [];
+    // Deduplicate: same employee may appear multiple times
+    $employeeIds = array_unique(array_map('intval', $employeeIds));
     $savedCount = 0;
     $errors = [];
 
@@ -81,6 +83,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_salary'])) {
                     'bonus_applicable' => $bonusApplicable,
                     'gratuity_applicable' => $gratuityApplicable
                 ], 'id = :id', ['id' => $existing['id']]);
+
+                // Also delete any duplicate active structures for this employee
+                $db->query(
+                    "DELETE FROM employee_salary_structures WHERE employee_id = ? AND effective_to IS NULL AND id != ?",
+                    [$empId, $existing['id']]
+                );
             } else {
                 // Close any previous structures
                 $prevStructures = $db->fetchAll(
@@ -151,8 +159,15 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
          FROM employees e
          LEFT JOIN clients c ON e.client_id = c.id
          LEFT JOIN units u ON e.unit_id = u.id
-         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
-            AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+         LEFT JOIN (SELECT employee_id, MAX(id) AS id,
+                    MAX(basic_da) AS basic_da, MAX(hra) AS hra,
+                    MAX(leave_encashment) AS leave_encashment, MAX(bonus_encashment) AS bonus_encashment,
+                    MAX(washing_allowance) AS washing_allowance, MAX(gross_salary) AS gross_salary,
+                    MAX(pf_applicable) AS pf_applicable, MAX(esi_applicable) AS esi_applicable,
+                    MAX(pt_applicable) AS pt_applicable, MAX(lwf_applicable) AS lwf_applicable
+                    FROM employee_salary_structures
+                    WHERE effective_to IS NULL OR effective_to >= CURDATE()
+                    GROUP BY employee_id) ess ON e.id = ess.employee_id
          WHERE $where
          ORDER BY c.name, u.name, e.employee_code",
         $params
@@ -209,8 +224,18 @@ if ($filterPressed && $clientFilter) {
          FROM employees e
          LEFT JOIN clients c ON e.client_id = c.id
          LEFT JOIN units u ON e.unit_id = u.id
-         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
-            AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+         LEFT JOIN (SELECT employee_id, MAX(id) AS id,
+                    MAX(basic_da) AS basic_da, MAX(hra) AS hra,
+                    MAX(leave_encashment) AS leave_encashment, MAX(bonus_encashment) AS bonus_encashment,
+                    MAX(washing_allowance) AS washing_allowance, MAX(gross_salary) AS gross_salary,
+                    MAX(pf_applicable) AS pf_applicable, MAX(esi_applicable) AS esi_applicable,
+                    MAX(pt_applicable) AS pt_applicable, MAX(lwf_applicable) AS lwf_applicable,
+                    MAX(overtime_applicable) AS overtime_applicable, MAX(bonus_applicable) AS bonus_applicable,
+                    MAX(gratuity_applicable) AS gratuity_applicable,
+                    MAX(effective_from) AS effective_from, MAX(effective_to) AS effective_to
+                    FROM employee_salary_structures
+                    WHERE effective_to IS NULL OR effective_to >= CURDATE()
+                    GROUP BY employee_id) ess ON e.id = ess.employee_id
          WHERE $where
          ORDER BY c.name, u.name, e.employee_code",
         $params

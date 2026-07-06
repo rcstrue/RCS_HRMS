@@ -177,8 +177,13 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
                 COALESCE(ess.washing_allowance,0) as washing_allowance,
                 COALESCE(ess.gross_salary,0) as gross_salary, ess.overtime_applicable
          FROM employees e
-         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
-            AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+         LEFT JOIN (SELECT employee_id, MAX(id) AS id,
+                    MAX(basic_da) AS basic_da, MAX(hra) AS hra,
+                    MAX(washing_allowance) AS washing_allowance, MAX(gross_salary) AS gross_salary,
+                    MAX(overtime_applicable) AS overtime_applicable
+                    FROM employee_salary_structures
+                    WHERE effective_to IS NULL OR effective_to >= CURDATE()
+                    GROUP BY employee_id) ess ON e.id = ess.employee_id
          WHERE $where ORDER BY e.employee_code",
         $params
     );
@@ -215,8 +220,13 @@ if ($filterPressed && $clientFilter) {
                 ess.overtime_applicable
          FROM employees e
          LEFT JOIN units u ON e.unit_id = u.id
-         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
-            AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+         LEFT JOIN (SELECT employee_id, MAX(id) AS id,
+                    MAX(basic_da) AS basic_da, MAX(hra) AS hra,
+                    MAX(washing_allowance) AS washing_allowance, MAX(gross_salary) AS gross_salary,
+                    MAX(overtime_applicable) AS overtime_applicable
+                    FROM employee_salary_structures
+                    WHERE effective_to IS NULL OR effective_to >= CURDATE()
+                    GROUP BY employee_id) ess ON e.id = ess.employee_id
          WHERE $where
          ORDER BY u.name, e.employee_code",
         $params
