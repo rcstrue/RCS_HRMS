@@ -420,7 +420,7 @@ if (isset($_POST['process_unit']) && isset($_POST['period_id']) && isset($_POST[
             $db->query(
                 "INSERT INTO payroll_unit_status 
                 (payroll_period_id, client_id, unit_id, status, employee_count, total_gross, total_net, processed_at, processed_by)
-                VALUES (?, ?, ?, 'processed', ?, ?, ?, NOW(), ?)",
+                VALUES (?, ?, ?, 'Processed', ?, ?, ?, NOW(), ?)",
                 [$periodId, $unitInfo['client_id'] ?? null, $unitId, $result['processed'], $result['total_gross'], ($result['total_net'] - $loanDeductionAmt), $_SESSION['user_id']]
             );
         }

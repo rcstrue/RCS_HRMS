@@ -89,9 +89,9 @@ if ($selectedUnit && $_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['load']
             $stmt = $db->prepare("
                 SELECT total_present, total_extra, overtime_hours, total_wo
                 FROM attendance_summary
-                WHERE employee_id = ? AND month = ? AND year = ?
+                WHERE employee_id = ? AND unit_id = ? AND month = ? AND year = ?
             ");
-            $stmt->execute([$emp['id'], $selectedMonth, $selectedYear]);
+            $stmt->execute([$emp['id'], $selectedUnit, $selectedMonth, $selectedYear]);
             $existing = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($existing) {
                 $emp['total_present'] = $existing['total_present'];

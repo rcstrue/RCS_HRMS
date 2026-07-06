@@ -27,7 +27,7 @@ $selectedYear = isset($_GET['year']) ? (int)$_GET['year'] : $previousYear;
 try {
     $db->exec("CREATE TABLE IF NOT EXISTS `employee_advances` (
         `id` int(11) NOT NULL AUTO_INCREMENT,
-        `employee_id` varchar(36) NOT NULL,
+        `employee_id` int(11) NOT NULL,
         `unit_id` int(11) DEFAULT NULL,
         `month` int(2) NOT NULL,
         `year` int(4) NOT NULL,
@@ -42,6 +42,12 @@ try {
         UNIQUE KEY `uniq_emp_month_year` (`employee_id`, `month`, `year`),
         KEY `idx_unit_month_year` (`unit_id`, `month`, `year`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    
+    // Fix employee_id column type if it was created as VARCHAR
+    $colInfo = $db->fetch("SHOW COLUMNS FROM employee_advances LIKE 'employee_id'");
+    if ($colInfo && strpos(strtoupper($colInfo['Type'] ?? ''), 'VARCHAR') !== false) {
+        $db->exec("ALTER TABLE employee_advances MODIFY COLUMN employee_id INT(11) NOT NULL");
+    }
 } catch (Exception $e) {
     // Table creation failed
 }
@@ -79,9 +85,9 @@ if ($selectedUnit && $_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['load']
             $stmt = $db->prepare("
                 SELECT adv1, adv2, office_advance, dress_advance
                 FROM employee_advances
-                WHERE employee_id = ? AND month = ? AND year = ?
+                WHERE employee_id = ? AND unit_id = ? AND month = ? AND year = ?
             ");
-            $stmt->execute([$emp['id'], $selectedMonth, $selectedYear]);
+            $stmt->execute([$emp['id'], $selectedUnit, $selectedMonth, $selectedYear]);
             $existing = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($existing) {
                 $emp['adv1'] = $existing['adv1'];
@@ -125,6 +131,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_advance'])) {
             $adv2 = isset($_POST['adv2'][$empId]) ? (float)$_POST['adv2'][$empId] : 0;
             $officeAdv = isset($_POST['office_advance'][$empId]) ? (float)$_POST['office_advance'][$empId] : 0;
             $dressAdv = isset($_POST['dress_advance'][$empId]) ? (float)$_POST['dress_advance'][$empId] : 0;
+            
+            // Validate: no negative advances
+            if ($adv1 < 0 || $adv2 < 0 || $officeAdv < 0 || $dressAdv < 0) {
+                setFlash('error', 'Advance amounts cannot be negative.');
+                redirect("index.php?page=advance/add&client_id={$clientId}&unit_id={$unitId}&month={$month}&year={$year}&load=1");
+                exit;
+            }
             
             // Insert or update using ON DUPLICATE KEY
             $stmt = $db->prepare("

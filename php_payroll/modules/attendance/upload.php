@@ -18,14 +18,21 @@ try {
         `total_present` decimal(5,2) DEFAULT 0.00,
         `total_extra` decimal(5,2) DEFAULT 0.00,
         `overtime_hours` decimal(6,2) DEFAULT 0.00,
-        `total_wo` int(3) DEFAULT 0,
+        `total_wo` decimal(5,2) DEFAULT 0.00,
+        `total_paid_days` decimal(5,2) DEFAULT 0.00,
         `source` enum('Manual','Excel Upload') DEFAULT 'Manual',
         `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
         `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
         PRIMARY KEY (`id`),
-        UNIQUE KEY `uniq_emp_month_year` (`employee_id`, `month`, `year`),
+        UNIQUE KEY `uniq_emp_unit_month_year` (`employee_id`, `unit_id`, `month`, `year`),
         KEY `idx_unit_month_year` (`unit_id`, `month`, `year`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    
+    // Ensure total_paid_days column exists (for existing databases)
+    $checkCol = $db->fetch("SHOW COLUMNS FROM attendance_summary LIKE 'total_paid_days'");
+    if (!$checkCol) {
+        $db->exec("ALTER TABLE attendance_summary ADD COLUMN `total_paid_days` decimal(5,2) DEFAULT 0.00 AFTER `total_wo`");
+    }
 } catch (Exception $e) {
     // Table creation failed
 }
@@ -91,6 +98,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['attendance_file'])) 
                         $handle = fopen($filePath, 'r');
                         $headers = fgetcsv($handle, 0, ',', '"', ''); // Skip header row
                         
+                        // Prepare statements ONCE outside the loop
+                        $empStmt = $db->prepare("SELECT id, unit_id FROM employees WHERE employee_code = ?");
+                        $attStmt = $db->prepare(
+                            "INSERT INTO attendance_summary 
+                            (employee_id, unit_id, month, year, total_present, total_extra, overtime_hours, total_wo, total_paid_days, source)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Excel Upload')
+                            ON DUPLICATE KEY UPDATE 
+                                total_present = VALUES(total_present),
+                                total_extra = VALUES(total_extra),
+                                overtime_hours = VALUES(overtime_hours),
+                                total_wo = VALUES(total_wo),
+                                total_paid_days = VALUES(total_paid_days),
+                                source = 'Excel Upload'"
+                        );
+                        $advStmt = $db->prepare(
+                            "INSERT INTO employee_advances 
+                            (employee_id, unit_id, month, year, adv1, adv2, office_advance, dress_advance)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            ON DUPLICATE KEY UPDATE 
+                                adv1 = VALUES(adv1),
+                                adv2 = VALUES(adv2),
+                                office_advance = VALUES(office_advance),
+                                dress_advance = VALUES(dress_advance),
+                                updated_at = CURRENT_TIMESTAMP"
+                        );
+                        
                         while (($row = fgetcsv($handle, 0, ',', '"', '')) !== false) {
                             if (count($row) < 2) continue;
                             
@@ -98,46 +131,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['attendance_file'])) 
                             $totalPresent = isset($row[1]) ? (float)$row[1] : 0;
                             $totalExtra = isset($row[2]) ? (float)$row[2] : 0;
                             $otHours = isset($row[3]) ? (float)$row[3] : 0;
-                            $totalWO = isset($row[4]) ? (int)$row[4] : 0;
+                            $totalWO = isset($row[4]) ? (float)$row[4] : 0;
+                            $totalPaidDays = round($totalPresent + $totalWO + $totalExtra, 2);
                             $adv1 = isset($row[5]) ? (float)$row[5] : 0;
                             $adv2 = isset($row[6]) ? (float)$row[6] : 0;
                             $officeAdv = isset($row[7]) ? (float)$row[7] : 0;
                             $dressAdv = isset($row[8]) ? (float)$row[8] : 0;
                             
                             // Get employee ID and unit_id from employee record
-                            $empStmt = $db->prepare("SELECT id, unit_id FROM employees WHERE employee_code = ?");
                             $empStmt->execute([$empCode]);
                             $emp = $empStmt->fetch(PDO::FETCH_ASSOC);
                             $empUnitId = $emp ? (int)$emp['unit_id'] : 0;
                             
                             if ($emp) {
-                                // 1. Insert/Update attendance summary (WITHOUT advances)
-                                $attStmt = $db->prepare(
-                                    "INSERT INTO attendance_summary 
-                                    (employee_id, unit_id, month, year, total_present, total_extra, overtime_hours, total_wo, source)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Excel Upload')
-                                    ON DUPLICATE KEY UPDATE 
-                                        total_present = VALUES(total_present),
-                                        total_extra = VALUES(total_extra),
-                                        overtime_hours = VALUES(overtime_hours),
-                                        total_wo = VALUES(total_wo),
-                                        source = 'Excel Upload'"
-                                );
-                                $attStmt->execute([$emp['id'], $empUnitId, $month, $year, $totalPresent, $totalExtra, $otHours, $totalWO]);
+                                $attStmt->execute([$emp['id'], $empUnitId, $month, $year, $totalPresent, $totalExtra, $otHours, $totalWO, $totalPaidDays]);
                                 $attendanceImported++;
                                 
-                                // 2. Insert/Update advances in SEPARATE TABLE
-                                $advStmt = $db->prepare(
-                                    "INSERT INTO employee_advances 
-                                    (employee_id, unit_id, month, year, adv1, adv2, office_advance, dress_advance)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                    ON DUPLICATE KEY UPDATE 
-                                        adv1 = VALUES(adv1),
-                                        adv2 = VALUES(adv2),
-                                        office_advance = VALUES(office_advance),
-                                        dress_advance = VALUES(dress_advance),
-                                        updated_at = CURRENT_TIMESTAMP"
-                                );
                                 $advStmt->execute([$emp['id'], $empUnitId, $month, $year, $adv1, $adv2, $officeAdv, $dressAdv]);
                                 $advanceImported++;
                             } else {
@@ -151,6 +160,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['attendance_file'])) 
                             $rows = $xlsx->rows();
                             array_shift($rows); // Skip header row
                             
+                            // Prepare statements ONCE outside the loop
+                            $empStmt = $db->prepare("SELECT id, unit_id FROM employees WHERE employee_code = ?");
+                            $attStmt = $db->prepare(
+                                "INSERT INTO attendance_summary 
+                                (employee_id, unit_id, month, year, total_present, total_extra, overtime_hours, total_wo, total_paid_days, source)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Excel Upload')
+                                ON DUPLICATE KEY UPDATE 
+                                    total_present = VALUES(total_present),
+                                    total_extra = VALUES(total_extra),
+                                    overtime_hours = VALUES(overtime_hours),
+                                    total_wo = VALUES(total_wo),
+                                    total_paid_days = VALUES(total_paid_days),
+                                    source = 'Excel Upload'"
+                            );
+                            $advStmt = $db->prepare(
+                                "INSERT INTO employee_advances 
+                                (employee_id, unit_id, month, year, adv1, adv2, office_advance, dress_advance)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                ON DUPLICATE KEY UPDATE 
+                                    adv1 = VALUES(adv1),
+                                    adv2 = VALUES(adv2),
+                                    office_advance = VALUES(office_advance),
+                                    dress_advance = VALUES(dress_advance),
+                                    updated_at = CURRENT_TIMESTAMP"
+                            );
+                            
                             foreach ($rows as $row) {
                                 if (count($row) < 2) continue;
                                 
@@ -158,46 +193,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['attendance_file'])) 
                                 $totalPresent = isset($row[1]) ? (float)$row[1] : 0;
                                 $totalExtra = isset($row[2]) ? (float)$row[2] : 0;
                                 $otHours = isset($row[3]) ? (float)$row[3] : 0;
-                                $totalWO = isset($row[4]) ? (int)$row[4] : 0;
+                                $totalWO = isset($row[4]) ? (float)$row[4] : 0;
+                                $totalPaidDays = round($totalPresent + $totalWO + $totalExtra, 2);
                                 $adv1 = isset($row[5]) ? (float)$row[5] : 0;
                                 $adv2 = isset($row[6]) ? (float)$row[6] : 0;
                                 $officeAdv = isset($row[7]) ? (float)$row[7] : 0;
                                 $dressAdv = isset($row[8]) ? (float)$row[8] : 0;
                                 
-                                // Get employee ID and unit_id from employee record
-                                $empStmt = $db->prepare("SELECT id, unit_id FROM employees WHERE employee_code = ?");
                                 $empStmt->execute([$empCode]);
                                 $emp = $empStmt->fetch(PDO::FETCH_ASSOC);
                                 $empUnitId = $emp ? (int)$emp['unit_id'] : 0;
                                 
                                 if ($emp) {
-                                    // 1. Insert/Update attendance summary (WITHOUT advances)
-                                    $attStmt = $db->prepare(
-                                        "INSERT INTO attendance_summary 
-                                        (employee_id, unit_id, month, year, total_present, total_extra, overtime_hours, total_wo, source)
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Excel Upload')
-                                        ON DUPLICATE KEY UPDATE 
-                                            total_present = VALUES(total_present),
-                                            total_extra = VALUES(total_extra),
-                                            overtime_hours = VALUES(overtime_hours),
-                                            total_wo = VALUES(total_wo),
-                                            source = 'Excel Upload'"
-                                    );
-                                    $attStmt->execute([$emp['id'], $empUnitId, $month, $year, $totalPresent, $totalExtra, $otHours, $totalWO]);
+                                    $attStmt->execute([$emp['id'], $empUnitId, $month, $year, $totalPresent, $totalExtra, $otHours, $totalWO, $totalPaidDays]);
                                     $attendanceImported++;
                                     
-                                    // 2. Insert/Update advances in SEPARATE TABLE
-                                    $advStmt = $db->prepare(
-                                        "INSERT INTO employee_advances 
-                                        (employee_id, unit_id, month, year, adv1, adv2, office_advance, dress_advance)
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                        ON DUPLICATE KEY UPDATE 
-                                            adv1 = VALUES(adv1),
-                                            adv2 = VALUES(adv2),
-                                            office_advance = VALUES(office_advance),
-                                            dress_advance = VALUES(dress_advance),
-                                            updated_at = CURRENT_TIMESTAMP"
-                                    );
                                     $advStmt->execute([$emp['id'], $empUnitId, $month, $year, $adv1, $adv2, $officeAdv, $dressAdv]);
                                     $advanceImported++;
                                 } else {

@@ -551,22 +551,22 @@ class Payroll {
                         }
                     }
 
-                    // Get advances for the period (EXCLUDE office_advance to avoid double-counting)
+                    // Get advances for the period (scoped to unit_id to avoid double-deduction)
                     $advance = $this->db->fetch(
                         "SELECT COALESCE(SUM(adv1 + adv2 + dress_advance), 0) as total_advance
                         FROM employee_advances
-                        WHERE employee_id = :emp_id AND month = :month AND year = :year",
-                        ['emp_id' => $emp['id'], 'month' => $period['month'], 'year' => $period['year']]
+                        WHERE employee_id = :emp_id AND unit_id = :unit_id AND month = :month AND year = :year",
+                        ['emp_id' => $emp['id'], 'unit_id' => $emp['unit_id'], 'month' => $period['month'], 'year' => $period['year']]
                     );
                     $salaryAdvance = $advance['total_advance'] ?? 0;
 
-                    // Get office deduction for the period (separate from advances)
+                    // Get office deduction for the period (scoped to unit_id)
                     $officeDeduction = 0;
                     $officeAdv = $this->db->fetch(
                         "SELECT COALESCE(office_advance, 0) as office_ded
                          FROM employee_advances
-                         WHERE employee_id = :emp_id AND month = :month AND year = :year",
-                        ['emp_id' => $emp['id'], 'month' => $period['month'], 'year' => $period['year']]
+                         WHERE employee_id = :emp_id AND unit_id = :unit_id AND month = :month AND year = :year",
+                        ['emp_id' => $emp['id'], 'unit_id' => $emp['unit_id'], 'month' => $period['month'], 'year' => $period['year']]
                     );
                     $officeDeduction = floatval($officeAdv['office_ded'] ?? 0);
 
@@ -1465,30 +1465,28 @@ class Payroll {
             return null;
         }
 
-        // Get attendance summary
+        // Get attendance summary (from attendance_summary table)
         $payroll['attendance'] = $this->db->fetch(
             "SELECT
-                COUNT(*) as total_days,
-                SUM(CASE WHEN status = 'Present' THEN 1 ELSE 0 END) as present_days,
-                SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) as absent_days,
-                SUM(CASE WHEN status = 'Weekly Off' THEN 1 ELSE 0 END) as weekly_offs,
-                SUM(CASE WHEN status = 'Holiday' THEN 1 ELSE 0 END) as holidays,
-                SUM(CASE WHEN status IN ('Paid Leave', 'Sick Leave', 'Casual Leave') THEN 1 ELSE 0 END) as paid_leaves,
-                SUM(CASE WHEN status = 'Half Day' THEN 0.5 ELSE 0 END) as half_days
-            FROM attendance
-            WHERE employee_id = :emp_code
-            AND MONTH(attendance_date) = :month
-            AND YEAR(attendance_date) = :year",
+                total_present as present_days,
+                total_extra,
+                overtime_hours,
+                total_wo as weekly_offs,
+                total_paid_days
+            FROM attendance_summary
+            WHERE employee_id = (SELECT id FROM employees WHERE employee_code = :emp_code)
+            AND month = :month AND year = :year",
             ['emp_code' => $employeeCode, 'month' => $payroll['month'], 'year' => $payroll['year']]
         );
 
-        // Get advances
+        // Get advances (scoped to unit_id)
         $payroll['advances'] = $this->db->fetch(
             "SELECT adv1, adv2, office_advance, dress_advance, remarks
             FROM employee_advances
             WHERE employee_id = (SELECT id FROM employees WHERE employee_code = :emp_code)
+            AND unit_id = :unit_id
             AND month = :month AND year = :year",
-            ['emp_code' => $employeeCode, 'month' => $payroll['month'], 'year' => $payroll['year']]
+            ['emp_code' => $employeeCode, 'unit_id' => $payroll['unit_id'], 'month' => $payroll['month'], 'year' => $payroll['year']]
         );
 
         // Get salary structure
