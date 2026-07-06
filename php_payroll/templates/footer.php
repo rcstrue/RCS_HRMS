@@ -69,6 +69,10 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     
+    <!-- Jspreadsheet CE (Excel-like grids) -->
+    <script src="https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4.13.4/dist/jspreadsheet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsuites@4.13.4/dist/jsuites.js"></script>
+    
     <!-- Custom JS -->
     <script src="assets/js/app.js"></script>
     

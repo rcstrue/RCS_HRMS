@@ -245,7 +245,7 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
 </div>
 
 <?php if ($selectedUnit && isset($_GET['load'])): ?>
-<!-- Attendance Entry Grid -->
+<!-- Attendance Entry Grid (Jspreadsheet) -->
 <div class="row mt-3">
     <div class="col-12">
         <div class="card">
@@ -269,87 +269,11 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
                 </div>
                 <?php else: ?>
                 <form method="POST" id="attendanceForm">
+                    <input type="hidden" name="save_attendance" value="1">
                     <input type="hidden" name="unit_id" value="<?php echo $selectedUnit; ?>">
                     <input type="hidden" name="month" value="<?php echo $selectedMonth; ?>">
                     <input type="hidden" name="year" value="<?php echo $selectedYear; ?>">
-                    
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-hover mb-0" style="font-size: 13px;">
-                            <thead class="table-dark">
-                                <tr>
-                                    <th style="width: 50px;">#</th>
-                                    <th style="width: 100px;">Emp Code</th>
-                                    <th style="width: 180px;">Employee Name</th>
-                                    <th style="width: 120px;">Designation</th>
-                                    <th style="width: 100px;">Category</th>
-                                    <th style="width: 90px;" class="text-center bg-success text-white">Present<br><small>(Days)</small></th>
-                                    <th style="width: 90px;" class="text-center bg-info text-white">Extra<br><small>(Days)</small></th>
-                                    <th style="width: 90px;" class="text-center bg-warning text-dark">OT Hours<br><small>(Hrs)</small></th>
-                                    <th style="width: 90px;" class="text-center bg-secondary text-white">WO<br><small>(Days)</small></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php 
-                                $sr = 1;
-                                foreach ($employees as $emp): 
-                                ?>
-                                    <tr>
-                                    <td class="text-center"><?php echo $sr++; ?></td>
-                                    <td>
-                                        <input type="hidden" name="employee_id[]" value="<?php echo $emp['id']; ?>">
-                                        <code><?php echo $emp['employee_code']; ?></code>
-                                    </td>
-                                    <td><?php echo sanitize($emp['full_name']); ?></td>
-                                    <td><?php echo sanitize($emp['designation']); ?></td>
-                                    <td><span class="badge bg-light text-dark"><?php echo sanitize($emp['worker_category']); ?></span></td>
-                                    <td>
-                                        <input type="number" name="total_present[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['total_present']; ?>" 
-                                               class="form-control form-control-sm text-center present-input" 
-                                               min="0" max="31" step="0.5" oninput="calculateTotals()">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="total_extra[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['total_extra']; ?>" 
-                                               class="form-control form-control-sm text-center extra-input" 
-                                               min="0" max="31" step="0.5" oninput="calculateTotals()">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="overtime_hours[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['overtime_hours']; ?>" 
-                                               class="form-control form-control-sm text-center ot-input" 
-                                               min="0" max="300" step="0.5" oninput="calculateTotals()">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="total_wo[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['total_wo']; ?>" 
-                                               class="form-control form-control-sm text-center wo-input" 
-                                               min="0" max="8" oninput="calculateTotals()">
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                            <tfoot class="table-light">
-                                <tr class="fw-bold">
-                                    <td colspan="5" class="text-end">
-                                        <span class="text-primary">TOTAL (<?php echo count($employees); ?> Employees)</span>
-                                    </td>
-                                    <td class="text-center">
-                                        <span id="total_present_sum" class="badge bg-success fs-6">0</span>
-                                    </td>
-                                    <td class="text-center">
-                                        <span id="total_extra_sum" class="badge bg-info fs-6">0</span>
-                                    </td>
-                                    <td class="text-center">
-                                        <span id="total_ot_sum" class="badge bg-warning text-dark fs-6">0</span>
-                                    </td>
-                                    <td class="text-center">
-                                        <span id="total_wo_sum" class="badge bg-secondary fs-6">0</span>
-                                    </td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
+                    <div id="spreadsheet" style="width:100%;"></div>
                     
                     <div class="card-footer">
                         <div class="d-flex justify-content-between align-items-center">
@@ -357,7 +281,7 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
                                 <small><i class="bi bi-info-circle me-1"></i>Present: Total present days | Extra: Additional working days | OT: Overtime hours | WO: Weekly off days</small>
                             </div>
                             <div>
-                                <button type="submit" name="save_attendance" class="btn btn-success">
+                                <button type="button" id="saveBtn" class="btn btn-success">
                                     <i class="bi bi-check-lg me-1"></i>Save Attendance
                                 </button>
                             </div>
@@ -372,12 +296,36 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
 <?php endif; ?>
 
 <?php
-$extraJS = <<<'JS'
+// Build JS data array and empIds JSON from PHP employees (for jspreadsheet)
+$jssEmpIds = '[]';
+$jssData = '[]';
+if (!empty($employees)) {
+    $empIdMap = [];
+    $dataRows = [];
+    $sr = 1;
+    foreach ($employees as $emp) {
+        $empIdMap[] = (int)$emp['id'];
+        $present = ($emp['total_present'] !== '' && $emp['total_present'] !== null) ? (float)$emp['total_present'] : '';
+        $extra = ($emp['total_extra'] !== '' && $emp['total_extra'] !== null) ? (float)$emp['total_extra'] : '';
+        $ot = ($emp['overtime_hours'] !== '' && $emp['overtime_hours'] !== null) ? (float)$emp['overtime_hours'] : '';
+        $wo = ($emp['total_wo'] !== '' && $emp['total_wo'] !== null) ? (float)$emp['total_wo'] : '';
+        $code = addslashes($emp['employee_code']);
+        $name = addslashes($emp['full_name']);
+        $desig = addslashes($emp['designation']);
+        $cat = addslashes($emp['worker_category']);
+        $dataRows[] = "['{$sr}','{$code}','{$name}','{$desig}','{$cat}',{$present},{$extra},{$ot},{$wo}]";
+        $sr++;
+    }
+    $jssEmpIds = json_encode($empIdMap);
+    $jssData = '[' . implode(',', $dataRows) . ']';
+}
+
+$extraJS = <<<JS
 <script>
 // Load units when client changes
 document.getElementById('clientSelect').addEventListener('change', function() {
-    const clientId = this.value;
-    const unitSelect = document.getElementById('unitSelect');
+    var clientId = this.value;
+    var unitSelect = document.getElementById('unitSelect');
     
     unitSelect.innerHTML = '<option value="">Loading...</option>';
     
@@ -387,54 +335,118 @@ document.getElementById('clientSelect').addEventListener('change', function() {
     }
     
     fetch('index.php?page=api/units&client_id=' + clientId)
-        .then(response => response.json())
-        .then(data => {
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
             unitSelect.innerHTML = '<option value="">Select Unit</option>';
             if (data.units) {
-                data.units.forEach(unit => {
-                    const option = document.createElement('option');
+                data.units.forEach(function(unit) {
+                    var option = document.createElement('option');
                     option.value = unit.id;
                     option.textContent = unit.name;
                     unitSelect.appendChild(option);
                 });
             }
         })
-        .catch(() => {
+        .catch(function() {
             unitSelect.innerHTML = '<option value="">Select Unit</option>';
         });
 });
 
-// Calculate totals dynamically
-function calculateTotals() {
-    let totalPresent = 0;
-    let totalExtra = 0;
-    let totalOT = 0;
-    let totalWO = 0;
-    
-    document.querySelectorAll('.present-input').forEach(input => {
-        totalPresent += parseFloat(input.value) || 0;
-    });
-    
-    document.querySelectorAll('.extra-input').forEach(input => {
-        totalExtra += parseFloat(input.value) || 0;
-    });
-    
-    document.querySelectorAll('.ot-input').forEach(input => {
-        totalOT += parseFloat(input.value) || 0;
-    });
-    
-    document.querySelectorAll('.wo-input').forEach(input => {
-        totalWO += parseFloat(input.value) || 0;
-    });
-    
-    document.getElementById('total_present_sum').textContent = totalPresent.toFixed(1);
-    document.getElementById('total_extra_sum').textContent = totalExtra.toFixed(1);
-    document.getElementById('total_ot_sum').textContent = totalOT.toFixed(1);
-    document.getElementById('total_wo_sum').textContent = totalWO.toFixed(0);
-}
+// Jspreadsheet initialization
+document.addEventListener('DOMContentLoaded', function() {
+    var sheetEl = document.getElementById('spreadsheet');
+    if (!sheetEl) return;
 
-// Calculate totals on page load
-document.addEventListener('DOMContentLoaded', calculateTotals);
+    // Employee IDs and data rows passed from PHP
+    var empIds = {$jssEmpIds};
+    var data = {$jssData};
+
+    var jspreadsheetInstance = jspreadsheet(sheetEl, {
+        data: data,
+        columns: [
+            { title: '#', type: 'text', width: 36, readOnly: true },
+            { title: 'Code', type: 'text', width: 75, readOnly: true },
+            { title: 'Name', type: 'text', width: 150, readOnly: true },
+            { title: 'Desig', type: 'text', width: 100, readOnly: true },
+            { title: 'Cat', type: 'text', width: 55, readOnly: true },
+            { title: 'Present', type: 'numeric', width: 70, readOnly: false, mask: '#,##0.0' },
+            { title: 'Extra', type: 'numeric', width: 70, readOnly: false, mask: '#,##0.0' },
+            { title: 'OT Hrs', type: 'numeric', width: 70, readOnly: false, mask: '#,##0.0' },
+            { title: 'WO', type: 'numeric', width: 60, readOnly: false, mask: '#,##0' }
+        ],
+        tableOverflow: true,
+        tableHeight: '70vh',
+        columnResize: true,
+        allowExport: false,
+        contextMenu: false,
+        pagination: false,
+        search: false,
+        rowDrag: false,
+        allowInsertRow: false,
+        allowDeleteRow: false,
+        allowRenameColumn: false,
+        allowComments: false,
+        style: 'jss_default',
+        defaultColWidth: 70,
+        minDimensions: [9, 0],
+        noHyperlinks: true
+    });
+
+    // Save handler: collect jspreadsheet data and build POST arrays
+    document.getElementById('saveBtn').addEventListener('click', function(e) {
+        e.preventDefault();
+
+        var form = document.getElementById('attendanceForm');
+        var sheetData = jspreadsheetInstance.getData();
+
+        // Remove old hidden inputs (except unit_id, month, year)
+        var oldInputs = form.querySelectorAll('input[name^="employee_id"], input[name^="total_present"], input[name^="total_extra"], input[name^="overtime_hours"], input[name^="total_wo"]');
+        oldInputs.forEach(function(inp) { inp.remove(); });
+
+        // Build hidden inputs for each employee row
+        for (var i = 0; i < sheetData.length; i++) {
+            var row = sheetData[i];
+            var empId = empIds[i];
+
+            // employee_id[]
+            var inpId = document.createElement('input');
+            inpId.type = 'hidden';
+            inpId.name = 'employee_id[]';
+            inpId.value = empId;
+            form.appendChild(inpId);
+
+            // total_present[empId]
+            var inpPresent = document.createElement('input');
+            inpPresent.type = 'hidden';
+            inpPresent.name = 'total_present[' + empId + ']';
+            inpPresent.value = (row[5] !== '' && row[5] !== null) ? row[5] : 0;
+            form.appendChild(inpPresent);
+
+            // total_extra[empId]
+            var inpExtra = document.createElement('input');
+            inpExtra.type = 'hidden';
+            inpExtra.name = 'total_extra[' + empId + ']';
+            inpExtra.value = (row[6] !== '' && row[6] !== null) ? row[6] : 0;
+            form.appendChild(inpExtra);
+
+            // overtime_hours[empId]
+            var inpOT = document.createElement('input');
+            inpOT.type = 'hidden';
+            inpOT.name = 'overtime_hours[' + empId + ']';
+            inpOT.value = (row[7] !== '' && row[7] !== null) ? row[7] : 0;
+            form.appendChild(inpOT);
+
+            // total_wo[empId]
+            var inpWO = document.createElement('input');
+            inpWO.type = 'hidden';
+            inpWO.name = 'total_wo[' + empId + ']';
+            inpWO.value = (row[8] !== '' && row[8] !== null) ? row[8] : 0;
+            form.appendChild(inpWO);
+        }
+
+        form.submit();
+    });
+});
 </script>
 JS;
 ?>

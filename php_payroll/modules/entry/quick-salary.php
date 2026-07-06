@@ -332,102 +332,119 @@ $months = [
         </div>
         
         <?php else: ?>
-        <!-- Quick Edit Grid -->
-        <form method="POST" id="quickSalaryForm">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center py-2">
-                    <div>
-                        <span class="badge bg-primary"><?php echo count($employees); ?> Employees</span>
-                        <span class="badge bg-dark"><?php echo $months[$monthFilter] . ' ' . $yearFilter; ?></span>
-                    </div>
-                    <button type="submit" name="quick_save" class="btn btn-success btn-sm"
-                            onclick="return confirm('Save all salary changes?')">
-                        <i class="bi bi-floppy me-1"></i>Save All
-                    </button>
+        <!-- Quick Edit Grid (Jspreadsheet CE) -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                <div>
+                    <span class="badge bg-primary"><?php echo count($employees); ?> Employees</span>
+                    <span class="badge bg-dark"><?php echo $months[$monthFilter] . ' ' . $yearFilter; ?></span>
                 </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive" style="max-height: 70vh; overflow-y: auto;">
-                        <table class="table table-sm table-bordered table-hover mb-0" style="font-size:0.8rem;">
-                            <thead class="table-dark sticky-top">
-                                <tr>
-                                    <th class="text-center" style="width:35px;">#</th>
-                                    <th style="width:70px;">Code</th>
-                                    <th style="min-width:170px;">Employee Name</th>
-                                    <th>Designation</th>
-                                    <th class="text-end" style="width:100px;background:#2b8a3e;">Current Basic+DA</th>
-                                    <th class="text-end" style="width:100px;background:#2b8a3e;">Current HRA</th>
-                                    <th class="text-end" style="width:100px;background:#2b8a3e;">Current Washing</th>
-                                    <th class="text-center" style="width:50px;background:#2b8a3e;">OT</th>
-                                    <th class="text-end" style="width:100px;border-left:2px solid #6c757d;background:#198754;">
-                                        <strong>Gross</strong>
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($employees as $idx => $emp): ?>
-                                <tr data-emp-id="<?php echo $emp['id']; ?>">
-                                    <td class="text-center text-muted"><?php echo $idx + 1; ?></td>
-                                    <td>
-                                        <input type="hidden" name="employee_id[]" value="<?php echo $emp['id']; ?>">
-                                        <code><?php echo sanitize($emp['employee_code']); ?></code>
-                                    </td>
-                                    <td>
-                                        <strong><?php echo sanitize($emp['full_name']); ?></strong>
-                                        <?php if (!$emp['salary_id']): ?>
-                                        <span class="badge bg-warning text-dark" style="font-size:0.6rem;">NEW</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="text-muted small"><?php echo sanitize($emp['designation']); ?></td>
-                                    <td>
-                                        <input type="number" name="basic_da[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['basic_da']; ?>" 
-                                               class="form-control form-control-sm text-end quick-input" 
-                                               data-emp-id="<?php echo $emp['id']; ?>"
-                                               min="0" step="1" placeholder="0">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="hra[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['hra']; ?>" 
-                                               class="form-control form-control-sm text-end quick-input" 
-                                               data-emp-id="<?php echo $emp['id']; ?>"
-                                               min="0" step="1" placeholder="0">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="washing_allowance[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['washing_allowance']; ?>" 
-                                               class="form-control form-control-sm text-end quick-input" 
-                                               data-emp-id="<?php echo $emp['id']; ?>"
-                                               min="0" step="1" placeholder="0">
-                                    </td>
-                                    <td class="text-center">
-                                        <input type="checkbox" name="overtime_applicable[<?php echo $emp['id']; ?>]" 
-                                               value="1" <?php echo $emp['overtime_applicable'] ? 'checked' : ''; ?>>
-                                    </td>
-                                    <td class="text-end fw-bold" style="border-left:2px solid #dee2e6;background:#f8f9fa;">
-                                        <span class="row-gross" data-emp-id="<?php echo $emp['id']; ?>">
-                                            <?php echo formatCurrency($emp['gross_salary']); ?>
-                                        </span>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                            <tfoot class="table-light">
-                                <tr class="fw-bold">
-                                    <td colspan="4" class="text-end">
-                                        <span class="text-primary">TOTAL</span>
-                                    </td>
-                                    <td class="text-end" id="q_total_basic">0</td>
-                                    <td class="text-end" id="q_total_hra">0</td>
-                                    <td class="text-end" id="q_total_wash">0</td>
-                                    <td></td>
-                                    <td class="text-end" style="border-left:2px solid #dee2e6;" id="q_total_gross">0</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                </div>
+                <button type="button" id="btnSaveAll" class="btn btn-success btn-sm"
+                        onclick="saveQuickSalary()">
+                    <i class="bi bi-floppy me-1"></i>Save All
+                </button>
             </div>
-        </form>
+            <div class="card-body p-0">
+                <div id="quick-salary-grid"></div>
+            </div>
+        </div>
+
+        <script>
+        // ── Employee ID map (row index → DB id) ──
+        const qsEmployeeIds = [
+            <?php foreach ($employees as $emp): echo (int)$emp['id'] . ','; endforeach; ?>
+        ];
+
+        // ── Build spreadsheet data rows ──
+        const qsData = [
+            <?php
+            $rowIdx = 0;
+            foreach ($employees as $emp):
+                $rowIdx++;
+                $nameDisplay = addslashes($emp['full_name']);
+                if (!$emp['salary_id']) {
+                    $nameDisplay .= ' [NEW]';
+                }
+            ?>
+            [
+                <?php echo $rowIdx; ?>,
+                '<?php echo addslashes($emp['employee_code']); ?>',
+                '<?php echo $nameDisplay; ?>',
+                '<?php echo addslashes($emp['designation']); ?>',
+                <?php echo floatval($emp['basic_da']); ?>,
+                <?php echo floatval($emp['hra']); ?>,
+                <?php echo floatval($emp['washing_allowance']); ?>,
+                <?php echo $emp['overtime_applicable'] ? 'true' : 'false'; ?>,
+                <?php echo floatval($emp['gross_salary']); ?>
+            ],
+            <?php endforeach; ?>
+        ];
+
+        // ── Initialise Jspreadsheet CE ──
+        const qsJss = jspreadsheet(document.getElementById('quick-salary-grid'), {
+            data: qsData,
+            columns: [
+                { type: 'text',   title: '#',        width: 36,  readOnly: true },
+                { type: 'text',   title: 'Code',     width: 75,  readOnly: true },
+                { type: 'text',   title: 'Name',     width: 160, readOnly: true },
+                { type: 'text',   title: 'Desig',    width: 100, readOnly: true },
+                { type: 'numeric',title: 'Basic+DA', width: 100 },
+                { type: 'numeric',title: 'HRA',      width: 90  },
+                { type: 'numeric',title: 'Washing',  width: 90  },
+                { type: 'checkbox',title: 'OT',      width: 40  },
+                { type: 'numeric',title: 'Gross',    width: 100, readOnly: true }
+            ],
+            tableOverflow: true,
+            tableHeight: '70vh',
+            columnResize: true,
+            onchange: function(instance, cell, col, row, newVal, oldVal) {
+                // Recalculate Gross when Basic+DA, HRA or Washing changes
+                if (col === 4 || col === 5 || col === 6) {
+                    var basic = parseFloat(instance.getValueFromCoords(4, row)) || 0;
+                    var hra   = parseFloat(instance.getValueFromCoords(5, row)) || 0;
+                    var wash  = parseFloat(instance.getValueFromCoords(6, row)) || 0;
+                    instance.setValueFromCoords(8, row, basic + hra + wash, false);
+                }
+            }
+        });
+
+        // ── Save: collect grid data → POST as hidden form ──
+        function saveQuickSalary() {
+            if (!confirm('Save all salary changes?')) return;
+
+            var data = qsJss.getData();
+
+            // Build a temporary hidden form that mirrors the original POST structure
+            var form = document.createElement('form');
+            form.method = 'POST';
+            form.action = window.location.pathname + '?page=entry/quick-salary';
+
+            function addField(name, value) {
+                var input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = name;
+                input.value = value;
+                form.appendChild(input);
+            }
+
+            for (var row = 0; row < data.length; row++) {
+                var empId = qsEmployeeIds[row];
+                addField('employee_id[]', empId);
+                addField('basic_da[' + empId + ']',          parseFloat(data[row][4]) || 0);
+                addField('hra[' + empId + ']',               parseFloat(data[row][5]) || 0);
+                addField('washing_allowance[' + empId + ']', parseFloat(data[row][6]) || 0);
+
+                var otVal = data[row][7];
+                if (otVal === true || otVal === 1 || otVal === '1') {
+                    addField('overtime_applicable[' + empId + ']', '1');
+                }
+            }
+
+            addField('quick_save', '1');
+            document.body.appendChild(form);
+            form.submit();
+        }
+        </script>
         <?php endif; ?>
     </div>
 </div>
@@ -435,14 +452,7 @@ $months = [
 <style>
 @media print {
     .btn, form { display: none !important; }
-    .table td input[type="checkbox"] { 
-        display: none !important; 
-    }
     body { font-size: 8pt; }
-}
-.quick-input:focus {
-    background-color: #fff3cd !important;
-    box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.5) !important;
 }
 </style>
 
@@ -472,49 +482,5 @@ document.getElementById('clientSelect')?.addEventListener('change', function() {
             }
         })
         .catch(() => { unitSelect.innerHTML = '<option value="">All Units</option>'; });
-});
-
-// Auto-calculate row gross and totals
-document.querySelectorAll('.quick-input').forEach(input => {
-    input.addEventListener('input', function() {
-        const empId = this.dataset.empId;
-        const row = this.closest('tr');
-        const basic = parseFloat(row.querySelector('[name^="basic_da["]')?.value) || 0;
-        const hra = parseFloat(row.querySelector('[name^="hra["]')?.value) || 0;
-        const wash = parseFloat(row.querySelector('[name^="washing_allowance["]')?.value) || 0;
-        const gross = basic + hra + wash;
-        
-        row.querySelector('.row-gross').textContent = '₹' + gross.toLocaleString('en-IN');
-        updateQuickTotals();
-    });
-});
-
-function updateQuickTotals() {
-    let tBasic = 0, tHra = 0, tWash = 0, tGross = 0;
-    
-    document.querySelectorAll('[name^="basic_da["]').forEach(i => tBasic += parseFloat(i.value) || 0);
-    document.querySelectorAll('[name^="hra["]').forEach(i => tHra += parseFloat(i.value) || 0);
-    document.querySelectorAll('[name^="washing_allowance["]').forEach(i => tWash += parseFloat(i.value) || 0);
-    
-    tGross = tBasic + tHra + tWash;
-    const fmt = v => '₹' + v.toLocaleString('en-IN');
-    
-    document.getElementById('q_total_basic').textContent = fmt(tBasic);
-    document.getElementById('q_total_hra').textContent = fmt(tHra);
-    document.getElementById('q_total_wash').textContent = fmt(tWash);
-    document.getElementById('q_total_gross').textContent = fmt(tGross);
-}
-
-// Keyboard navigation (Tab between inputs, Enter moves to next row)
-document.getElementById('quickSalaryForm')?.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        const inputs = Array.from(document.querySelectorAll('.quick-input'));
-        const currentIdx = inputs.indexOf(document.activeElement);
-        if (currentIdx < inputs.length - 1) {
-            inputs[currentIdx + 1].focus();
-            inputs[currentIdx + 1].select();
-        }
-    }
 });
 </script>

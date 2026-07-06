@@ -180,7 +180,7 @@ if ($filterPressed && $clientFilter) {
     if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }
 
     $employees = $db->fetchAll(
-        "SELECT e.id, e.employee_code, e.full_name, e.designation,
+        "SELECT e.id, e.employee_code, e.full_name, e.designation, e.worker_category,
                 u.name as unit_name,
                 COALESCE(ats.overtime_hours, 0) as current_ot_hours,
                 COALESCE(ess.basic_da, 0) as basic_da,
@@ -381,93 +381,13 @@ $months = [
                         <span class="badge bg-primary"><?php echo count($employees); ?> Employees</span>
                         <span class="badge bg-dark"><?php echo $months[$monthFilter] . ' ' . $yearFilter; ?></span>
                     </div>
-                    <button type="submit" name="save_ot" class="btn btn-success btn-sm"
+                    <button type="button" id="saveBtn" class="btn btn-success btn-sm"
                             onclick="return confirm('Save overtime hours for all employees?')">
                         <i class="bi bi-floppy me-1"></i>Save OT Hours
                     </button>
                 </div>
                 <div class="card-body p-0">
-                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                        <table class="table table-sm table-bordered table-hover mb-0" style="font-size:0.82rem;">
-                            <thead class="table-dark sticky-top">
-                                <tr>
-                                    <th class="text-center" style="width:35px;">#</th>
-                                    <th style="width:70px;">Code</th>
-                                    <th style="min-width:180px;">Employee Name</th>
-                                    <th>Designation</th>
-                                    <th>Unit</th>
-                                    <th class="text-end" style="width:80px;">Basic+DA</th>
-                                    <th class="text-center" style="width:50px;">OT App</th>
-                                    <th class="text-end" style="width:70px;">OT Rate</th>
-                                    <th class="text-end" style="width:70px;background:#d97706;">Current OT (Hrs)</th>
-                                    <th class="text-end" style="width:100px;background:#059669;">New OT Hours</th>
-                                    <th class="text-end" style="width:100px;border-left:2px solid #6c757d;background:#047857;">
-                                        <strong>Est. OT Amt</strong>
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($employees as $idx => $emp): 
-                                    $otRate = floatval($emp['ot_rate']);
-                                    $currentOT = floatval($emp['current_ot_hours']);
-                                ?>
-                                <tr>
-                                    <td class="text-center text-muted"><?php echo $idx + 1; ?></td>
-                                    <td>
-                                        <input type="hidden" name="employee_id[]" value="<?php echo $emp['id']; ?>">
-                                        <code><?php echo sanitize($emp['employee_code']); ?></code>
-                                    </td>
-                                    <td>
-                                        <strong><?php echo sanitize($emp['full_name']); ?></strong>
-                                    </td>
-                                    <td class="text-muted small"><?php echo sanitize($emp['designation']); ?></td>
-                                    <td class="text-muted small"><?php echo sanitize($emp['unit_name']); ?></td>
-                                    <td class="text-end">
-                                        <?php echo formatCurrency($emp['basic_da']); ?>
-                                    </td>
-                                    <td class="text-center">
-                                        <?php if ($emp['overtime_applicable']): ?>
-                                        <span class="badge bg-success">Yes</span>
-                                        <?php else: ?>
-                                        <span class="badge bg-secondary">No</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="text-end text-muted" title="(Basic ÷ 26 ÷ 8) × 2">
-                                        <?php echo formatCurrency($otRate); ?>/hr
-                                    </td>
-                                    <td class="text-end" style="background:#fef3c7;">
-                                        <?php echo number_format($currentOT, 1); ?>
-                                    </td>
-                                    <td>
-                                        <input type="number" name="overtime_hours[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $currentOT > 0 ? $currentOT : ''; ?>" 
-                                               class="form-control form-control-sm text-end ot-input" 
-                                               data-emp-id="<?php echo $emp['id']; ?>"
-                                               data-ot-rate="<?php echo $otRate; ?>"
-                                               min="0" max="300" step="0.5" placeholder="0.0">
-                                    </td>
-                                    <td class="text-end fw-bold" style="border-left:2px solid #dee2e6;background:#ecfdf5;">
-                                        <span id="ot_amount_<?php echo $emp['id']; ?>">
-                                            <?php echo formatCurrency($otRate * $currentOT); ?>
-                                        </span>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                            <tfoot class="table-light">
-                                <tr class="fw-bold">
-                                    <td colspan="8" class="text-end">
-                                        <span class="text-primary">TOTAL</span>
-                                    </td>
-                                    <td class="text-end" id="current_ot_total">
-                                        <?php echo number_format($summaryTotals['total_ot_hours'], 1); ?>
-                                    </td>
-                                    <td class="text-end" id="new_ot_total">0</td>
-                                    <td class="text-end" style="border-left:2px solid #dee2e6;" id="est_ot_amount_total">0</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
+                    <div id="overtimeSpreadsheet"></div>
                 </div>
                 <div class="card-footer">
                     <div class="d-flex justify-content-between align-items-center">
@@ -478,7 +398,7 @@ $months = [
                             Custom formula: <?php echo sanitize($otFormula['formula_description'] ?? 'N/A'); ?>
                             <?php endif; ?>
                         </small>
-                        <button type="submit" name="save_ot" class="btn btn-success"
+                        <button type="button" id="saveBtnFooter" class="btn btn-success"
                                 onclick="return confirm('Save overtime hours for all employees?')">
                             <i class="bi bi-floppy me-1"></i>Save OT Hours
                         </button>
@@ -494,10 +414,6 @@ $months = [
 @media print {
     .btn, form { display: none !important; }
     body { font-size: 8pt; }
-}
-.ot-input:focus {
-    background-color: #d1fae5 !important;
-    box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.5) !important;
 }
 </style>
 
@@ -529,35 +445,122 @@ document.getElementById('clientSelect')?.addEventListener('change', function() {
         .catch(() => { unitSelect.innerHTML = '<option value="">All Units</option>'; });
 });
 
-// Auto-calculate OT amounts
-document.querySelectorAll('.ot-input').forEach(input => {
-    input.addEventListener('input', updateOTAmounts);
-});
+<?php if (!empty($employees)): ?>
+// Build employee IDs array for save
+var empIds = [
+    <?php foreach ($employees as $emp): ?>
+    <?php echo (int)$emp['id']; ?>,
+    <?php endforeach; ?>
+];
 
-function updateOTAmounts() {
-    let totalOT = 0;
-    let totalEstAmount = 0;
-    
-    document.querySelectorAll('.ot-input').forEach(input => {
-        const empId = input.dataset.empId;
-        const otRate = parseFloat(input.dataset.otRate) || 0;
-        const otHours = parseFloat(input.value) || 0;
-        const estAmount = otRate * otHours;
-        
-        totalOT += otHours;
-        totalEstAmount += estAmount;
-        
-        const amountEl = document.getElementById('ot_amount_' + empId);
-        if (amountEl) {
-            amountEl.textContent = '₹' + estAmount.toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 0});
-        }
-    });
-    
-    const fmt = (v) => '₹' + v.toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 0});
-    document.getElementById('new_ot_total').textContent = totalOT.toFixed(1);
-    document.getElementById('est_ot_amount_total').textContent = fmt(totalEstAmount);
+// Build jspreadsheet data
+var data = [
+    <?php
+    $sr = 0;
+    foreach ($employees as $emp):
+        $sr++;
+        $otRate = floatval($emp['ot_rate']);
+        $currentOT = floatval($emp['current_ot_hours']);
+        $estAmount = $otRate * $currentOT;
+    ?>
+    ['<?php echo $sr; ?>', '<?php echo addslashes($emp['employee_code']); ?>', '<?php echo addslashes($emp['full_name']); ?>', '<?php echo addslashes($emp['designation']); ?>', '<?php echo addslashes($emp['worker_category'] ?? ''); ?>', '<?php echo number_format($otRate, 2); ?>', <?php echo $currentOT > 0 ? $currentOT : "''"; ?>, '<?php echo formatCurrency($estAmount); ?>'],
+    <?php endforeach; ?>
+];
+
+// Currency formatter
+function fmtCurrency(v) {
+    return '₹' + Math.round(v).toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 0});
 }
 
-// Initialize on load
-document.addEventListener('DOMContentLoaded', updateOTAmounts);
+var sheetEl = document.getElementById('overtimeSpreadsheet');
+
+var jspreadsheetInstance = jspreadsheet(sheetEl, {
+    data: data,
+    columns: [
+        { title: '#', type: 'text', width: 36, readOnly: true },
+        { title: 'Code', type: 'text', width: 75, readOnly: true },
+        { title: 'Name', type: 'text', width: 150, readOnly: true },
+        { title: 'Desig', type: 'text', width: 100, readOnly: true },
+        { title: 'Category', type: 'text', width: 60, readOnly: true },
+        { title: 'OT Rate', type: 'text', width: 70, readOnly: true },
+        { title: 'OT Hours', type: 'numeric', width: 80, readOnly: false, mask: '#,##0.0' },
+        { title: 'Est. Amount', type: 'text', width: 90, readOnly: true }
+    ],
+    tableOverflow: true,
+    tableHeight: '70vh',
+    columnResize: true,
+    allowExport: false,
+    contextMenu: false,
+    pagination: false,
+    search: false,
+    rowDrag: false,
+    allowInsertRow: false,
+    allowDeleteRow: false,
+    allowRenameColumn: false,
+    allowComments: false,
+    style: 'jss_default',
+    defaultColWidth: 70,
+    minDimensions: [8, 0],
+    noHyperlinks: true,
+    onchange: function(instance, cell, x, y, value) {
+        if (x === 6) {
+            // OT Hours changed — recalculate Est. Amount
+            var sheetData = instance.getData();
+            var otRate = parseFloat(sheetData[y][5]) || 0;
+            var otHours = parseFloat(value) || 0;
+            var amount = otRate * otHours;
+            instance.setValueFromCoords(7, y, fmtCurrency(amount));
+        }
+    }
+});
+
+// Save handler: collect jspreadsheet data and build POST arrays
+function saveOvertime() {
+    var form = document.getElementById('otForm');
+    var sheetData = jspreadsheetInstance.getData();
+
+    // Remove old hidden inputs (except unit_id, month, year)
+    var oldInputs = form.querySelectorAll('input[name^="employee_id"], input[name^="overtime_hours"]');
+    oldInputs.forEach(function(inp) { inp.remove(); });
+
+    // Build hidden inputs for each employee row
+    for (var i = 0; i < sheetData.length; i++) {
+        var row = sheetData[i];
+        var empId = empIds[i];
+
+        // employee_id[]
+        var inpId = document.createElement('input');
+        inpId.type = 'hidden';
+        inpId.name = 'employee_id[]';
+        inpId.value = empId;
+        form.appendChild(inpId);
+
+        // overtime_hours[empId]
+        var inpOT = document.createElement('input');
+        inpOT.type = 'hidden';
+        inpOT.name = 'overtime_hours[' + empId + ']';
+        inpOT.value = (row[6] !== '' && row[6] !== null) ? row[6] : 0;
+        form.appendChild(inpOT);
+    }
+
+    // Add save_ot flag and submit
+    var saveFlag = document.createElement('input');
+    saveFlag.type = 'hidden';
+    saveFlag.name = 'save_ot';
+    saveFlag.value = '1';
+    form.appendChild(saveFlag);
+
+    form.submit();
+}
+
+document.getElementById('saveBtn').addEventListener('click', function(e) {
+    e.preventDefault();
+    saveOvertime();
+});
+
+document.getElementById('saveBtnFooter').addEventListener('click', function(e) {
+    e.preventDefault();
+    saveOvertime();
+});
+<?php endif; ?>
 </script>

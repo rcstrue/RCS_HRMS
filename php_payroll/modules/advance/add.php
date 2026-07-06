@@ -267,6 +267,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_advance'])) {
     </div>
 </div>
 
+<?php
+// ── Build jspreadsheet data & column config ──
+$jssData = [];
+$jssColumns = [
+    ['title' => '#',      'type' => 'text',    'width' => 36,  'readOnly' => true,  'align' => 'center'],
+    ['title' => 'Code',   'type' => 'text',    'width' => 75,  'readOnly' => true,  'align' => 'center'],
+    ['title' => 'Name',   'type' => 'text',    'width' => 150, 'readOnly' => true],
+    ['title' => 'Desig',  'type' => 'text',    'width' => 100, 'readOnly' => true],
+    ['title' => 'Cat',    'type' => 'text',    'width' => 55,  'readOnly' => true,  'align' => 'center'],
+    ['title' => 'Prs',    'type' => 'numeric', 'width' => 55,  'align' => 'center'],
+    ['title' => 'WO',     'type' => 'numeric', 'width' => 45,  'align' => 'center'],
+    ['title' => 'Ext',    'type' => 'numeric', 'width' => 50,  'align' => 'center'],
+    ['title' => 'OT',     'type' => 'numeric', 'width' => 50,  'align' => 'center'],
+    ['title' => 'Paid',   'type' => 'numeric', 'width' => 50,  'readOnly' => true,  'align' => 'center'],
+    ['title' => 'Adv 1',  'type' => 'numeric', 'width' => 80,  'align' => 'right'],
+    ['title' => 'Adv 2',  'type' => 'numeric', 'width' => 80,  'align' => 'right'],
+    ['title' => 'Office', 'type' => 'numeric', 'width' => 80,  'align' => 'right'],
+    ['title' => 'Dress',  'type' => 'numeric', 'width' => 80,  'align' => 'right'],
+    ['title' => 'Total',  'type' => 'numeric', 'width' => 75,  'readOnly' => true,  'align' => 'right'],
+];
+
+if (!empty($employees)) {
+    $sr = 1;
+    foreach ($employees as $emp) {
+        $prs = (float)($emp['total_present'] ?? 0);
+        $wo  = (float)($emp['total_wo'] ?? 0);
+        $ext = (float)($emp['total_extra'] ?? 0);
+        $ot  = (float)($emp['overtime_hours'] ?? 0);
+        $paid = round($prs + $wo + $ext, 1);
+
+        $a1 = ($emp['adv1'] !== '' && $emp['adv1'] !== null) ? (float)$emp['adv1'] : '';
+        $a2 = ($emp['adv2'] !== '' && $emp['adv2'] !== null) ? (float)$emp['adv2'] : '';
+        $ao = ($emp['office_advance'] !== '' && $emp['office_advance'] !== null) ? (float)$emp['office_advance'] : '';
+        $ad = ($emp['dress_advance'] !== '' && $emp['dress_advance'] !== null) ? (float)$emp['dress_advance'] : '';
+        $advTotal = (float)(($a1 ?: 0) + ($a2 ?: 0) + ($ao ?: 0) + ($ad ?: 0));
+
+        $jssData[] = [
+            $sr++,
+            $emp['employee_code'],
+            $emp['full_name'],
+            $emp['designation'],
+            $emp['worker_category'],
+            $prs != 0 ? $prs : '',
+            $wo  != 0 ? $wo  : '',
+            $ext != 0 ? $ext : '',
+            $ot  != 0 ? $ot  : '',
+            $paid ?: 0,
+            $a1,
+            $a2,
+            $ao,
+            $ad,
+            $advTotal,
+        ];
+    }
+}
+?>
+
 <?php if ($selectedUnit && isset($_GET['load'])): ?>
 <!-- Advance Entry Grid -->
 <div class="row mt-3">
@@ -294,104 +351,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_advance'])) {
                     <input type="hidden" name="unit_id" value="<?php echo $selectedUnit; ?>">
                     <input type="hidden" name="month" value="<?php echo $selectedMonth; ?>">
                     <input type="hidden" name="year" value="<?php echo $selectedYear; ?>">
-                    
+                    <input type="hidden" name="save_advance" value="1">
+
                     <style>
-                        .excel-grid { border-collapse: collapse; font-size: 12px; width: 100%; }
-                        .excel-grid th, .excel-grid td { border: 1px solid #ccc; padding: 0; height: 28px; vertical-align: middle; }
-                        .excel-grid th { background: #4472C4; color: #fff; padding: 4px 6px; font-weight: 600; text-align: center; white-space: nowrap; font-size: 11px; }
-                        .excel-grid th.th-att { background: #5b9bd5; }
-                        .excel-grid th.th-adv { background: #4472C4; }
-                        .excel-grid th.th-total { background: #548235; }
-                        .excel-grid td { padding: 0 4px; }
-                        .excel-grid tbody tr:nth-child(even) td { background: #f2f7fb; }
-                        .excel-grid tbody tr:hover td { background: #d9e8f7 !important; }
-                        .excel-grid .cell-input { width: 100%; border: none; background: transparent; text-align: center; height: 28px; padding: 0 4px; font-size: 12px; outline: none; -moz-appearance: textfield; }
-                        .excel-grid .cell-input::-webkit-outer-spin-button,
-                        .excel-grid .cell-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-                        .excel-grid .cell-input:focus { background: #fffde7; box-shadow: inset 0 0 0 2px #4472C4; }
-                        .excel-grid .cell-input.text-end-cell { text-align: right; }
-                        .excel-grid .cell-calc { display: block; padding: 0 4px; height: 28px; line-height: 28px; text-align: center; font-weight: 600; }
-                        .excel-grid .cell-calc.text-end-cell { text-align: right; }
-                        .excel-grid .paid-cell { background: #e2efda !important; }
-                        .excel-grid .total-cell { background: #d9e2f3 !important; font-weight: 700; }
-                        .excel-grid tfoot td { background: #d9e2f3; font-weight: 700; padding: 0 4px; height: 26px; }
-                        .excel-grid .emp-code { font-family: monospace; font-size: 11px; color: #333; }
-                        .excel-grid .emp-name { font-size: 12px; }
-                        .excel-grid .badge-cat { font-size: 10px; padding: 1px 6px; }
+                        /* Compact jspreadsheet overrides */
+                        #spreadsheet .jss { font-size: 12px; }
+                        #spreadsheet .jss thead td,
+                        #spreadsheet .jss thead th {
+                            padding: 4px 6px !important;
+                            font-weight: 600;
+                            font-size: 11px;
+                            text-align: center;
+                            white-space: nowrap;
+                        }
+                        #spreadsheet .jss tbody td {
+                            padding: 0 4px !important;
+                            height: 26px !important;
+                        }
+                        #spreadsheet .jss tbody td input {
+                            font-size: 12px;
+                            padding: 0 2px;
+                            height: 24px;
+                        }
+                        /* Highlight read-only calculated columns */
+                        #spreadsheet .jss tbody td[data-x="9"] { background: #e2efda !important; font-weight: 600; }
+                        #spreadsheet .jss tbody td[data-x="14"] { background: #d9e2f3 !important; font-weight: 700; }
+                        /* Zebra striping */
+                        #spreadsheet .jss tbody tr:nth-child(even) td { background: #f2f7fb; }
+                        #spreadsheet .jss tbody tr:nth-child(even) td[data-x="9"] { background: #e2efda !important; }
+                        #spreadsheet .jss tbody tr:nth-child(even) td[data-x="14"] { background: #d9e2f3 !important; }
+                        #spreadsheet .jss tbody tr:hover td { background: #d9e8f7 !important; }
+                        #spreadsheet .jss tbody tr:hover td[data-x="9"] { background: #c5e0b4 !important; }
+                        #spreadsheet .jss tbody tr:hover td[data-x="14"] { background: #b4c7e7 !important; }
                     </style>
-                    <div class="table-responsive">
-                        <table class="excel-grid mb-0">
-                            <thead>
-                                <tr>
-                                    <th style="width:36px;">#</th>
-                                    <th style="width:75px;">Code</th>
-                                    <th style="width:150px;">Name</th>
-                                    <th style="width:100px;">Designation</th>
-                                    <th style="width:60px;">Cat</th>
-                                    <th class="th-att" style="width:55px;">Prs</th>
-                                    <th class="th-att" style="width:45px;">WO</th>
-                                    <th class="th-att" style="width:50px;">Ext</th>
-                                    <th class="th-att" style="width:50px;">OT</th>
-                                    <th class="th-att" style="width:50px;">Paid</th>
-                                    <th class="th-adv" style="width:80px;">Adv 1</th>
-                                    <th class="th-adv" style="width:80px;">Adv 2</th>
-                                    <th class="th-adv" style="width:80px;">Office</th>
-                                    <th class="th-adv" style="width:80px;">Dress</th>
-                                    <th class="th-total" style="width:75px;">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php 
-                                $sr = 1;
-                                foreach ($employees as $emp): 
-                                ?>
-                                    <tr>
-                                    <td class="text-center"><?php echo $sr++; ?></td>
-                                    <td>
-                                        <input type="hidden" name="employee_id[]" value="<?php echo $emp['id']; ?>">
-                                        <span class="emp-code"><?php echo $emp['employee_code']; ?></span>
-                                    </td>
-                                    <td class="emp-name"><?php echo sanitize($emp['full_name']); ?></td>
-                                    <td style="font-size:11px;"><?php echo sanitize($emp['designation']); ?></td>
-                                    <td class="text-center"><span class="badge-cat"><?php echo sanitize($emp['worker_category']); ?></span></td>
-                                    <td><input type="number" name="att_present[<?php echo $emp['id']; ?>]" value="<?php echo (float)($emp['total_present'] ?? 0) ?: ''; ?>" class="cell-input att-input" min="0" max="31" step="0.5" data-row="<?php echo $emp['id']; ?>"></td>
-                                    <td><input type="number" name="att_wo[<?php echo $emp['id']; ?>]" value="<?php echo (float)($emp['total_wo'] ?? 0) ?: ''; ?>" class="cell-input att-input" min="0" max="31" step="0.5" data-row="<?php echo $emp['id']; ?>"></td>
-                                    <td><input type="number" name="att_extra[<?php echo $emp['id']; ?>]" value="<?php echo (float)($emp['total_extra'] ?? 0) ?: ''; ?>" class="cell-input att-input" min="0" max="31" step="0.5" data-row="<?php echo $emp['id']; ?>"></td>
-                                    <td><input type="number" name="ot_hours[<?php echo $emp['id']; ?>]" value="<?php echo (float)($emp['overtime_hours'] ?? 0) ?: ''; ?>" class="cell-input att-input" min="0" max="500" step="0.5" data-row="<?php echo $emp['id']; ?>"></td>
-                                    <td class="paid-cell"><span class="cell-calc paid-days" data-row="<?php echo $emp['id']; ?>"><?php echo (float)($emp['total_paid_days'] ?? 0) ?: '0'; ?></span></td>
-                                    <td><input type="number" name="adv1[<?php echo $emp['id']; ?>]" value="<?php echo $emp['adv1']; ?>" class="cell-input text-end-cell advance-input" min="0" step="1" data-row="<?php echo $emp['id']; ?>"></td>
-                                    <td><input type="number" name="adv2[<?php echo $emp['id']; ?>]" value="<?php echo $emp['adv2']; ?>" class="cell-input text-end-cell advance-input" min="0" step="1" data-row="<?php echo $emp['id']; ?>"></td>
-                                    <td><input type="number" name="office_advance[<?php echo $emp['id']; ?>]" value="<?php echo $emp['office_advance']; ?>" class="cell-input text-end-cell advance-input" min="0" step="1" data-row="<?php echo $emp['id']; ?>"></td>
-                                    <td><input type="number" name="dress_advance[<?php echo $emp['id']; ?>]" value="<?php echo $emp['dress_advance']; ?>" class="cell-input text-end-cell advance-input" min="0" step="1" data-row="<?php echo $emp['id']; ?>"></td>
-                                    <td class="total-cell"><span class="cell-calc text-end-cell row-total" data-row="<?php echo $emp['id']; ?>">0</span></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                            <tfoot>
-                                <tr>
-                                    <td colspan="5" style="text-align:right;">TOTAL</td>
-                                    <td style="text-align:right;" id="total-present">0</td>
-                                    <td style="text-align:right;" id="total-wo">0</td>
-                                    <td style="text-align:right;" id="total-extra">0</td>
-                                    <td style="text-align:right;" id="total-ot">0</td>
-                                    <td style="text-align:right;" id="total-paid">0</td>
-                                    <td style="text-align:right;" id="total-adv1">0</td>
-                                    <td style="text-align:right;" id="total-adv2">0</td>
-                                    <td style="text-align:right;" id="total-office">0</td>
-                                    <td style="text-align:right;" id="total-dress">0</td>
-                                    <td style="text-align:right;" id="grand-total">0</td>
-                                </tr>
-                            </tfoot>
-                        </table>
+
+                    <div id="spreadsheet" style="width:100%;"></div>
+
+                    <!-- Totals bar -->
+                    <div id="totalsBar" style="display:flex; flex-wrap:wrap; gap:6px 14px; padding:6px 12px; background:#d9e2f3; font-size:12px; font-weight:600; border-top:2px solid #4472C4; align-items:center;">
+                        <span style="margin-right:auto; font-weight:700;">TOTAL</span>
+                        <span>Prs: <b id="tot-prs">0</b></span>
+                        <span>WO: <b id="tot-wo">0</b></span>
+                        <span>Ext: <b id="tot-ext">0</b></span>
+                        <span>OT: <b id="tot-ot">0</b></span>
+                        <span>Paid: <b id="tot-paid">0</b></span>
+                        <span style="border-left:2px solid #8faadc; padding-left:14px;">Adv1: <b id="tot-a1">0</b></span>
+                        <span>Adv2: <b id="tot-a2">0</b></span>
+                        <span>Office: <b id="tot-ao">0</b></span>
+                        <span>Dress: <b id="tot-ad">0</b></span>
+                        <span style="background:#548235; color:#fff; padding:2px 10px; border-radius:3px;">Grand Total: <b id="tot-gtotal">0</b></span>
                     </div>
-                    
+
                     <div class="card-footer">
                         <div class="d-flex justify-content-between align-items-center">
                             <div class="text-muted">
                                 <small><i class="bi bi-info-circle me-1"></i>Attendance (Present/WO/Extra/OT) + Advances saved together to attendance_summary & employee_advances</small>
                             </div>
                             <div>
-                                <button type="submit" name="save_advance" class="btn btn-success">
+                                <button type="button" onclick="saveData()" class="btn btn-success">
                                     <i class="bi bi-check-lg me-1"></i>Save Attendance & Advances
                                 </button>
                             </div>
@@ -405,121 +422,149 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_advance'])) {
 </div>
 <?php endif; ?>
 
-<?php
-$extraJS = <<<'JS'
 <script>
-// Load units when client changes
+// ── Client select: load units via AJAX ──
 document.getElementById('clientSelect').addEventListener('change', function() {
-    const clientId = this.value;
-    const unitSelect = document.getElementById('unitSelect');
-    
+    var clientId = this.value;
+    var unitSelect = document.getElementById('unitSelect');
+
     unitSelect.innerHTML = '<option value="">Loading...</option>';
-    
+
     if (!clientId) {
         unitSelect.innerHTML = '<option value="">Select Unit</option>';
         return;
     }
-    
+
     fetch('index.php?page=api/units&client_id=' + clientId)
-        .then(response => response.json())
-        .then(data => {
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
             unitSelect.innerHTML = '<option value="">Select Unit</option>';
             if (data.units) {
-                data.units.forEach(unit => {
-                    const option = document.createElement('option');
+                data.units.forEach(function(unit) {
+                    var option = document.createElement('option');
                     option.value = unit.id;
                     option.textContent = unit.name;
                     unitSelect.appendChild(option);
                 });
             }
         })
-        .catch(() => {
+        .catch(function() {
             unitSelect.innerHTML = '<option value="">Select Unit</option>';
         });
 });
 
-// Auto-calculate Paid Days = Present + WO + Extra
-function updatePaidDays(rowId) {
-    const p = parseFloat(document.querySelector('[name="att_present[' + rowId + ']"]').value) || 0;
-    const w = parseFloat(document.querySelector('[name="att_wo[' + rowId + ']"]').value) || 0;
-    const e = parseFloat(document.querySelector('[name="att_extra[' + rowId + ']"]').value) || 0;
-    document.querySelector('.paid-days[data-row="' + rowId + '"]').textContent = (p + w + e).toFixed(1).replace(/\.0$/, '');
-}
+<?php if (!empty($employees)): ?>
+// ── Jspreadsheet initialization ──
+var empIds = <?php echo json_encode(array_column($employees, 'id')); ?>;
+var jssData = <?php echo json_encode($jssData); ?>;
+var jssCols = <?php echo json_encode($jssColumns); ?>;
 
-// Calculate advance row totals
-function calculateRowTotal(rowId) {
-    const inputs = document.querySelectorAll('.advance-input[data-row="' + rowId + '"]');
-    let total = 0;
-    inputs.forEach(input => {
-        total += parseFloat(input.value) || 0;
-    });
-    document.querySelector('.row-total[data-row="' + rowId + '"]').textContent = total.toFixed(0);
-}
+var _recalc = false; // guard against recursive onchange
 
-// Calculate column totals
-function calculateColumnTotals() {
-    let totalAdv1 = 0, totalAdv2 = 0, totalOffice = 0, totalDress = 0;
-    let totalPresent = 0, totalWO = 0, totalExtra = 0, totalOT = 0, totalPaid = 0;
-    
-    document.querySelectorAll('[name^="adv1["]').forEach(input => { totalAdv1 += parseFloat(input.value) || 0; });
-    document.querySelectorAll('[name^="adv2["]').forEach(input => { totalAdv2 += parseFloat(input.value) || 0; });
-    document.querySelectorAll('[name^="office_advance["]').forEach(input => { totalOffice += parseFloat(input.value) || 0; });
-    document.querySelectorAll('[name^="dress_advance["]').forEach(input => { totalDress += parseFloat(input.value) || 0; });
-    document.querySelectorAll('[name^="att_present["]').forEach(input => { totalPresent += parseFloat(input.value) || 0; });
-    document.querySelectorAll('[name^="att_wo["]').forEach(input => { totalWO += parseFloat(input.value) || 0; });
-    document.querySelectorAll('[name^="att_extra["]').forEach(input => { totalExtra += parseFloat(input.value) || 0; });
-    document.querySelectorAll('[name^="ot_hours["]').forEach(input => { totalOT += parseFloat(input.value) || 0; });
-    totalPaid = totalPresent + totalWO + totalExtra;
+var jss = jspreadsheet(document.getElementById('spreadsheet'), {
+    data: jssData,
+    columns: jssCols,
+    columnResize: true,
+    allowExport: true,
+    tableOverflow: true,
+    tableHeight: '70vh',
+    defaultColWidth: 80,
+    onchange: function(instance, cell, x, y, value) {
+        if (_recalc) return;
+        _recalc = true;
 
-    document.getElementById('total-present').textContent = totalPresent.toFixed(1).replace(/\.0$/, '');
-    document.getElementById('total-wo').textContent = totalWO.toFixed(1).replace(/\.0$/, '');
-    document.getElementById('total-extra').textContent = totalExtra.toFixed(1).replace(/\.0$/, '');
-    document.getElementById('total-ot').textContent = totalOT.toFixed(1).replace(/\.0$/, '');
-    document.getElementById('total-paid').textContent = totalPaid.toFixed(1).replace(/\.0$/, '');
-    document.getElementById('total-adv1').textContent = totalAdv1.toFixed(0);
-    document.getElementById('total-adv2').textContent = totalAdv2.toFixed(0);
-    document.getElementById('total-office').textContent = totalOffice.toFixed(0);
-    document.getElementById('total-dress').textContent = totalDress.toFixed(0);
-    document.getElementById('grand-total').textContent = (totalAdv1 + totalAdv2 + totalOffice + totalDress).toFixed(0);
-}
+        // Recalculate Paid (col 9) when Prs/WO/Ext (5/6/7) change
+        if (x === 5 || x === 6 || x === 7) {
+            var p = parseFloat(instance.getValueFromCoords(5, y)) || 0;
+            var w = parseFloat(instance.getValueFromCoords(6, y)) || 0;
+            var e = parseFloat(instance.getValueFromCoords(7, y)) || 0;
+            instance.setValueFromCoords(9, y, parseFloat((p + w + e).toFixed(1)));
+        }
 
-// Add event listeners
-document.querySelectorAll('.att-input').forEach(input => {
-    input.addEventListener('input', function() {
-        const rowId = this.dataset.row;
-        updatePaidDays(rowId);
-        calculateColumnTotals();
-    });
-});
-document.querySelectorAll('.advance-input').forEach(input => {
-    input.addEventListener('input', function() {
-        const rowId = this.dataset.row;
-        calculateRowTotal(rowId);
-        calculateColumnTotals();
-    });
+        // Recalculate Total (col 14) when any advance col (10-13) changes
+        if (x >= 10 && x <= 13) {
+            var v1 = parseFloat(instance.getValueFromCoords(10, y)) || 0;
+            var v2 = parseFloat(instance.getValueFromCoords(11, y)) || 0;
+            var v3 = parseFloat(instance.getValueFromCoords(12, y)) || 0;
+            var v4 = parseFloat(instance.getValueFromCoords(13, y)) || 0;
+            instance.setValueFromCoords(14, y, v1 + v2 + v3 + v4);
+        }
+
+        updateTotals();
+        _recalc = false;
+    }
 });
 
-// Initial calculation
-document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.att-input').forEach(input => {
-        updatePaidDays(input.dataset.row);
-    });
-    calculateColumnTotals();
-    document.querySelectorAll('.advance-input').forEach(input => {
-        calculateRowTotal(input.dataset.row);
-    });
+// ── Update totals bar ──
+function fmtNum(v, decimals) {
+    if (decimals === undefined) decimals = 0;
+    var n = parseFloat(v) || 0;
+    return decimals > 0 ? n.toFixed(decimals).replace(/\.0$/, '') : n.toFixed(decimals);
+}
 
-    // Excel-like Tab/Enter navigation between cells
-    document.querySelector('.excel-grid').addEventListener('keydown', function(e) {
-        if (e.key !== 'Tab' && e.key !== 'Enter') return;
-        var inputs = Array.from(this.querySelectorAll('.cell-input'));
-        var idx = inputs.indexOf(e.target);
-        if (idx === -1) return;
-        e.preventDefault();
-        var next = e.shiftKey ? idx - 1 : idx + 1;
-        if (next >= 0 && next < inputs.length) inputs[next].focus().select();
-    });
-});
+function updateTotals() {
+    var data = jss.getData();
+    var tP = 0, tW = 0, tE = 0, tOT = 0, tPaid = 0;
+    var tA1 = 0, tA2 = 0, tAO = 0, tAD = 0;
+
+    for (var i = 0; i < data.length; i++) {
+        tP   += parseFloat(data[i][5])  || 0;
+        tW   += parseFloat(data[i][6])  || 0;
+        tE   += parseFloat(data[i][7])  || 0;
+        tOT  += parseFloat(data[i][8])  || 0;
+        tPaid += parseFloat(data[i][9])  || 0;
+        tA1  += parseFloat(data[i][10]) || 0;
+        tA2  += parseFloat(data[i][11]) || 0;
+        tAO  += parseFloat(data[i][12]) || 0;
+        tAD  += parseFloat(data[i][13]) || 0;
+    }
+
+    document.getElementById('tot-prs').textContent  = fmtNum(tP, 1);
+    document.getElementById('tot-wo').textContent   = fmtNum(tW, 1);
+    document.getElementById('tot-ext').textContent  = fmtNum(tE, 1);
+    document.getElementById('tot-ot').textContent   = fmtNum(tOT, 1);
+    document.getElementById('tot-paid').textContent = fmtNum(tPaid, 1);
+    document.getElementById('tot-a1').textContent   = fmtNum(tA1);
+    document.getElementById('tot-a2').textContent   = fmtNum(tA2);
+    document.getElementById('tot-ao').textContent   = fmtNum(tAO);
+    document.getElementById('tot-ad').textContent   = fmtNum(tAD);
+    document.getElementById('tot-gtotal').textContent = fmtNum(tA1 + tA2 + tAO + tAD);
+}
+
+// Initial totals
+updateTotals();
+
+// ── Save: collect jss data and POST ──
+function addHiddenField(form, name, value) {
+    var input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = name;
+    input.value = value;
+    input.className = 'jss-dyn';
+    form.appendChild(input);
+}
+
+function saveData() {
+    var data = jss.getData();
+    var form = document.getElementById('advanceForm');
+
+    // Remove previously added dynamic fields
+    form.querySelectorAll('.jss-dyn').forEach(function(el) { el.remove(); });
+
+    for (var i = 0; i < data.length; i++) {
+        var eid = empIds[i];
+        addHiddenField(form, 'employee_id[]', eid);
+        addHiddenField(form, 'att_present[' + eid + ']',  parseFloat(data[i][5])  || 0);
+        addHiddenField(form, 'att_wo[' + eid + ']',       parseFloat(data[i][6])  || 0);
+        addHiddenField(form, 'att_extra[' + eid + ']',    parseFloat(data[i][7])  || 0);
+        addHiddenField(form, 'ot_hours[' + eid + ']',     parseFloat(data[i][8])  || 0);
+        addHiddenField(form, 'adv1[' + eid + ']',         parseFloat(data[i][10]) || 0);
+        addHiddenField(form, 'adv2[' + eid + ']',         parseFloat(data[i][11]) || 0);
+        addHiddenField(form, 'office_advance[' + eid + ']', parseFloat(data[i][12]) || 0);
+        addHiddenField(form, 'dress_advance[' + eid + ']',  parseFloat(data[i][13]) || 0);
+    }
+
+    form.submit();
+}
+<?php endif; ?>
 </script>
-JS;
-?>
