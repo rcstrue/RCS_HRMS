@@ -63,79 +63,65 @@ try {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 } catch (Exception $e) {}
 
-// Add month/year columns to manager_advance_allocations (for month-wise tracking)
-try { $db->query("ALTER TABLE `manager_advance_allocations` ADD COLUMN `month` int(2) DEFAULT NULL AFTER `amount`"); } catch (Exception $e) {}
-try { $db->query("ALTER TABLE `manager_advance_allocations` ADD COLUMN `year` int(4) DEFAULT NULL AFTER `month`"); } catch (Exception $e) {}
+// ============================================================================
+// Helper: safely add column only if it doesn't exist (no noisy errors)
+// ============================================================================
 
-// Add alloc_date column (custom date when advance was actually given)
-try { $db->query("ALTER TABLE `manager_advance_allocations` ADD COLUMN `alloc_date` date DEFAULT NULL AFTER `year`"); } catch (Exception $e) {}
+function _ensureColumn($db, $table, $colName, $alterSql) {
+    try {
+        $row = $db->fetch("SHOW COLUMNS FROM `{$table}` LIKE '{$colName}'");
+        if (!$row) {
+            $db->query("ALTER TABLE `{$table}` {$alterSql}");
+        }
+        return true;
+    } catch (Exception $e) {
+        return false;
+    }
+}
 
-// Add carry-forward columns to manager_advance_allocations
-try { $db->query("ALTER TABLE `manager_advance_allocations` ADD COLUMN `carry_forward_amount` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `year`"); } catch (Exception $e) {}
-try { $db->query("ALTER TABLE `manager_advance_allocations` ADD COLUMN `carry_forward_from_month` int(2) DEFAULT NULL AFTER `carry_forward_amount`"); } catch (Exception $e) {}
-try { $db->query("ALTER TABLE `manager_advance_allocations` ADD COLUMN `carry_forward_from_year` int(4) DEFAULT NULL AFTER `carry_forward_from_month`"); } catch (Exception $e) {}
+// Add month/year/alloc_date/carry-forward columns to manager_advance_allocations
+_ensureColumn($db, 'manager_advance_allocations', 'month',                   "ADD COLUMN `month` int(2) DEFAULT NULL AFTER `amount`");
+_ensureColumn($db, 'manager_advance_allocations', 'year',                    "ADD COLUMN `year` int(4) DEFAULT NULL AFTER `month`");
+_ensureColumn($db, 'manager_advance_allocations', 'alloc_date',              "ADD COLUMN `alloc_date` date DEFAULT NULL AFTER `year`");
+_ensureColumn($db, 'manager_advance_allocations', 'carry_forward_amount',    "ADD COLUMN `carry_forward_amount` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `year`");
+_ensureColumn($db, 'manager_advance_allocations', 'carry_forward_from_month',"ADD COLUMN `carry_forward_from_month` int(2) DEFAULT NULL AFTER `carry_forward_amount`");
+_ensureColumn($db, 'manager_advance_allocations', 'carry_forward_from_year', "ADD COLUMN `carry_forward_from_year` int(4) DEFAULT NULL AFTER `carry_forward_from_month`");
 
 // ============================================================================
-// Auto-alter missing columns on ess_expenses
-// Just try ALTER — if column exists, catch the duplicate error.
+// Auto-alter missing columns on ess_expenses (check before ALTER)
 // ============================================================================
 
 $expenseColFlags = [];
 
-// category
-try {
-    $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `category` enum('advance','expense','employee_advance') NOT NULL DEFAULT 'expense' AFTER `employee_id`");
-    $expenseColFlags['category'] = true;
-} catch (Exception $e) {
-    // Column exists or error — check via SELECT
-    $expenseColFlags['category'] = false;
-    try { $db->fetchColumn("SELECT `category` FROM `ess_expenses` LIMIT 1"); $expenseColFlags['category'] = true; } catch (Exception $e2) {}
-}
+_ensureColumn($db, 'ess_expenses', 'category',
+    "ADD COLUMN `category` enum('advance','expense','employee_advance') NOT NULL DEFAULT 'expense' AFTER `employee_id`");
+_ensureColumn($db, 'ess_expenses', 'manager_id',
+    "ADD COLUMN `manager_id` varchar(50) DEFAULT NULL AFTER `category`");
+_ensureColumn($db, 'ess_expenses', 'emp_name',
+    "ADD COLUMN `emp_name` varchar(255) DEFAULT NULL");
+_ensureColumn($db, 'ess_expenses', 'emp_code',
+    "ADD COLUMN `emp_code` varchar(50) DEFAULT NULL");
+_ensureColumn($db, 'ess_expenses', 'unit_id',
+    "ADD COLUMN `unit_id` int(11) DEFAULT NULL");
+_ensureColumn($db, 'ess_expenses', 'month',
+    "ADD COLUMN `month` int(2) DEFAULT NULL");
+_ensureColumn($db, 'ess_expenses', 'year',
+    "ADD COLUMN `year` int(4) DEFAULT NULL");
+_ensureColumn($db, 'ess_expenses', 'bill_type',
+    "ADD COLUMN `bill_type` varchar(20) DEFAULT NULL");
+_ensureColumn($db, 'ess_expenses', 'rejected_by',
+    "ADD COLUMN `rejected_by` varchar(50) DEFAULT NULL");
+_ensureColumn($db, 'ess_expenses', 'edited_by',
+    "ADD COLUMN `edited_by` varchar(50) DEFAULT NULL");
+_ensureColumn($db, 'ess_expenses', 'edited_at',
+    "ADD COLUMN `edited_at` datetime DEFAULT NULL");
+_ensureColumn($db, 'ess_expenses', 'settlement_id',
+    "ADD COLUMN `settlement_id` int(11) DEFAULT NULL");
 
-// manager_id
-try {
-    $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `manager_id` varchar(50) DEFAULT NULL AFTER `category`");
-    $expenseColFlags['manager_id'] = true;
-} catch (Exception $e) {
-    $expenseColFlags['manager_id'] = false;
-    try { $db->fetchColumn("SELECT `manager_id` FROM `ess_expenses` LIMIT 1"); $expenseColFlags['manager_id'] = true; } catch (Exception $e2) {}
-}
-
-// emp_name
-try { $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `emp_name` varchar(255) DEFAULT NULL"); } catch (Exception $e) {}
-
-// emp_code
-try { $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `emp_code` varchar(50) DEFAULT NULL"); } catch (Exception $e) {}
-
-// unit_id
-try { $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `unit_id` int(11) DEFAULT NULL"); } catch (Exception $e) {}
-
-// month
-try {
-    $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `month` int(2) DEFAULT NULL");
-    $expenseColFlags['month'] = true;
-} catch (Exception $e) {
-    $expenseColFlags['month'] = false;
-    try { $db->fetchColumn("SELECT `month` FROM `ess_expenses` LIMIT 1"); $expenseColFlags['month'] = true; } catch (Exception $e2) {}
-}
-
-// year
-try { $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `year` int(4) DEFAULT NULL"); } catch (Exception $e) {}
-
-// bill_type
-try { $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `bill_type` varchar(20) DEFAULT NULL"); } catch (Exception $e) {}
-
-// rejected_by
-try { $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `rejected_by` varchar(50) DEFAULT NULL"); } catch (Exception $e) {}
-
-// edited_by
-try { $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `edited_by` varchar(50) DEFAULT NULL"); } catch (Exception $e) {}
-
-// edited_at
-try { $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `edited_at` datetime DEFAULT NULL"); } catch (Exception $e) {}
-
-// settlement_id
-try { $db->query("ALTER TABLE `ess_expenses` ADD COLUMN `settlement_id` int(11) DEFAULT NULL"); } catch (Exception $e) {}
+// Check which key columns exist
+$expenseColFlags['category']   = (bool)$db->fetch("SHOW COLUMNS FROM `ess_expenses` LIKE 'category'");
+$expenseColFlags['manager_id'] = (bool)$db->fetch("SHOW COLUMNS FROM `ess_expenses` LIKE 'manager_id'");
+$expenseColFlags['month']      = (bool)$db->fetch("SHOW COLUMNS FROM `ess_expenses` LIKE 'month'");
 
 // Shortcuts used by multiple pages
 $categoryColExists   = $expenseColFlags['category'] ?? false;
