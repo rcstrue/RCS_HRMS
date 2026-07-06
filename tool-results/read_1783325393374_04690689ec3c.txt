@@ -1,0 +1,642 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Monthly Salary Entry
+     4→ * View/edit salary structures for individual employees month-wise
+     5→ */
+     6→
+     7→$pageTitle = 'Salary Entry';
+     8→
+     9→// Get filter values
+    10→$currentMonth = prev_month_num();
+    11→$currentYear = date('Y');
+    12→$monthFilter = isset($_GET['month']) ? (int)$_GET['month'] : $currentMonth;
+    13→$yearFilter = isset($_GET['year']) ? (int)$_GET['year'] : $currentYear;
+    14→$clientFilter = (int)($_GET['client_id'] ?? 0);
+    15→$unitFilter = (int)($_GET['unit_id'] ?? 0);
+    16→$searchTerm = sanitize($_GET['search'] ?? '');
+    17→$filterPressed = isset($_GET['filter']) || $clientFilter > 0;
+    18→
+    19→// Get clients and units
+    20→$clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
+    21→$allUnits = $db->fetchAll("SELECT id, name, client_id FROM units WHERE is_active = 1 ORDER BY name");
+    22→$units = [];
+    23→if ($clientFilter) {
+    24→    foreach ($allUnits as $u) {
+    25→        if ($u['client_id'] == $clientFilter) {
+    26→            $units[] = $u;
+    27→        }
+    28→    }
+    29→}
+    30→
+    31→// Handle POST save
+    32→if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_salary'])) {
+    33→    $employeeIds = $_POST['employee_id'] ?? [];
+    34→    $savedCount = 0;
+    35→    $errors = [];
+    36→
+    37→    try {
+    38→        $db->beginTransaction();
+    39→
+    40→        foreach ($employeeIds as $empId) {
+    41→            $empId = (int)$empId;
+    42→            $basicDA = floatval($_POST['basic_da'][$empId] ?? 0);
+    43→            $hra = floatval($_POST['hra'][$empId] ?? 0);
+    44→            $leaveEnc = floatval($_POST['leave_encashment'][$empId] ?? 0);
+    45→            $bonusEnc = floatval($_POST['bonus_encashment'][$empId] ?? 0);
+    46→            $washing = floatval($_POST['washing_allowance'][$empId] ?? 0);
+    47→            $grossSalary = $basicDA + $hra + $leaveEnc + $bonusEnc + $washing;
+    48→
+    49→            $pfApplicable = isset($_POST['pf_applicable'][$empId]) ? 1 : 0;
+    50→            $esiApplicable = isset($_POST['esi_applicable'][$empId]) ? 1 : 0;
+    51→            $ptApplicable = isset($_POST['pt_applicable'][$empId]) ? 1 : 0;
+    52→            $lwfApplicable = isset($_POST['lwf_applicable'][$empId]) ? 1 : 0;
+    53→            $otApplicable = isset($_POST['overtime_applicable'][$empId]) ? 1 : 0;
+    54→            $bonusApplicable = isset($_POST['bonus_applicable'][$empId]) ? 1 : 0;
+    55→            $gratuityApplicable = isset($_POST['gratuity_applicable'][$empId]) ? 1 : 0;
+    56→
+    57→            $effectiveFrom = $yearFilter . '-' . str_pad($monthFilter, 2, '0', STR_PAD_LEFT) . '-01';
+    58→
+    59→            // Check if salary structure exists for this employee (active one)
+    60→            $existing = $db->fetch(
+    61→                "SELECT id FROM employee_salary_structures 
+    62→                 WHERE employee_id = ? AND (effective_to IS NULL OR effective_to >= CURDATE())
+    63→                 ORDER BY effective_from DESC LIMIT 1",
+    64→                [$empId]
+    65→            );
+    66→
+    67→            if ($existing) {
+    68→                // Update existing record
+    69→                $db->update('employee_salary_structures', [
+    70→                    'basic_da' => $basicDA,
+    71→                    'hra' => $hra,
+    72→                    'leave_encashment' => $leaveEnc,
+    73→                    'bonus_encashment' => $bonusEnc,
+    74→                    'washing_allowance' => $washing,
+    75→                    'gross_salary' => $grossSalary,
+    76→                    'pf_applicable' => $pfApplicable,
+    77→                    'esi_applicable' => $esiApplicable,
+    78→                    'pt_applicable' => $ptApplicable,
+    79→                    'lwf_applicable' => $lwfApplicable,
+    80→                    'overtime_applicable' => $otApplicable,
+    81→                    'bonus_applicable' => $bonusApplicable,
+    82→                    'gratuity_applicable' => $gratuityApplicable
+    83→                ], 'id = :id', ['id' => $existing['id']]);
+    84→            } else {
+    85→                // Close any previous structures
+    86→                $prevStructures = $db->fetchAll(
+    87→                    "SELECT id FROM employee_salary_structures WHERE employee_id = ? AND effective_to IS NULL",
+    88→                    [$empId]
+    89→                );
+    90→                foreach ($prevStructures as $prev) {
+    91→                    $db->update('employee_salary_structures', [
+    92→                        'effective_to' => date('Y-m-d', strtotime($effectiveFrom . ' -1 day'))
+    93→                    ], 'id = :id', ['id' => $prev['id']]);
+    94→                }
+    95→
+    96→                // Insert new structure
+    97→                $db->insert('employee_salary_structures', [
+    98→                    'employee_id' => $empId,
+    99→                    'effective_from' => $effectiveFrom,
+   100→                    'basic_da' => $basicDA,
+   101→                    'hra' => $hra,
+   102→                    'leave_encashment' => $leaveEnc,
+   103→                    'bonus_encashment' => $bonusEnc,
+   104→                    'washing_allowance' => $washing,
+   105→                    'gross_salary' => $grossSalary,
+   106→                    'pf_applicable' => $pfApplicable,
+   107→                    'esi_applicable' => $esiApplicable,
+   108→                    'pt_applicable' => $ptApplicable,
+   109→                    'lwf_applicable' => $lwfApplicable,
+   110→                    'overtime_applicable' => $otApplicable,
+   111→                    'bonus_applicable' => $bonusApplicable,
+   112→                    'gratuity_applicable' => $gratuityApplicable,
+   113→                    'created_by' => $_SESSION['user_id'] ?? null
+   114→                ]);
+   115→            }
+   116→            $savedCount++;
+   117→        }
+   118→
+   119→        $db->commit();
+   120→        setFlash('success', "Salary updated for {$savedCount} employees.");
+   121→        redirect('index.php?page=entry/salary-entry&month=' . $monthFilter . '&year=' . $yearFilter . 
+   122→                '&client_id=' . $clientFilter . '&unit_id=' . $unitFilter . 
+   123→                ($searchTerm ? '&search=' . urlencode($searchTerm) : '') . '&filter=1');
+   124→    } catch (Exception $e) {
+   125→        $db->rollBack();
+   126→        setFlash('error', 'Error saving salary: ' . $e->getMessage());
+   127→    }
+   128→}
+   129→
+   130→// CSV Export
+   131→if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+   132→    header('Content-Type: text/csv');
+   133→    header('Content-Disposition: attachment; filename="salary_entry_' . $monthFilter . '_' . $yearFilter . '.csv"');
+   134→    header('Pragma: no-cache');
+   135→    header('Expires: 0');
+   136→
+   137→    $where = "e.status = 'approved'";
+   138→    $params = [];
+   139→    if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
+   140→    if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }
+   141→    if ($searchTerm) {
+   142→        $where .= " AND (e.full_name LIKE ? OR e.employee_code LIKE ?)";
+   143→        $params[] = '%' . $searchTerm . '%';
+   144→        $params[] = '%' . $searchTerm . '%';
+   145→    }
+   146→
+   147→    $data = $db->fetchAll(
+   148→        "SELECT e.employee_code, e.full_name, e.designation, c.name as client_name, u.name as unit_name,
+   149→                ess.basic_da, ess.hra, ess.leave_encashment, ess.bonus_encashment, ess.washing_allowance,
+   150→                ess.gross_salary, ess.pf_applicable, ess.esi_applicable, ess.pt_applicable, ess.lwf_applicable
+   151→         FROM employees e
+   152→         LEFT JOIN clients c ON e.client_id = c.id
+   153→         LEFT JOIN units u ON e.unit_id = u.id
+   154→         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
+   155→            AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+   156→         WHERE $where
+   157→         ORDER BY c.name, u.name, e.employee_code",
+   158→        $params
+   159→    );
+   160→
+   161→    $output = fopen('php://output', 'w');
+   162→    fputcsv($output, ['Code', 'Name', 'Designation', 'Client', 'Unit', 'Basic+DA', 'HRA', 
+   163→                       'Leave Encashment', 'Bonus Encashment', 'Washing', 'Gross', 'PF', 'ESI', 'PT', 'LWF']);
+   164→    foreach ($data as $row) {
+   165→        fputcsv($output, [
+   166→            $row['employee_code'], $row['full_name'], $row['designation'],
+   167→            $row['client_name'], $row['unit_name'],
+   168→            $row['basic_da'] ?? 0, $row['hra'] ?? 0, $row['leave_encashment'] ?? 0,
+   169→            $row['bonus_encashment'] ?? 0, $row['washing_allowance'] ?? 0,
+   170→            $row['gross_salary'] ?? 0,
+   171→            $row['pf_applicable'] ? 'Yes' : 'No',
+   172→            $row['esi_applicable'] ? 'Yes' : 'No',
+   173→            $row['pt_applicable'] ? 'Yes' : 'No',
+   174→            $row['lwf_applicable'] ? 'Yes' : 'No'
+   175→        ]);
+   176→    }
+   177→    fclose($output);
+   178→    exit;
+   179→}
+   180→
+   181→// Get employees with salary data
+   182→$employees = [];
+   183→$summaryData = ['total_employees' => 0, 'total_gross' => 0, 'avg_gross' => 0];
+   184→
+   185→if ($filterPressed && $clientFilter) {
+   186→    $where = "e.status = 'approved'";
+   187→    $params = [];
+   188→    if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
+   189→    if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }
+   190→    if ($searchTerm) {
+   191→        $where .= " AND (e.full_name LIKE ? OR e.employee_code LIKE ?)";
+   192→        $params[] = '%' . $searchTerm . '%';
+   193→        $params[] = '%' . $searchTerm . '%';
+   194→    }
+   195→
+   196→    $employees = $db->fetchAll(
+   197→        "SELECT e.id, e.employee_code, e.full_name, e.father_name, e.designation,
+   198→                c.name as client_name, u.name as unit_name,
+   199→                ess.id as salary_id,
+   200→                COALESCE(ess.basic_da, 0) as basic_da,
+   201→                COALESCE(ess.hra, 0) as hra,
+   202→                COALESCE(ess.leave_encashment, 0) as leave_encashment,
+   203→                COALESCE(ess.bonus_encashment, 0) as bonus_encashment,
+   204→                COALESCE(ess.washing_allowance, 0) as washing_allowance,
+   205→                COALESCE(ess.gross_salary, 0) as gross_salary,
+   206→                ess.pf_applicable, ess.esi_applicable, ess.pt_applicable,
+   207→                ess.lwf_applicable, ess.overtime_applicable, ess.bonus_applicable, ess.gratuity_applicable,
+   208→                ess.effective_from, ess.effective_to
+   209→         FROM employees e
+   210→         LEFT JOIN clients c ON e.client_id = c.id
+   211→         LEFT JOIN units u ON e.unit_id = u.id
+   212→         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
+   213→            AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+   214→         WHERE $where
+   215→         ORDER BY c.name, u.name, e.employee_code",
+   216→        $params
+   217→    );
+   218→
+   219→    // Summary
+   220→    $summaryData['total_employees'] = count($employees);
+   221→    $totalGross = 0;
+   222→    foreach ($employees as $emp) {
+   223→        $totalGross += floatval($emp['gross_salary']);
+   224→    }
+   225→    $summaryData['total_gross'] = $totalGross;
+   226→    $summaryData['avg_gross'] = count($employees) > 0 ? $totalGross / count($employees) : 0;
+   227→}
+   228→
+   229→// Month names
+   230→$months = [
+   231→    1 => 'January', 2 => 'February', 3 => 'March', 4 => 'April',
+   232→    5 => 'May', 6 => 'June', 7 => 'July', 8 => 'August',
+   233→    9 => 'September', 10 => 'October', 11 => 'November', 12 => 'December'
+   234→];
+   235→?>
+   236→
+   237→<div class="row">
+   238→    <div class="col-12">
+   239→        <!-- Header -->
+   240→        <div class="card mb-3">
+   241→            <div class="card-header d-flex justify-content-between align-items-center">
+   242→                <h5 class="card-title mb-0">
+   243→                    <i class="bi bi-cash-coin me-2"></i>Salary Entry
+   244→                </h5>
+   245→                <?php if (!empty($employees)): ?>
+   246→                <a href="index.php?page=entry/salary-entry&<?php echo http_build_query($_GET); ?>&export=csv" 
+   247→                   class="btn btn-outline-success btn-sm">
+   248→                    <i class="bi bi-download me-1"></i>Export CSV
+   249→                </a>
+   250→                <?php endif; ?>
+   251→            </div>
+   252→            <div class="card-body">
+   253→                <!-- Filters -->
+   254→                <form method="GET" class="row g-2 mb-3" id="filterForm">
+   255→                    <input type="hidden" name="page" value="entry/salary-entry">
+   256→                    
+   257→                    <div class="col-md-2">
+   258→                        <label class="form-label small">Month</label>
+   259→                        <select class="form-select form-select-sm" name="month">
+   260→                            <?php foreach ($months as $num => $name): ?>
+   261→                            <option value="<?php echo $num; ?>" <?php echo $monthFilter == $num ? 'selected' : ''; ?>>
+   262→                                <?php echo $name; ?>
+   263→                            </option>
+   264→                            <?php endforeach; ?>
+   265→                        </select>
+   266→                    </div>
+   267→                    
+   268→                    <div class="col-md-2">
+   269→                        <label class="form-label small">Year</label>
+   270→                        <select class="form-select form-select-sm" name="year">
+   271→                            <?php for ($y = date('Y'); $y >= date('Y') - 3; $y--): ?>
+   272→                            <option value="<?php echo $y; ?>" <?php echo $yearFilter == $y ? 'selected' : ''; ?>>
+   273→                                <?php echo $y; ?>
+   274→                            </option>
+   275→                            <?php endfor; ?>
+   276→                        </select>
+   277→                    </div>
+   278→                    
+   279→                    <div class="col-md-2">
+   280→                        <label class="form-label small">Client <span class="text-danger">*</span></label>
+   281→                        <select class="form-select form-select-sm" name="client_id" id="clientSelect">
+   282→                            <option value="">Select Client</option>
+   283→                            <?php foreach ($clients as $c): ?>
+   284→                            <option value="<?php echo $c['id']; ?>" <?php echo $clientFilter == $c['id'] ? 'selected' : ''; ?>>
+   285→                                <?php echo sanitize($c['name']); ?>
+   286→                            </option>
+   287→                            <?php endforeach; ?>
+   288→                        </select>
+   289→                    </div>
+   290→                    
+   291→                    <div class="col-md-2">
+   292→                        <label class="form-label small">Unit</label>
+   293→                        <select class="form-select form-select-sm" name="unit_id" id="unitSelect">
+   294→                            <option value="">All Units</option>
+   295→                            <?php foreach ($units as $u): ?>
+   296→                            <option value="<?php echo $u['id']; ?>" <?php echo $unitFilter == $u['id'] ? 'selected' : ''; ?>>
+   297→                                <?php echo sanitize($u['name']); ?>
+   298→                            </option>
+   299→                            <?php endforeach; ?>
+   300→                        </select>
+   301→                    </div>
+   302→                    
+   303→                    <div class="col-md-2">
+   304→                        <label class="form-label small">Search</label>
+   305→                        <input type="text" class="form-control form-control-sm" name="search" 
+   306→                               placeholder="Name or code..." value="<?php echo htmlspecialchars($searchTerm); ?>">
+   307→                    </div>
+   308→                    
+   309→                    <div class="col-md-2 d-flex align-items-end gap-1">
+   310→                        <button type="submit" name="filter" value="1" class="btn btn-primary btn-sm flex-grow-1">
+   311→                            <i class="bi bi-search me-1"></i>Filter
+   312→                        </button>
+   313→                        <a href="index.php?page=entry/salary-entry" class="btn btn-outline-secondary btn-sm">
+   314→                            <i class="bi bi-x-lg"></i>
+   315→                        </a>
+   316→                    </div>
+   317→                </form>
+   318→            </div>
+   319→        </div>
+   320→        
+   321→        <?php if (!$filterPressed || !$clientFilter): ?>
+   322→        <!-- No filter message -->
+   323→        <div class="card">
+   324→            <div class="card-body text-center py-5 text-muted">
+   325→                <i class="bi bi-funnel fs-1"></i>
+   326→                <p class="mt-3">Select a <strong>Client</strong> and click <strong>Filter</strong> to view employees and their salary structures.</p>
+   327→            </div>
+   328→        </div>
+   329→        
+   330→        <?php elseif (empty($employees)): ?>
+   331→        <div class="card">
+   332→            <div class="card-body text-center py-5 text-muted">
+   333→                <i class="bi bi-people fs-1"></i>
+   334→                <p class="mt-3">No approved employees found for the selected filters.</p>
+   335→            </div>
+   336→        </div>
+   337→        
+   338→        <?php else: ?>
+   339→        <!-- Summary Cards -->
+   340→        <div class="row g-2 mb-3">
+   341→            <div class="col-md-4">
+   342→                <div class="card bg-light">
+   343→                    <div class="card-body py-2 text-center">
+   344→                        <small class="text-muted">Total Employees</small>
+   345→                        <h5 class="mb-0"><?php echo number_format($summaryData['total_employees']); ?></h5>
+   346→                    </div>
+   347→                </div>
+   348→            </div>
+   349→            <div class="col-md-4">
+   350→                <div class="card bg-success bg-opacity-10">
+   351→                    <div class="card-body py-2 text-center">
+   352→                        <small class="text-success">Total Gross Salary</small>
+   353→                        <h5 class="mb-0 text-success"><?php echo formatCurrency($summaryData['total_gross']); ?></h5>
+   354→                    </div>
+   355→                </div>
+   356→            </div>
+   357→            <div class="col-md-4">
+   358→                <div class="card bg-info bg-opacity-10">
+   359→                    <div class="card-body py-2 text-center">
+   360→                        <small class="text-info">Average Gross</small>
+   361→                        <h5 class="mb-0 text-info"><?php echo formatCurrency($summaryData['avg_gross']); ?></h5>
+   362→                    </div>
+   363→                </div>
+   364→            </div>
+   365→        </div>
+   366→        
+   367→        <!-- Salary Entry Form -->
+   368→        <form method="POST" id="salaryForm">
+   369→            <div class="card">
+   370→                <div class="card-header d-flex justify-content-between align-items-center">
+   371→                    <h6 class="mb-0">
+   372→                        <i class="bi bi-pencil-square me-2"></i>
+   373→                        <?php echo $months[$monthFilter] . ' ' . $yearFilter; ?> — 
+   374→                        <?php echo count($employees); ?> Employees
+   375→                    </h6>
+   376→                    <div class="d-flex gap-2">
+   377→                        <button type="submit" name="save_salary" class="btn btn-success btn-sm"
+   378→                                onclick="return confirm('Save salary changes for all listed employees?')">
+   379→                            <i class="bi bi-check-lg me-1"></i>Save All
+   380→                        </button>
+   381→                    </div>
+   382→                </div>
+   383→                <div class="card-body p-0">
+   384→                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+   385→                        <table class="table table-sm table-bordered table-hover mb-0" style="font-size: 0.82rem;">
+   386→                            <thead class="table-dark sticky-top">
+   387→                                <tr>
+   388→                                    <th rowspan="2" class="text-center" style="width:35px;">#</th>
+   389→                                    <th rowspan="2" style="width:70px;">Code</th>
+   390→                                    <th rowspan="2">Employee Name</th>
+   391→                                    <th rowspan="2">Designation</th>
+   392→                                    <th rowspan="2">Unit</th>
+   393→                                    <th colspan="5" class="text-center" style="background:#1a7431;">Earnings (₹)</th>
+   394→                                    <th rowspan="2" class="text-end" style="border-left:2px solid #6c757d;background:#2b8a3e;">
+   395→                                        <strong>Gross</strong>
+   396→                                    </th>
+   397→                                    <th colspan="4" class="text-center" style="background:#c92a2a;">Applicable</th>
+   398→                                    <th colspan="3" class="text-center" style="background:#5c3d8f;">Other Applicable</th>
+   399→                                </tr>
+   400→                                <tr>
+   401→                                    <th class="text-end" style="background:#2b8a3e;">Basic+DA</th>
+   402→                                    <th class="text-end" style="background:#2b8a3e;">HRA</th>
+   403→                                    <th class="text-end" style="background:#2b8a3e;">L.Enc</th>
+   404→                                    <th class="text-end" style="background:#2b8a3e;">B.Enc</th>
+   405→                                    <th class="text-end" style="background:#2b8a3e;">Wash</th>
+   406→                                    <th class="text-center" style="background:#a71d2a;">PF</th>
+   407→                                    <th class="text-center" style="background:#a71d2a;">ESI</th>
+   408→                                    <th class="text-center" style="background:#a71d2a;">PT</th>
+   409→                                    <th class="text-center" style="background:#a71d2a;">LWF</th>
+   410→                                    <th class="text-center" style="background:#6741d9;">OT</th>
+   411→                                    <th class="text-center" style="background:#6741d9;">Bonus</th>
+   412→                                    <th class="text-center" style="background:#6741d9;">Gratuity</th>
+   413→                                </tr>
+   414→                            </thead>
+   415→                            <tbody>
+   416→                                <?php foreach ($employees as $idx => $emp): ?>
+   417→                                <tr>
+   418→                                    <td class="text-center text-muted"><?php echo $idx + 1; ?></td>
+   419→                                    <td>
+   420→                                        <input type="hidden" name="employee_id[]" value="<?php echo $emp['id']; ?>">
+   421→                                        <code><?php echo sanitize($emp['employee_code']); ?></code>
+   422→                                    </td>
+   423→                                    <td>
+   424→                                        <strong><?php echo sanitize($emp['full_name']); ?></strong>
+   425→                                        <?php if ($emp['salary_id']): ?>
+   426→                                        <i class="bi bi-check-circle-fill text-success" title="Salary structure exists"></i>
+   427→                                        <?php else: ?>
+   428→                                        <i class="bi bi-exclamation-circle text-warning" title="No salary structure"></i>
+   429→                                        <?php endif; ?>
+   430→                                    </td>
+   431→                                    <td class="text-muted"><?php echo sanitize($emp['designation']); ?></td>
+   432→                                    <td class="text-muted small"><?php echo sanitize($emp['unit_name']); ?></td>
+   433→                                    
+   434→                                    <!-- Earnings Inputs -->
+   435→                                    <td>
+   436→                                        <input type="number" name="basic_da[<?php echo $emp['id']; ?>]" 
+   437→                                               value="<?php echo $emp['basic_da']; ?>" 
+   438→                                               class="form-control form-control-sm text-end salary-input" 
+   439→                                               data-emp-id="<?php echo $emp['id']; ?>" data-field="basic_da"
+   440→                                               min="0" step="1" style="width:90px;">
+   441→                                    </td>
+   442→                                    <td>
+   443→                                        <input type="number" name="hra[<?php echo $emp['id']; ?>]" 
+   444→                                               value="<?php echo $emp['hra']; ?>" 
+   445→                                               class="form-control form-control-sm text-end salary-input" 
+   446→                                               data-emp-id="<?php echo $emp['id']; ?>" data-field="hra"
+   447→                                               min="0" step="1" style="width:80px;">
+   448→                                    </td>
+   449→                                    <td>
+   450→                                        <input type="number" name="leave_encashment[<?php echo $emp['id']; ?>]" 
+   451→                                               value="<?php echo $emp['leave_encashment']; ?>" 
+   452→                                               class="form-control form-control-sm text-end salary-input" 
+   453→                                               data-emp-id="<?php echo $emp['id']; ?>" data-field="leave_encashment"
+   454→                                               min="0" step="1" style="width:80px;">
+   455→                                    </td>
+   456→                                    <td>
+   457→                                        <input type="number" name="bonus_encashment[<?php echo $emp['id']; ?>]" 
+   458→                                               value="<?php echo $emp['bonus_encashment']; ?>" 
+   459→                                               class="form-control form-control-sm text-end salary-input" 
+   460→                                               data-emp-id="<?php echo $emp['id']; ?>" data-field="bonus_encashment"
+   461→                                               min="0" step="1" style="width:80px;">
+   462→                                    </td>
+   463→                                    <td>
+   464→                                        <input type="number" name="washing_allowance[<?php echo $emp['id']; ?>]" 
+   465→                                               value="<?php echo $emp['washing_allowance']; ?>" 
+   466→                                               class="form-control form-control-sm text-end salary-input" 
+   467→                                               data-emp-id="<?php echo $emp['id']; ?>" data-field="washing_allowance"
+   468→                                               min="0" step="1" style="width:80px;">
+   469→                                    </td>
+   470→                                    
+   471→                                    <!-- Gross (auto-calculated) -->
+   472→                                    <td class="text-end fw-bold" style="border-left:2px solid #dee2e6; background:#f8f9fa;">
+   473→                                        <span id="gross_<?php echo $emp['id']; ?>">
+   474→                                            <?php echo formatCurrency($emp['gross_salary']); ?>
+   475→                                        </span>
+   476→                                    </td>
+   477→                                    
+   478→                                    <!-- Checkboxes -->
+   479→                                    <td class="text-center">
+   480→                                        <input type="checkbox" name="pf_applicable[<?php echo $emp['id']; ?>]" 
+   481→                                               value="1" <?php echo $emp['pf_applicable'] ? 'checked' : ''; ?>>
+   482→                                    </td>
+   483→                                    <td class="text-center">
+   484→                                        <input type="checkbox" name="esi_applicable[<?php echo $emp['id']; ?>]" 
+   485→                                               value="1" <?php echo $emp['esi_applicable'] ? 'checked' : ''; ?>>
+   486→                                    </td>
+   487→                                    <td class="text-center">
+   488→                                        <input type="checkbox" name="pt_applicable[<?php echo $emp['id']; ?>]" 
+   489→                                               value="1" <?php echo $emp['pt_applicable'] ? 'checked' : ''; ?>>
+   490→                                    </td>
+   491→                                    <td class="text-center">
+   492→                                        <input type="checkbox" name="lwf_applicable[<?php echo $emp['id']; ?>]" 
+   493→                                               value="1" <?php echo $emp['lwf_applicable'] ? 'checked' : ''; ?>>
+   494→                                    </td>
+   495→                                    <td class="text-center">
+   496→                                        <input type="checkbox" name="overtime_applicable[<?php echo $emp['id']; ?>]" 
+   497→                                               value="1" <?php echo $emp['overtime_applicable'] ? 'checked' : ''; ?>>
+   498→                                    </td>
+   499→                                    <td class="text-center">
+   500→                                        <input type="checkbox" name="bonus_applicable[<?php echo $emp['id']; ?>]" 
+   501→                                               value="1" <?php echo $emp['bonus_applicable'] ? 'checked' : ''; ?>>
+   502→                                    </td>
+   503→                                    <td class="text-center">
+   504→                                        <input type="checkbox" name="gratuity_applicable[<?php echo $emp['id']; ?>]" 
+   505→                                               value="1" <?php echo $emp['gratuity_applicable'] ? 'checked' : ''; ?>>
+   506→                                    </td>
+   507→                                </tr>
+   508→                                <?php endforeach; ?>
+   509→                            </tbody>
+   510→                            <tfoot class="table-light">
+   511→                                <tr class="fw-bold">
+   512→                                    <td colspan="5" class="text-end">
+   513→                                        <span class="text-primary">TOTAL (<?php echo count($employees); ?> Employees)</span>
+   514→                                    </td>
+   515→                                    <td class="text-end" id="total_basic_da">0</td>
+   516→                                    <td class="text-end" id="total_hra">0</td>
+   517→                                    <td class="text-end" id="total_leave_enc">0</td>
+   518→                                    <td class="text-end" id="total_bonus_enc">0</td>
+   519→                                    <td class="text-end" id="total_washing">0</td>
+   520→                                    <td class="text-end" style="border-left:2px solid #dee2e6;" id="total_gross_col">
+   521→                                        0
+   522→                                    </td>
+   523→                                    <td colspan="7"></td>
+   524→                                </tr>
+   525→                            </tfoot>
+   526→                        </table>
+   527→                    </div>
+   528→                </div>
+   529→                <div class="card-footer">
+   530→                    <div class="d-flex justify-content-between align-items-center">
+   531→                        <small class="text-muted">
+   532→                            <i class="bi bi-info-circle me-1"></i>
+   533→                            Gross is auto-calculated as Basic+DA + HRA + Leave Enc + Bonus Enc + Washing.
+   534→                            <span class="badge bg-success"><i class="bi bi-check-circle-fill"></i></span> = Has salary structure &nbsp;
+   535→                            <span class="badge bg-warning"><i class="bi bi-exclamation-circle"></i></span> = No structure yet
+   536→                        </small>
+   537→                        <button type="submit" name="save_salary" class="btn btn-success"
+   538→                                onclick="return confirm('Save salary changes for all listed employees?')">
+   539→                            <i class="bi bi-check-lg me-1"></i>Save All Changes
+   540→                        </button>
+   541→                    </div>
+   542→                </div>
+   543→            </div>
+   544→        </form>
+   545→        <?php endif; ?>
+   546→    </div>
+   547→</div>
+   548→
+   549→<style>
+   550→@media print {
+   551→    .btn, form { display: none !important; }
+   552→    .table td input { border: none !important; background: transparent !important; }
+   553→    body { font-size: 8pt; }
+   554→}
+   555→</style>
+   556→
+   557→<script>
+   558→// Load units dynamically
+   559→document.getElementById('clientSelect')?.addEventListener('change', function() {
+   560→    const clientId = this.value;
+   561→    const unitSelect = document.getElementById('unitSelect');
+   562→    unitSelect.innerHTML = '<option value="">Loading...</option>';
+   563→    
+   564→    if (!clientId) {
+   565→        unitSelect.innerHTML = '<option value="">All Units</option>';
+   566→        return;
+   567→    }
+   568→    
+   569→    fetch('index.php?page=api/units&client_id=' + clientId)
+   570→        .then(response => response.json())
+   571→        .then(data => {
+   572→            unitSelect.innerHTML = '<option value="">All Units</option>';
+   573→            if (data.units) {
+   574→                data.units.forEach(unit => {
+   575→                    const option = document.createElement('option');
+   576→                    option.value = unit.id;
+   577→                    option.textContent = unit.name;
+   578→                    unitSelect.appendChild(option);
+   579→                });
+   580→            }
+   581→        })
+   582→        .catch(() => {
+   583→            unitSelect.innerHTML = '<option value="">All Units</option>';
+   584→        });
+   585→});
+   586→
+   587→// Auto-calculate gross and totals
+   588→document.querySelectorAll('.salary-input').forEach(input => {
+   589→    input.addEventListener('input', calculateRowGross);
+   590→});
+   591→
+   592→function calculateRowGross(e) {
+   593→    const empId = e?.target?.dataset?.empId;
+   594→    if (empId) {
+   595→        const form = document.getElementById('salaryForm');
+   596→        const basic = parseFloat(form.querySelector(`[name="basic_da[${empId}]"]`)?.value) || 0;
+   597→        const hra = parseFloat(form.querySelector(`[name="hra[${empId}]"]`)?.value) || 0;
+   598→        const leaveEnc = parseFloat(form.querySelector(`[name="leave_encashment[${empId}]"]`)?.value) || 0;
+   599→        const bonusEnc = parseFloat(form.querySelector(`[name="bonus_encashment[${empId}]"]`)?.value) || 0;
+   600→        const washing = parseFloat(form.querySelector(`[name="washing_allowance[${empId}]"]`)?.value) || 0;
+   601→        const gross = basic + hra + leaveEnc + bonusEnc + washing;
+   602→        
+   603→        const grossEl = document.getElementById('gross_' + empId);
+   604→        if (grossEl) grossEl.textContent = '₹' + gross.toLocaleString('en-IN');
+   605→    }
+   606→    calculateTotals();
+   607→}
+   608→
+   609→function calculateTotals() {
+   610→    let totalBasic = 0, totalHra = 0, totalLeaveEnc = 0, totalBonusEnc = 0, totalWashing = 0, totalGross = 0;
+   611→    
+   612→    document.querySelectorAll('[name^="basic_da["]').forEach(input => {
+   613→        totalBasic += parseFloat(input.value) || 0;
+   614→    });
+   615→    document.querySelectorAll('[name^="hra["]').forEach(input => {
+   616→        totalHra += parseFloat(input.value) || 0;
+   617→    });
+   618→    document.querySelectorAll('[name^="leave_encashment["]').forEach(input => {
+   619→        totalLeaveEnc += parseFloat(input.value) || 0;
+   620→    });
+   621→    document.querySelectorAll('[name^="bonus_encashment["]').forEach(input => {
+   622→        totalBonusEnc += parseFloat(input.value) || 0;
+   623→    });
+   624→    document.querySelectorAll('[name^="washing_allowance["]').forEach(input => {
+   625→        totalWashing += parseFloat(input.value) || 0;
+   626→    });
+   627→    
+   628→    totalGross = totalBasic + totalHra + totalLeaveEnc + totalBonusEnc + totalWashing;
+   629→    
+   630→    const fmt = (v) => '₹' + v.toLocaleString('en-IN');
+   631→    document.getElementById('total_basic_da').textContent = fmt(totalBasic);
+   632→    document.getElementById('total_hra').textContent = fmt(totalHra);
+   633→    document.getElementById('total_leave_enc').textContent = fmt(totalLeaveEnc);
+   634→    document.getElementById('total_bonus_enc').textContent = fmt(totalBonusEnc);
+   635→    document.getElementById('total_washing').textContent = fmt(totalWashing);
+   636→    document.getElementById('total_gross_col').textContent = fmt(totalGross);
+   637→}
+   638→
+   639→// Initialize totals on load
+   640→document.addEventListener('DOMContentLoaded', calculateTotals);
+   641→</script>
+   642→
