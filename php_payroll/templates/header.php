@@ -34,7 +34,7 @@
     <link href="assets/css/style.css" rel="stylesheet">
     
     <!-- Jspreadsheet CE (Excel-like grids) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4.13.4/dist/jspreadsheet.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4.9.2/dist/jspreadsheet.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsuites@4.13.4/dist/jsuites.css">
     
     <?php if (isset($extraCSS)) {
