@@ -102,7 +102,9 @@ if ($selectedUnit && $_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['load']
                ess.basic_da, ess.gross_salary,
                att.total_present, att.total_wo, att.total_extra, att.overtime_hours, att.total_paid_days
         FROM employees e
-        LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND ess.effective_to IS NULL
+        LEFT JOIN (SELECT employee_id, MAX(basic_da) AS basic_da, MAX(gross_salary) AS gross_salary
+                    FROM employee_salary_structures WHERE effective_to IS NULL GROUP BY employee_id) ess
+            ON e.id = ess.employee_id
         LEFT JOIN attendance_summary att ON e.id = att.employee_id AND att.month = ? AND att.year = ?
         WHERE e.unit_id = ? AND e.status = 'approved'
         ORDER BY e.employee_code
