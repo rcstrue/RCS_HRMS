@@ -507,7 +507,7 @@
                             'report/pt/summary'     => 'PT Summary',
                             'report/pt/employee-wise'=> 'PT Employee Wise',
                             // Advance
-                            'advance/add'  => 'Add Advance',
+                            'attendance/add'  => 'Add Attendance',
                             'advance/index'=> 'Advance',
                             // Client
                             'client/list' => 'Client List',

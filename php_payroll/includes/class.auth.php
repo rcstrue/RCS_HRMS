@@ -345,7 +345,7 @@ class Auth {
             ]],
             
             'advance' => ['label' => 'Advance', 'icon' => 'bi-wallet2', 'parent' => null, 'order' => 5, 'submenus' => [
-                'advance_add' => ['label' => 'Add Advance', 'url' => 'advance/add'],
+                'advance_add' => ['label' => 'Add Attendance', 'url' => 'attendance/add'],
             ]],
             
             'payroll' => ['label' => 'Payroll', 'icon' => 'bi-cash-stack', 'parent' => null, 'order' => 6, 'submenus' => [

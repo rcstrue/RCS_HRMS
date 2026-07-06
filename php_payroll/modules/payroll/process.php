@@ -896,7 +896,7 @@ krsort($periodsByYear);
                        target="_blank" class="btn btn-info btn-sm">
                         <i class="bi bi-journal-text me-1"></i>Wage Register
                     </a>
-                    <a href="index.php?page=advance/add&client_id=<?php echo $filterClientId; ?>&unit_id=<?php echo $filterUnitId; ?>&month=<?php echo $periodMonth; ?>&year=<?php echo $periodYear; ?>&load=1" 
+                    <a href="index.php?page=attendance/add&client_id=<?php echo $filterClientId; ?>&unit_id=<?php echo $filterUnitId; ?>&month=<?php echo $periodMonth; ?>&year=<?php echo $periodYear; ?>&load=1" 
                        target="_blank" class="btn btn-warning btn-sm">
                         <i class="bi bi-cash-stack me-1"></i>Add Advance
                     </a>
