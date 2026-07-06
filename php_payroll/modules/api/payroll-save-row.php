@@ -98,8 +98,25 @@ $computedPaidDays = $attPresent + $attWO + $attExtra;
 if ($computedPaidDays > $vTotalDays) {
     $validationErrors[] = "Paid days ($computedPaidDays) cannot exceed total days ($vTotalDays)";
 }
-if ($attOtHours > 12) {
-    $validationErrors[] = "OT hours ($attOtHours) exceeds daily limit — verify if authorized";
+// OT monthly limit: ot_hours_per_day × total_days from unit config
+// (overtime_hours is a MONTHLY total, not per-day)
+$otMonthlyCap = 0;
+if ($unitId > 0) {
+    $unitFormula = $db->fetch(
+        "SELECT ot_hours_per_day FROM unit_salary_formulas
+         WHERE unit_id = ? AND is_active = 1
+         ORDER BY effective_from DESC LIMIT 1",
+        [$unitId]
+    );
+    if ($unitFormula) {
+        $otHrsPerDay = (float)($unitFormula['ot_hours_per_day'] ?? 8);
+        $otMonthlyCap = round($otHrsPerDay * $vTotalDays);
+    }
+}
+// Only warn if OT exceeds monthly cap (not a hard block — allow override)
+$otWarning = '';
+if ($otMonthlyCap > 0 && $attOtHours > $otMonthlyCap) {
+    $otWarning = "OT hours ($attOtHours) exceeds monthly cap ($otMonthlyCap) — saved with override. ";
 }
 
 if (!empty($validationErrors)) {
@@ -531,7 +548,7 @@ try {
 
     echo json_encode([
         'success' => true,
-        'message' => 'Payroll saved for ' . $employeeCode . ($loanDeductionTotal > 0 ? ' (Loan EMI ₹' . number_format($loanDeductionTotal, 2) . ' auto-deducted)' : ''),
+        'message' => $otWarning . 'Payroll saved for ' . $employeeCode . ($loanDeductionTotal > 0 ? ' (Loan EMI ₹' . number_format($loanDeductionTotal, 2) . ' auto-deducted)' : ''),
         'employee_code' => $employeeCode,
         'net_pay' => $payData['net_pay'],
         'gross_salary' => $payData['gross_salary'],
