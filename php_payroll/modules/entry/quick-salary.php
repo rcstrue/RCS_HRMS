@@ -349,6 +349,9 @@ $months = [
             </div>
         </div>
 
+        <?php
+        ob_start();
+        ?>
         <script>
         // ── Employee ID map (row index → DB id) ──
         const qsEmployeeIds = [
@@ -445,6 +448,9 @@ $months = [
             form.submit();
         }
         </script>
+        <?php
+        $extraJS = ob_get_clean();
+        ?>
         <?php endif; ?>
     </div>
 </div>

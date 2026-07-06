@@ -525,6 +525,9 @@ $months = [
 }
 </style>
 
+<?php
+ob_start();
+?>
 <script>
 // Load units dynamically (kept from original)
 document.getElementById('clientSelect')?.addEventListener('change', function() {
@@ -680,3 +683,6 @@ if (typeof jssData !== 'undefined' && jssData.length > 0) {
     });
 }
 </script>
+<?php
+$extraJS = ob_get_clean();
+?>

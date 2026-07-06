@@ -417,6 +417,9 @@ $months = [
 }
 </style>
 
+<?php
+ob_start();
+?>
 <script>
 // Load units dynamically
 document.getElementById('clientSelect')?.addEventListener('change', function() {
@@ -564,3 +567,6 @@ document.getElementById('saveBtnFooter').addEventListener('click', function(e) {
 });
 <?php endif; ?>
 </script>
+<?php
+$extraJS = ob_get_clean();
+?>

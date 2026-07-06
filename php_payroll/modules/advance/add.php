@@ -422,6 +422,9 @@ if (!empty($employees)) {
 </div>
 <?php endif; ?>
 
+<?php
+ob_start();
+?>
 <script>
 // ── Client select: load units via AJAX ──
 document.getElementById('clientSelect').addEventListener('change', function() {
@@ -568,3 +571,6 @@ function saveData() {
 }
 <?php endif; ?>
 </script>
+<?php
+$extraJS = ob_get_clean();
+?>
