@@ -295,25 +295,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_advance'])) {
                     <input type="hidden" name="month" value="<?php echo $selectedMonth; ?>">
                     <input type="hidden" name="year" value="<?php echo $selectedYear; ?>">
                     
+                    <style>
+                        .excel-grid { border-collapse: collapse; font-size: 12px; width: 100%; }
+                        .excel-grid th, .excel-grid td { border: 1px solid #ccc; padding: 0; height: 28px; vertical-align: middle; }
+                        .excel-grid th { background: #4472C4; color: #fff; padding: 4px 6px; font-weight: 600; text-align: center; white-space: nowrap; font-size: 11px; }
+                        .excel-grid th.th-att { background: #5b9bd5; }
+                        .excel-grid th.th-adv { background: #4472C4; }
+                        .excel-grid th.th-total { background: #548235; }
+                        .excel-grid td { padding: 0 4px; }
+                        .excel-grid tbody tr:nth-child(even) td { background: #f2f7fb; }
+                        .excel-grid tbody tr:hover td { background: #d9e8f7 !important; }
+                        .excel-grid .cell-input { width: 100%; border: none; background: transparent; text-align: center; height: 28px; padding: 0 4px; font-size: 12px; outline: none; -moz-appearance: textfield; }
+                        .excel-grid .cell-input::-webkit-outer-spin-button,
+                        .excel-grid .cell-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+                        .excel-grid .cell-input:focus { background: #fffde7; box-shadow: inset 0 0 0 2px #4472C4; }
+                        .excel-grid .cell-input.text-end-cell { text-align: right; }
+                        .excel-grid .cell-calc { display: block; padding: 0 4px; height: 28px; line-height: 28px; text-align: center; font-weight: 600; }
+                        .excel-grid .cell-calc.text-end-cell { text-align: right; }
+                        .excel-grid .paid-cell { background: #e2efda !important; }
+                        .excel-grid .total-cell { background: #d9e2f3 !important; font-weight: 700; }
+                        .excel-grid tfoot td { background: #d9e2f3; font-weight: 700; padding: 0 4px; height: 26px; }
+                        .excel-grid .emp-code { font-family: monospace; font-size: 11px; color: #333; }
+                        .excel-grid .emp-name { font-size: 12px; }
+                        .excel-grid .badge-cat { font-size: 10px; padding: 1px 6px; }
+                    </style>
                     <div class="table-responsive">
-                        <table class="table table-bordered table-hover mb-0" style="font-size: 13px;">
-                            <thead class="table-dark">
+                        <table class="excel-grid mb-0">
+                            <thead>
                                 <tr>
-                                    <th style="width: 50px;">#</th>
-                                    <th style="width: 100px;">Emp Code</th>
-                                    <th style="width: 180px;">Employee Name</th>
-                                    <th style="width: 120px;">Designation</th>
-                                    <th style="width: 100px;">Category</th>
-                                    <th style="width: 70px;" class="text-center bg-secondary text-white">Present</th>
-                                    <th style="width: 70px;" class="text-center bg-secondary text-white">WO</th>
-                                    <th style="width: 70px;" class="text-center bg-secondary text-white">Extra</th>
-                                    <th style="width: 70px;" class="text-center bg-secondary text-white">OT Hrs</th>
-                                    <th style="width: 70px;" class="text-center bg-secondary text-white">Paid</th>
-                                    <th style="width: 100px;" class="text-center bg-primary text-white">Adv 1<br><small>(Rs)</small></th>
-                                    <th style="width: 100px;" class="text-center bg-primary text-white">Adv 2<br><small>(Rs)</small></th>
-                                    <th style="width: 100px;" class="text-center bg-warning text-dark">Office Adv<br><small>(Rs)</small></th>
-                                    <th style="width: 100px;" class="text-center bg-info text-white">Dress Adv<br><small>(Rs)</small></th>
-                                    <th style="width: 100px;" class="text-center bg-success text-white">Total<br><small>(Rs)</small></th>
+                                    <th style="width:36px;">#</th>
+                                    <th style="width:75px;">Code</th>
+                                    <th style="width:150px;">Name</th>
+                                    <th style="width:100px;">Designation</th>
+                                    <th style="width:60px;">Cat</th>
+                                    <th class="th-att" style="width:55px;">Prs</th>
+                                    <th class="th-att" style="width:45px;">WO</th>
+                                    <th class="th-att" style="width:50px;">Ext</th>
+                                    <th class="th-att" style="width:50px;">OT</th>
+                                    <th class="th-att" style="width:50px;">Paid</th>
+                                    <th class="th-adv" style="width:80px;">Adv 1</th>
+                                    <th class="th-adv" style="width:80px;">Adv 2</th>
+                                    <th class="th-adv" style="width:80px;">Office</th>
+                                    <th class="th-adv" style="width:80px;">Dress</th>
+                                    <th class="th-total" style="width:75px;">Total</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -325,79 +349,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_advance'])) {
                                     <td class="text-center"><?php echo $sr++; ?></td>
                                     <td>
                                         <input type="hidden" name="employee_id[]" value="<?php echo $emp['id']; ?>">
-                                        <code><?php echo $emp['employee_code']; ?></code>
+                                        <span class="emp-code"><?php echo $emp['employee_code']; ?></span>
                                     </td>
-                                    <td><?php echo sanitize($emp['full_name']); ?></td>
-                                    <td><?php echo sanitize($emp['designation']); ?></td>
-                                    <td><span class="badge bg-light text-dark"><?php echo sanitize($emp['worker_category']); ?></span></td>
-                                    <td>
-                                        <input type="number" name="att_present[<?php echo $emp['id']; ?>]"
-                                               value="<?php echo (float)($emp['total_present'] ?? 0) ?: ''; ?>"
-                                               class="form-control form-control-sm text-center att-input"
-                                               min="0" max="31" step="0.5" data-row="<?php echo $emp['id']; ?>">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="att_wo[<?php echo $emp['id']; ?>]"
-                                               value="<?php echo (float)($emp['total_wo'] ?? 0) ?: ''; ?>"
-                                               class="form-control form-control-sm text-center att-input"
-                                               min="0" max="31" step="0.5" data-row="<?php echo $emp['id']; ?>">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="att_extra[<?php echo $emp['id']; ?>]"
-                                               value="<?php echo (float)($emp['total_extra'] ?? 0) ?: ''; ?>"
-                                               class="form-control form-control-sm text-center att-input"
-                                               min="0" max="31" step="0.5" data-row="<?php echo $emp['id']; ?>">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="ot_hours[<?php echo $emp['id']; ?>]"
-                                               value="<?php echo (float)($emp['overtime_hours'] ?? 0) ?: ''; ?>"
-                                               class="form-control form-control-sm text-center att-input"
-                                               min="0" max="500" step="0.5" data-row="<?php echo $emp['id']; ?>">
-                                    </td>
-                                    <td class="text-center fw-bold" style="background:#e8f5e9;"><span class="paid-days" data-row="<?php echo $emp['id']; ?>"><?php echo (float)($emp['total_paid_days'] ?? 0) ?: '0'; ?></span></td>
-                                    <td>
-                                        <input type="number" name="adv1[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['adv1']; ?>" 
-                                               class="form-control form-control-sm text-end advance-input" 
-                                               min="0" step="1" data-row="<?php echo $emp['id']; ?>">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="adv2[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['adv2']; ?>" 
-                                               class="form-control form-control-sm text-end advance-input" 
-                                               min="0" step="1" data-row="<?php echo $emp['id']; ?>">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="office_advance[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['office_advance']; ?>" 
-                                               class="form-control form-control-sm text-end advance-input" 
-                                               min="0" step="1" data-row="<?php echo $emp['id']; ?>">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="dress_advance[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['dress_advance']; ?>" 
-                                               class="form-control form-control-sm text-end advance-input" 
-                                               min="0" step="1" data-row="<?php echo $emp['id']; ?>">
-                                    </td>
-                                    <td>
-                                        <span class="fw-bold row-total" data-row="<?php echo $emp['id']; ?>">0</span>
-                                    </td>
+                                    <td class="emp-name"><?php echo sanitize($emp['full_name']); ?></td>
+                                    <td style="font-size:11px;"><?php echo sanitize($emp['designation']); ?></td>
+                                    <td class="text-center"><span class="badge-cat"><?php echo sanitize($emp['worker_category']); ?></span></td>
+                                    <td><input type="number" name="att_present[<?php echo $emp['id']; ?>]" value="<?php echo (float)($emp['total_present'] ?? 0) ?: ''; ?>" class="cell-input att-input" min="0" max="31" step="0.5" data-row="<?php echo $emp['id']; ?>"></td>
+                                    <td><input type="number" name="att_wo[<?php echo $emp['id']; ?>]" value="<?php echo (float)($emp['total_wo'] ?? 0) ?: ''; ?>" class="cell-input att-input" min="0" max="31" step="0.5" data-row="<?php echo $emp['id']; ?>"></td>
+                                    <td><input type="number" name="att_extra[<?php echo $emp['id']; ?>]" value="<?php echo (float)($emp['total_extra'] ?? 0) ?: ''; ?>" class="cell-input att-input" min="0" max="31" step="0.5" data-row="<?php echo $emp['id']; ?>"></td>
+                                    <td><input type="number" name="ot_hours[<?php echo $emp['id']; ?>]" value="<?php echo (float)($emp['overtime_hours'] ?? 0) ?: ''; ?>" class="cell-input att-input" min="0" max="500" step="0.5" data-row="<?php echo $emp['id']; ?>"></td>
+                                    <td class="paid-cell"><span class="cell-calc paid-days" data-row="<?php echo $emp['id']; ?>"><?php echo (float)($emp['total_paid_days'] ?? 0) ?: '0'; ?></span></td>
+                                    <td><input type="number" name="adv1[<?php echo $emp['id']; ?>]" value="<?php echo $emp['adv1']; ?>" class="cell-input text-end-cell advance-input" min="0" step="1" data-row="<?php echo $emp['id']; ?>"></td>
+                                    <td><input type="number" name="adv2[<?php echo $emp['id']; ?>]" value="<?php echo $emp['adv2']; ?>" class="cell-input text-end-cell advance-input" min="0" step="1" data-row="<?php echo $emp['id']; ?>"></td>
+                                    <td><input type="number" name="office_advance[<?php echo $emp['id']; ?>]" value="<?php echo $emp['office_advance']; ?>" class="cell-input text-end-cell advance-input" min="0" step="1" data-row="<?php echo $emp['id']; ?>"></td>
+                                    <td><input type="number" name="dress_advance[<?php echo $emp['id']; ?>]" value="<?php echo $emp['dress_advance']; ?>" class="cell-input text-end-cell advance-input" min="0" step="1" data-row="<?php echo $emp['id']; ?>"></td>
+                                    <td class="total-cell"><span class="cell-calc text-end-cell row-total" data-row="<?php echo $emp['id']; ?>">0</span></td>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
-                            <tfoot class="table-light">
-                                <tr class="fw-bold">
-                                    <td colspan="5" class="text-end">TOTAL</td>
-                                    <td class="text-end fw-bold" id="total-present">0</td>
-                                    <td class="text-end fw-bold" id="total-wo">0</td>
-                                    <td class="text-end fw-bold" id="total-extra">0</td>
-                                    <td class="text-end fw-bold" id="total-ot">0</td>
-                                    <td class="text-end fw-bold" id="total-paid">0</td>
-                                    <td class="text-end" id="total-adv1">0</td>
-                                    <td class="text-end" id="total-adv2">0</td>
-                                    <td class="text-end" id="total-office">0</td>
-                                    <td class="text-end" id="total-dress">0</td>
-                                    <td class="text-end" id="grand-total">0</td>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="5" style="text-align:right;">TOTAL</td>
+                                    <td style="text-align:right;" id="total-present">0</td>
+                                    <td style="text-align:right;" id="total-wo">0</td>
+                                    <td style="text-align:right;" id="total-extra">0</td>
+                                    <td style="text-align:right;" id="total-ot">0</td>
+                                    <td style="text-align:right;" id="total-paid">0</td>
+                                    <td style="text-align:right;" id="total-adv1">0</td>
+                                    <td style="text-align:right;" id="total-adv2">0</td>
+                                    <td style="text-align:right;" id="total-office">0</td>
+                                    <td style="text-align:right;" id="total-dress">0</td>
+                                    <td style="text-align:right;" id="grand-total">0</td>
                                 </tr>
                             </tfoot>
                         </table>
@@ -525,6 +507,17 @@ document.addEventListener('DOMContentLoaded', function() {
     calculateColumnTotals();
     document.querySelectorAll('.advance-input').forEach(input => {
         calculateRowTotal(input.dataset.row);
+    });
+
+    // Excel-like Tab/Enter navigation between cells
+    document.querySelector('.excel-grid').addEventListener('keydown', function(e) {
+        if (e.key !== 'Tab' && e.key !== 'Enter') return;
+        var inputs = Array.from(this.querySelectorAll('.cell-input'));
+        var idx = inputs.indexOf(e.target);
+        if (idx === -1) return;
+        e.preventDefault();
+        var next = e.shiftKey ? idx - 1 : idx + 1;
+        if (next >= 0 && next < inputs.length) inputs[next].focus().select();
     });
 });
 </script>
