@@ -1,0 +1,845 @@
+     1→     1→<!DOCTYPE html>
+     2→     2→<html lang="en">
+     3→     3→<head>
+     4→     4→    <meta charset="UTF-8">
+     5→     5→    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     6→     6→    <meta name="description" content="RCS HRMS Pro - Human Resource Management System for Labour Contractors">
+     7→     7→    <meta name="author" content="RCS TRUE FACILITIES PVT LTD">
+     8→     8→    
+     9→     9→    <title><?php echo isset($pageTitle) ? $pageTitle . ' - ' : ''; ?>RCS HRMS Pro</title>
+    10→    10→    
+    11→    11→    <!-- Favicon -->
+    12→    12→    <link rel="icon" type="image/svg+xml" href="assets/images/favicon.svg">
+    13→    13→    <link rel="alternate icon" type="image/png" href="assets/images/logo.png">
+    14→    14→    
+    15→    15→    <!-- Bootstrap 5 CSS -->
+    16→    16→    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    17→    17→    
+    18→    18→    <!-- Bootstrap Icons -->
+    19→    19→    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    20→    20→    
+    21→    21→    <!-- DataTables CSS -->
+    22→    22→    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    23→    23→    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css">
+    24→    24→    <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.bootstrap5.min.css">
+    25→    25→    
+    26→    26→    <!-- Select2 CSS -->
+    27→    27→    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
+    28→    28→    <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet">
+    29→    29→    
+    30→    30→    <!-- Datepicker CSS -->
+    31→    31→    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    32→    32→    
+    33→    33→    <!-- Custom CSS -->
+    34→    34→    <link href="assets/css/style.css" rel="stylesheet">
+    35→    35→    
+    36→    36→    <!-- Jspreadsheet CE (Excel-like grids) -->
+    37→    37→    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4.13.4/dist/jspreadsheet.css">
+    38→    38→    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsuites@4.13.4/dist/jsuites.css">
+    39→    39→    
+    40→    40→    <?php if (isset($extraCSS)) {
+    41→    41→        echo $extraCSS;
+    42→    42→    } ?>
+    43→    43→</head>
+    44→    44→<body class="<?php echo $isLoggedIn ? '' : 'login-page'; ?>">
+    45→    45→    
+    46→    46→    <?php if ($isLoggedIn): ?>
+    47→    47→    <!-- Sidebar -->
+    48→    48→    <nav id="sidebar" class="sidebar">
+    49→    49→        <div class="sidebar-header">
+    50→    50→            <a href="index.php" class="sidebar-brand">
+    51→    51→                <img src="assets/images/logo.png" alt="RCS HRMS" class="sidebar-logo">
+    52→    52→                <span class="sidebar-brand-text">RCS HRMS Pro</span>
+    53→    53→            </a>
+    54→    54→            <button type="button" class="sidebar-close d-lg-none" id="sidebar-close">
+    55→    55→                <i class="bi bi-x-lg"></i>
+    56→    56→            </button>
+    57→    57→        </div>
+    58→    58→        
+    59→    59→        <div class="sidebar-body">
+    60→    60→            <ul class="sidebar-nav">
+    61→    61→                <!-- Dashboard -->
+    62→    62→                <li class="sidebar-item <?php echo $page == 'dashboard' ? 'active' : ''; ?>">
+    63→    63→                    <a href="index.php?page=dashboard" class="sidebar-link">
+    64→    64→                        <i class="bi bi-grid-1x2"></i><span>Dashboard</span>
+    65→    65→                    </a>
+    66→    66→                </li>
+    67→    67→
+    68→    68→                <?php
+    69→    69→                function showMenu($auth, $menuKey) {
+    70→    70→                    if ($_SESSION['role_code'] === 'admin') return true;
+    71→    71→                    return $auth->canSeeMenu($menuKey);
+    72→    72→                }
+    73→    73→
+    74→    74→                // Badge helper
+    75→    75→                function sidebarBadge($count) {
+    76→    76→                    return $count > 0 ? '<span class="sidebar-badge">' . $count . '</span>' : '';
+    77→    77→                }
+    78→    78→                $pendingExpenses = 0;
+    79→    79→                try { $pendingExpenses = (int)($db->fetchColumn("SELECT COUNT(*) FROM ess_expenses WHERE status = 'pending'") ?: 0); } catch(Exception $e) {}
+    80→    80→
+    81→    81→                $annUnreadCount = 0;
+    82→    82→                try {
+    83→    83→                    $sbRole = $_SESSION['role_code'] ?? '';
+    84→    84→                    $sbUid = $_SESSION['user_id'] ?? '';
+    85→    85→                    if ($sbRole === 'admin') { $sbScope = ''; $sbParams = []; }
+    86→    86→                    elseif (in_array($sbRole, ['manager', 'regional_manager'])) { $sbScope = "AND (a.target_scope='all' OR a.target_scope='managers' OR a.created_by=:sid)"; $sbParams = [':sid'=>$sbUid]; }
+    87→    87→                    else { $sbScope = "AND (a.target_scope='all' OR a.created_by=:sid)"; $sbParams = [':sid'=>$sbUid]; }
+    88→    88→                    $annUnreadCount = (int)$db->fetchColumn(
+    89→    89→                        "SELECT COUNT(*) FROM ess_announcements a LEFT JOIN ess_announcement_reads r ON a.id=r.announcement_id AND r.user_id=:uid WHERE r.id IS NULL $sbScope",
+    90→    90→                        array_merge([':uid'=>$sbUid], $sbParams)
+    91→    91→                    ) ?: 0;
+    92→    92→                } catch(Exception $e) {}
+    93→    93→                ?>
+    94→    94→
+    95→    95→                <!-- Employees -->
+    96→    96→                <?php if (showMenu($auth, 'employee')): ?>
+    97→    97→                <li class="sidebar-item <?php echo strpos($page, 'employee') === 0 ? 'active' : ''; ?>">
+    98→    98→                    <a href="index.php?page=employee/index" class="sidebar-link">
+    99→    99→                        <i class="bi bi-people"></i><span>Employees</span>
+   100→   100→                    </a>
+   101→   101→                </li>
+   102→   102→                <?php endif; ?>
+   103→   103→
+   104→   104→                <!-- Clients & Units -->
+   105→   105→                <?php if (showMenu($auth, 'client')): ?>
+   106→   106→                <li class="sidebar-item <?php echo strpos($page, 'client') === 0 || strpos($page, 'unit') === 0 || strpos($page, 'contract') === 0 ? 'active' : ''; ?>">
+   107→   107→                    <a href="index.php?page=client/index" class="sidebar-link">
+   108→   108→                        <i class="bi bi-building"></i><span>Clients & Units</span>
+   109→   109→                    </a>
+   110→   110→                </li>
+   111→   111→                <?php endif; ?>
+   112→   112→
+   113→   113→                <!-- Attendance -->
+   114→   114→                <?php if (showMenu($auth, 'attendance')): ?>
+   115→   115→                <li class="sidebar-item <?php echo strpos($page, 'attendance') === 0 ? 'active' : ''; ?>">
+   116→   116→                    <a href="index.php?page=attendance/index" class="sidebar-link">
+   117→   117→                        <i class="bi bi-calendar-check"></i><span>Attendance</span>
+   118→   118→                    </a>
+   119→   119→                </li>
+   120→   120→                <?php endif; ?>
+   121→   121→
+   122→   122→                <!-- Advance -->
+   123→   123→                <?php if (showMenu($auth, 'advance')): ?>
+   124→   124→                <li class="sidebar-item <?php echo strpos($page, 'advance') === 0 ? 'active' : ''; ?>">
+   125→   125→                    <a href="index.php?page=advance/index" class="sidebar-link">
+   126→   126→                        <i class="bi bi-wallet2"></i><span>Advance</span>
+   127→   127→                    </a>
+   128→   128→                </li>
+   129→   129→                <?php endif; ?>
+   130→   130→
+   131→   131→                <!-- Expense Management -->
+   132→   132→                <?php if (showMenu($auth, 'expense')): ?>
+   133→   133→                <li class="sidebar-item <?php echo strpos($page, 'expense') === 0 ? 'active' : ''; ?>">
+   134→   134→                    <a href="index.php?page=expense/index" class="sidebar-link">
+   135→   135→                        <i class="bi bi-cash-coin"></i><span>Expenses</span><?= sidebarBadge($pendingExpenses) ?>
+   136→   136→                    </a>
+   137→   137→                </li>
+   138→   138→                <?php endif; ?>
+   139→   139→
+   140→   140→                <!-- Entry -->
+   141→   141→                <?php if (showMenu($auth, 'payroll')): ?>
+   142→   142→                <li class="sidebar-item <?php echo strpos($page, 'entry') === 0 ? 'active' : ''; ?>">
+   143→   143→                    <a href="index.php?page=entry/index" class="sidebar-link">
+   144→   144→                        <i class="bi bi-pencil-square"></i><span>Entry</span>
+   145→   145→                    </a>
+   146→   146→                </li>
+   147→   147→                <?php endif; ?>
+   148→   148→
+   149→   149→                <!-- Payroll -->
+   150→   150→                <?php if (showMenu($auth, 'payroll')): ?>
+   151→   151→                <li class="sidebar-item <?php echo strpos($page, 'payroll') === 0 ? 'active' : ''; ?>">
+   152→   152→                    <a href="index.php?page=payroll/index" class="sidebar-link">
+   153→   153→                        <i class="bi bi-cash-stack"></i><span>Payroll</span>
+   154→   154→                    </a>
+   155→   155→                </li>
+   156→   156→                <?php endif; ?>
+   157→   157→
+   158→   158→                <!-- Compliance -->
+   159→   159→                <?php if (showMenu($auth, 'compliance')): ?>
+   160→   160→                <li class="sidebar-item <?php echo strpos($page, 'compliance') === 0 ? 'active' : ''; ?>">
+   161→   161→                    <a href="index.php?page=compliance/index" class="sidebar-link">
+   162→   162→                        <i class="bi bi-shield-check"></i><span>Compliance</span>
+   163→   163→                    </a>
+   164→   164→                </li>
+   165→   165→                <?php endif; ?>
+   166→   166→
+   167→   167→                <!-- Forms -->
+   168→   168→                <?php if (showMenu($auth, 'forms')): ?>
+   169→   169→                <li class="sidebar-item <?php echo strpos($page, 'forms') === 0 ? 'active' : ''; ?>">
+   170→   170→                    <a href="index.php?page=forms/index" class="sidebar-link">
+   171→   171→                        <i class="bi bi-file-earmark-text"></i><span>Forms</span>
+   172→   172→                    </a>
+   173→   173→                </li>
+   174→   174→                <?php endif; ?>
+   175→   175→
+   176→   176→                <!-- Assets -->
+   177→   177→                <?php if (showMenu($auth, 'assets')): ?>
+   178→   178→                <li class="sidebar-item <?php echo strpos($page, 'assets') === 0 ? 'active' : ''; ?>">
+   179→   179→                    <a href="index.php?page=assets/index" class="sidebar-link">
+   180→   180→                        <i class="bi bi-box-seam"></i><span>Assets</span>
+   181→   181→                    </a>
+   182→   182→                </li>
+   183→   183→                <?php endif; ?>
+   184→   184→
+   185→   185→                <!-- Helpdesk -->
+   186→   186→                <?php if (showMenu($auth, 'helpdesk')): ?>
+   187→   187→                <li class="sidebar-item <?php echo strpos($page, 'helpdesk') === 0 ? 'active' : ''; ?>">
+   188→   188→                    <a href="index.php?page=helpdesk/index" class="sidebar-link">
+   189→   189→                        <i class="bi bi-headset"></i><span>Helpdesk</span>
+   190→   190→                    </a>
+   191→   191→                </li>
+   192→   192→                <?php endif; ?>
+   193→   193→
+   194→   194→                <!-- Leave -->
+   195→   195→                <?php if (showMenu($auth, 'leave')): ?>
+   196→   196→                <li class="sidebar-item <?php echo strpos($page, 'leave') === 0 ? 'active' : ''; ?>">
+   197→   197→                    <a href="index.php?page=leave/index" class="sidebar-link">
+   198→   198→                        <i class="bi bi-calendar-x"></i><span>Leave</span>
+   199→   199→                    </a>
+   200→   200→                </li>
+   201→   201→                <?php endif; ?>
+   202→   202→
+   203→   203→                <!-- Loans -->
+   204→   204→                <?php if (showMenu($auth, 'loan')): ?>
+   205→   205→                <li class="sidebar-item <?php echo strpos($page, 'loan') === 0 ? 'active' : ''; ?>">
+   206→   206→                    <a href="index.php?page=loan/list" class="sidebar-link">
+   207→   207→                        <i class="bi bi-bank"></i><span>Loans</span>
+   208→   208→                    </a>
+   209→   209→                </li>
+   210→   210→                <?php endif; ?>
+   211→   211→
+   212→   212→                <!-- Reports -->
+   213→   213→                <?php if (showMenu($auth, 'report')): ?>
+   214→   214→                <li class="sidebar-item <?php echo strpos($page, 'report') === 0 ? 'active' : ''; ?>">
+   215→   215→                    <a href="index.php?page=report/index" class="sidebar-link">
+   216→   216→                        <i class="bi bi-bar-chart-line"></i><span>Reports</span>
+   217→   217→                    </a>
+   218→   218→                </li>
+   219→   219→                <?php endif; ?>
+   220→   220→
+   221→   221→                <!-- Settlement -->
+   222→   222→                <?php if (showMenu($auth, 'settlement')): ?>
+   223→   223→                <li class="sidebar-item <?php echo strpos($page, 'settlement') === 0 ? 'active' : ''; ?>">
+   224→   224→                    <a href="index.php?page=settlement/list" class="sidebar-link">
+   225→   225→                        <i class="bi bi-cash-coin"></i><span>F&F Settlement</span>
+   226→   226→                    </a>
+   227→   227→                </li>
+   228→   228→                <?php endif; ?>
+   229→   229→
+   230→   230→                <!-- Notifications -->
+   231→   231→                <?php if (showMenu($auth, 'notifications')): ?>
+   232→   232→                <li class="sidebar-item <?php echo (strpos($page, 'notifications') === 0) ? 'active open' : ''; ?>">
+   233→   233→                    <a href="index.php?page=notifications/index" class="sidebar-link">
+   234→   234→                        <i class="bi bi-bell"></i><span>Notifications</span><?= sidebarBadge($annUnreadCount) ?>
+   235→   235→                    </a>
+   236→   236→                    <ul class="sidebar-submenu">
+   237→   237→                        <li><a href="index.php?page=notifications/whatsapp" class="<?php echo $page === 'notifications/whatsapp' ? 'active' : ''; ?>">
+   238→   238→                            <i class="bi bi-whatsapp text-success me-1"></i>WhatsApp Messaging
+   239→   239→                        </a></li>
+   240→   240→                    </ul>
+   241→   241→                </li>
+   242→   242→                <?php endif; ?>
+   243→   243→
+   244→   244→                <!-- Settings -->
+   245→   245→                <?php if (showMenu($auth, 'settings') && $_SESSION['role_code'] === 'admin'): ?>
+   246→   246→                <li class="sidebar-item <?php echo strpos($page, 'settings') === 0 ? 'active' : ''; ?>">
+   247→   247→                    <a href="index.php?page=settings/index" class="sidebar-link">
+   248→   248→                        <i class="bi bi-gear"></i><span>Settings</span>
+   249→   249→                    </a>
+   250→   250→                </li>
+   251→   251→                <?php endif; ?>
+   252→   252→            </ul>
+   253→   253→        </div>
+   254→   254→        
+   255→   255→        <div class="sidebar-footer">
+   256→   256→            <div class="sidebar-footer-version" style="font-size:11px; line-height:1.4;">
+   257→   257→                <?php
+   258→   258→                // Try multiple possible locations for build-info.txt
+   259→   259→                $file = APP_ROOT . '/build-info.txt';
+   260→   260→                if (!file_exists($file)) {
+   261→   261→                    $file = dirname(__DIR__) . '/build-info.txt';
+   262→   262→                }
+   263→   263→                if (!file_exists($file)) {
+   264→   264→                    $file = $_SERVER['DOCUMENT_ROOT'] . '/hrms/build-info.txt';
+   265→   265→                }
+   266→   266→
+   267→   267→                if (file_exists($file)) {
+   268→   268→                    $lines = file($file);
+   269→   269→                    echo htmlspecialchars(trim($lines[0])) . "<br>"; // Version
+   270→   270→                    echo htmlspecialchars(trim($lines[1])); // Last Update
+   271→   271→                } else {
+   272→   272→                    echo "Version 3.0.0<br>Full Payroll Suite";
+   273→   273→                }
+   274→   274→                ?>
+   275→   275→            </div>
+   276→   276→        </div>
+   277→   277→    </nav>
+   278→   278→    
+   279→   279→    <!-- Main Content -->
+   280→   280→    <main id="main-content" class="main-content">
+   281→   281→        <!-- Top Navbar -->
+   282→   282→        <nav class="topbar">
+   283→   283→            <div class="topbar-left">
+   284→   284→                <button id="sidebar-toggle" class="sidebar-toggle">
+   285→   285→                    <i class="bi bi-list"></i>
+   286→   286→                </button>
+   287→   287→                <nav aria-label="breadcrumb" class="topbar-breadcrumb">
+   288→   288→                    <ol class="breadcrumb mb-0">
+   289→   289→                        <li class="breadcrumb-item"><a href="index.php?page=dashboard"><i class="bi bi-house-door me-1"></i>Home</a></li>
+   290→   290→                        <?php
+   291→   291→                        // ── Dynamic Breadcrumb System ──
+   292→   292→                        // Build clickable breadcrumb trail from $page variable
+   293→   293→                        $bcParts = explode('/', $page);
+   294→   294→                        $bcModule = $bcParts[0] ?? '';
+   295→   295→
+   296→   296→                        // Module display names
+   297→   297→                        $bcModules = [
+   298→   298→                            'dashboard'  => 'Dashboard',
+   299→   299→                            'employee'   => 'Employees',
+   300→   300→                            'attendance' => 'Attendance',
+   301→   301→                            'advance'    => 'Advance',
+   302→   302→                            'expense'    => 'Expenses',
+   303→   303→                            'entry'      => 'Entry',
+   304→   304→                            'payroll'    => 'Payroll',
+   305→   305→                            'compliance' => 'Compliance',
+   306→   306→                            'forms'      => 'Forms',
+   307→   307→                            'assets'     => 'Assets',
+   308→   308→                            'helpdesk'   => 'Helpdesk',
+   309→   309→                            'leave'      => 'Leave',
+   310→   310→                            'report'     => 'Reports',
+   311→   311→                            'settlement' => 'F&F Settlement',
+   312→   312→                            'notifications' => 'Notifications',
+   313→   313→                            'settings'   => 'Settings',
+   314→   314→                            'client'     => 'Clients & Units',
+   315→   315→                            'contract'   => 'Contracts',
+   316→   316→                            'billing'    => 'Billing',
+   317→   317→                            'recruitment'=> 'Recruitment',
+   318→   318→                            'announcement'=> 'Announcements',
+   319→   319→                            'requisition'=> 'Requisitions',
+   320→   320→                            'deployment' => 'Deployments',
+   321→   321→                            'ratecard'   => 'Rate Cards',
+   322→   322→                            'timesheet'  => 'Timesheets',
+   323→   323→                            'loan'       => 'Loans',
+   324→   324→                            'audit'      => 'Audit Log',
+   325→   325→                            'bulk-upload'=> 'Bulk Upload',
+   326→   326→                            'portal'     => 'Portal',
+   327→   327→                            'auth'       => 'Authentication',
+   328→   328→                        ];
+   329→   329→
+   330→   330→                        // Sub-folder display names (second level)
+   331→   331→                        $bcSubfolders = [
+   332→   332→                            'forms/labour'     => 'Labour Forms (CLRA)',
+   333→   333→                            'report/pf'        => 'PF Reports',
+   334→   334→                            'report/esi'       => 'ESI Reports',
+   335→   335→                            'report/mis'       => 'MIS Reports',
+   336→   336→                            'report/pt'        => 'PT Reports',
+   337→   337→                            'settings/'        => 'Settings',
+   338→   338→                            'notifications/'   => 'Notifications',
+   339→   339→                            'compliance/'      => 'Compliance',
+   340→   340→                        ];
+   341→   341→
+   342→   342→                        // Page file display names (third level, for specific files)
+   343→   343→                        $bcPages = [
+   344→   344→                            // Entry
+   345→   345→                            'entry/salary-entry'    => 'Salary Entry',
+   346→   346→                            'entry/leave-entry'     => 'Leave Entry',
+   347→   347→                            'entry/muster-entry'    => 'Muster Entry',
+   348→   348→                            'entry/overtime-entry'  => 'Overtime Entry',
+   349→   349→                            'entry/quick-salary'    => 'Quick Salary',
+   350→   350→                            // Employee
+   351→   351→                            'employee/add'      => 'Add Employee',
+   352→   352→                            'employee/edit'     => 'Edit Employee',
+   353→   353→                            'employee/view'     => 'View Employee',
+   354→   354→                            'employee/list'     => 'Employee List',
+   355→   355→                            'employee/import'   => 'Import Employees',
+   356→   356→                            'employee/bulk-edit'=> 'Bulk Edit',
+   357→   357→                            'employee/documents'=> 'Documents',
+   358→   358→                            'employee/id-card'  => 'ID Card',
+   359→   359→                            'employee/id-card-fixed' => 'ID Card',
+   360→   360→                            'employee/designation'=> 'Designations',
+   361→   361→                            // Attendance
+   362→   362→                            'attendance/add'    => 'Add Attendance',
+   363→   363→                            'attendance/upload' => 'Upload Attendance',
+   364→   364→                            'attendance/view'   => 'View Attendance',
+   365→   365→                            'attendance/report' => 'Attendance Report',
+   366→   366→                            // Payroll
+   367→   367→                            'payroll/process'      => 'Process Payroll',
+   368→   368→                            'payroll/process-edit' => 'Payroll Entry',
+   369→   369→                            'payroll/payslips'     => 'Payslips',
+   370→   370→                            'payroll/print_payslip'=> 'Print Payslip',
+   371→   371→                            'payroll/print_payslips'=> 'Print Payslips',
+   372→   372→                            'payroll/bank-advice'  => 'Bank Advice',
+   373→   373→                            'payroll/bonus'        => 'Bonus Calculation',
+   374→   374→                            'payroll/arrears'      => 'Arrear Calculation',
+   375→   375→                            'payroll/salary-revision'=> 'Salary Revision',
+   376→   376→                            'payroll/view'         => 'View Payroll',
+   377→   377→                            // Expense
+   378→   378→                            'expense/approvals'    => 'Approvals',
+   379→   379→                            'expense/dashboard'    => 'Expense Overview',
+   380→   380→                            'expense/reports'      => 'Expense Reports',
+   381→   381→                            'expense/ledger'       => 'Manager Ledger',
+   382→   382→                            'expense/allocations'  => 'Advance Allocation',
+   383→   383→                            'expense/allocate'     => 'Allocate Budget',
+   384→   384→                            'expense/expense-setup'=> 'Expense Setup',
+   385→   385→                            // Compliance
+   386→   386→                            'compliance/dashboard' => 'Compliance Dashboard',
+   387→   387→                            'compliance/calendar'  => 'Compliance Calendar',
+   388→   388→                            'compliance/filings'   => 'Filings',
+   389→   389→                            'compliance/add_filing'=> 'Add Filing',
+   390→   390→                            'compliance/pf'        => 'PF Compliance',
+   391→   391→                            'compliance/esi'       => 'ESI Compliance',
+   392→   392→                            'compliance/pt'        => 'PT Compliance',
+   393→   393→                            'compliance/ecr'       => 'ECR Filing',
+   394→   394→                            'compliance/esi-return'=> 'ESI Return',
+   395→   395→                            'compliance/pt-challan'=> 'PT Challan',
+   396→   396→                            'compliance/minimum-wage-check'=> 'Min Wage Check',
+   397→   397→                            'compliance/minimum-wages'=> 'Minimum Wages',
+   398→   398→                            // Leave
+   399→   399→                            'leave/apply'      => 'Apply Leave',
+   400→   400→                            'leave/balance'    => 'Leave Balance',
+   401→   401→                            // Helpdesk
+   402→   402→                            'helpdesk/add'     => 'New Ticket',
+   403→   403→                            'helpdesk/list'    => 'Ticket List',
+   404→   404→                            // Settlement
+   405→   405→                            'settlement/list'  => 'Settlements',
+   406→   406→                            'settlement/view'  => 'View Settlement',
+   407→   407→                            // Notifications
+   408→   408→                            'notifications/announcements'=> 'Announcements',
+   409→   409→                            'notifications/bulk-email'   => 'Bulk Email',
+   410→   410→                            'notifications/center'       => 'Notification Center',
+   411→   411→                            'notifications/whatsapp'      => 'WhatsApp',
+   412→   412→                            // Settings
+   413→   413→                            'settings/company'   => 'Company Profile',
+   414→   414→                            'settings/users'     => 'User Management',
+   415→   415→                            'settings/roles'     => 'Roles & Permissions',
+   416→   416→                            'settings/holidays'  => 'Holiday Calendar',
+   417→   417→                            'settings/manager-allocation'=> 'Manager Allocation',
+   418→   418→                            'settings/statutory' => 'Statutory Settings',
+   419→   419→                            'settings/notifications'=> 'Notification Settings',
+   420→   420→                            'settings/payslip-templates'=> 'Payslip Templates',
+   421→   421→                            'settings/image-tool'=> 'Image Editor',
+   422→   422→                            'settings/image-tool-lite'=> 'Image Editor Lite',
+   423→   423→                            // Forms (root level)
+   424→   424→                            'forms/nomination'        => 'Nomination Forms',
+   425→   425→                            'forms/nomination_pf'     => 'PF Nomination',
+   426→   426→                            'forms/nomination_esi'    => 'ESI Nomination',
+   427→   427→                            'forms/nomination_gratuity'=> 'Gratuity Nomination',
+   428→   428→                            'forms/appointment'       => 'Appointment Letter',
+   429→   429→                            'forms/experience'        => 'Experience Letter',
+   430→   430→                            'forms/relieving'         => 'Relieving Letter',
+   431→   431→                            'forms/service_certificate'=> 'Service Certificate',
+   432→   432→                            'forms/form-f2'           => 'Form F2',
+   433→   433→                            'forms/form-v'            => 'Form V',
+   434→   434→                            'forms/form-xvii'         => 'Form XVII',
+   435→   435→                            'forms/form-xvi'          => 'Form XVI',
+   436→   436→                            // Forms > Labour
+   437→   437→                            'forms/labour/form-iv'   => 'Form IV',
+   438→   438→                            'forms/labour/form-v'    => 'Form V',
+   439→   439→                            'forms/labour/form-xvi'  => 'Form XVI',
+   440→   440→                            'forms/labour/form-xvii'=> 'Form XVII',
+   441→   441→                            'forms/labour/form-xix'  => 'Form XIX',
+   442→   442→                            'forms/labour/form-xx'   => 'Form XX',
+   443→   443→                            'forms/labour/form-xxi'  => 'Form XXI',
+   444→   444→                            'forms/labour/form-xxii' => 'Form XXII',
+   445→   445→                            'forms/labour/form-13'   => 'Form 13',
+   446→   446→                            'forms/labour/form-15'   => 'Form 15',
+   447→   447→                            'forms/labour/index'     => 'Labour Forms (CLRA)',
+   448→   448→                            'forms/labour/form-24'   => 'Form 24',
+   449→   449→                            'forms/labour/form-25'   => 'Form 25',
+   450→   450→                            'forms/labour/form-32'   => 'Form 32',
+   451→   451→                            'forms/labour/annexure-a'=> 'Annexure A',
+   452→   452→                            'forms/labour/employment-card'=> 'Employment Card',
+   453→   453→                            // Report (root level)
+   454→   454→                            'report/payroll'       => 'Payroll Reports',
+   455→   455→                            'report/employee'      => 'Employee Reports',
+   456→   456→                            'report/attendance'    => 'Attendance Reports',
+   457→   457→                            'report/compliance'    => 'Compliance Reports',
+   458→   458→                            'report/custom'        => 'Custom Reports',
+   459→   459→                            'report/summary-reports'=> 'Summary Reports',
+   460→   460→                            'report/mis/index'   => 'MIS Reports',
+   461→   461→                            'report/salary-register'=> 'Salary Register',
+   462→   462→                            'report/department-salary-register'=> 'Dept Salary Register',
+   463→   463→                            'report/bonus-register'=> 'Bonus Register',
+   464→   464→                            'report/leave-register'=> 'Leave Register',
+   465→   465→                            'report/stipend-register'=> 'Stipend Register',
+   466→   466→                            'report/muster-roll'   => 'Muster Roll',
+   467→   467→                            'report/payroll'       => 'Payroll Reports',
+   468→   468→                            'report/lwf-report'    => 'LWF Report',
+   469→   469→                            'report/form-er1'      => 'Form ER-1',
+   470→   470→                            'report/gratuity-form-f'=> 'Gratuity Form F',
+   471→   471→                            'report/pf/index'    => 'PF Reports',
+   472→   472→                            'report/esi/index'   => 'ESI Reports',
+   473→   473→                            // Gumastadhara
+   474→   474→                            'report/gumastadhara-salary-register'=> 'Gumastadhara Salary',
+   475→   475→                            'report/gumastadhara-ot-register'    => 'Gumastadhara OT Register',
+   476→   476→                            'report/gumastadhara-muster-roll'    => 'Gumastadhara Muster Roll',
+   477→   477→                            'report/gumastadhara-form-d'         => 'Gumastadhara Form D',
+   478→   478→                            'report/gumastadhara-fine-register'  => 'Gumastadhara Fine Register',
+   479→   479→                            // Report > PF
+   480→   480→                            'report/pf/form-5'       => 'Form 5',
+   481→   481→                            'report/pf/form-9'       => 'Form 9',
+   482→   482→                            'report/pf/form-10'      => 'Form 10',
+   483→   483→                            'report/pf/form-10c'     => 'Form 10C',
+   484→   484→                            'report/pf/form-12a'     => 'Form 12A',
+   485→   485→                            'report/pf/form-13'      => 'Form 13',
+   486→   486→                            'report/pf/form-19'      => 'Form 19',
+   487→   487→                            'report/pf/form-2-revised'=> 'Form 2 Revised',
+   488→   488→                            'report/pf/cover-exempt' => 'Cover & Exempt',
+   489→   489→                            'report/pf/dues-remitted'=> 'Dues & Remitted',
+   490→   490→                            // Report > ESI
+   491→   491→                            'report/esi/form-3'       => 'Form 3',
+   492→   492→                            'report/esi/form-5'       => 'Form 5',
+   493→   493→                            'report/esi/cover-exempt' => 'Cover & Exempt',
+   494→   494→                            'report/esi/rcc-report'   => 'RCC Report',
+   495→   495→                            'report/esi/inspection-report'=> 'Inspection Report',
+   496→   496→                            // Report > MIS
+   497→   497→                            'report/mis/form-16'          => 'Form 16',
+   498→   498→                            'report/mis/salary-certificate'=> 'Salary Certificate',
+   499→   499→                            'report/mis/loan-ledger'      => 'Loan Ledger',
+   500→   500→                            'report/mis/cheque-print'     => 'Cheque Print',
+   501→   501→                            'report/mis/advance-report'   => 'Advance Report',
+   502→   502→                            'report/mis/increment-report' => 'Increment Report',
+   503→   503→                            'report/mis/employee-entry-form'=> 'Employee Entry Form',
+   504→   504→                            // Report > PT
+   505→   505→                            'report/pt/form-5'      => 'PT Form 5',
+   506→   506→                            'report/pt/index'      => 'PT Reports',
+   507→   507→                            'report/pt/summary'     => 'PT Summary',
+   508→   508→                            'report/pt/employee-wise'=> 'PT Employee Wise',
+   509→   509→                            // Advance
+   510→   510→                            'advance/add'  => 'Add Advance',
+   511→   511→                            'advance/index'=> 'Advance',
+   512→   512→                            // Client
+   513→   513→                            'client/list' => 'Client List',
+   514→   514→                            // Contract
+   515→   515→                            'contract/add'  => 'Add Contract',
+   516→   516→                            'contract/list' => 'Contract List',
+   517→   517→                            // Billing
+   518→   518→                            'billing/create'    => 'Create Invoice',
+   519→   519→                            'billing/edit'      => 'Edit Invoice',
+   520→   520→                            'billing/view'      => 'View Invoice',
+   521→   521→                            'billing/print'     => 'Print Invoice',
+   522→   522→                            'billing/gst-invoice'=> 'GST Invoice',
+   523→   523→                            'billing/list'      => 'Invoice List',
+   524→   524→                            // Recruitment
+   525→   525→                            'recruitment/add'  => 'Add Candidate',
+   526→   526→                            'recruitment/list' => 'Recruitment List',
+   527→   527→                            // Announcement
+   528→   528→                            'announcement/add'  => 'Add Announcement',
+   529→   529→                            'announcement/list' => 'Announcement List',
+   530→   530→                            // Requisition
+   531→   531→                            'requisition/add'  => 'Add Requisition',
+   532→   532→                            'requisition/list' => 'Requisition List',
+   533→   533→                            // Deployment
+   534→   534→                            'deployment/add'  => 'Add Deployment',
+   535→   535→                            'deployment/list' => 'Deployment List',
+   536→   536→                            // Ratecard
+   537→   537→                            'ratecard/add'  => 'Add Rate Card',
+   538→   538→                            'ratecard/list' => 'Rate Card List',
+   539→   539→                            // Timesheet
+   540→   540→                            'timesheet/create' => 'Create Timesheet',
+   541→   541→                            'timesheet/list'   => 'Timesheet List',
+   542→   542→                            // Loan
+   543→   543→                            'loan/list' => 'Loan List',
+   544→   544→                            'loan/view' => 'View Loan',
+   545→   545→                            // Assets
+   546→   546→                            'assets/list'  => 'Asset List',
+   547→   547→                            'assets/issue' => 'Issue Asset',
+   548→   548→                            // Audit
+   549→   549→                            'audit/list' => 'Audit Log',
+   550→   550→                            // Bulk upload
+   551→   551→                            'bulk-upload/salary' => 'Bulk Salary Upload',
+   552→   552→                        ];
+   553→   553→
+   554→   554→                        // Module index page routes (where clicking module name should go)
+   555→   555→                        $bcModuleIndex = [
+   556→   556→                            'dashboard'   => 'dashboard',
+   557→   557→                            'employee'    => 'employee/index',
+   558→   558→                            'client'      => 'client/index',
+   559→   559→                            'attendance'  => 'attendance/index',
+   560→   560→                            'advance'     => 'advance/index',
+   561→   561→                            'expense'     => 'expense/index',
+   562→   562→                            'entry'       => 'entry/index',
+   563→   563→                            'payroll'     => 'payroll/index',
+   564→   564→                            'compliance'  => 'compliance/index',
+   565→   565→                            'forms'       => 'forms/index',
+   566→   566→                            'assets'      => 'assets/index',
+   567→   567→                            'helpdesk'    => 'helpdesk/index',
+   568→   568→                            'leave'       => 'leave/index',
+   569→   569→                            'report'      => 'report/index',
+   570→   570→                            'settlement'  => 'settlement/list',
+   571→   571→                            'notifications'=> 'notifications/index',
+   572→   572→                            'settings'    => 'settings/index',
+   573→   573→                        ];
+   574→   574→
+   575→   575→                        // Build breadcrumb trail
+   576→   576→                        $breadcrumbs = [];
+   577→   577→
+   578→   578→                        if ($bcModule === 'dashboard') {
+   579→   579→                            // Dashboard - no extra crumbs
+   580→   580→                            $breadcrumbs[] = ['label' => 'Dashboard', 'link' => null, 'active' => true];
+   581→   581→                        } else {
+   582→   582→                            // Add module crumb (clickable)
+   583→   583→                            $modLabel = $bcModules[$bcModule] ?? ucfirst(str_replace('-', ' ', $bcModule));
+   584→   584→                            $modLink = $bcModuleIndex[$bcModule] ?? $bcModule;
+   585→   585→                            $breadcrumbs[] = ['label' => $modLabel, 'link' => 'index.php?page=' . $modLink, 'active' => false];
+   586→   586→
+   587→   587→                            if (count($bcParts) >= 3) {
+   588→   588→                                // Has sub-folder (e.g., forms/labour/form-13)
+   589→   589→                                $bcSub = $bcModule . '/' . $bcParts[1];
+   590→   590→                                $subLabel = $bcSubfolders[$bcSub] ?? ucfirst(str_replace(['-', '_'], ' ', $bcParts[1]));
+   591→   591→
+   592→   592→                                // Check if sub-folder has an index page
+   593→   593→                                $subIndexPath = dirname(__FILE__) . '/../modules/' . $bcSub . '/index.php';
+   594→   594→                                $subLink = (file_exists($subIndexPath)) ? 'index.php?page=' . $bcSub . '/index' : null;
+   595→   595→
+   596→   596→                                // Don't add sub-folder as separate crumb if the page itself is in the mapping
+   597→   597→                                // (it would be redundant with the final crumb)
+   598→   598→                                $fullPageKey = implode('/', $bcParts);
+   599→   599→                                if (!isset($bcPages[$fullPageKey]) && $subLink) {
+   600→   600→                                    $breadcrumbs[] = ['label' => $subLabel, 'link' => $subLink, 'active' => false];
+   601→   601→                                } elseif (!$subLink) {
+   602→   602→                                    // No index page for sub-folder, show as active (non-clickable)
+   603→   603→                                    $breadcrumbs[] = ['label' => $subLabel, 'link' => null, 'active' => true];
+   604→   604→                                }
+   605→   605→                            }
+   606→   606→
+   607→   607→                            // Add final page crumb
+   608→   608→                            $fullPageKey = implode('/', $bcParts);
+   609→   609→                            $bcPart2 = $bcParts[1] ?? null;
+   610→   610→                            if ($bcPart2 && $bcPart2 !== 'index' && isset($bcPages[$fullPageKey])) {
+   611→   611→                                $breadcrumbs[] = ['label' => $bcPages[$fullPageKey], 'link' => null, 'active' => true];
+   612→   612→                            } elseif ($bcPart2 === 'index' || (count($bcParts) === 1 && $bcModule !== 'dashboard')) {
+   613→   613→                                // On module index page, mark module as active
+   614→   614→                                $breadcrumbs[count($breadcrumbs)-1]['active'] = true;
+   615→   615→                                $breadcrumbs[count($breadcrumbs)-1]['link'] = null;
+   616→   616→                            } elseif (!isset($bcPages[$fullPageKey])) {
+   617→   617→                                // File not in mapping — generate label from filename
+   618→   618→                                $fileName = end($bcParts);
+   619→   619→                                $fileLabel = str_replace(['-', '_'], ' ', pathinfo($fileName, PATHINFO_FILENAME));
+   620→   620→                                $fileLabel = ucwords($fileLabel);
+   621→   621→                                // Clean up common prefixes
+   622→   622→                                $fileLabel = preg_replace('/^Form\s*/i', 'Form ', $fileLabel);
+   623→   623→                                $breadcrumbs[] = ['label' => $fileLabel, 'link' => null, 'active' => true];
+   624→   624→                            }
+   625→   625→                        }
+   626→   626→
+   627→   627→                        // Render breadcrumbs
+   628→   628→                        foreach ($breadcrumbs as $crumb):
+   629→   629→                            if ($crumb['active']):
+   630→   630→                        ?>
+   631→   631→                                <li class="breadcrumb-item active" aria-current="page"><?= htmlspecialchars($crumb['label']) ?></li>
+   632→   632→                            <?php else: ?>
+   633→   633→                                <li class="breadcrumb-item"><a href="<?= htmlspecialchars($crumb['link'] ?? '#') ?>"><?= htmlspecialchars($crumb['label']) ?></a></li>
+   634→   634→                        <?php
+   635→   635→                            endif;
+   636→   636→                        endforeach;
+   637→   637→                        ?>
+   638→   638→                    </ol>
+   639→   639→                </nav>
+   640→   640→            </div>
+   641→   641→            
+   642→   642→            <div class="topbar-right">
+   643→   643→                <!-- Language Selector -->
+   644→   644→                <div class="topbar-item dropdown">
+   645→   645→                    <a href="#" class="topbar-link" data-bs-toggle="dropdown">
+   646→   646→                        <i class="bi bi-translate"></i>
+   647→   647→                    </a>
+   648→   648→                    <ul class="dropdown-menu dropdown-menu-end">
+   649→   649→                        <li><a class="dropdown-item" href="?lang=en">English</a></li>
+   650→   650→                        <li><a class="dropdown-item" href="?lang=hi">हिंदी</a></li>
+   651→   651→                    </ul>
+   652→   652→                </div>
+   653→   653→                
+   654→   654→                <!-- Pending Employees Alert (separate count) -->
+   655→   655→                <?php
+   656→   656→                try {
+   657→   657→                    $pendingStmt = $db->query("SELECT COUNT(*) as count FROM employees WHERE status LIKE 'pending%'");
+   658→   658→                    $pendingEmpCountTop = (int)$pendingStmt->fetch(PDO::FETCH_ASSOC)['count'];
+   659→   659→                    if ($pendingEmpCountTop > 0):
+   660→   660→                ?>
+   661→   661→                <div class="topbar-item">
+   662→   662→                    <a href="index.php?page=employee/list&status=pending" class="topbar-link text-warning" title="Pending Employee Approvals">
+   663→   663→                        <i class="bi bi-person-plus-fill"></i>
+   664→   664→                        <span class="notification-badge" style="background:#ffc107; color:#000;"><?php echo $pendingEmpCountTop; ?></span>
+   665→   665→                    </a>
+   666→   666→                </div>
+   667→   667→                <?php
+   668→   668→                    endif;
+   669→   669→                } catch (Exception $e) {}
+   670→   670→                ?>
+   671→   671→
+   672→   672→                <!-- Notification Bell + Announcement Unread Count -->
+   673→   673→                <div class="topbar-item dropdown">
+   674→   674→                    <a href="#" class="topbar-link" data-bs-toggle="dropdown">
+   675→   675→                        <i class="bi bi-bell"></i>
+   676→   676→                        <?php
+   677→   677→                        $totalNotifCount = 0;
+   678→   678→                        $annUnreadTop = 0;
+   679→   679→                        $headerRole = $_SESSION['role_code'] ?? '';
+   680→   680→                        $headerUid = $_SESSION['user_id'] ?? '';
+   681→   681→                        // Build scope filter for header queries
+   682→   682→                        if ($headerRole === 'admin') {
+   683→   683→                            $headerScopeWhere = '';
+   684→   684→                            $headerScopeParams = [];
+   685→   685→                        } elseif (in_array($headerRole, ['manager', 'regional_manager'])) {
+   686→   686→                            $headerScopeWhere = "AND (a.target_scope = 'all' OR a.target_scope = 'managers' OR a.created_by = :selfid)";
+   687→   687→                            $headerScopeParams = [':selfid' => $headerUid];
+   688→   688→                        } else {
+   689→   689→                            $headerScopeWhere = "AND (a.target_scope = 'all' OR a.created_by = :selfid)";
+   690→   690→                            $headerScopeParams = [':selfid' => $headerUid];
+   691→   691→                        }
+   692→   692→                        try {
+   693→   693→                            // Unread notifications count
+   694→   694→                            $notifStmt = $db->prepare("SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0");
+   695→   695→                            $notifStmt->execute([$_SESSION['user_id']]);
+   696→   696→                            $totalNotifCount = (int)$notifStmt->fetch(PDO::FETCH_ASSOC)['count'];
+   697→   697→
+   698→   698→                            // Unread announcements count (scope-filtered)
+   699→   699→                            $annUnreadTop = (int)$db->fetchColumn(
+   700→   700→                                "SELECT COUNT(*) FROM ess_announcements a LEFT JOIN ess_announcement_reads r ON a.id = r.announcement_id AND r.user_id = :uid WHERE r.id IS NULL $headerScopeWhere",
+   701→   701→                                array_merge([':uid' => $headerUid], $headerScopeParams)
+   702→   702→                            ) ?: 0;
+   703→   703→                            $totalNotifCount += $annUnreadTop;
+   704→   704→                        } catch (Exception $e) {}
+   705→   705→
+   706→   706→                        if ($totalNotifCount > 0):
+   707→   707→                        ?>
+   708→   708→                            <span class="notification-badge"><?php echo $totalNotifCount; ?></span>
+   709→   709→                        <?php endif; ?>
+   710→   710→                    </a>
+   711→   711→                    <div class="dropdown-menu dropdown-menu-end notification-dropdown" style="min-width: 340px; max-height: 420px; overflow-y: auto;">
+   712→   712→                        <h6 class="dropdown-header d-flex justify-content-between align-items-center">
+   713→   713→                            <span>Notifications</span>
+   714→   714→                            <?php if ($annUnreadTop > 0): ?>
+   715→   715→                            <a href="index.php?page=notifications/announcements&mark_all_read=1" class="text-primary small text-decoration-none">Mark All Read</a>
+   716→   716→                            <?php endif; ?>
+   717→   717→                        </h6>
+   718→   718→
+   719→   719→                        <?php
+   720→   720→                        // Show unread announcements first (scope-filtered)
+   721→   721→                        $recentAnnouncements = [];
+   722→   722→                        try {
+   723→   723→                            $annStmt = $db->prepare("
+   724→   724→                                SELECT a.*, COALESCE(e.full_name, CONCAT(u.first_name, ' ', u.last_name), a.created_by) AS creator_name
+   725→   725→                                FROM ess_announcements a
+   726→   726→                                LEFT JOIN ess_announcement_reads r ON a.id = r.announcement_id AND r.user_id = :uid
+   727→   727→                                LEFT JOIN ess_employee_cache e ON a.created_by = e.employee_id
+   728→   728→                                LEFT JOIN users u ON a.created_by = CAST(u.id AS CHAR COLLATE utf8mb4_unicode_ci)
+   729→   729→                                WHERE r.id IS NULL $headerScopeWhere
+   730→   730→                                ORDER BY FIELD(a.priority, 'urgent', 'high', 'normal', 'low'), a.created_at DESC
+   731→   731→                                LIMIT 5
+   732→   732→                            ");
+   733→   733→                            $annStmt->execute(array_merge([':uid' => $headerUid], $headerScopeParams));
+   734→   734→                            $recentAnnouncements = $annStmt->fetchAll(PDO::FETCH_ASSOC);
+   735→   735→                        } catch (Exception $e) {}
+   736→   736→
+   737→   737→                        if (!empty($recentAnnouncements)):
+   738→   738→                            foreach ($recentAnnouncements as $ann):
+   739→   739→                        ?>
+   740→   740→                        <a href="index.php?page=notifications/announcements" class="dropdown-item notification-item unread">
+   741→   741→                            <div class="d-flex align-items-start">
+   742→   742→                                <i class="bi bi-megaphone-fill text-primary me-2 mt-1"></i>
+   743→   743→                                <div class="flex-grow-1">
+   744→   744→                                    <div class="notification-title">
+   745→   745→                                        <strong><?php echo sanitize($ann['title']); ?></strong>
+   746→   746→                                        <?php if ($ann['priority'] === 'urgent'): ?><span class="badge bg-danger ms-1">Urgent</span><?php endif; ?>
+   747→   747→                                        <?php if ($ann['priority'] === 'high'): ?><span class="badge bg-warning text-dark ms-1">High</span><?php endif; ?>
+   748→   748→                                    </div>
+   749→   749→                                    <div class="notification-time small text-muted">
+   750→   750→                                        <?php echo htmlspecialchars($ann['creator_name'] ?? 'Admin'); ?> &bull; <?php echo date('d M H:i', strtotime($ann['created_at'])); ?>
+   751→   751→                                    </div>
+   752→   752→                                </div>
+   753→   753→                                <span class="badge bg-primary rounded-pill ms-1" style="font-size:10px;">New</span>
+   754→   754→                            </div>
+   755→   755→                        </a>
+   756→   756→                        <?php endforeach; ?>
+   757→   757→                        <div class="dropdown-divider"></div>
+   758→   758→                        <?php endif; ?>
+   759→   759→
+   760→   760→                        <?php
+   761→   761→                        // Show other notifications
+   762→   762→                        try {
+   763→   763→                            $notifStmt = $db->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 5");
+   764→   764→                            $notifStmt->execute([$_SESSION['user_id']]);
+   765→   765→                            $notifications = $notifStmt->fetchAll(PDO::FETCH_ASSOC);
+   766→   766→
+   767→   767→                            foreach ($notifications as $notif):
+   768→   768→                        ?>
+   769→   769→                        <a href="<?php echo $notif['link'] ?? '#'; ?>" class="dropdown-item notification-item <?php echo $notif['is_read'] ? '' : 'unread'; ?>">
+   770→   770→                            <div class="notification-title"><?php echo sanitize($notif['title']); ?></div>
+   771→   771→                            <div class="notification-time"><?php echo date('d M H:i', strtotime($notif['created_at'])); ?></div>
+   772→   772→                        </a>
+   773→   773→                        <?php
+   774→   774→                            endforeach;
+   775→   775→                        } catch (Exception $e) {}
+   776→   776→
+   777→   777→                        // If no notifications at all
+   778→   778→                        if (empty($recentAnnouncements) && empty($notifications)):
+   779→   779→                        ?>
+   780→   780→                            <div class="dropdown-item text-muted text-center py-3">
+   781→   781→                                <i class="bi bi-bell-slash d-block fs-4 mb-2"></i>
+   782→   782→                                No new notifications
+   783→   783→                            </div>
+   784→   784→                        <?php endif; ?>
+   785→   785→
+   786→   786→                        <div class="dropdown-divider"></div>
+   787→   787→                        <div class="d-flex gap-2">
+   788→   788→                            <?php if ($annUnreadTop > 0): ?>
+   789→   789→                            <a href="index.php?page=notifications/announcements" class="dropdown-item text-center text-primary flex-grow-1">
+   790→   790→                                <i class="bi bi-megaphone me-1"></i>All Announcements (<?php echo $annUnreadTop; ?>)
+   791→   791→                            </a>
+   792→   792→                            <?php endif; ?>
+   793→   793→                            <a href="index.php?page=notifications" class="dropdown-item text-center text-primary flex-grow-1">
+   794→   794→                                <i class="bi bi-eye me-1"></i>View All
+   795→   795→                            </a>
+   796→   796→                        </div>
+   797→   797→                    </div>
+   798→   798→                </div>
+   799→   799→                
+   800→   800→                <!-- User Menu -->
+   801→   801→                <div class="topbar-item dropdown">
+   802→   802→                    <a href="#" class="topbar-link user-menu" data-bs-toggle="dropdown">
+   803→   803→                        <div class="user-avatar">
+   804→   804→                            <?php echo substr($_SESSION['first_name'] ?? 'U', 0, 1); ?>
+   805→   805→                        </div>
+   806→   806→                        <span class="user-name d-none d-md-inline">
+   807→   807→                            <?php echo sanitize($_SESSION['first_name'] ?? 'User'); ?>
+   808→   808→                        </span>
+   809→   809→                        <i class="bi bi-chevron-down"></i>
+   810→   810→                    </a>
+   811→   811→                    <ul class="dropdown-menu dropdown-menu-end">
+   812→   812→                        <li class="dropdown-header">
+   813→   813→                            <div class="user-info">
+   814→   814→                                <strong><?php echo sanitize($_SESSION['first_name'] . ' ' . $_SESSION['last_name']); ?></strong>
+   815→   815→                                <small><?php echo sanitize($_SESSION['role_name']); ?></small>
+   816→   816→                            </div>
+   817→   817→                        </li>
+   818→   818→                        <li><hr class="dropdown-divider"></li>
+   819→   819→                        <li><a class="dropdown-item" href="index.php?page=profile"><i class="bi bi-person me-2"></i>My Profile</a></li>
+   820→   820→                        <li><a class="dropdown-item" href="index.php?page=profile/settings"><i class="bi bi-gear me-2"></i>Settings</a></li>
+   821→   821→                        <li><hr class="dropdown-divider"></li>
+   822→   822→                        <li><a class="dropdown-item text-danger" href="index.php?page=auth/logout"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
+   823→   823→                    </ul>
+   824→   824→                </div>
+   825→   825→            </div>
+   826→   826→        </nav>
+   827→   827→        
+   828→   828→        <!-- Page Content -->
+   829→   829→        <div class="page-content">
+   830→   830→    <?php else: ?>
+   831→   831→    <!-- Non-authenticated page content -->
+   832→   832→    <div class="login-wrapper">
+   833→   833→    <?php endif; ?>
+   834→   834→    
+   835→   835→    <!-- Flash Messages -->
+   836→   836→    <?php 
+   837→   837→    $flash = getFlash();
+   838→   838→    if ($flash):
+   839→   839→    ?>
+   840→   840→        <div class="alert alert-<?php echo $flash['type'] === 'error' ? 'danger' : $flash['type']; ?> alert-dismissible fade show" role="alert">
+   841→   841→            <?php echo sanitize($flash['message']); ?>
+   842→   842→            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+   843→   843→        </div>
+   844→   844→    <?php endif; ?>
+   845→   845→
