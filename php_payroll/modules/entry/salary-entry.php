@@ -611,29 +611,30 @@ if (typeof jssData !== 'undefined' && jssData.length > 0) {
         tableHeight: '600px',
         columnResize: true,
         allowExport: false,
-        onchange: function(instance, cell, col, row, value, oldValue) {
+        onchange: function(el, cell, col, row, value, oldValue) {
             // Auto-calculate Gross (col 10) when any earning col (5-9) changes
+            // NOTE: In jspreadsheet-ce 4.9.2, 1st arg is the DOM element, not the instance
             if (col >= 5 && col <= 9) {
-                var basicDa  = parseFloat(instance.getValueFromCoords(5, row)) || 0;
-                var hra      = parseFloat(instance.getValueFromCoords(6, row)) || 0;
-                var leaveEnc = parseFloat(instance.getValueFromCoords(7, row)) || 0;
-                var bonusEnc = parseFloat(instance.getValueFromCoords(8, row)) || 0;
-                var washing  = parseFloat(instance.getValueFromCoords(9, row)) || 0;
+                var basicDa  = parseFloat(jssInstance.getValueFromCoords(5, row)) || 0;
+                var hra      = parseFloat(jssInstance.getValueFromCoords(6, row)) || 0;
+                var leaveEnc = parseFloat(jssInstance.getValueFromCoords(7, row)) || 0;
+                var bonusEnc = parseFloat(jssInstance.getValueFromCoords(8, row)) || 0;
+                var washing  = parseFloat(jssInstance.getValueFromCoords(9, row)) || 0;
                 var gross    = basicDa + hra + leaveEnc + bonusEnc + washing;
-                instance.setValueFromCoords(10, row, gross);
+                jssInstance.setValueFromCoords(10, row, gross);
             }
             updateTotals();
         },
-        oneditionend: function(instance, cell, col, row, value) {
+        oneditionend: function(el, cell, col, row, value) {
             // Also recalculate when edition ends (ensures correct value after blur)
             if (col >= 5 && col <= 9) {
-                var basicDa  = parseFloat(instance.getValueFromCoords(5, row)) || 0;
-                var hra      = parseFloat(instance.getValueFromCoords(6, row)) || 0;
-                var leaveEnc = parseFloat(instance.getValueFromCoords(7, row)) || 0;
-                var bonusEnc = parseFloat(instance.getValueFromCoords(8, row)) || 0;
-                var washing  = parseFloat(instance.getValueFromCoords(9, row)) || 0;
+                var basicDa  = parseFloat(jssInstance.getValueFromCoords(5, row)) || 0;
+                var hra      = parseFloat(jssInstance.getValueFromCoords(6, row)) || 0;
+                var leaveEnc = parseFloat(jssInstance.getValueFromCoords(7, row)) || 0;
+                var bonusEnc = parseFloat(jssInstance.getValueFromCoords(8, row)) || 0;
+                var washing  = parseFloat(jssInstance.getValueFromCoords(9, row)) || 0;
                 var gross    = basicDa + hra + leaveEnc + bonusEnc + washing;
-                instance.setValueFromCoords(10, row, gross);
+                jssInstance.setValueFromCoords(10, row, gross);
             }
             updateTotals();
         }

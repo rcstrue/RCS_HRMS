@@ -410,13 +410,14 @@ $months = [
             tableOverflow: true,
             tableHeight: '70vh',
             columnResize: true,
-            onchange: function(instance, cell, col, row, newVal, oldVal) {
+            onchange: function(el, cell, col, row, newVal, oldVal) {
+                // NOTE: In jspreadsheet-ce 4.9.2, 1st arg is the DOM element, not the instance
                 // Recalculate Gross when Basic+DA, HRA or Washing changes
                 if (col === 4 || col === 5 || col === 6) {
-                    var basic = parseFloat(instance.getValueFromCoords(4, row)) || 0;
-                    var hra   = parseFloat(instance.getValueFromCoords(5, row)) || 0;
-                    var wash  = parseFloat(instance.getValueFromCoords(6, row)) || 0;
-                    instance.setValueFromCoords(8, row, basic + hra + wash, false);
+                    var basic = parseFloat(qsJss.getValueFromCoords(4, row)) || 0;
+                    var hra   = parseFloat(qsJss.getValueFromCoords(5, row)) || 0;
+                    var wash  = parseFloat(qsJss.getValueFromCoords(6, row)) || 0;
+                    qsJss.setValueFromCoords(8, row, basic + hra + wash, false);
                 }
             }
         });

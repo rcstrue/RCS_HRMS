@@ -505,14 +505,15 @@ var jspreadsheetInstance = jspreadsheet(sheetEl, {
     defaultColWidth: 70,
     minDimensions: [8, 0],
     noHyperlinks: true,
-    onchange: function(instance, cell, x, y, value) {
+    onchange: function(el, cell, x, y, value) {
+        // NOTE: In jspreadsheet-ce 4.9.2, 1st arg is the DOM element, not the instance
         if (x === 6) {
             // OT Hours changed — recalculate Est. Amount
-            var sheetData = instance.getData();
+            var sheetData = jspreadsheetInstance.getData();
             var otRate = parseFloat(sheetData[y][5]) || 0;
             var otHours = parseFloat(value) || 0;
             var amount = otRate * otHours;
-            instance.setValueFromCoords(7, y, fmtCurrency(amount));
+            jspreadsheetInstance.setValueFromCoords(7, y, fmtCurrency(amount));
         }
     }
 });

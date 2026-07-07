@@ -493,25 +493,26 @@ var jss = jspreadsheet(document.getElementById('spreadsheet'), {
     tableOverflow: true,
     tableHeight: '70vh',
     defaultColWidth: 80,
-    onchange: function(instance, cell, x, y, value) {
+    onchange: function(el, cell, x, y, value) {
+        // NOTE: In jspreadsheet-ce 4.9.2, 1st arg is the DOM element, not the instance
         if (_recalc) return;
         _recalc = true;
 
         // Recalculate Paid (col 9) when Prs/WO/Ext (5/6/7) change
         if (x === 5 || x === 6 || x === 7) {
-            var p = parseFloat(instance.getValueFromCoords(5, y)) || 0;
-            var w = parseFloat(instance.getValueFromCoords(6, y)) || 0;
-            var e = parseFloat(instance.getValueFromCoords(7, y)) || 0;
-            instance.setValueFromCoords(9, y, parseFloat((p + w + e).toFixed(1)));
+            var p = parseFloat(jssInstance.getValueFromCoords(5, y)) || 0;
+            var w = parseFloat(jssInstance.getValueFromCoords(6, y)) || 0;
+            var e = parseFloat(jssInstance.getValueFromCoords(7, y)) || 0;
+            jssInstance.setValueFromCoords(9, y, parseFloat((p + w + e).toFixed(1)));
         }
 
         // Recalculate Total (col 14) when any advance col (10-13) changes
         if (x >= 10 && x <= 13) {
-            var v1 = parseFloat(instance.getValueFromCoords(10, y)) || 0;
-            var v2 = parseFloat(instance.getValueFromCoords(11, y)) || 0;
-            var v3 = parseFloat(instance.getValueFromCoords(12, y)) || 0;
-            var v4 = parseFloat(instance.getValueFromCoords(13, y)) || 0;
-            instance.setValueFromCoords(14, y, v1 + v2 + v3 + v4);
+            var v1 = parseFloat(jssInstance.getValueFromCoords(10, y)) || 0;
+            var v2 = parseFloat(jssInstance.getValueFromCoords(11, y)) || 0;
+            var v3 = parseFloat(jssInstance.getValueFromCoords(12, y)) || 0;
+            var v4 = parseFloat(jssInstance.getValueFromCoords(13, y)) || 0;
+            jssInstance.setValueFromCoords(14, y, v1 + v2 + v3 + v4);
         }
 
         updateTotals();
