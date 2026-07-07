@@ -378,7 +378,7 @@ class Loan {
                 JOIN employees e ON l.employee_id = e.id
                 WHERE l.status = 'Active'
                 AND (l.start_year < :year OR (l.start_year = :year2 AND l.start_month <= :month))
-                AND e.status = 'approved'
+                AND e.status IN ('approved', 'active')
                 ORDER BY e.employee_code";
 
         $loans = $this->db->fetchAll($sql, [

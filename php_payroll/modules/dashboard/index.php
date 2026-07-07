@@ -31,7 +31,7 @@ $stmt = $db->query("SELECT e.employee_code, e.full_name, e.designation, e.status
                     FROM employees e 
                     LEFT JOIN units u ON e.unit_id = u.id
                     LEFT JOIN clients c ON e.client_id = c.id
-                    WHERE e.status = 'approved'
+                    WHERE e.status IN ('approved', 'active')
                     ORDER BY e.created_at DESC LIMIT 5");
 $recentEmployees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -39,7 +39,7 @@ $recentEmployees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $stmt = $db->query("SELECT u.name as unit_name, COUNT(e.id) as count 
                     FROM employees e 
                     INNER JOIN units u ON e.unit_id = u.id
-                    WHERE e.status = 'approved'
+                    WHERE e.status IN ('approved', 'active')
                     GROUP BY u.id, u.name
                     ORDER BY count DESC
                     LIMIT 10");
@@ -52,7 +52,7 @@ $attendanceSummary = $attendance->getSummary($currentMonth, $currentYear);
 $stmt = $db->query("SELECT c.name as client_name, COUNT(e.id) as count 
                     FROM employees e 
                     INNER JOIN clients c ON e.client_id = c.id
-                    WHERE e.status = 'approved'
+                    WHERE e.status IN ('approved', 'active')
                     GROUP BY c.id, c.name
                     ORDER BY count DESC
                     LIMIT 5");

@@ -289,7 +289,7 @@ if (isset($_GET['period_id']) && !empty($_GET['period_id'])) {
                     pus.total_net
                 FROM units u
                 LEFT JOIN clients c ON u.client_id = c.id
-                LEFT JOIN employees e ON e.unit_id = u.id AND e.status = 'approved'
+                LEFT JOIN employees e ON e.unit_id = u.id AND e.status IN ('approved', 'active')
                 LEFT JOIN attendance_summary ats ON ats.employee_id = e.id 
                     AND ats.month = ? AND ats.year = ?
                 LEFT JOIN payroll_unit_status pus ON pus.unit_id = u.id 
@@ -377,7 +377,7 @@ if (isset($_POST['process_unit']) && isset($_POST['period_id']) && isset($_POST[
              FROM employees e
              LEFT JOIN attendance_summary ats ON ats.employee_id = e.id 
                 AND ats.month = ? AND ats.year = ?
-             WHERE e.unit_id = ? AND e.status = 'approved'",
+             WHERE e.unit_id = ? AND e.status IN ('approved', 'active')",
             [$periodInfo['month'], $periodInfo['year'], $unitId]
         );
         

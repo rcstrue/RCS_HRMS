@@ -216,7 +216,7 @@ if (isset($_GET['load']) && (int)$_GET['load'] === 1 && $unitId > 0) {
     $employees = $db->fetchAll(
         "SELECT id, employee_code, full_name, designation
          FROM employees
-         WHERE unit_id = ? AND status = 'approved'
+         WHERE unit_id = ? AND status IN ('approved', 'active')
          ORDER BY employee_code",
         [$unitId]
     );

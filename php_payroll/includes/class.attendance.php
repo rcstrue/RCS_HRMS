@@ -3,6 +3,14 @@
  * RCS HRMS Pro - Attendance Class
  * Handles attendance management
  * Updated for new database schema
+ * 
+ * IMPORTANT: The `attendance` table's employee_id column stores the employee's
+ * integer `employees.id`, NOT the employee_code string. All methods resolve
+ * employee_code → employees.id before writing to attendance.
+ * 
+ * Note: The `attendance_summary` table (used by the manual entry grid) also
+ * uses employees.id as employee_id. Only the legacy `payroll` table uses
+ * employee_code (string) as its employee_id.
  */
 
 class Attendance {
@@ -10,6 +18,32 @@ class Attendance {
     
     public function __construct() {
         $this->db = Database::getInstance();
+    }
+
+    /**
+     * Resolve employee_code to employees.id (int)
+     * @param string|int $codeOrId Employee code or ID
+     * @return int|null The employees.id, or null if not found
+     */
+    private function resolveEmployeeId($codeOrId) {
+        if (empty($codeOrId)) return null;
+
+        // If already a numeric ID, verify it exists
+        if (is_numeric($codeOrId) && (int)$codeOrId > 0) {
+            // Check if this is actually an employee_code (e.g. "1001") or an id
+            $emp = $this->db->fetch(
+                "SELECT id FROM employees WHERE id = :id OR employee_code = :code LIMIT 1",
+                ['id' => (int)$codeOrId, 'code' => (string)$codeOrId]
+            );
+            return $emp ? (int)$emp['id'] : null;
+        }
+
+        // String code — look up by employee_code
+        $emp = $this->db->fetch(
+            "SELECT id FROM employees WHERE employee_code = :code LIMIT 1",
+            ['code' => (string)$codeOrId]
+        );
+        return $emp ? (int)$emp['id'] : null;
     }
     
     // Get attendance summary for dashboard
@@ -60,7 +94,7 @@ class Attendance {
             "SELECT e.id, e.employee_code, e.full_name 
              FROM employees e
              LEFT JOIN units u ON e.unit_id = u.id
-             WHERE u.name = :unit_name AND e.status = 'approved'
+             WHERE u.name = :unit_name AND e.status IN ('approved', 'active')
              ORDER BY e.employee_code",
             ['unit_name' => $unitName]
         );
@@ -113,9 +147,9 @@ class Attendance {
                 continue;
             }
             
-            // Get employee by employee_code
+            // Get employee by employee_code — resolve to integer ID
             $emp = $this->db->fetch(
-                "SELECT id, employee_code FROM employees WHERE employee_code = :code AND status = 'approved'",
+                "SELECT id, employee_code FROM employees WHERE employee_code = :code AND status IN ('approved', 'active')",
                 ['code' => $employeeCode]
             );
             
@@ -124,6 +158,8 @@ class Attendance {
                 continue;
             }
             
+            $empId = (int)$emp['id'];
+
             // Process each day (columns 1-31 for days)
             for ($day = 1; $day <= 31; $day++) {
                 $status = trim($row[$day] ?? '');
@@ -149,13 +185,13 @@ class Attendance {
                 
                 $mappedStatus = $statusMap[strtoupper($status)] ?? $status;
                 
-                // Insert or update attendance using employee_code as employee_id
+                // Insert or update attendance — use employees.id (int), NOT employee_code
                 $this->db->query(
                     "INSERT INTO attendance (employee_id, attendance_date, unit_id, status, source, uploaded_by, created_at)
-                     VALUES (:emp_code, :date, :unit_id, :status, 'Excel Upload', :uploaded_by, NOW())
+                     VALUES (:emp_id, :date, :unit_id, :status, 'Excel Upload', :uploaded_by, NOW())
                      ON DUPLICATE KEY UPDATE status = VALUES(status), updated_at = NOW()",
                     [
-                        'emp_code' => $emp['employee_code'],
+                        'emp_id' => $empId,
                         'date' => $date,
                         'unit_id' => $unitId,
                         'status' => $mappedStatus,
@@ -201,9 +237,9 @@ class Attendance {
                 continue;
             }
             
-            // Get employee by employee_code
+            // Get employee by employee_code — resolve to integer ID
             $emp = $this->db->fetch(
-                "SELECT id, employee_code FROM employees WHERE employee_code = :code AND status = 'approved'",
+                "SELECT id, employee_code FROM employees WHERE employee_code = :code AND status IN ('approved', 'active')",
                 ['code' => $employeeCode]
             );
             
@@ -212,6 +248,8 @@ class Attendance {
                 continue;
             }
             
+            $empId = (int)$emp['id'];
+
             // Process each day
             for ($day = 1; $day <= 31; $day++) {
                 $status = trim($row[$day] ?? '');
@@ -235,12 +273,13 @@ class Attendance {
                 
                 $mappedStatus = $statusMap[strtoupper($status)] ?? $status;
                 
+                // Insert or update attendance — use employees.id (int), NOT employee_code
                 $this->db->query(
                     "INSERT INTO attendance (employee_id, attendance_date, unit_id, status, source, uploaded_by, created_at)
-                     VALUES (:emp_code, :date, :unit_id, :status, 'Excel Upload', :uploaded_by, NOW())
+                     VALUES (:emp_id, :date, :unit_id, :status, 'Excel Upload', :uploaded_by, NOW())
                      ON DUPLICATE KEY UPDATE status = VALUES(status), updated_at = NOW()",
                     [
-                        'emp_code' => $emp['employee_code'],
+                        'emp_id' => $empId,
                         'date' => $date,
                         'unit_id' => $unitId,
                         'status' => $mappedStatus,
@@ -262,20 +301,26 @@ class Attendance {
         ];
     }
     
-    // Get attendance for employee (by employee_code)
+    // Get attendance for employee (accepts employee_code or employee id)
     public function getEmployeeAttendance($employeeCode, $month, $year) {
+        $empId = $this->resolveEmployeeId($employeeCode);
+        if (!$empId) return [];
+
         return $this->db->fetchAll(
             "SELECT * FROM attendance 
-             WHERE employee_id = :emp_code 
+             WHERE employee_id = :emp_id 
              AND MONTH(attendance_date) = :month 
              AND YEAR(attendance_date) = :year
              ORDER BY attendance_date",
-            ['emp_code' => $employeeCode, 'month' => $month, 'year' => $year]
+            ['emp_id' => $empId, 'month' => $month, 'year' => $year]
         );
     }
     
-    // Get attendance summary for employee
+    // Get attendance summary for employee (accepts employee_code or employee id)
     public function getEmployeeSummary($employeeCode, $month, $year) {
+        $empId = $this->resolveEmployeeId($employeeCode);
+        if (!$empId) return null;
+
         return $this->db->fetch(
             "SELECT 
                 COUNT(*) as total_days,
@@ -287,10 +332,10 @@ class Attendance {
                 SUM(CASE WHEN status = 'Half Day' THEN 0.5 ELSE 0 END) as half_days,
                 SUM(overtime_hours) as overtime_hours
             FROM attendance 
-            WHERE employee_id = :emp_code 
+            WHERE employee_id = :emp_id 
             AND MONTH(attendance_date) = :month 
             AND YEAR(attendance_date) = :year",
-            ['emp_code' => $employeeCode, 'month' => $month, 'year' => $year]
+            ['emp_id' => $empId, 'month' => $month, 'year' => $year]
         );
     }
     
@@ -305,20 +350,25 @@ class Attendance {
                     SUM(CASE WHEN a.status = 'Weekly Off' THEN 1 ELSE 0 END) as weekly_offs,
                     SUM(CASE WHEN a.status = 'Holiday' THEN 1 ELSE 0 END) as holidays
              FROM employees e
-             LEFT JOIN attendance a ON e.employee_code = a.employee_id 
+             LEFT JOIN attendance a ON e.id = a.employee_id 
                 AND MONTH(a.attendance_date) = :month 
                 AND YEAR(a.attendance_date) = :year
-             WHERE e.unit_id = :unit_id AND e.status = 'approved'
+             WHERE e.unit_id = :unit_id AND e.status IN ('approved', 'active')
              GROUP BY e.id
              ORDER BY e.employee_code",
             ['unit_id' => $unitId, 'month' => $month, 'year' => $year]
         );
     }
     
-    // Save single attendance record
+    // Save single attendance record (accepts employee_code or employee id)
     public function saveAttendance($employeeCode, $date, $status, $unitId = null, $inTime = null, $outTime = null, $remarks = null) {
+        $empId = $this->resolveEmployeeId($employeeCode);
+        if (!$empId) {
+            return ['success' => false, 'message' => 'Employee not found: ' . $employeeCode];
+        }
+
         $data = [
-            'employee_id' => $employeeCode,
+            'employee_id' => $empId,
             'attendance_date' => $date,
             'status' => $status,
             'source' => 'Manual',
@@ -425,8 +475,8 @@ class Attendance {
                     FROM attendance
                     WHERE MONTH(attendance_date) = :month AND YEAR(attendance_date) = :year
                     GROUP BY employee_id
-                ) a ON e.employee_code = a.employee_id
-                WHERE e.status = 'approved'";
+                ) a ON e.id = a.employee_id
+                WHERE e.status IN ('approved', 'active')";
         
         $params = ['month' => $month, 'year' => $year];
         
@@ -445,7 +495,7 @@ class Attendance {
         return $this->saveAttendance($employeeCode, $date, $status);
     }
     
-    // Get attendance calendar data
+    // Get attendance calendar data (accepts employee_code or employee id)
     public function getCalendarData($employeeCode, $month, $year) {
         $attendance = $this->getEmployeeAttendance($employeeCode, $month, $year);
         $calendar = [];

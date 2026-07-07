@@ -166,7 +166,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     header('Pragma: no-cache');
     header('Expires: 0');
 
-    $where = "e.status = 'approved'";
+    $where = "e.status IN ('approved', 'active')";
     $params = [];
     if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
     if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }
@@ -204,7 +204,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
 // Get employees
 $employees = [];
 if ($filterPressed && $clientFilter) {
-    $where = "e.status = 'approved'";
+    $where = "e.status IN ('approved', 'active')";
     $params = [];
     if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
     if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }

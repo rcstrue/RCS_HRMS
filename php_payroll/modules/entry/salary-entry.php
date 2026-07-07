@@ -142,7 +142,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     header('Pragma: no-cache');
     header('Expires: 0');
 
-    $where = "e.status = 'approved'";
+    $where = "e.status IN ('approved', 'active')";
     $params = [];
     if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
     if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }
@@ -198,7 +198,7 @@ $employees = [];
 $summaryData = ['total_employees' => 0, 'total_gross' => 0, 'avg_gross' => 0];
 
 if ($filterPressed && $clientFilter) {
-    $where = "e.status = 'approved'";
+    $where = "e.status IN ('approved', 'active')";
     $params = [];
     if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
     if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }
@@ -389,39 +389,7 @@ $months = [
             </div>
         </div>
 
-        <!-- Jspreadsheet data (populated by PHP) -->
-        <script>
-        var employeeIds = [<?php echo implode(',', array_map(function($e) { return (int)$e['id']; }, $employees)); ?>];
-        var jssData = [
-        <?php
-        $firstRow = true;
-        foreach ($employees as $idx => $emp):
-            if (!$firstRow) echo ",\n";
-            $firstRow = false;
-        ?>
-            [
-                '<?php echo $idx + 1; ?>',
-                '<?php echo addslashes($emp['employee_code']); ?>',
-                '<?php echo addslashes($emp['full_name']); ?>',
-                '<?php echo addslashes($emp['designation'] ?? ''); ?>',
-                '<?php echo addslashes($emp['unit_name'] ?? ''); ?>',
-                <?php echo floatval($emp['basic_da']); ?>,
-                <?php echo floatval($emp['hra']); ?>,
-                <?php echo floatval($emp['leave_encashment']); ?>,
-                <?php echo floatval($emp['bonus_encashment']); ?>,
-                <?php echo floatval($emp['washing_allowance']); ?>,
-                <?php echo floatval($emp['gross_salary']); ?>,
-                <?php echo $emp['pf_applicable'] ? 1 : 0; ?>,
-                <?php echo $emp['esi_applicable'] ? 1 : 0; ?>,
-                <?php echo $emp['pt_applicable'] ? 1 : 0; ?>,
-                <?php echo $emp['lwf_applicable'] ? 1 : 0; ?>,
-                <?php echo $emp['overtime_applicable'] ? 1 : 0; ?>,
-                <?php echo $emp['bonus_applicable'] ? 1 : 0; ?>,
-                <?php echo $emp['gratuity_applicable'] ? 1 : 0; ?>
-            ]
-        <?php endforeach; ?>
-        ];
-        </script>
+        <!-- Jspreadsheet data is initialized in footer $extraJS block (after CDN loads) -->
 
         <!-- Salary Entry Form -->
         <form method="POST" id="salaryForm">
@@ -554,6 +522,38 @@ $months = [
 ob_start();
 ?>
 <script>
+// ── Employee IDs and Jspreadsheet data (populated by PHP) ──
+var employeeIds = [<?php echo implode(',', array_map(function($e) { return (int)$e['id']; }, $employees)); ?>];
+var jssData = [
+<?php
+$firstRow = true;
+foreach ($employees as $idx => $emp):
+    if (!$firstRow) echo ",\n";
+    $firstRow = false;
+?>
+    [
+        '<?php echo $idx + 1; ?>',
+        '<?php echo addslashes($emp['employee_code']); ?>',
+        '<?php echo addslashes($emp['full_name']); ?>',
+        '<?php echo addslashes($emp['designation'] ?? ''); ?>',
+        '<?php echo addslashes($emp['unit_name'] ?? ''); ?>',
+        <?php echo floatval($emp['basic_da']); ?>,
+        <?php echo floatval($emp['hra']); ?>,
+        <?php echo floatval($emp['leave_encashment']); ?>,
+        <?php echo floatval($emp['bonus_encashment']); ?>,
+        <?php echo floatval($emp['washing_allowance']); ?>,
+        <?php echo floatval($emp['gross_salary']); ?>,
+        <?php echo $emp['pf_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['esi_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['pt_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['lwf_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['overtime_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['bonus_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['gratuity_applicable'] ? 1 : 0; ?>
+    ]
+<?php endforeach; ?>
+];
+
 // Load units dynamically (kept from original)
 document.getElementById('clientSelect')?.addEventListener('change', function() {
     const clientId = this.value;

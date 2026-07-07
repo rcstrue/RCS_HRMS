@@ -280,7 +280,7 @@ class Payroll {
                 LEFT JOIN unit_salary_formulas usf ON usf.unit_id = e.unit_id
                     AND usf.is_active = 1
                     AND (usf.effective_to IS NULL OR usf.effective_to >= CURDATE())
-                WHERE e.status = 'approved'";
+                WHERE e.status IN ('approved', 'active')";
 
         $params = [];
 

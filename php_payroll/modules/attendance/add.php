@@ -106,7 +106,7 @@ if ($selectedUnit && $_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['load']
                     FROM employee_salary_structures WHERE effective_to IS NULL GROUP BY employee_id) ess
             ON e.id = ess.employee_id
         LEFT JOIN attendance_summary att ON e.id = att.employee_id AND att.month = ? AND att.year = ?
-        WHERE e.unit_id = ? AND e.status = 'approved'
+        WHERE e.unit_id = ? AND e.status IN ('approved', 'active')
         ORDER BY e.employee_code
     ");
     $stmt->execute([$selectedMonth, $selectedYear, $selectedUnit]);
@@ -500,19 +500,19 @@ var jss = jspreadsheet(document.getElementById('spreadsheet'), {
 
         // Recalculate Paid (col 9) when Prs/WO/Ext (5/6/7) change
         if (x === 5 || x === 6 || x === 7) {
-            var p = parseFloat(jssInstance.getValueFromCoords(5, y)) || 0;
-            var w = parseFloat(jssInstance.getValueFromCoords(6, y)) || 0;
-            var e = parseFloat(jssInstance.getValueFromCoords(7, y)) || 0;
-            jssInstance.setValueFromCoords(9, y, parseFloat((p + w + e).toFixed(1)));
+            var p = parseFloat(jss.getValueFromCoords(5, y)) || 0;
+            var w = parseFloat(jss.getValueFromCoords(6, y)) || 0;
+            var e = parseFloat(jss.getValueFromCoords(7, y)) || 0;
+            jss.setValueFromCoords(9, y, parseFloat((p + w + e).toFixed(1)));
         }
 
         // Recalculate Total (col 14) when any advance col (10-13) changes
         if (x >= 10 && x <= 13) {
-            var v1 = parseFloat(jssInstance.getValueFromCoords(10, y)) || 0;
-            var v2 = parseFloat(jssInstance.getValueFromCoords(11, y)) || 0;
-            var v3 = parseFloat(jssInstance.getValueFromCoords(12, y)) || 0;
-            var v4 = parseFloat(jssInstance.getValueFromCoords(13, y)) || 0;
-            jssInstance.setValueFromCoords(14, y, v1 + v2 + v3 + v4);
+            var v1 = parseFloat(jss.getValueFromCoords(10, y)) || 0;
+            var v2 = parseFloat(jss.getValueFromCoords(11, y)) || 0;
+            var v3 = parseFloat(jss.getValueFromCoords(12, y)) || 0;
+            var v4 = parseFloat(jss.getValueFromCoords(13, y)) || 0;
+            jss.setValueFromCoords(14, y, v1 + v2 + v3 + v4);
         }
 
         updateTotals();
