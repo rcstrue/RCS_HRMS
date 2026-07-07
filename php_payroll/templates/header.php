@@ -92,61 +92,96 @@
                 } catch(Exception $e) {}
                 ?>
 
-                <!-- Employees -->
+                <?php
+                // Helper for submenu open state
+                $pageRoot = explode('/', $page)[0];
+                $entryModules = ['attendance','advance','leave','loan','entry','expense','timesheet'];
+                $complianceModules = ['compliance','forms'];
+                $reportModules = ['report','settlement','billing','ratecard','contract'];
+                $employeeModules = ['employee','client','unit','recruitment','deployment','requisition'];
+                $helpdeskModules = ['helpdesk','feedback'];
+                $settingsModules = ['settings','assets','audit','announcement','notifications'];
+                ?>
+
+                <!-- EMPLOYEES -->
                 <?php if (showMenu($auth, 'employee')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'employee') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=employee/index" class="sidebar-link">
+                <li class="sidebar-item has-submenu <?php echo in_array($pageRoot, $employeeModules) ? 'open' : ''; ?>">
+                    <a href="#" class="sidebar-link">
                         <i class="bi bi-people"></i><span>Employees</span>
+                        <i class="bi bi-chevron-down ms-auto sub-arrow"></i>
                     </a>
+                    <ul class="sidebar-submenu">
+                        <li><a href="index.php?page=employee/index" class="<?php echo $page === 'employee/index' ? 'active' : ''; ?>">
+                            <i class="bi bi-people me-1"></i>Employee Hub
+                        </a></li>
+                        <li><a href="index.php?page=client/index" class="<?php echo strpos($page,'client') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-building me-1"></i>Clients & Units
+                        </a></li>
+                        <?php if (showMenu($auth, 'employee')): ?>
+                        <li><a href="index.php?page=recruitment/list" class="<?php echo strpos($page,'recruitment') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-person-plus me-1"></i>Recruitment
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'employee')): ?>
+                        <li><a href="index.php?page=deployment/list" class="<?php echo strpos($page,'deployment') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-geo-alt me-1"></i>Deployment
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'employee')): ?>
+                        <li><a href="index.php?page=requisition/list" class="<?php echo strpos($page,'requisition') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-clipboard-data me-1"></i>Requisition
+                        </a></li>
+                        <?php endif; ?>
+                    </ul>
                 </li>
                 <?php endif; ?>
 
-                <!-- Clients & Units -->
-                <?php if (showMenu($auth, 'client')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'client') === 0 || strpos($page, 'unit') === 0 || strpos($page, 'contract') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=client/index" class="sidebar-link">
-                        <i class="bi bi-building"></i><span>Clients & Units</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Attendance -->
+                <!-- MONTHLY ENTRY -->
                 <?php if (showMenu($auth, 'attendance')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'attendance') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=attendance/index" class="sidebar-link">
-                        <i class="bi bi-calendar-check"></i><span>Attendance</span>
+                <li class="sidebar-item has-submenu <?php echo in_array($pageRoot, $entryModules) ? 'open' : ''; ?>">
+                    <a href="#" class="sidebar-link">
+                        <i class="bi bi-pencil-square"></i><span>Monthly Entry</span>
+                        <i class="bi bi-chevron-down ms-auto sub-arrow"></i>
                     </a>
+                    <ul class="sidebar-submenu">
+                        <li><a href="index.php?page=attendance/index" class="<?php echo strpos($page,'attendance') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-calendar-check me-1"></i>Attendance
+                        </a></li>
+                        <?php if (showMenu($auth, 'advance')): ?>
+                        <li><a href="index.php?page=advance/index" class="<?php echo strpos($page,'advance') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-wallet2 me-1"></i>Advance
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'leave')): ?>
+                        <li><a href="index.php?page=leave/index" class="<?php echo strpos($page,'leave') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-calendar-x me-1"></i>Leave
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'loan')): ?>
+                        <li><a href="index.php?page=loan/list" class="<?php echo strpos($page,'loan') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-bank me-1"></i>Loans
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'payroll')): ?>
+                        <li><a href="index.php?page=entry/index" class="<?php echo strpos($page,'entry') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-input-cursor-text me-1"></i>Salary & Entries
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'expense')): ?>
+                        <li><a href="index.php?page=expense/index" class="<?php echo strpos($page,'expense') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-cash-coin me-1"></i>Expenses <?= sidebarBadge($pendingExpenses) ?>
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'attendance')): ?>
+                        <li><a href="index.php?page=timesheet/list" class="<?php echo strpos($page,'timesheet') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-clock me-1"></i>Timesheet
+                        </a></li>
+                        <?php endif; ?>
+                    </ul>
                 </li>
                 <?php endif; ?>
 
-                <!-- Advance -->
-                <?php if (showMenu($auth, 'advance')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'advance') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=advance/index" class="sidebar-link">
-                        <i class="bi bi-wallet2"></i><span>Advance</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Expense Management -->
-                <?php if (showMenu($auth, 'expense')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'expense') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=expense/index" class="sidebar-link">
-                        <i class="bi bi-cash-coin"></i><span>Expenses</span><?= sidebarBadge($pendingExpenses) ?>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Entry -->
-                <?php if (showMenu($auth, 'payroll')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'entry') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=entry/index" class="sidebar-link">
-                        <i class="bi bi-pencil-square"></i><span>Entry</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Payroll -->
+                <!-- PAYROLL -->
                 <?php if (showMenu($auth, 'payroll')): ?>
                 <li class="sidebar-item <?php echo strpos($page, 'payroll') === 0 ? 'active' : ''; ?>">
                     <a href="index.php?page=payroll/index" class="sidebar-link">
@@ -155,98 +190,122 @@
                 </li>
                 <?php endif; ?>
 
-                <!-- Compliance -->
+                <!-- COMPLIANCE -->
                 <?php if (showMenu($auth, 'compliance')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'compliance') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=compliance/index" class="sidebar-link">
+                <li class="sidebar-item has-submenu <?php echo in_array($pageRoot, $complianceModules) ? 'open' : ''; ?>">
+                    <a href="#" class="sidebar-link">
                         <i class="bi bi-shield-check"></i><span>Compliance</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Forms -->
-                <?php if (showMenu($auth, 'forms')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'forms') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=forms/index" class="sidebar-link">
-                        <i class="bi bi-file-earmark-text"></i><span>Forms</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Assets -->
-                <?php if (showMenu($auth, 'assets')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'assets') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=assets/index" class="sidebar-link">
-                        <i class="bi bi-box-seam"></i><span>Assets</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Helpdesk -->
-                <?php if (showMenu($auth, 'helpdesk')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'helpdesk') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=helpdesk/index" class="sidebar-link">
-                        <i class="bi bi-headset"></i><span>Helpdesk</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Leave -->
-                <?php if (showMenu($auth, 'leave')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'leave') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=leave/index" class="sidebar-link">
-                        <i class="bi bi-calendar-x"></i><span>Leave</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Loans -->
-                <?php if (showMenu($auth, 'loan')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'loan') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=loan/list" class="sidebar-link">
-                        <i class="bi bi-bank"></i><span>Loans</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Reports -->
-                <?php if (showMenu($auth, 'report')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'report') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=report/index" class="sidebar-link">
-                        <i class="bi bi-bar-chart-line"></i><span>Reports</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Settlement -->
-                <?php if (showMenu($auth, 'settlement')): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'settlement') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=settlement/list" class="sidebar-link">
-                        <i class="bi bi-cash-coin"></i><span>F&F Settlement</span>
-                    </a>
-                </li>
-                <?php endif; ?>
-
-                <!-- Notifications -->
-                <?php if (showMenu($auth, 'notifications')): ?>
-                <li class="sidebar-item <?php echo (strpos($page, 'notifications') === 0) ? 'active open' : ''; ?>">
-                    <a href="index.php?page=notifications/index" class="sidebar-link">
-                        <i class="bi bi-bell"></i><span>Notifications</span><?= sidebarBadge($annUnreadCount) ?>
+                        <i class="bi bi-chevron-down ms-auto sub-arrow"></i>
                     </a>
                     <ul class="sidebar-submenu">
-                        <li><a href="index.php?page=notifications/whatsapp" class="<?php echo $page === 'notifications/whatsapp' ? 'active' : ''; ?>">
-                            <i class="bi bi-whatsapp text-success me-1"></i>WhatsApp Messaging
+                        <li><a href="index.php?page=compliance/index" class="<?php echo strpos($page,'compliance') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-shield-check me-1"></i>PF / ESI / PT
                         </a></li>
+                        <?php if (showMenu($auth, 'forms')): ?>
+                        <li><a href="index.php?page=forms/index" class="<?php echo strpos($page,'forms') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-file-earmark-text me-1"></i>Forms & Letters
+                        </a></li>
+                        <?php endif; ?>
                     </ul>
                 </li>
                 <?php endif; ?>
 
-                <!-- Settings -->
-                <?php if (showMenu($auth, 'settings') && $_SESSION['role_code'] === 'admin'): ?>
-                <li class="sidebar-item <?php echo strpos($page, 'settings') === 0 ? 'active' : ''; ?>">
-                    <a href="index.php?page=settings/index" class="sidebar-link">
-                        <i class="bi bi-gear"></i><span>Settings</span>
+                <!-- REPORTS -->
+                <?php if (showMenu($auth, 'report')): ?>
+                <li class="sidebar-item has-submenu <?php echo in_array($pageRoot, $reportModules) ? 'open' : ''; ?>">
+                    <a href="#" class="sidebar-link">
+                        <i class="bi bi-bar-chart-line"></i><span>Reports</span>
+                        <i class="bi bi-chevron-down ms-auto sub-arrow"></i>
                     </a>
+                    <ul class="sidebar-submenu">
+                        <li><a href="index.php?page=report/index" class="<?php echo strpos($page,'report') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-bar-chart-line me-1"></i>All Reports
+                        </a></li>
+                        <?php if (showMenu($auth, 'settlement')): ?>
+                        <li><a href="index.php?page=settlement/list" class="<?php echo strpos($page,'settlement') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-cash-coin me-1"></i>F&F Settlement
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'report')): ?>
+                        <li><a href="index.php?page=billing/list" class="<?php echo strpos($page,'billing') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-receipt me-1"></i>Billing
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'report')): ?>
+                        <li><a href="index.php?page=ratecard/list" class="<?php echo strpos($page,'ratecard') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-tag me-1"></i>Rate Card
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'report')): ?>
+                        <li><a href="index.php?page=contract/list" class="<?php echo strpos($page,'contract') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-file-text me-1"></i>Contracts
+                        </a></li>
+                        <?php endif; ?>
+                    </ul>
+                </li>
+                <?php endif; ?>
+
+                <!-- HELPDESK -->
+                <?php if (showMenu($auth, 'helpdesk')): ?>
+                <li class="sidebar-item has-submenu <?php echo in_array($pageRoot, $helpdeskModules) ? 'open' : ''; ?>">
+                    <a href="#" class="sidebar-link">
+                        <i class="bi bi-headset"></i><span>Helpdesk</span>
+                        <i class="bi bi-chevron-down ms-auto sub-arrow"></i>
+                    </a>
+                    <ul class="sidebar-submenu">
+                        <li><a href="index.php?page=helpdesk/index" class="<?php echo strpos($page,'helpdesk') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-headset me-1"></i>Tickets
+                        </a></li>
+                        <?php if (showMenu($auth, 'helpdesk')): ?>
+                        <li><a href="index.php?page=feedback/list" class="<?php echo strpos($page,'feedback') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-chat-dots me-1"></i>Feedback
+                        </a></li>
+                        <?php endif; ?>
+                    </ul>
+                </li>
+                <?php endif; ?>
+
+                <!-- NOTIFICATIONS -->
+                <?php if (showMenu($auth, 'notifications')): ?>
+                <li class="sidebar-item <?php echo strpos($page, 'notifications') === 0 ? 'active' : ''; ?>">
+                    <a href="index.php?page=notifications/index" class="sidebar-link">
+                        <i class="bi bi-bell"></i><span>Notifications</span><?= sidebarBadge($annUnreadCount) ?>
+                    </a>
+                </li>
+                <?php endif; ?>
+
+                <!-- SETTINGS (admin only) -->
+                <?php if (showMenu($auth, 'settings') && $_SESSION['role_code'] === 'admin'): ?>
+                <li class="sidebar-item has-submenu <?php echo in_array($pageRoot, $settingsModules) ? 'open' : ''; ?>">
+                    <a href="#" class="sidebar-link">
+                        <i class="bi bi-gear"></i><span>Settings</span>
+                        <i class="bi bi-chevron-down ms-auto sub-arrow"></i>
+                    </a>
+                    <ul class="sidebar-submenu">
+                        <li><a href="index.php?page=settings/index" class="<?php echo strpos($page,'settings') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-gear me-1"></i>Settings Hub
+                        </a></li>
+                        <?php if (showMenu($auth, 'assets')): ?>
+                        <li><a href="index.php?page=assets/index" class="<?php echo strpos($page,'assets') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-box-seam me-1"></i>Assets
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'settings')): ?>
+                        <li><a href="index.php?page=notifications/whatsapp" class="<?php echo $page === 'notifications/whatsapp' ? 'active' : ''; ?>">
+                            <i class="bi bi-whatsapp text-success me-1"></i>WhatsApp
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'settings')): ?>
+                        <li><a href="index.php?page=audit/list" class="<?php echo strpos($page,'audit') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-journal-text me-1"></i>Audit Log
+                        </a></li>
+                        <?php endif; ?>
+                        <?php if (showMenu($auth, 'settings')): ?>
+                        <li><a href="index.php?page=announcement/list" class="<?php echo strpos($page,'announcement') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-megaphone me-1"></i>Announcements
+                        </a></li>
+                        <?php endif; ?>
+                    </ul>
                 </li>
                 <?php endif; ?>
             </ul>
@@ -300,10 +359,10 @@
                             'attendance' => 'Attendance',
                             'advance'    => 'Advance',
                             'expense'    => 'Expenses',
-                            'entry'      => 'Entry',
+                            'entry'      => 'Salary & Entries',
                             'payroll'    => 'Payroll',
                             'compliance' => 'Compliance',
-                            'forms'      => 'Forms',
+                            'forms'      => 'Forms & Letters',
                             'assets'     => 'Assets',
                             'helpdesk'   => 'Helpdesk',
                             'leave'      => 'Leave',
@@ -322,9 +381,35 @@
                             'timesheet'  => 'Timesheets',
                             'loan'       => 'Loans',
                             'audit'      => 'Audit Log',
+                            'feedback'   => 'Feedback',
                             'bulk-upload'=> 'Bulk Upload',
                             'portal'     => 'Portal',
                             'auth'       => 'Authentication',
+                        ];
+
+                        // Parent menu mapping for new 9-item structure
+                        $bcParentMenu = [
+                            'attendance'  => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
+                            'advance'     => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
+                            'leave'       => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
+                            'loan'        => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
+                            'entry'       => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
+                            'expense'     => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
+                            'timesheet'   => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
+                            'client'      => ['label' => 'Employees', 'link' => 'index.php?page=employee/index'],
+                            'recruitment' => ['label' => 'Employees', 'link' => 'index.php?page=employee/index'],
+                            'deployment'  => ['label' => 'Employees', 'link' => 'index.php?page=employee/index'],
+                            'requisition' => ['label' => 'Employees', 'link' => 'index.php?page=employee/index'],
+                            'compliance'  => ['label' => 'Compliance', 'link' => 'index.php?page=compliance/index'],
+                            'forms'       => ['label' => 'Compliance', 'link' => 'index.php?page=compliance/index'],
+                            'settlement'  => ['label' => 'Reports', 'link' => 'index.php?page=report/index'],
+                            'billing'     => ['label' => 'Reports', 'link' => 'index.php?page=report/index'],
+                            'ratecard'    => ['label' => 'Reports', 'link' => 'index.php?page=report/index'],
+                            'contract'    => ['label' => 'Reports', 'link' => 'index.php?page=report/index'],
+                            'feedback'    => ['label' => 'Helpdesk', 'link' => 'index.php?page=helpdesk/index'],
+                            'assets'      => ['label' => 'Settings', 'link' => 'index.php?page=settings/index'],
+                            'audit'       => ['label' => 'Settings', 'link' => 'index.php?page=settings/index'],
+                            'announcement' => ['label' => 'Settings', 'link' => 'index.php?page=settings/index'],
                         ];
 
                         // Sub-folder display names (second level)
@@ -579,6 +664,16 @@
                             // Dashboard - no extra crumbs
                             $breadcrumbs[] = ['label' => 'Dashboard', 'link' => null, 'active' => true];
                         } else {
+                            // Add parent menu crumb if module has a parent in new structure
+                            if (isset($bcParentMenu[$bcModule])) {
+                                $parentInfo = $bcParentMenu[$bcModule];
+                                // Only add parent if it differs from the module's own label
+                                $modOwnLabel = $bcModules[$bcModule] ?? '';
+                                if ($parentInfo['label'] !== $modOwnLabel) {
+                                    $breadcrumbs[] = ['label' => $parentInfo['label'], 'link' => $parentInfo['link'], 'active' => false];
+                                }
+                            }
+
                             // Add module crumb (clickable)
                             $modLabel = $bcModules[$bcModule] ?? ucfirst(str_replace('-', ' ', $bcModule));
                             $modLink = $bcModuleIndex[$bcModule] ?? $bcModule;

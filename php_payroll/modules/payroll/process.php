@@ -361,6 +361,20 @@ if (isset($_GET['period_id']) && !empty($_GET['period_id'])) {
     }
 }
 
+// Guard: prevent modifications to Frozen or Locked periods
+$writeActions = ['process_unit','recalculate_unit','deduct_loans_unit','finalize_unit','approve_payroll','delete_payroll'];
+foreach ($writeActions as $action) {
+    if (isset($_POST[$action]) && isset($_POST['period_id'])) {
+        $guardPeriod = $db->fetch("SELECT status, period_name FROM payroll_periods WHERE id = ?", [(int)$_POST['period_id']]);
+        if ($guardPeriod && isPayrollLocked($guardPeriod['status'])) {
+            setFlash('error', 'This payroll period (' . sanitize($guardPeriod['period_name']) . ') is finalized and cannot be modified.');
+            redirect('index.php?page=payroll/process');
+            exit;
+        }
+        break;
+    }
+}
+
 // Handle process unit payroll
 if (isset($_POST['process_unit']) && isset($_POST['period_id']) && isset($_POST['unit_id'])) {
     $periodId = (int)$_POST['period_id'];

@@ -178,7 +178,68 @@ $complianceSummary = $compliance->getSummary();
         </div>
     </div>
     
-    <!-- Unit Distribution -->
+    <?php
+// Get payroll period status for current month (and previous month as fallback)
+$displayPeriod = null;
+$displayPeriodStatus = null;
+
+// Check current month
+$cpCheck = $db->fetch("SELECT id, status, period_name, month, year FROM payroll_periods WHERE month = ? AND year = ? ORDER BY id DESC LIMIT 1", [$currentMonth, $currentYear]);
+if ($cpCheck) {
+    $displayPeriod = $cpCheck;
+    $displayPeriodStatus = $cpCheck['status'];
+} else {
+    // Fallback: check previous month
+    $prevM = $currentMonth == 1 ? 12 : $currentMonth - 1;
+    $prevY = $currentMonth == 1 ? $currentYear - 1 : $currentYear;
+    $ppCheck = $db->fetch("SELECT id, status, period_name, month, year FROM payroll_periods WHERE month = ? AND year = ? ORDER BY id DESC LIMIT 1", [$prevM, $prevY]);
+    if ($ppCheck) {
+        $displayPeriod = $ppCheck;
+        $displayPeriodStatus = $ppCheck['status'];
+    }
+}
+
+// Build pipeline data for JS
+$pipeline = unserialize(PAYROLL_PIPELINE);
+$currentStep = $displayPeriodStatus ? getPayrollPipelineStep($displayPeriodStatus) : -1;
+// Merge Frozen and Locked into same visual step (step 4)
+if ($currentStep === 5) $currentStep = 4;
+$pipelineJson = json_encode(['steps' => array_slice($pipeline, 0, 5), 'currentStep' => $currentStep, 'periodName' => $displayPeriod['period_name'] ?? null, 'periodId' => $displayPeriod['id'] ?? null]);
+?>
+
+<!-- Payroll Pipeline Widget -->
+<div class="col-12 mb-4">
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-transparent border-0 pt-4 pb-0 px-4">
+            <h5 class="card-title mb-0"><i class="bi bi-diagram-3 text-primary me-2"></i>Payroll Pipeline</h5>
+        </div>
+        <div class="card-body px-4 pb-4">
+            <?php if ($displayPeriod): ?>
+            <div class="d-flex align-items-center mb-2">
+                <span class="text-muted me-2">Period:</span>
+                <strong id="pipeline-period-name"><?php echo sanitize($displayPeriod['period_name']); ?></strong>
+                <span class="badge bg-<?php echo $displayPeriodStatus === 'Paid' || $displayPeriodStatus === 'Frozen' || $displayPeriodStatus === 'Locked' ? 'success' : ($displayPeriodStatus === 'Approved' ? 'info' : ($displayPeriodStatus === 'Processed' ? 'primary' : 'secondary')); ?> ms-2" id="pipeline-status-badge"><?php echo sanitize($displayPeriodStatus); ?></span>
+            </div>
+            <div class="pipeline-steps" id="pipelineWidget"></div>
+            <div class="text-center mt-2">
+                <a href="index.php?page=payroll/process<?php echo $displayPeriod ? '&period_id=' . $displayPeriod['id'] : ''; ?>" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Open Payroll
+                </a>
+            </div>
+            <?php else: ?>
+            <div class="text-center py-3 text-muted">
+                <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                No payroll period found for this month.
+                <br><a href="index.php?page=payroll/process" class="btn btn-sm btn-outline-primary mt-2">
+                    <i class="bi bi-plus-circle me-1"></i>Create Period
+                </a>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<!-- Unit Distribution -->
     <div class="col-lg-6 mb-4">
         <div class="card">
             <div class="card-header">
@@ -391,6 +452,28 @@ $complianceSummary = $compliance->getSummary();
 $unitWiseCountJson = json_encode($unitWiseCount);
 
 $inlineJS = <<<'JS'
+// Payroll Pipeline Widget
+const pipelineData = PIPELINE_DATA;
+if (document.getElementById('pipelineWidget') && pipelineData.steps) {
+    const container = document.getElementById('pipelineWidget');
+    let html = '';
+    pipelineData.steps.forEach(function(step, i) {
+        if (i > 0) {
+            const connClass = i <= pipelineData.currentStep ? 'completed' : '';
+            html += '<div class="pipeline-connector ' + connClass + '"></div>';
+        }
+        let stepClass = '';
+        if (i < pipelineData.currentStep) stepClass = 'completed';
+        else if (i === pipelineData.currentStep) stepClass = 'active';
+        const bgStyle = stepClass === 'active' ? 'background:' + step.color : (stepClass === 'completed' ? '' : '');
+        html += '<div class="pipeline-step ' + stepClass + '">' +
+            '<div class="pipeline-step-circle" style="' + bgStyle + '">' +
+            '<i class="bi ' + step.icon + '"></i></div>' +
+            '<div class="pipeline-step-label">' + step.label + '</div></div>';
+    });
+    container.innerHTML = html;
+}
+
 // Unit Distribution Chart
 const unitWiseCount = UNIT_WISE_COUNT_DATA; // Replaced with actual data below
 
@@ -421,6 +504,7 @@ if (document.getElementById('unitChart') && typeof Chart !== 'undefined') {
 }
 JS;
 
-// Now replace the placeholder with actual data
+// Now replace placeholders with actual data
+$inlineJS = str_replace('PIPELINE_DATA', $pipelineJson, $inlineJS);
 $inlineJS = str_replace('UNIT_WISE_COUNT_DATA', $unitWiseCountJson, $inlineJS);
 ?>

@@ -101,5 +101,53 @@
                 </div>
             </a>
         </div>
+        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
+            <a href="index.php?page=assets/index" class="text-decoration-none">
+                <div class="card module-card h-100">
+                    <div class="card-body">
+                        <div class="mod-icon bg-cyan-soft"><i class="bi bi-box-seam"></i></div>
+                        <div class="mod-title">Assets</div>
+                        <div class="mod-desc">Manage company assets</div>
+                    </div>
+                    <i class="bi bi-arrow-right mod-arrow"></i>
+                </div>
+            </a>
+        </div>
+        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
+            <a href="index.php?page=notifications/whatsapp" class="text-decoration-none">
+                <div class="card module-card h-100">
+                    <div class="card-body">
+                        <div class="mod-icon bg-whatsapp-soft"><i class="bi bi-whatsapp"></i></div>
+                        <div class="mod-title">WhatsApp</div>
+                        <div class="mod-desc">Messaging configuration</div>
+                    </div>
+                    <i class="bi bi-arrow-right mod-arrow"></i>
+                </div>
+            </a>
+        </div>
+        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
+            <a href="index.php?page=audit/list" class="text-decoration-none">
+                <div class="card module-card h-100">
+                    <div class="card-body">
+                        <div class="mod-icon bg-secondary-soft"><i class="bi bi-journal-text"></i></div>
+                        <div class="mod-title">Audit Log</div>
+                        <div class="mod-desc">System activity trail</div>
+                    </div>
+                    <i class="bi bi-arrow-right mod-arrow"></i>
+                </div>
+            </a>
+        </div>
+        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
+            <a href="index.php?page=announcement/list" class="text-decoration-none">
+                <div class="card module-card h-100">
+                    <div class="card-body">
+                        <div class="mod-icon bg-pink-soft"><i class="bi bi-megaphone"></i></div>
+                        <div class="mod-title">Announcements</div>
+                        <div class="mod-desc">Manage company announcements</div>
+                    </div>
+                    <i class="bi bi-arrow-right mod-arrow"></i>
+                </div>
+            </a>
+        </div>
     </div>
 </div>
