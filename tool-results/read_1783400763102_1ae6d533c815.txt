@@ -1,0 +1,868 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS - Employee Bulk Edit Page
+     4→ * Excel-like inline editing grid for updating multiple employees at once
+     5→ */
+     6→
+     7→$pageTitle = 'Bulk Edit Employees';
+     8→
+     9→// Define ALL editable columns organized by category
+    10→$allColumns = [
+    11→    'personal' => [
+    12→        'label' => 'Personal Info',
+    13→        'icon' => 'bi-person',
+    14→        'fields' => [
+    15→            'employee_code' => ['label' => 'Emp Code', 'type' => 'readonly', 'default' => true],
+    16→            'full_name' => ['label' => 'Full Name', 'type' => 'text', 'default' => true, 'required' => true],
+    17→            'father_name' => ['label' => 'Father Name', 'type' => 'text', 'default' => false],
+    18→            'gender' => ['label' => 'Gender', 'type' => 'select', 'options' => ['Male' => 'Male', 'Female' => 'Female', 'Other' => 'Other'], 'default' => false],
+    19→            'date_of_birth' => ['label' => 'DOB', 'type' => 'date', 'default' => false],
+    20→            'mobile_number' => ['label' => 'Mobile', 'type' => 'tel', 'default' => false],
+    21→            'alternate_mobile' => ['label' => 'Alt Mobile', 'type' => 'tel', 'default' => false],
+    22→            'email' => ['label' => 'Email', 'type' => 'email', 'default' => false],
+    23→            'marital_status' => ['label' => 'Marital Status', 'type' => 'select', 'options' => ['Single' => 'Single', 'Married' => 'Married', 'Divorced' => 'Divorced', 'Widowed' => 'Widowed'], 'default' => false],
+    24→            'blood_group' => ['label' => 'Blood Group', 'type' => 'select', 'options' => ['A+' => 'A+', 'A-' => 'A-', 'B+' => 'B+', 'B-' => 'B-', 'AB+' => 'AB+', 'AB-' => 'AB-', 'O+' => 'O+', 'O-' => 'O-'], 'default' => false],
+    25→            'aadhaar_number' => ['label' => 'Aadhaar', 'type' => 'text', 'default' => false],
+    26→        ]
+    27→    ],
+    28→    'employment' => [
+    29→        'label' => 'Employment',
+    30→        'icon' => 'bi-briefcase',
+    31→        'fields' => [
+    32→            'client_id' => ['label' => 'Client', 'type' => 'select_dynamic', 'source' => 'clients', 'default' => false],
+    33→            'unit_id' => ['label' => 'Unit', 'type' => 'select_dynamic', 'source' => 'units', 'depends_on' => 'client_id', 'default' => false],
+    34→            'designation' => ['label' => 'Designation', 'type' => 'text', 'default' => false],
+    35→            'department' => ['label' => 'Department', 'type' => 'text', 'default' => false],
+    36→            'worker_category' => ['label' => 'Category', 'type' => 'select', 'options' => ['Skilled' => 'Skilled', 'Semi-Skilled' => 'Semi-Skilled', 'Unskilled' => 'Unskilled', 'Supervisor' => 'Supervisor', 'Manager' => 'Manager', 'Other' => 'Other'], 'default' => false],
+    37→            'employment_type' => ['label' => 'Emp Type', 'type' => 'select', 'options' => ['Permanent' => 'Permanent', 'Temporary' => 'Temporary', 'Contract' => 'Contract', 'Daily Wages' => 'Daily Wages'], 'default' => false],
+    38→            'date_of_joining' => ['label' => 'DOJ', 'type' => 'date', 'default' => false],
+    39→            'date_of_leaving' => ['label' => 'DOL', 'type' => 'date', 'default' => false],
+    40→            'status' => ['label' => 'Status', 'type' => 'select', 'options' => ['approved' => 'Active', 'pending_hr_verification' => 'Pending', 'inactive' => 'Inactive', 'terminated' => 'Terminated', 'removed' => 'Removed'], 'default' => false],
+    41→        ]
+    42→    ],
+    43→    'compliance' => [
+    44→        'label' => 'Compliance',
+    45→        'icon' => 'bi-shield-check',
+    46→        'fields' => [
+    47→            'uan_number' => ['label' => 'UAN', 'type' => 'text', 'default' => false],
+    48→            'esic_number' => ['label' => 'ESIC No', 'type' => 'text', 'default' => false],
+    49→            'pf_applicable' => ['label' => 'PF', 'type' => 'checkbox', 'default' => false],
+    50→            'esi_applicable' => ['label' => 'ESI', 'type' => 'checkbox', 'default' => false],
+    51→            'pt_applicable' => ['label' => 'PT', 'type' => 'checkbox', 'default' => false],
+    52→            'lwf_applicable' => ['label' => 'LWF', 'type' => 'checkbox', 'default' => false],
+    53→            'bonus_applicable' => ['label' => 'Bonus', 'type' => 'checkbox', 'default' => false],
+    54→        ]
+    55→    ],
+    56→    'salary' => [
+    57→        'label' => 'Salary',
+    58→        'icon' => 'bi-cash-coin',
+    59→        'fields' => [
+    60→            'basic_da' => ['label' => 'Basic+DA', 'type' => 'number', 'default' => false],
+    61→            'hra' => ['label' => 'HRA', 'type' => 'number', 'default' => false],
+    62→            'leave_encashment' => ['label' => 'Leave Enc.', 'type' => 'number', 'default' => false],
+    63→            'bonus_encashment' => ['label' => 'Bonus Enc.', 'type' => 'number', 'default' => false],
+    64→            'washing_allowance' => ['label' => 'Washing', 'type' => 'number', 'default' => false],
+    65→            'gross_salary' => ['label' => 'Gross', 'type' => 'number', 'default' => false],
+    66→        ]
+    67→    ],
+    68→    'bank' => [
+    69→        'label' => 'Bank Details',
+    70→        'icon' => 'bi-bank',
+    71→        'fields' => [
+    72→            'bank_name' => ['label' => 'Bank Name', 'type' => 'text', 'default' => false],
+    73→            'account_number' => ['label' => 'Account No', 'type' => 'text', 'default' => true],
+    74→            'ifsc_code' => ['label' => 'IFSC', 'type' => 'text', 'default' => true],
+    75→            'account_holder_name' => ['label' => 'Holder Name', 'type' => 'text', 'default' => false],
+    76→        ]
+    77→    ],
+    78→    'address' => [
+    79→        'label' => 'Address',
+    80→        'icon' => 'bi-geo-alt',
+    81→        'fields' => [
+    82→            'address' => ['label' => 'Address', 'type' => 'textarea', 'default' => false],
+    83→            'state' => ['label' => 'State', 'type' => 'text', 'default' => false],
+    84→            'district' => ['label' => 'District', 'type' => 'text', 'default' => false],
+    85→            'pin_code' => ['label' => 'Pin Code', 'type' => 'text', 'default' => false],
+    86→        ]
+    87→    ],
+    88→    'nominee' => [
+    89→        'label' => 'Nominee/Emergency',
+    90→        'icon' => 'bi-person-heart',
+    91→        'fields' => [
+    92→            'nominee_name' => ['label' => 'Nominee Name', 'type' => 'text', 'default' => false],
+    93→            'nominee_relationship' => ['label' => 'Nominee Relation', 'type' => 'text', 'default' => false],
+    94→            'nominee_dob' => ['label' => 'Nominee DOB', 'type' => 'date', 'default' => false],
+    95→            'nominee_contact' => ['label' => 'Nominee Contact', 'type' => 'tel', 'default' => false],
+    96→            'emergency_contact_name' => ['label' => 'Emergency Name', 'type' => 'text', 'default' => false],
+    97→            'emergency_contact_relation' => ['label' => 'Emergency Relation', 'type' => 'text', 'default' => false],
+    98→        ]
+    99→    ],
+   100→];
+   101→
+   102→// Flatten all fields for easy access
+   103→$flatColumns = [];
+   104→foreach ($allColumns as $catKey => $category) {
+   105→    foreach ($category['fields'] as $fieldKey => $fieldInfo) {
+   106→        $flatColumns[$fieldKey] = array_merge($fieldInfo, ['category' => $catKey]);
+   107→    }
+   108→}
+   109→
+   110→// Get filters
+   111→$filters = [
+   112→    'status' => sanitize($_GET['status'] ?? 'approved'),
+   113→    'client_id' => !empty($_GET['client_id']) ? (int)$_GET['client_id'] : null,
+   114→    'unit_id' => !empty($_GET['unit_id']) ? (int)$_GET['unit_id'] : null,
+   115→    'worker_category' => sanitize($_GET['worker_category'] ?? ''),
+   116→    'search' => sanitize($_GET['search'] ?? '')
+   117→];
+   118→
+   119→// Get employees (limit 200 for bulk edit)
+   120→$employees = [];
+   121→$total = 0;
+   122→try {
+   123→    $result = $employee->getAll($filters, 1, 200);
+   124→    $employees = $result['data'];
+   125→    $total = $result['total'];
+   126→} catch (Exception $e) {
+   127→    // Error handled silently
+   128→}
+   129→
+   130→// Get clients for filter and for Client dropdown
+   131→$clients = [];
+   132→try {
+   133→    $stmt = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
+   134→    $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
+   135→} catch (Exception $e) {}
+   136→
+   137→// Get units - filtered by selected client (client-dedicated, like attendance page)
+   138→$units = [];
+   139→$filterClientId = $filters['client_id'];
+   140→try {
+   141→    if ($filterClientId) {
+   142→        $stmt = $db->prepare("SELECT id, name, client_id FROM units WHERE client_id = ? AND is_active = 1 ORDER BY name");
+   143→        $stmt->execute([$filterClientId]);
+   144→    } else {
+   145→        $stmt = $db->query("SELECT id, name, client_id FROM units WHERE is_active = 1 ORDER BY name");
+   146→    }
+   147→    $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
+   148→} catch (Exception $e) {}
+   149→
+   150→// Get Indian states for state dropdown
+   151→$indianStates = [
+   152→    'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+   153→    'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand',
+   154→    'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
+   155→    'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab',
+   156→    'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura',
+   157→    'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+   158→    'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli',
+   159→    'Daman and Diu', 'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry'
+   160→];
+   161→
+   162→// Prepare JSON data for JavaScript
+   163→$clientsJson = json_encode($clients);
+   164→$unitsJson = json_encode($units);
+   165→$statesJson = json_encode($indianStates);
+   166→$flatColumnsJson = json_encode($flatColumns);
+   167→$allColumnsJson = json_encode($allColumns);
+   168→?>
+   169→
+   170→<!-- Info Banner -->
+   171→<div class="alert alert-info d-flex align-items-center mb-3" role="alert">
+   172→    <i class="bi bi-info-circle me-2 fs-5"></i>
+   173→    <div>
+   174→        <strong>Bulk Edit Mode:</strong> Click any cell to edit. Choose columns from the <strong>Columns</strong> dropdown.
+   175→        Only <strong>highlighted (changed)</strong> cells will be saved. Maximum 200 employees per page.
+   176→    </div>
+   177→</div>
+   178→
+   179→<div class="row">
+   180→    <div class="col-12">
+   181→        <div class="card">
+   182→            <div class="card-header">
+   183→                <h5 class="card-title mb-0"><i class="bi bi-pencil-square me-2"></i>Bulk Edit Employees</h5>
+   184→                <div class="card-actions">
+   185→                    <button type="button" class="btn btn-success btn-sm" id="btnSaveAll" onclick="saveAllChanges()" disabled>
+   186→                        <i class="bi bi-check-lg me-1"></i>Save Changes <span class="badge bg-light text-dark ms-1" id="changeCount">0</span>
+   187→                    </button>
+   188→                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="undoAllChanges()">
+   189→                        <i class="bi bi-arrow-counterclockwise me-1"></i>Undo All
+   190→                    </button>
+   191→                    <!-- Column Selector -->
+   192→                    <div class="btn-group" role="group">
+   193→                        <button type="button" class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" id="columnDropdownBtn">
+   194→                            <i class="bi bi-layout-three-columns me-1"></i>Columns
+   195→                            <span class="badge bg-primary ms-1" id="visibleColCount">0</span>
+   196→                        </button>
+   197→                        <div class="dropdown-menu dropdown-menu-end p-3" style="min-width: 350px; max-height: 500px; overflow-y: auto;" id="columnDropdown">
+   198→                            <div class="mb-2">
+   199→                                <input type="text" class="form-control form-control-sm" id="columnSearch" placeholder="Search columns...">
+   200→                            </div>
+   201→                            <?php foreach ($allColumns as $catKey => $category): ?>
+   202→                            <div class="mb-3 column-category" data-category="<?php echo $catKey; ?>">
+   203→                                <h6 class="text-muted mb-2"><i class="bi <?php echo $category['icon']; ?> me-1"></i><?php echo $category['label']; ?></h6>
+   204→                                <?php foreach ($category['fields'] as $fieldKey => $fieldInfo): ?>
+   205→                                <div class="form-check column-check-item" data-field="<?php echo $fieldKey; ?>" data-label="<?php echo strtolower($fieldInfo['label']); ?>">
+   206→                                    <input type="checkbox" class="form-check-input col-toggle" id="col_<?php echo $fieldKey; ?>" 
+   207→                                           data-column="<?php echo $fieldKey; ?>" <?php echo $fieldInfo['default'] ? 'checked' : ''; ?>>
+   208→                                    <label class="form-check-label small" for="col_<?php echo $fieldKey; ?>">
+   209→                                        <?php echo $fieldInfo['label']; ?>
+   210→                                        <?php if ($fieldInfo['type'] === 'checkbox'): ?>
+   211→                                            <span class="text-muted">(yes/no)</span>
+   212→                                        <?php elseif ($fieldInfo['type'] === 'date'): ?>
+   213→                                            <span class="text-muted">(date)</span>
+   214→                                        <?php endif; ?>
+   215→                                    </label>
+   216→                                </div>
+   217→                                <?php endforeach; ?>
+   218→                            </div>
+   219→                            <?php endforeach; ?>
+   220→                            <hr>
+   221→                            <div class="d-flex gap-2">
+   222→                                <button type="button" class="btn btn-sm btn-outline-primary flex-fill" onclick="selectAllColumns()">
+   223→                                    <i class="bi bi-check-all me-1"></i>Select All
+   224→                                </button>
+   225→                                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" onclick="resetColumns()">
+   226→                                    <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+   227→                                </button>
+   228→                            </div>
+   229→                        </div>
+   230→                    </div>
+   231→                </div>
+   232→            </div>
+   233→            
+   234→            <!-- Filters -->
+   235→            <div class="card-body border-bottom">
+   236→                <form method="GET" class="row g-2" id="filterForm">
+   237→                    <input type="hidden" name="page" value="employee/bulk-edit">
+   238→                    
+   239→                    <div class="col-md-2">
+   240→                        <input type="text" class="form-control form-control-sm" name="search" 
+   241→                               placeholder="Search name, code, mobile..." 
+   242→                               value="<?php echo htmlspecialchars($filters['search'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+   243→                    </div>
+   244→                    
+   245→                    <div class="col-md-2">
+   246→                        <select class="form-select form-select-sm" name="status">
+   247→                            <option value="approved" <?php echo $filters['status'] === 'approved' ? 'selected' : ''; ?>>Active</option>
+   248→                            <option value="" <?php echo $filters['status'] === '' ? 'selected' : ''; ?>>All Status</option>
+   249→                            <option value="pending_hr_verification" <?php echo $filters['status'] === 'pending_hr_verification' ? 'selected' : ''; ?>>Pending</option>
+   250→                            <option value="removed" <?php echo $filters['status'] === 'removed' ? 'selected' : ''; ?>>Removed</option>
+   251→                        </select>
+   252→                    </div>
+   253→                    
+   254→                    <div class="col-md-2">
+   255→                        <select class="form-select form-select-sm" name="client_id" id="clientFilter" onchange="filterUnits(); document.getElementById('filterForm').submit();">
+   256→                            <option value="">All Clients</option>
+   257→                            <?php foreach ($clients as $c): ?>
+   258→                            <option value="<?php echo $c['id']; ?>" <?php echo $filters['client_id'] == $c['id'] ? 'selected' : ''; ?>>
+   259→                                <?php echo sanitize($c['name']); ?>
+   260→                            </option>
+   261→                            <?php endforeach; ?>
+   262→                        </select>
+   263→                    </div>
+   264→                    
+   265→                    <div class="col-md-2">
+   266→                        <select class="form-select form-select-sm" name="unit_id" id="unitFilter">
+   267→                            <option value="">All Units</option>
+   268→                            <?php foreach ($units as $u): ?>
+   269→                            <option value="<?php echo $u['id']; ?>" <?php echo $filters['unit_id'] == $u['id'] ? 'selected' : ''; ?>>
+   270→                                <?php echo sanitize($u['name']); ?>
+   271→                            </option>
+   272→                            <?php endforeach; ?>
+   273→                        </select>
+   274→                    </div>
+   275→                    
+   276→                    <div class="col-md-2">
+   277→                        <select class="form-select form-select-sm" name="worker_category">
+   278→                            <option value="">All Categories</option>
+   279→                            <option value="Skilled" <?php echo $filters['worker_category'] === 'Skilled' ? 'selected' : ''; ?>>Skilled</option>
+   280→                            <option value="Semi-Skilled" <?php echo $filters['worker_category'] === 'Semi-Skilled' ? 'selected' : ''; ?>>Semi-Skilled</option>
+   281→                            <option value="Unskilled" <?php echo $filters['worker_category'] === 'Unskilled' ? 'selected' : ''; ?>>Unskilled</option>
+   282→                            <option value="Supervisor" <?php echo $filters['worker_category'] === 'Supervisor' ? 'selected' : ''; ?>>Supervisor</option>
+   283→                            <option value="Manager" <?php echo $filters['worker_category'] === 'Manager' ? 'selected' : ''; ?>>Manager</option>
+   284→                        </select>
+   285→                    </div>
+   286→                    
+   287→                    <div class="col-md-2">
+   288→                        <button type="submit" class="btn btn-primary btn-sm">
+   289→                            <i class="bi bi-search me-1"></i>Load
+   290→                        </button>
+   291→                        <a href="index.php?page=employee/bulk-edit" class="btn btn-outline-secondary btn-sm">Reset</a>
+   292→                    </div>
+   293→                </form>
+   294→            </div>
+   295→            
+   296→            <!-- Stats bar -->
+   297→            <div class="card-body border-bottom py-2 d-flex justify-content-between align-items-center">
+   298→                <small class="text-muted">
+   299→                    Showing <strong><?php echo count($employees); ?></strong> of <strong><?php echo number_format($total); ?></strong> employees
+   300→                    <?php if ($total > 200): ?>
+   301→                    <span class="text-warning">(Limited to 200 — use filters to narrow down)</span>
+   302→                    <?php endif; ?>
+   303→                </small>
+   304→                <div id="saveStatus"></div>
+   305→            </div>
+   306→            
+   307→            <!-- Editable Table -->
+   308→            <div class="card-body p-0">
+   309→                <div class="table-responsive bulk-edit-table-wrapper">
+   310→                    <table class="table table-sm table-bordered mb-0 bulk-edit-table" id="bulkEditTable">
+   311→                        <thead class="table-light sticky-top">
+   312→                            <tr id="tableHeaderRow">
+   313→                                <th class="text-center" style="min-width:50px; position:sticky; left:0; z-index:3; background:#f8f9fa;">#</th>
+   314→                            </tr>
+   315→                        </thead>
+   316→                        <tbody id="tableBody">
+   317→                            <?php if (empty($employees)): ?>
+   318→                            <tr>
+   319→                                <td colspan="3" class="text-center py-4 text-muted">
+   320→                                    No employees found. Adjust filters and click <strong>Load</strong>.
+   321→                                </td>
+   322→                            </tr>
+   323→                            <?php else: ?>
+   324→                            <?php foreach ($employees as $emp): ?>
+   325→                            <tr data-emp-id="<?php echo $emp['id']; ?>" data-original='<?php echo htmlspecialchars(json_encode($emp), ENT_QUOTES, 'UTF-8'); ?>'>
+   326→                                <td class="text-center text-muted small" style="position:sticky; left:0; z-index:2; background:white;">
+   327→                                    <?php echo $emp['employee_code']; ?>
+   328→                                </td>
+   329→                            </tr>
+   330→                            <?php endforeach; ?>
+   331→                            <?php endif; ?>
+   332→                        </tbody>
+   333→                    </table>
+   334→                </div>
+   335→            </div>
+   336→        </div>
+   337→    </div>
+   338→</div>
+   339→
+   340→<!-- Inject PHP data variables in a separate script to avoid heredoc escape issues -->
+   341→<script>
+   342→var ALL_COLUMNS = <?php echo $flatColumnsJson; ?>;
+   343→var CATEGORIES = <?php echo $allColumnsJson; ?>;
+   344→var CLIENTS = <?php echo $clientsJson; ?>;
+   345→var UNITS = <?php echo $unitsJson; ?>;
+   346→var STATES = <?php echo $statesJson; ?>;
+   347→</script>
+   348→
+   349→<?php
+   350→// Use nowdoc (<<<'JS') so PHP does NOT process any escape sequences or variables.
+   351→// All JS code is completely literal — no \n issues, no $variable interpolation.
+   352→$extraJS = <<<'NOWDOC'
+   353→<script>
+   354→var originalData = {};
+   355→var dirtyCells = new Set();
+   356→var PREFS_KEY = 'bulkEditColPrefs';
+   357→var PREFS_VERSION = 3;
+   358→
+   359→function getSelectedColumns() {
+   360→    var selected = [];
+   361→    document.querySelectorAll('.col-toggle:checked').forEach(function(cb) {
+   362→        selected.push(cb.dataset.column);
+   363→    });
+   364→    return selected;
+   365→}
+   366→
+   367→function renderTable() {
+   368→    var selectedCols = getSelectedColumns();
+   369→    updateColumnCount(selectedCols);
+   370→
+   371→    var headerRow = document.getElementById('tableHeaderRow');
+   372→    headerRow.innerHTML = '<th class="text-center" style="min-width:50px;position:sticky;left:0;z-index:3;background:#f8f9fa;">#</th>';
+   373→
+   374→    selectedCols.forEach(function(colKey) {
+   375→        var col = ALL_COLUMNS[colKey];
+   376→        if (!col) return;
+   377→        var th = document.createElement('th');
+   378→        th.className = 'bulk-col-header';
+   379→        th.dataset.column = colKey;
+   380→        var mw = '150px';
+   381→        if (col.type === 'textarea') mw = '200px';
+   382→        else if (col.type === 'date') mw = '140px';
+   383→        else if (col.type === 'checkbox') mw = '60px';
+   384→        th.style.minWidth = mw;
+   385→        th.textContent = col.label;
+   386→        headerRow.appendChild(th);
+   387→    });
+   388→
+   389→    var rows = document.querySelectorAll('#tableBody tr[data-emp-id]');
+   390→    rows.forEach(function(row) {
+   391→        var empId = row.dataset.empId;
+   392→        var original = JSON.parse(row.dataset.original);
+   393→        originalData[empId] = Object.assign({}, original);
+   394→
+   395→        var firstTd = row.querySelector('td:first-child');
+   396→        row.innerHTML = '';
+   397→        row.appendChild(firstTd);
+   398→
+   399→        selectedCols.forEach(function(colKey) {
+   400→            var col = ALL_COLUMNS[colKey];
+   401→            if (!col) return;
+   402→            var td = document.createElement('td');
+   403→            td.className = 'bulk-cell';
+   404→            td.dataset.empId = empId;
+   405→            td.dataset.field = colKey;
+   406→            td.style.minHeight = '38px';
+   407→            var cellValue = getNestedValue(original, colKey);
+   408→            td.appendChild(createCellInput(empId, colKey, col, cellValue));
+   409→            row.appendChild(td);
+   410→        });
+   411→    });
+   412→}
+   413→
+   414→function getNestedValue(obj, field) {
+   415→    if (obj.hasOwnProperty(field)) return obj[field];
+   416→    return '';
+   417→}
+   418→
+   419→function createCellInput(empId, fieldKey, colDef, value) {
+   420→    if (colDef.type === 'readonly') {
+   421→        var span = document.createElement('span');
+   422→        span.className = 'fw-bold text-primary';
+   423→        span.textContent = value || '-';
+   424→        return span;
+   425→    }
+   426→
+   427→    if (colDef.type === 'checkbox') {
+   428→        var wrapper = document.createElement('div');
+   429→        wrapper.className = 'form-check form-check-sm d-flex justify-content-center';
+   430→        var input = document.createElement('input');
+   431→        input.type = 'checkbox';
+   432→        input.className = 'form-check-input bulk-input';
+   433→        input.dataset.empId = empId;
+   434→        input.dataset.field = fieldKey;
+   435→        input.checked = !!(value == 1 || value === '1' || value === true);
+   436→        input.addEventListener('change', function() {
+   437→            markDirty(empId, fieldKey, this.closest('td'));
+   438→        });
+   439→        wrapper.appendChild(input);
+   440→        return wrapper;
+   441→    }
+   442→
+   443→    if (colDef.type === 'select' && colDef.options) {
+   444→        var select = document.createElement('select');
+   445→        select.className = 'form-select form-select-sm bulk-input';
+   446→        select.dataset.empId = empId;
+   447→        select.dataset.field = fieldKey;
+   448→        var emptyOpt = document.createElement('option');
+   449→        emptyOpt.value = '';
+   450→        emptyOpt.textContent = '-';
+   451→        select.appendChild(emptyOpt);
+   452→        Object.keys(colDef.options).forEach(function(optValue) {
+   453→            var optLabel = colDef.options[optValue];
+   454→            var opt = document.createElement('option');
+   455→            opt.value = optValue;
+   456→            opt.textContent = optLabel;
+   457→            if (String(value) === String(optValue)) opt.selected = true;
+   458→            select.appendChild(opt);
+   459→        });
+   460→        select.addEventListener('change', function() {
+   461→            markDirty(empId, fieldKey, this.closest('td'));
+   462→        });
+   463→        return select;
+   464→    }
+   465→
+   466→    if (colDef.type === 'select_dynamic' && colDef.source === 'clients') {
+   467→        var select = document.createElement('select');
+   468→        select.className = 'form-select form-select-sm bulk-input bulk-client-select';
+   469→        select.dataset.empId = empId;
+   470→        select.dataset.field = fieldKey;
+   471→        var emptyOpt = document.createElement('option');
+   472→        emptyOpt.value = '';
+   473→        emptyOpt.textContent = 'Select Client';
+   474→        select.appendChild(emptyOpt);
+   475→        CLIENTS.forEach(function(c) {
+   476→            var opt = document.createElement('option');
+   477→            opt.value = c.id;
+   478→            opt.textContent = c.name;
+   479→            if (String(value) === String(c.id)) opt.selected = true;
+   480→            select.appendChild(opt);
+   481→        });
+   482→        select.addEventListener('change', function() {
+   483→            markDirty(empId, fieldKey, this.closest('td'));
+   484→            updateUnitDropdownForRow(empId, this.value);
+   485→        });
+   486→        return select;
+   487→    }
+   488→
+   489→    if (colDef.type === 'select_dynamic' && colDef.source === 'units') {
+   490→        var select = document.createElement('select');
+   491→        select.className = 'form-select form-select-sm bulk-input bulk-unit-select';
+   492→        select.dataset.empId = empId;
+   493→        select.dataset.field = fieldKey;
+   494→        var emptyOpt = document.createElement('option');
+   495→        emptyOpt.value = '';
+   496→        emptyOpt.textContent = 'Select Unit';
+   497→        select.appendChild(emptyOpt);
+   498→        var clientId = originalData[empId] ? originalData[empId].client_id : value;
+   499→        var filteredUnits = clientId ? UNITS.filter(function(u) { return String(u.client_id) === String(clientId); }) : UNITS;
+   500→        filteredUnits.forEach(function(u) {
+   501→            var opt = document.createElement('option');
+   502→            opt.value = u.id;
+   503→            opt.textContent = u.name;
+   504→            if (String(value) === String(u.id)) opt.selected = true;
+   505→            select.appendChild(opt);
+   506→        });
+   507→        select.addEventListener('change', function() {
+   508→            markDirty(empId, fieldKey, this.closest('td'));
+   509→        });
+   510→        return select;
+   511→    }
+   512→
+   513→    if (colDef.type === 'textarea') {
+   514→        var input = document.createElement('textarea');
+   515→        input.className = 'form-control form-control-sm bulk-input';
+   516→        input.dataset.empId = empId;
+   517→        input.dataset.field = fieldKey;
+   518→        input.rows = 1;
+   519→        input.value = value || '';
+   520→        input.style.minWidth = '180px';
+   521→        input.addEventListener('input', function() {
+   522→            markDirty(empId, fieldKey, this.closest('td'));
+   523→        });
+   524→        return input;
+   525→    }
+   526→
+   527→    var input = document.createElement('input');
+   528→    input.type = colDef.type || 'text';
+   529→    input.className = 'form-control form-control-sm bulk-input';
+   530→    input.dataset.empId = empId;
+   531→    input.dataset.field = fieldKey;
+   532→    input.value = value || '';
+   533→    if (colDef.type === 'number') {
+   534→        input.step = '0.01';
+   535→        input.style.textAlign = 'right';
+   536→    }
+   537→    if (colDef.type === 'tel') {
+   538→        input.maxLength = 15;
+   539→    }
+   540→    input.addEventListener('input', function() {
+   541→        markDirty(empId, fieldKey, this.closest('td'));
+   542→    });
+   543→    return input;
+   544→}
+   545→
+   546→function updateUnitDropdownForRow(empId, clientId) {
+   547→    var row = document.querySelector('tr[data-emp-id="' + empId + '"]');
+   548→    if (!row) return;
+   549→    var unitSelect = row.querySelector('.bulk-unit-select');
+   550→    if (!unitSelect) return;
+   551→    var currentUnitVal = unitSelect.value;
+   552→    unitSelect.innerHTML = '<option value="">Select Unit</option>';
+   553→    var filteredUnits = clientId ? UNITS.filter(function(u) { return String(u.client_id) === String(clientId); }) : UNITS;
+   554→    filteredUnits.forEach(function(u) {
+   555→        var opt = document.createElement('option');
+   556→        opt.value = u.id;
+   557→        opt.textContent = u.name;
+   558→        if (String(u.id) === String(currentUnitVal)) opt.selected = true;
+   559→        unitSelect.appendChild(opt);
+   560→    });
+   561→    if (clientId) {
+   562→        markDirty(empId, 'unit_id', unitSelect.closest('td'));
+   563→    }
+   564→}
+   565→
+   566→function markDirty(empId, fieldKey, td) {
+   567→    var cellKey = empId + '|' + fieldKey;
+   568→    var original = originalData[empId];
+   569→    var input = td.querySelector('.bulk-input');
+   570→    var currentValue;
+   571→    if (input && input.type === 'checkbox') {
+   572→        currentValue = input.checked ? '1' : '0';
+   573→    } else {
+   574→        currentValue = input ? input.value : '';
+   575→    }
+   576→    var originalValue = String(original[fieldKey] || '');
+   577→    if (currentValue !== originalValue) {
+   578→        dirtyCells.add(cellKey);
+   579→        td.classList.add('cell-changed');
+   580→    } else {
+   581→        dirtyCells.delete(cellKey);
+   582→        td.classList.remove('cell-changed');
+   583→    }
+   584→    updateSaveButton();
+   585→}
+   586→
+   587→function updateSaveButton() {
+   588→    var count = dirtyCells.size;
+   589→    var btn = document.getElementById('btnSaveAll');
+   590→    btn.disabled = count === 0;
+   591→    var uniqueEmps = new Set();
+   592→    dirtyCells.forEach(function(key) { uniqueEmps.add(key.split('|')[0]); });
+   593→    btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Changes <span class="badge bg-light text-dark ms-1">' + count + '</span>';
+   594→    if (uniqueEmps.size > 0) {
+   595→        btn.innerHTML += ' <small class="ms-1">(' + uniqueEmps.size + ' emp)</small>';
+   596→    }
+   597→}
+   598→
+   599→function updateColumnCount(cols) {
+   600→    document.getElementById('visibleColCount').textContent = cols.length;
+   601→}
+   602→
+   603→function saveAllChanges() {
+   604→    if (dirtyCells.size === 0) return;
+   605→    var uniqueEmps = new Set();
+   606→    dirtyCells.forEach(function(key) { uniqueEmps.add(key.split('|')[0]); });
+   607→    var msg = 'Update ' + uniqueEmps.size + ' employee(s) with ' + dirtyCells.size + ' changed field(s). Are you sure?';
+   608→    if (!confirm(msg)) return;
+   609→
+   610→    var btn = document.getElementById('btnSaveAll');
+   611→    btn.disabled = true;
+   612→    btn.innerHTML = '<i class="bi bi-spinner me-1"></i><span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+   613→
+   614→    var employeesData = {};
+   615→    dirtyCells.forEach(function(cellKey) {
+   616→        var parts = cellKey.split('|');
+   617→        var empId = parts[0];
+   618→        var fieldName = parts[1];
+   619→        var td = document.querySelector('td[data-emp-id="' + empId + '"][data-field="' + fieldName + '"]');
+   620→        if (!td) return;
+   621→        var input = td.querySelector('.bulk-input');
+   622→        if (!input) return;
+   623→        if (!employeesData[empId]) employeesData[empId] = { id: parseInt(empId), fields: {} };
+   624→        if (input.type === 'checkbox') {
+   625→            employeesData[empId].fields[fieldName] = input.checked ? '1' : '0';
+   626→        } else if (input.type === 'number' || (ALL_COLUMNS[fieldName] && ALL_COLUMNS[fieldName].type === 'number')) {
+   627→            employeesData[empId].fields[fieldName] = parseFloat(input.value) || 0;
+   628→        } else {
+   629→            employeesData[empId].fields[fieldName] = input.value;
+   630→        }
+   631→    });
+   632→
+   633→    fetch('index.php?page=api/bulk-edit', {
+   634→        method: 'POST',
+   635→        headers: { 'Content-Type': 'application/json' },
+   636→        body: JSON.stringify({ employees: Object.values(employeesData) })
+   637→    })
+   638→    .then(function(r) { return r.json(); })
+   639→    .then(function(data) {
+   640→        if (data.success) {
+   641→            Object.keys(employeesData).forEach(function(empId) {
+   642→                Object.keys(employeesData[empId].fields).forEach(function(key) {
+   643→                    originalData[empId][key] = employeesData[empId].fields[key];
+   644→                });
+   645→            });
+   646→            dirtyCells.clear();
+   647→            document.querySelectorAll('.cell-changed').forEach(function(el) { el.classList.remove('cell-changed'); });
+   648→            updateSaveButton();
+   649→            showSaveStatus('success', data.message || 'Updated ' + data.updated + ' employee(s)');
+   650→        } else {
+   651→            showSaveStatus('error', data.message || 'Failed to save changes');
+   652→            btn.disabled = false;
+   653→            updateSaveButton();
+   654→        }
+   655→    })
+   656→    .catch(function(err) {
+   657→        showSaveStatus('error', 'Network error. Please try again.');
+   658→        btn.disabled = false;
+   659→        updateSaveButton();
+   660→    });
+   661→}
+   662→
+   663→function undoAllChanges() {
+   664→    if (dirtyCells.size === 0) return;
+   665→    if (!confirm('Undo all changes? This will restore all cells to their original values.')) return;
+   666→    dirtyCells.forEach(function(cellKey) {
+   667→        var parts = cellKey.split('|');
+   668→        var empId = parts[0];
+   669→        var fieldName = parts[1];
+   670→        var td = document.querySelector('td[data-emp-id="' + empId + '"][data-field="' + fieldName + '"]');
+   671→        if (!td) return;
+   672→        var input = td.querySelector('.bulk-input');
+   673→        if (!input) return;
+   674→        var original = originalData[empId][fieldName];
+   675→        if (input.type === 'checkbox') {
+   676→            input.checked = !!(original == 1 || original === '1' || original === true);
+   677→        } else {
+   678→            input.value = original || '';
+   679→        }
+   680→        td.classList.remove('cell-changed');
+   681→    });
+   682→    dirtyCells.clear();
+   683→    updateSaveButton();
+   684→    showSaveStatus('info', 'All changes undone.');
+   685→}
+   686→
+   687→function showSaveStatus(type, message) {
+   688→    var el = document.getElementById('saveStatus');
+   689→    var alertClass = 'alert-info';
+   690→    if (type === 'success') alertClass = 'alert-success';
+   691→    if (type === 'error') alertClass = 'alert-danger';
+   692→    el.innerHTML = '<div class="alert ' + alertClass + ' py-1 px-3 mb-0 small d-inline-block">' + message + '</div>';
+   693→    setTimeout(function() { el.innerHTML = ''; }, 5000);
+   694→}
+   695→
+   696→function selectAllColumns() {
+   697→    document.querySelectorAll('.col-toggle').forEach(function(cb) { cb.checked = true; });
+   698→    renderTable();
+   699→    saveColumnPrefs();
+   700→}
+   701→
+   702→function resetColumns() {
+   703→    document.querySelectorAll('.col-toggle').forEach(function(cb) {
+   704→        var col = ALL_COLUMNS[cb.dataset.column];
+   705→        cb.checked = col ? (col.default || false) : false;
+   706→    });
+   707→    renderTable();
+   708→    saveColumnPrefs();
+   709→}
+   710→
+   711→function saveColumnPrefs() {
+   712→    var prefs = {};
+   713→    document.querySelectorAll('.col-toggle').forEach(function(cb) { prefs[cb.dataset.column] = cb.checked; });
+   714→    prefs._v = PREFS_VERSION;
+   715→    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+   716→}
+   717→
+   718→function loadColumnPrefs() {
+   719→    var saved = localStorage.getItem(PREFS_KEY);
+   720→    if (saved) {
+   721→        try {
+   722→            var prefs = JSON.parse(saved);
+   723→            if (prefs._v !== PREFS_VERSION) {
+   724→                localStorage.removeItem(PREFS_KEY);
+   725→                return;
+   726→            }
+   727→            Object.keys(prefs).forEach(function(key) {
+   728→                if (key === '_v') return;
+   729→                var cb = document.querySelector('.col-toggle[data-column="' + key + '"]');
+   730→                if (cb) cb.checked = !!prefs[key];
+   731→            });
+   732→        } catch (e) {
+   733→            localStorage.removeItem(PREFS_KEY);
+   734→        }
+   735→    }
+   736→}
+   737→
+   738→document.getElementById('columnSearch').addEventListener('input', function() {
+   739→    var search = this.value.toLowerCase();
+   740→    document.querySelectorAll('.column-check-item').forEach(function(item) {
+   741→        item.style.display = (item.dataset.label || '').includes(search) ? '' : 'none';
+   742→    });
+   743→    document.querySelectorAll('.column-category').forEach(function(cat) {
+   744→        var visibleItems = cat.querySelectorAll('.column-check-item:not([style*="display: none"])');
+   745→        cat.style.display = visibleItems.length > 0 ? '' : 'none';
+   746→    });
+   747→});
+   748→
+   749→function filterUnits() {
+   750→    var clientId = document.getElementById('clientFilter').value;
+   751→    var unitSelect = document.getElementById('unitFilter');
+   752→    unitSelect.innerHTML = '<option value="">Loading...</option>';
+   753→    fetch('index.php?page=api/units&client_id=' + clientId)
+   754→        .then(function(response) { return response.json(); })
+   755→        .then(function(data) {
+   756→            unitSelect.innerHTML = '<option value="">All Units</option>';
+   757→            if (data.units) {
+   758→                data.units.forEach(function(unit) {
+   759→                    var option = document.createElement('option');
+   760→                    option.value = unit.id;
+   761→                    option.textContent = unit.name;
+   762→                    unitSelect.appendChild(option);
+   763→                });
+   764→            }
+   765→        })
+   766→        .catch(function() { unitSelect.innerHTML = '<option value="">All Units</option>'; });
+   767→}
+   768→
+   769→document.addEventListener('DOMContentLoaded', function() {
+   770→    loadColumnPrefs();
+   771→    document.querySelectorAll('.col-toggle').forEach(function(cb) {
+   772→        cb.addEventListener('change', function() {
+   773→            renderTable();
+   774→            saveColumnPrefs();
+   775→        });
+   776→    });
+   777→    renderTable();
+   778→});
+   779→</script>
+   780→NOWDOC;
+   781→
+   782→$extraCSS = <<<CSS
+   783→<style>
+   784→.bulk-edit-table-wrapper {
+   785→    max-height: 70vh;
+   786→    overflow: auto;
+   787→}
+   788→.bulk-edit-table th {
+   789→    position: sticky;
+   790→    top: 0;
+   791→    z-index: 2;
+   792→    font-size: 12px;
+   793→    font-weight: 600;
+   794→    text-transform: uppercase;
+   795→    letter-spacing: 0.3px;
+   796→    white-space: nowrap;
+   797→    border-bottom: 2px solid #dee2e6;
+   798→}
+   799→.bulk-edit-table td {
+   800→    vertical-align: middle;
+   801→    padding: 2px 4px !important;
+   802→    white-space: nowrap;
+   803→}
+   804→.bulk-edit-table .form-control,
+   805→.bulk-edit-table .form-select {
+   806→    font-size: 13px;
+   807→    padding: 3px 6px;
+   808→    border: 1px solid transparent;
+   809→    background: transparent;
+   810→    transition: all 0.15s ease;
+   811→}
+   812→.bulk-edit-table .form-control:focus,
+   813→.bulk-edit-table .form-select:focus {
+   814→    border-color: #0d6efd;
+   815→    background: white;
+   816→    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.15);
+   817→}
+   818→.bulk-cell.cell-changed {
+   819→    background-color: #fff3cd !important;
+   820→}
+   821→.bulk-cell.cell-changed .form-control,
+   822→.bulk-cell.cell-changed .form-select {
+   823→    border-color: #ffc107;
+   824→    background: #fffdf0;
+   825→    font-weight: 500;
+   826→}
+   827→.bulk-edit-table tbody tr:hover td {
+   828→    background-color: #f8f9fa !important;
+   829→}
+   830→.bulk-edit-table tbody tr:hover td.cell-changed {
+   831→    background-color: #fff3cd !important;
+   832→}
+   833→.bulk-edit-table td:first-child,
+   834→.bulk-edit-table th:first-child {
+   835→    position: sticky;
+   836→    left: 0;
+   837→    z-index: 2;
+   838→}
+   839→.bulk-edit-table input[type="number"] {
+   840→    text-align: right;
+   841→    min-width: 80px;
+   842→}
+   843→.bulk-edit-table .form-check-input {
+   844→    width: 16px;
+   845→    height: 16px;
+   846→    cursor: pointer;
+   847→}
+   848→.column-category h6 {
+   849→    font-size: 11px;
+   850→    text-transform: uppercase;
+   851→    letter-spacing: 0.5px;
+   852→    border-bottom: 1px solid #eee;
+   853→    padding-bottom: 4px;
+   854→    margin-bottom: 6px;
+   855→}
+   856→.column-check-item { padding: 1px 0; }
+   857→.column-check-item .form-check-label { font-size: 12px; cursor: pointer; }
+   858→#saveStatus .alert { animation: fadeIn 0.3s ease; }
+   859→@keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+   860→.bulk-edit-table-wrapper::-webkit-scrollbar { width: 8px; height: 8px; }
+   861→.bulk-edit-table-wrapper::-webkit-scrollbar-track { background: #f1f1f1; }
+   862→.bulk-edit-table-wrapper::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+   863→.bulk-edit-table-wrapper::-webkit-scrollbar-thumb:hover { background: #aaa; }
+   864→.bulk-edit-table textarea { resize: vertical; min-height: 30px; }
+   865→</style>
+   866→CSS;
+   867→?>
+   868→

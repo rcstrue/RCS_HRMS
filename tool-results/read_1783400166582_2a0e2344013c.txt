@@ -1,0 +1,712 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Compliance Class
+     4→ * Handles compliance management (PF, ESI, PT, LWF)
+     5→ * Updated for new database schema
+     6→ */
+     7→
+     8→class Compliance {
+     9→    private $db;
+    10→
+    11→    public function __construct() {
+    12→        $this->db = Database::getInstance();
+    13→    }
+    14→
+    15→    // Get compliance summary for dashboard
+    16→    public function getSummary() {
+    17→        $summary = [
+    18→            'pf_members' => 0,
+    19→            'esi_members' => 0,
+    20→            'pending_returns' => 0,
+    21→            'overdue_filings' => 0
+    22→        ];
+    23→
+    24→        try {
+    25→            // Count PF members from salary structure
+    26→            $result = $this->db->fetch(
+    27→                "SELECT COUNT(DISTINCT e.id) as count
+    28→                 FROM employees e
+    29→                 INNER JOIN employee_salary_structures ess ON e.id = ess.employee_id
+    30→                 WHERE ess.pf_applicable = 1 AND e.status = 'approved'"
+    31→            );
+    32→            $summary['pf_members'] = (int)($result['count'] ?? 0);
+    33→
+    34→            // Count ESI members
+    35→            $result = $this->db->fetch(
+    36→                "SELECT COUNT(DISTINCT e.id) as count
+    37→                 FROM employees e
+    38→                 INNER JOIN employee_salary_structures ess ON e.id = ess.employee_id
+    39→                 WHERE ess.esi_applicable = 1 AND ess.gross_salary <= 21000 AND e.status = 'approved'"
+    40→            );
+    41→            $summary['esi_members'] = (int)($result['count'] ?? 0);
+    42→
+    43→            // Count pending returns
+    44→            $result = $this->db->fetch(
+    45→                "SELECT COUNT(*) as count FROM compliance_filings WHERE status = 'Pending'"
+    46→            );
+    47→            $summary['pending_returns'] = (int)($result['count'] ?? 0);
+    48→
+    49→            // Count overdue filings
+    50→            $result = $this->db->fetch(
+    51→                "SELECT COUNT(*) as count FROM compliance_filings
+    52→                 WHERE status = 'Pending' AND due_date < CURDATE()"
+    53→            );
+    54→            $summary['overdue_filings'] = (int)($result['count'] ?? 0);
+    55→        } catch (Exception $e) {
+    56→            // Tables might not exist yet
+    57→            error_log('Compliance getSummary error: ' . $e->getMessage());
+    58→        }
+    59→
+    60→        return $summary;
+    61→    }
+    62→
+    63→    // Check deadline alerts
+    64→    public function checkDeadlineAlerts() {
+    65→        $alerts = [];
+    66→
+    67→        try {
+    68→            // Check for pending PF filing this month
+    69→            $currentMonth = date('n');
+    70→            $currentYear = date('Y');
+    71→
+    72→            $pfFiling = $this->db->fetch(
+    73→                "SELECT * FROM compliance_filings
+    74→                 WHERE compliance_type = 'PF'
+    75→                 AND filing_period_month = :month
+    76→                 AND filing_period_year = :year",
+    77→                ['month' => $currentMonth, 'year' => $currentYear]
+    78→            );
+    79→
+    80→            if (!$pfFiling || $pfFiling['status'] === 'Pending') {
+    81→                // PF due on 15th of every month
+    82→                $currentDay = date('j');
+    83→
+    84→                if ($currentDay >= 10 && $currentDay <= 15) {
+    85→                    $alerts[] = [
+    86→                        'type' => 'warning',
+    87→                        'title' => 'PF Return Pending',
+    88→                        'message' => 'PF monthly return is due by 15th of this month. Current status: Pending.'
+    89→                    ];
+    90→                } elseif ($currentDay > 15) {
+    91→                    $alerts[] = [
+    92→                        'type' => 'danger',
+    93→                        'title' => 'PF Return Overdue',
+    94→                        'message' => 'PF monthly return is overdue. Please file immediately to avoid penalties.'
+    95→                    ];
+    96→                }
+    97→            }
+    98→
+    99→            // Check for pending ESI filing
+   100→            $esiFiling = $this->db->fetch(
+   101→                "SELECT * FROM compliance_filings
+   102→                 WHERE compliance_type = 'ESI'
+   103→                 AND filing_period_month = :month
+   104→                 AND filing_period_year = :year",
+   105→                ['month' => $currentMonth, 'year' => $currentYear]
+   106→            );
+   107→
+   108→            if (!$esiFiling || $esiFiling['status'] === 'Pending') {
+   109→                $currentDay = date('j');
+   110→
+   111→                if ($currentDay >= 10 && $currentDay <= 15) {
+   112→                    $alerts[] = [
+   113→                        'type' => 'warning',
+   114→                        'title' => 'ESI Return Pending',
+   115→                        'message' => 'ESI monthly return is due by 15th of this month.'
+   116→                    ];
+   117→                } elseif ($currentDay > 15) {
+   118→                    $alerts[] = [
+   119→                        'type' => 'danger',
+   120→                        'title' => 'ESI Return Overdue',
+   121→                        'message' => 'ESI monthly return is overdue.'
+   122→                    ];
+   123→                }
+   124→            }
+   125→        } catch (Exception $e) {
+   126→            // Tables might not exist
+   127→        }
+   128→
+   129→        return $alerts;
+   130→    }
+   131→
+   132→    // Get PF contribution summary for a period
+   133→    public function getPFContributions($month, $year) {
+   134→        try {
+   135→            // Get period ID
+   136→            $period = $this->db->fetch(
+   137→                SQL_GET_PAYROLL_PERIOD,
+   138→                ['month' => $month, 'year' => $year]
+   139→            );
+   140→
+   141→            if (!$period) {
+   142→                return $this->emptyPFResult();
+   143→            }
+   144→
+   145→            return $this->db->fetch(
+   146→                "SELECT
+   147→                    COUNT(*) as member_count,
+   148→                    SUM(basic + da) as total_wages,
+   149→                    SUM(pf_employee) as employee_contribution,
+   150→                    SUM(pf_employer) as employer_pf_contribution,
+   151→                    SUM(eps_employer) as employer_eps_contribution,
+   152→                    SUM(edlis_employer) as edli_contribution,
+   153→                    SUM(epf_admin_charges) as admin_charges,
+   154→                    SUM(pf_employee + pf_employer + eps_employer + edlis_employer + epf_admin_charges) as total_contribution
+   155→                FROM payroll
+   156→                WHERE payroll_period_id = :period_id
+   157→                AND pf_employee > 0",
+   158→                ['period_id' => $period['id']]
+   159→            ) ?: $this->emptyPFResult();
+   160→        } catch (Exception $e) {
+   161→            return $this->emptyPFResult();
+   162→        }
+   163→    }
+   164→
+   165→    private function emptyPFResult() {
+   166→        return [
+   167→            'member_count' => 0,
+   168→            'total_wages' => 0,
+   169→            'employee_contribution' => 0,
+   170→            'employer_pf_contribution' => 0,
+   171→            'employer_eps_contribution' => 0,
+   172→            'edli_contribution' => 0,
+   173→            'admin_charges' => 0,
+   174→            'total_contribution' => 0
+   175→        ];
+   176→    }
+   177→
+   178→    // Get ESI contribution summary for a period
+   179→    public function getESIContributions($month, $year) {
+   180→        try {
+   181→            $period = $this->db->fetch(
+   182→                SQL_GET_PAYROLL_PERIOD,
+   183→                ['month' => $month, 'year' => $year]
+   184→            );
+   185→
+   186→            if (!$period) {
+   187→                return $this->emptyESIResult();
+   188→            }
+   189→
+   190→            return $this->db->fetch(
+   191→                "SELECT
+   192→                    COUNT(*) as member_count,
+   193→                    SUM(gross_earnings) as total_wages,
+   194→                    SUM(esi_employee) as employee_contribution,
+   195→                    SUM(esi_employer) as employer_contribution,
+   196→                    SUM(esi_employee + esi_employer) as total_contribution
+   197→                FROM payroll
+   198→                WHERE payroll_period_id = :period_id
+   199→                AND esi_employee > 0",
+   200→                ['period_id' => $period['id']]
+   201→            ) ?: $this->emptyESIResult();
+   202→        } catch (Exception $e) {
+   203→            return $this->emptyESIResult();
+   204→        }
+   205→    }
+   206→
+   207→    private function emptyESIResult() {
+   208→        return [
+   209→            'member_count' => 0,
+   210→            'total_wages' => 0,
+   211→            'employee_contribution' => 0,
+   212→            'employer_contribution' => 0,
+   213→            'total_contribution' => 0
+   214→        ];
+   215→    }
+   216→
+   217→    // Get PT summary for a period
+   218→    public function getPTSummary($month, $year) {
+   219→        try {
+   220→            $period = $this->db->fetch(
+   221→                SQL_GET_PAYROLL_PERIOD,
+   222→                ['month' => $month, 'year' => $year]
+   223→            );
+   224→
+   225→            if (!$period) {
+   226→                return ['member_count' => 0, 'total_pt' => 0];
+   227→            }
+   228→
+   229→            return $this->db->fetch(
+   230→                "SELECT
+   231→                    COUNT(*) as member_count,
+   232→                    SUM(professional_tax) as total_pt
+   233→                FROM payroll
+   234→                WHERE payroll_period_id = :period_id
+   235→                AND professional_tax > 0",
+   236→                ['period_id' => $period['id']]
+   237→            ) ?: ['member_count' => 0, 'total_pt' => 0];
+   238→        } catch (Exception $e) {
+   239→            return ['member_count' => 0, 'total_pt' => 0];
+   240→        }
+   241→    }
+   242→
+   243→    // Get minimum wages by state
+   244→    public function getMinimumWages($stateId = null, $zoneId = null) {
+   245→        $sql = "SELECT mw.*, s.state_name, z.zone_name
+   246→                FROM minimum_wages mw
+   247→                JOIN states s ON mw.state_id = s.id
+   248→                LEFT JOIN zones z ON mw.zone_id = z.id
+   249→                WHERE mw.is_active = 1";
+   250→        $params = [];
+   251→
+   252→        if ($stateId) {
+   253→            $sql .= " AND mw.state_id = :state_id";
+   254→            $params['state_id'] = $stateId;
+   255→        }
+   256→
+   257→        if ($zoneId) {
+   258→            $sql .= " AND mw.zone_id = :zone_id";
+   259→            $params['zone_id'] = $zoneId;
+   260→        }
+   261→
+   262→        $sql .= " ORDER BY s.state_name, mw.effective_from DESC";
+   263→
+   264→        return $this->db->fetchAll($sql, $params);
+   265→    }
+   266→
+   267→    // Get applicable minimum wage for employee
+   268→    public function getApplicableMinimumWage($stateId, $workerCategory, $zoneId = null) {
+   269→        $sql = "SELECT * FROM minimum_wages
+   270→                WHERE state_id = :state_id
+   271→                AND worker_category = :category
+   272→                AND is_active = 1
+   273→                AND effective_from <= CURDATE()
+   274→                AND (effective_to IS NULL OR effective_to >= CURDATE())";
+   275→        $params = [
+   276→            'state_id' => $stateId,
+   277→            'category' => $workerCategory
+   278→        ];
+   279→
+   280→        if ($zoneId) {
+   281→            $sql .= " AND zone_id = :zone_id";
+   282→            $params['zone_id'] = $zoneId;
+   283→        }
+   284→
+   285→        $sql .= " ORDER BY effective_from DESC LIMIT 1";
+   286→
+   287→        return $this->db->fetch($sql, $params);
+   288→    }
+   289→
+   290→    // Get compliance calendar
+   291→    public function getComplianceCalendar($month = null, $year = null) {
+   292→        $sql = "SELECT cc.*, s.state_name,
+   293→                CASE
+   294→                    WHEN cc.due_date < CURDATE() THEN 'Overdue'
+   295→                    WHEN cc.due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY) THEN 'Due Soon'
+   296→                    ELSE 'Upcoming'
+   297→                END as urgency
+   298→                FROM compliance_calendar cc
+   299→                LEFT JOIN states s ON cc.state_id = s.id
+   300→                WHERE cc.is_active = 1";
+   301→        $params = [];
+   302→
+   303→        if ($month && $year) {
+   304→            $sql .= " AND MONTH(cc.due_date) = :month AND YEAR(cc.due_date) = :year";
+   305→            $params['month'] = $month;
+   306→            $params['year'] = $year;
+   307→        } elseif ($year) {
+   308→            $sql .= " AND YEAR(cc.due_date) = :year";
+   309→            $params['year'] = $year;
+   310→        }
+   311→
+   312→        $sql .= " ORDER BY cc.due_date ASC";
+   313→
+   314→        return $this->db->fetchAll($sql, $params);
+   315→    }
+   316→
+   317→    // Record compliance filing
+   318→    public function recordFiling($data) {
+   319→        $id = $this->db->insert('compliance_filings', [
+   320→            'compliance_type' => $data['compliance_type'],
+   321→            'filing_period_month' => $data['month'],
+   322→            'filing_period_year' => $data['year'],
+   323→            'due_date' => $data['due_date'] ?? null,
+   324→            'filed_date' => date('Y-m-d'),
+   325→            'status' => 'Filed',
+   326→            'filed_by' => $_SESSION['user_id'] ?? null,
+   327→            'reference_number' => $data['reference_number'] ?? null,
+   328→            'challan_number' => $data['challan_number'] ?? null,
+   329→            'challan_date' => $data['challan_date'] ?? null,
+   330→            'amount_paid' => $data['amount'] ?? 0,
+   331→            'remarks' => $data['remarks'] ?? null,
+   332→            'created_at' => date('Y-m-d H:i:s')
+   333→        ]);
+   334→
+   335→        return ['success' => true, 'message' => 'Filing recorded.', 'id' => $id];
+   336→    }
+   337→
+   338→    // Get filing history
+   339→    public function getFilingHistory($type = null, $year = null) {
+   340→        $sql = "SELECT cf.*, u.username as filed_by_name
+   341→                FROM compliance_filings cf
+   342→                LEFT JOIN users u ON cf.filed_by = u.id
+   343→                WHERE 1=1";
+   344→        $params = [];
+   345→
+   346→        if ($type) {
+   347→            $sql .= " AND cf.compliance_type = :type";
+   348→            $params['type'] = $type;
+   349→        }
+   350→
+   351→        if ($year) {
+   352→            $sql .= " AND cf.filing_period_year = :year";
+   353→            $params['year'] = $year;
+   354→        }
+   355→
+   356→        $sql .= " ORDER BY cf.created_at DESC";
+   357→
+   358→        return $this->db->fetchAll($sql, $params);
+   359→    }
+   360→
+   361→    // Get pending filings
+   362→    public function getPendingFilings() {
+   363→        return $this->db->fetchAll(
+   364→            "SELECT * FROM compliance_filings
+   365→             WHERE status = 'Pending'
+   366→             ORDER BY due_date ASC"
+   367→        );
+   368→    }
+   369→
+   370→    // Add compliance calendar entry
+   371→    public function addCalendarEntry($data) {
+   372→        return $this->db->insert('compliance_calendar', [
+   373→            'compliance_type' => $data['compliance_type'],
+   374→            'compliance_name' => $data['compliance_name'],
+   375→            'due_date' => $data['due_date'],
+   376→            'frequency' => $data['frequency'] ?? 'Monthly',
+   377→            'state_id' => $data['state_id'] ?? null,
+   378→            'form_number' => $data['form_number'] ?? null,
+   379→            'description' => $data['description'] ?? null,
+   380→            'is_active' => 1
+   381→        ]);
+   382→    }
+   383→
+   384→    // Get LWF rates by state
+   385→    public function getLWFRates($stateId = null) {
+   386→        $sql = "SELECT lr.*, s.state_name
+   387→                FROM lwf_rates lr
+   388→                JOIN states s ON lr.state_id = s.id
+   389→                WHERE lr.is_active = 1";
+   390→        $params = [];
+   391→
+   392→        if ($stateId) {
+   393→            $sql .= " AND lr.state_id = :state_id";
+   394→            $params['state_id'] = $stateId;
+   395→        }
+   396→
+   397→        $sql .= " ORDER BY s.state_name, lr.effective_from DESC";
+   398→
+   399→        return $this->db->fetchAll($sql, $params);
+   400→    }
+   401→
+   402→    // Get PT rates by state
+   403→    public function getPTRates($stateId = null) {
+   404→        $sql = "SELECT ptr.*, s.state_name
+   405→                FROM professional_tax_rates ptr
+   406→                JOIN states s ON ptr.state_id = s.id
+   407→                WHERE ptr.is_active = 1";
+   408→        $params = [];
+   409→
+   410→        if ($stateId) {
+   411→            $sql .= " AND ptr.state_id = :state_id";
+   412→            $params['state_id'] = $stateId;
+   413→        }
+   414→
+   415→        $sql .= " ORDER BY s.state_name, ptr.effective_from DESC, ptr.salary_from ASC";
+   416→
+   417→        return $this->db->fetchAll($sql, $params);
+   418→    }
+   419→
+   420→    // Calculate PT for given salary and state
+   421→    public function calculatePT($grossSalary, $stateId, $gender = 'All') {
+   422→        $rate = $this->db->fetch(
+   423→            "SELECT pt_amount FROM professional_tax_rates
+   424→             WHERE state_id = :state_id
+   425→             AND is_active = 1
+   426→             AND effective_from <= CURDATE()
+   427→             AND salary_from <= :gross
+   428→             AND (salary_to IS NULL OR salary_to >= :gross)
+   429→             AND (gender_specific = 'All' OR gender_specific = :gender)
+   430→             ORDER BY effective_from DESC, salary_from DESC
+   431→             LIMIT 1",
+   432→            ['state_id' => $stateId, 'gross' => $grossSalary, 'gender' => $gender]
+   433→        );
+   434→
+   435→        return $rate ? (float)$rate['pt_amount'] : 0;
+   436→    }
+   437→
+   438→    // Get dashboard data
+   439→    public function getDashboardData() {
+   440→        $data = [
+   441→            'pf_members' => 0,
+   442→            'esi_members' => 0,
+   443→            'pt_members' => 0,
+   444→            'pending_filings' => 0,
+   445→            'overdue_filings' => 0,
+   446→            'total_pf_liability' => 0,
+   447→            'total_esi_liability' => 0,
+   448→            'total_pt_liability' => 0
+   449→        ];
+   450→
+   451→        try {
+   452→            // Get counts from employee salary structures
+   453→            $pfResult = $this->db->fetch(
+   454→                "SELECT COUNT(DISTINCT e.id) as count
+   455→                 FROM employees e
+   456→                 INNER JOIN employee_salary_structures ess ON e.id = ess.employee_id
+   457→                 WHERE ess.pf_applicable = 1 AND e.status = 'approved'"
+   458→            );
+   459→            $data['pf_members'] = (int)($pfResult['count'] ?? 0);
+   460→
+   461→            $esiResult = $this->db->fetch(
+   462→                "SELECT COUNT(DISTINCT e.id) as count
+   463→                 FROM employees e
+   464→                 INNER JOIN employee_salary_structures ess ON e.id = ess.employee_id
+   465→                 WHERE ess.esi_applicable = 1 AND e.status = 'approved'"
+   466→            );
+   467→            $data['esi_members'] = (int)($esiResult['count'] ?? 0);
+   468→
+   469→            // Get PT members (employees with gross > PT threshold)
+   470→            $ptResult = $this->db->fetch(
+   471→                "SELECT COUNT(DISTINCT e.id) as count
+   472→                 FROM employees e
+   473→                 INNER JOIN employee_salary_structures ess ON e.id = ess.employee_id
+   474→                 WHERE ess.gross_salary > 15000 AND e.status = 'approved'"
+   475→            );
+   476→            $data['pt_members'] = (int)($ptResult['count'] ?? 0);
+   477→
+   478→            // Pending filings count
+   479→            $pendingResult = $this->db->fetch(
+   480→                "SELECT COUNT(*) as count FROM compliance_filings WHERE status = 'Pending'"
+   481→            );
+   482→            $data['pending_filings'] = (int)($pendingResult['count'] ?? 0);
+   483→
+   484→            // Overdue filings count
+   485→            $overdueResult = $this->db->fetch(
+   486→                "SELECT COUNT(*) as count FROM compliance_filings
+   487→                 WHERE status = 'Pending' AND due_date < CURDATE()"
+   488→            );
+   489→            $data['overdue_filings'] = (int)($overdueResult['count'] ?? 0);
+   490→
+   491→        } catch (Exception $e) {
+   492→            error_log('Compliance getDashboardData error: ' . $e->getMessage());
+   493→        }
+   494→
+   495→        return $data;
+   496→    }
+   497→
+   498→    // Get notifications
+   499→    public function getNotifications($limit = 10) {
+   500→        $notifications = [];
+   501→
+   502→        try {
+   503→            // Check for pending filings
+   504→            $pending = $this->db->fetchAll(
+   505→                "SELECT * FROM compliance_filings
+   506→                 WHERE status = 'Pending'
+   507→                 ORDER BY due_date ASC
+   508→                 LIMIT :limit",
+   509→                ['limit' => $limit]
+   510→            );
+   511→
+   512→            foreach ($pending as $p) {
+   513→                $isOverdue = strtotime($p['due_date']) < time();
+   514→                $notifications[] = [
+   515→                    'type' => $isOverdue ? 'danger' : 'warning',
+   516→                    'title' => $p['compliance_type'] . ' Filing ' . ($isOverdue ? 'Overdue' : 'Pending'),
+   517→                    'description' => sprintf(
+   518→                        '%s return for %s/%s is %s',
+   519→                        $p['compliance_type'],
+   520→                        str_pad($p['filing_period_month'], 2, '0', STR_PAD_LEFT),
+   521→                        $p['filing_period_year'],
+   522→                        $isOverdue ? 'overdue' : 'pending'
+   523→                    ),
+   524→                    'created_at' => $p['due_date']
+   525→                ];
+   526→            }
+   527→
+   528→            // Check for wage updates
+   529→            $wageUpdates = $this->db->fetchAll(
+   530→                "SELECT s.state_name, MAX(mw.effective_from) as last_update
+   531→                 FROM minimum_wages mw
+   532→                 JOIN states s ON mw.state_id = s.id
+   533→                 WHERE mw.is_active = 1
+   534→                 GROUP BY s.id
+   535→                 HAVING last_update < DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+   536→                 LIMIT 5"
+   537→            );
+   538→
+   539→            foreach ($wageUpdates as $w) {
+   540→                $notifications[] = [
+   541→                    'type' => 'info',
+   542→                    'title' => 'Minimum Wage Update Needed',
+   543→                    'description' => $w['state_name'] . ' minimum wages may need updating. Last update: ' . $w['last_update'],
+   544→                    'created_at' => date('Y-m-d')
+   545→                ];
+   546→            }
+   547→
+   548→        } catch (Exception $e) {
+   549→            error_log('Compliance getNotifications error: ' . $e->getMessage());
+   550→        }
+   551→
+   552→        return array_slice($notifications, 0, $limit);
+   553→    }
+   554→
+   555→    // Get monthly summary
+   556→    public function getMonthlySummary($month, $year) {
+   557→        $summary = [
+   558→            'pf_employee' => 0,
+   559→            'pf_employer' => 0,
+   560→            'eps_employer' => 0,
+   561→            'esi_employee' => 0,
+   562→            'esi_employer' => 0,
+   563→            'professional_tax' => 0,
+   564→            'lwf_employee' => 0,
+   565→            'lwf_employer' => 0
+   566→        ];
+   567→
+   568→        try {
+   569→            $period = $this->db->fetch(
+   570→                SQL_GET_PAYROLL_PERIOD,
+   571→                ['month' => $month, 'year' => $year]
+   572→            );
+   573→
+   574→            if ($period) {
+   575→                $totals = $this->db->fetch(
+   576→                    "SELECT
+   577→                        SUM(pf_employee) as pf_employee,
+   578→                        SUM(pf_employer) as pf_employer,
+   579→                        SUM(eps_employer) as eps_employer,
+   580→                        SUM(esi_employee) as esi_employee,
+   581→                        SUM(esi_employer) as esi_employer,
+   582→                        SUM(professional_tax) as professional_tax,
+   583→                        SUM(lwf_employee) as lwf_employee,
+   584→                        SUM(lwf_employer) as lwf_employer
+   585→                     FROM payroll
+   586→                     WHERE payroll_period_id = :period_id",
+   587→                    ['period_id' => $period['id']]
+   588→                );
+   589→
+   590→                if ($totals) {
+   591→                    $summary = array_merge($summary, $totals);
+   592→                }
+   593→            }
+   594→        } catch (Exception $e) {
+   595→            error_log('Compliance getMonthlySummary error: ' . $e->getMessage());
+   596→        }
+   597→
+   598→        return $summary;
+   599→    }
+   600→
+   601→    // Generate ECR file content for PF
+   602→    public function generateECRContent($periodId) {
+   603→        $data = $this->db->fetchAll(
+   604→            "SELECT p.employee_id, e.full_name, e.aadhaar_number,
+   605→                    p.basic_da as epf_wages,
+   606→                    p.basic_da as eps_wages,
+   607→                    p.pf_employee as epf_contribution,
+   608→                    p.eps_employer as eps_contribution,
+   609→                    e.date_of_joining
+   610→             FROM payroll p
+   611→             JOIN employees e ON p.employee_id = e.employee_code
+   612→             JOIN employee_salary_structures ess ON e.id = ess.employee_id
+   613→             WHERE p.payroll_period_id = :period_id
+   614→             AND ess.pf_applicable = 1
+   615→             ORDER BY p.employee_id",
+   616→            ['period_id' => $periodId]
+   617→        );
+   618→
+   619→        // Generate ECR format (simplified)
+   620→        $ecr = "UMRN~Member Name~Relation~Relation Name~DOJ~EOF~DOT~Reason~EPS_WAGES~EPF_WAGES~EPF_Contri~EPS_Contri~NCP_Days~Refund\n";
+   621→
+   622→        foreach ($data as $row) {
+   623→            $ecr .= sprintf(
+   624→                "%s~%s~~~~%s~~~~~~~~%.2f~%.2f~%.2f~%.2f~0~\n",
+   625→                $row['employee_id'],
+   626→                $row['full_name'],
+   627→                $row['date_of_joining'],
+   628→                $row['epf_wages'],
+   629→                $row['eps_wages'],
+   630→                $row['epf_contribution'],
+   631→                $row['eps_contribution']
+   632→            );
+   633→        }
+   634→
+   635→        return $ecr;
+   636→    }
+   637→
+   638→    // Generate Form V - Register of Workmen
+   639→    public function generateFormV($unitId, $month = null, $year = null) {
+   640→        // Note: $month and $year are optional parameters for future filtering
+   641→        // Currently returns all active employees for the unit
+   642→        return $this->db->fetchAll(
+   643→            "SELECT e.*, c.name as client_name, u.name as unit_name, ess.basic_da, ess.gross_salary
+   644→             FROM employees e
+   645→             LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id
+   646→                AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+   647→             LEFT JOIN clients c ON e.client_id = c.id
+   648→             LEFT JOIN units u ON e.unit_id = u.id
+   649→             WHERE e.unit_id = :unit_id
+   650→             AND e.status IN ('approved', 'pending_hr_verification')
+   651→             ORDER BY e.employee_code",
+   652→            ['unit_id' => $unitId]
+   653→        );
+   654→    }
+   655→
+   656→    // Generate Form XVI - Muster Roll (Attendance Register)
+   657→    public function generateFormXVI($unitId, $month, $year) {
+   658→        // Try to get attendance data
+   659→        try {
+   660→            return $this->db->fetchAll(
+   661→                "SELECT e.employee_code, e.full_name, e.father_name, e.designation, e.worker_category,
+   662→                        COALESCE(a.present_days, 0) as present_days,
+   663→                        COALESCE(a.absent_days, 0) as absent_days,
+   664→                        COALESCE(a.weekly_offs, 0) as weekly_offs,
+   665→                        COALESCE(a.holidays, 0) as holidays,
+   666→                        COALESCE(a.total_working_days, 0) as total_working_days,
+   667→                        COALESCE(a.overtime_hours, 0) as total_overtime_hours
+   668→                 FROM employees e
+   669→                 LEFT JOIN attendance a ON e.id = a.employee_id AND MONTH(a.attendance_date) = :month AND YEAR(a.attendance_date) = :year
+   670→                 WHERE e.unit_id = :unit_id
+   671→                 AND e.status = 'approved'
+   672→                 ORDER BY e.employee_code",
+   673→                ['unit_id' => $unitId, 'month' => $month, 'year' => $year]
+   674→            );
+   675→        } catch (Exception $e) {
+   676→            // Return just employees if attendance table doesn't exist
+   677→            return $this->db->fetchAll(
+   678→                "SELECT e.employee_code, e.full_name, e.father_name, e.designation, e.worker_category,
+   679→                        0 as present_days, 0 as absent_days, 0 as weekly_offs, 0 as holidays, 0 as total_working_days, 0 as total_overtime_hours
+   680→                 FROM employees e
+   681→                 WHERE e.unit_id = :unit_id
+   682→                 AND e.status = 'approved'
+   683→                 ORDER BY e.employee_code",
+   684→                ['unit_id' => $unitId]
+   685→            );
+   686→        }
+   687→    }
+   688→
+   689→    // Generate Form XVII - Register of Wages
+   690→    public function generateFormXVII($unitId, $periodId) {
+   691→        // Get period details
+   692→        $period = $this->db->fetch("SELECT * FROM payroll_periods WHERE id = :id", ['id' => $periodId]);
+   693→        if (!$period) {
+   694→            return [];
+   695→        }
+   696→
+   697→        try {
+   698→            return $this->db->fetchAll(
+   699→                "SELECT p.*, e.full_name, e.father_name, e.designation
+   700→                 FROM payroll p
+   701→                 JOIN employees e ON p.employee_id = e.employee_code
+   702→                 WHERE e.unit_id = :unit_id
+   703→                 AND p.payroll_period_id = :period_id
+   704→                 ORDER BY e.employee_code",
+   705→                ['unit_id' => $unitId, 'period_id' => $periodId]
+   706→            );
+   707→        } catch (Exception $e) {
+   708→            return [];
+   709→        }
+   710→    }
+   711→}
+   712→
