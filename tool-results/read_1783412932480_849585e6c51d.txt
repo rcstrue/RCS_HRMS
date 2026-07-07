@@ -289,7 +289,7 @@
    289→                    pus.total_net
    290→                FROM units u
    291→                LEFT JOIN clients c ON u.client_id = c.id
-   292→                LEFT JOIN employees e ON e.unit_id = u.id AND e.status = 'approved'
+   292→                LEFT JOIN employees e ON e.unit_id = u.id AND e.status IN ('approved', 'active')
    293→                LEFT JOIN attendance_summary ats ON ats.employee_id = e.id 
    294→                    AND ats.month = ? AND ats.year = ?
    295→                LEFT JOIN payroll_unit_status pus ON pus.unit_id = u.id 
@@ -377,7 +377,7 @@
    377→             FROM employees e
    378→             LEFT JOIN attendance_summary ats ON ats.employee_id = e.id 
    379→                AND ats.month = ? AND ats.year = ?
-   380→             WHERE e.unit_id = ? AND e.status = 'approved'",
+   380→             WHERE e.unit_id = ? AND e.status IN ('approved', 'active')",
    381→            [$periodInfo['month'], $periodInfo['year'], $unitId]
    382→        );
    383→        
