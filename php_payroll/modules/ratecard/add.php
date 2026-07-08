@@ -3,16 +3,9 @@
  * RCS HRMS Pro - Add Rate Card
  * Manpower Supplier - Create Client Billing Rate
  */
-require_once '../../config/config.php';
-require_once '../../includes/database.php';
-require_once '../../includes/class.auth.php';
+// Auth & config loaded by index.php
 
-$auth = new Auth($db);
-if (!$auth->isLoggedIn()) {
-    redirect('index.php?page=auth/login');
-}
-
-if (!in_array($_SESSION['role_code'], ['admin', 'hr_executive', 'manager'])) {
+if (!in_array($_SESSION['role_code'] ?? '', ['admin', 'hr_executive', 'manager'])) {
     setFlash('error', 'Access denied');
     redirect('index.php?page=dashboard');
 }
