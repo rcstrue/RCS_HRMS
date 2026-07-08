@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import {
   ClipboardList,
@@ -13,7 +13,6 @@ import {
   Trash2,
   UserMinus,
   AlertTriangle,
-  GripVertical,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -62,68 +61,12 @@ const MONTHS = [
   'July','August','September','October','November','December',
 ];
 
-// ── Column definitions ─────────────────────────────
-interface ColDef {
-  key: string;            // field key in data row
-  label: string;          // header text
-  minWidth: number;       // minimum width in px
-  defaultWidth: number;   // starting width in px
-  editable: boolean;
-  type: 'attendance' | 'advance' | 'text' | 'action';
-}
-
-const COLUMNS: ColDef[] = [
-  { key: 'employee_code', label: 'Code',    minWidth: 60,  defaultWidth: 70,  editable: false, type: 'text' },
-  { key: 'full_name',     label: 'Name',    minWidth: 120, defaultWidth: 160, editable: false, type: 'text' },
-  { key: 'present',       label: 'Present', minWidth: 70,  defaultWidth: 80,  editable: true,  type: 'attendance' },
-  { key: 'wo',            label: 'WO',      minWidth: 60,  defaultWidth: 70,  editable: true,  type: 'attendance' },
-  { key: 'adv1',          label: 'Adv 1',   minWidth: 80,  defaultWidth: 90,  editable: true,  type: 'advance' },
-  { key: 'office_advance',label: 'Off Adv', minWidth: 80,  defaultWidth: 90,  editable: true,  type: 'advance' },
-  { key: 'dress_advance', label: 'Dress Adv',minWidth: 80, defaultWidth: 90, editable: true,  type: 'advance' },
-  { key: '_action',       label: '',        minWidth: 40,  defaultWidth: 44,  editable: false, type: 'action' },
-];
-
 // ── Helpers ────────────────────────────────────────
 function getPreviousMonth(): [number, number] {
   const now = new Date();
-  const m = now.getMonth();
+  const m = now.getMonth(); // 0-indexed
   if (m === 0) return [12, now.getFullYear() - 1];
   return [m, now.getFullYear()];
-}
-
-// ── Column Resize Hook ─────────────────────────────
-function useColumnResize(defaultWidths: number[], minWidths: number[]) {
-  const [widths, setWidths] = useState(defaultWidths);
-  const resizingIdx = useRef<number | null>(null);
-  const startX = useRef(0);
-  const startWidth = useRef(0);
-  const tableRef = useRef<HTMLDivElement>(null);
-
-  const onPointerDown = useCallback((idx: number, e: React.PointerEvent) => {
-    e.preventDefault();
-    resizingIdx.current = idx;
-    startX.current = e.clientX;
-    startWidth.current = widths[idx];
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }, [widths]);
-
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (resizingIdx.current === null) return;
-    const diff = e.clientX - startX.current;
-    const idx = resizingIdx.current;
-    const newWidth = Math.max(minWidths[idx], startWidth.current + diff);
-    setWidths(prev => {
-      const next = [...prev];
-      next[idx] = newWidth;
-      return next;
-    });
-  }, [minWidths]);
-
-  const onPointerUp = useCallback(() => {
-    resizingIdx.current = null;
-  }, []);
-
-  return { widths, tableRef, onPointerDown, onPointerMove, onPointerUp };
 }
 
 // ── Component ──────────────────────────────────────
@@ -158,12 +101,6 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
   // Remove employee confirmation dialog
   const [removeTarget, setRemoveTarget] = useState<TeamSummaryRow | null>(null);
   const [removing, setRemoving] = useState(false);
-
-  // Column resize
-  const { widths, tableRef, onPointerDown, onPointerMove, onPointerUp } = useColumnResize(
-    COLUMNS.map(c => c.defaultWidth),
-    COLUMNS.map(c => c.minWidth),
-  );
 
   // ── Load filters ──
   const loadFilters = useCallback(async () => {
@@ -219,7 +156,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
     if (selectedUnit) loadSummary();
   }, [selectedUnit, loadSummary]);
 
-  // ── Handle field change ──
+  // ── Handle field change (present, wo, or advance) ──
   const handleFieldChange = (empId: string, field: keyof TeamSummaryRow, value: string) => {
     const numVal = value === '' ? 0 : parseFloat(value);
     if (isNaN(numVal) || numVal < 0) return;
@@ -390,30 +327,23 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
     URL.revokeObjectURL(url);
   };
 
-  // ── Render helpers ──
+  // ── Render ──
   const hasDirty = Object.keys(dirty).length > 0;
 
-  const getCellValue = (row: TeamSummaryRow, key: string): string | number => {
-    if (key === 'employee_code') return row.employee_code || '—';
-    if (key === 'full_name') return row.full_name;
-    return (row as Record<string, unknown>)[key] as number ?? 0;
-  };
-
-  // ── Render ──
   return (
-    <div className="space-y-4 pb-24">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-gray-900">Team Attendance</h2>
         <div className="flex gap-2">
           {selectedUnit && (
             <Button variant="outline" size="sm" onClick={() => setShowAddTemp(true)} className="gap-1.5 text-xs">
-              <Plus className="w-3.5 h-3.5" /> Temp
+              <Plus className="w-3.5 h-3.5" /> Temp Employee
             </Button>
           )}
           {rows.length > 0 && (
             <Button variant="outline" size="sm" onClick={handleExport} className="gap-1.5 text-xs">
-              <Download className="w-3.5 h-3.5" /> CSV
+              <Download className="w-3.5 h-3.5" /> Export
             </Button>
           )}
         </div>
@@ -491,223 +421,150 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
       {loading && (
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
+            <Skeleton key={i} className="h-12 w-full" />
           ))}
         </div>
       )}
 
-      {/* Save bar — sticky bottom */}
-      {hasDirty && !loading && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t shadow-lg px-4 py-3 flex items-center justify-between safe-area-bottom">
-          <span className="text-sm text-amber-700 font-medium">
-            {Object.keys(dirty).length} unsaved change{Object.keys(dirty).length > 1 ? 's' : ''}
-          </span>
-          <Button onClick={handleSave} disabled={saving} className="gap-2 h-10 px-5 bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save
-          </Button>
-        </div>
-      )}
-
-      {/* Excel-like Resizable Table */}
+      {/* Table */}
       {!loading && rows.length > 0 && (
-        <div
-          ref={tableRef}
-          className="bg-white rounded-xl border overflow-hidden"
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerLeave={onPointerUp}
-          style={{ touchAction: 'none' }}
-        >
-          {/* Unsaved changes banner */}
+        <div className="bg-white rounded-xl border overflow-hidden">
+          {/* Save button */}
           {hasDirty && (
-            <div className="bg-amber-50 px-3 py-1.5 border-b">
-              <span className="text-[11px] text-amber-600">
-                Drag column borders to resize
+            <div className="bg-amber-50 px-3 py-2 border-b flex items-center justify-between">
+              <span className="text-xs text-amber-700 font-medium">
+                {Object.keys(dirty).length} unsaved change{Object.keys(dirty).length > 1 ? 's' : ''}
               </span>
+              <Button size="sm" onClick={handleSave} disabled={saving} className="gap-1.5 h-7 text-xs bg-emerald-600 hover:bg-emerald-700">
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Save
+              </Button>
             </div>
           )}
 
-          <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
-            <table
-              className="border-collapse"
-              style={{ minWidth: widths.reduce((a, b) => a + b, 0) }}
-            >
-              <colgroup>
-                {COLUMNS.map((col, i) => (
-                  <col key={col.key} style={{ width: widths[i] }} />
-                ))}
-              </colgroup>
-
-              {/* ── Header ── */}
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-gray-100 border-b-2 border-gray-300">
-                  {COLUMNS.map((col, i) => {
-                    const isLast = i === COLUMNS.length - 1;
-                    const isAtt = col.type === 'attendance';
-                    const isAdv = col.type === 'advance';
-                    return (
-                      <th
-                        key={col.key}
-                        className={cn(
-                          'relative text-[11px] font-bold uppercase tracking-wider whitespace-nowrap select-none',
-                          isAtt && 'text-emerald-700 bg-emerald-50',
-                          isAdv && 'text-blue-700 bg-blue-50',
-                          !isAtt && !isAdv && 'text-gray-600',
-                        )}
-                        style={{ height: 36, width: widths[i] }}
-                      >
-                        <span className="px-1.5 block truncate">
-                          {col.label}
-                        </span>
-                        {/* Resize handle */}
-                        {!isLast && (
-                          <div
-                            className="absolute top-0 right-0 bottom-0 w-2.5 cursor-col-resize hover:bg-blue-400/30 active:bg-blue-500/40 transition-colors flex items-center justify-center z-20"
-                            onPointerDown={(e) => onPointerDown(i, e)}
-                          >
-                            <div className="w-[3px] h-5 bg-gray-300 rounded-full" />
-                          </div>
-                        )}
-                      </th>
-                    );
-                  })}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50 border-b">
+                  <th className="text-left px-2 py-2.5 font-semibold text-gray-600 whitespace-nowrap">Code</th>
+                  <th className="text-left px-2 py-2.5 font-semibold text-gray-600 whitespace-nowrap">Name</th>
+                  <th className="text-center px-1 py-2.5 font-semibold text-emerald-600 w-14">Present</th>
+                  <th className="text-center px-1 py-2.5 font-semibold text-emerald-600 w-12">WO</th>
+                  <th className="text-center px-1 py-2.5 font-semibold text-blue-600 w-20">Adv 1</th>
+                  <th className="text-center px-1 py-2.5 font-semibold text-blue-600 w-20">Off Adv</th>
+                  <th className="text-center px-1 py-2.5 font-semibold text-blue-600 w-20">Dress Adv</th>
+                  <th className="w-9"></th>
                 </tr>
               </thead>
-
-              {/* ── Body ── */}
               <tbody>
-                {rows.map((row, rowIdx) => (
+                {rows.map((row, idx) => (
                   <tr
                     key={row.employee_id}
                     className={cn(
-                      'border-b border-gray-100 transition-colors',
-                      dirty[row.employee_id] && 'bg-blue-50/40',
-                      row.is_temp && !dirty[row.employee_id] && 'bg-orange-50/20',
-                      rowIdx % 2 === 1 && !dirty[row.employee_id] && !row.is_temp && 'bg-gray-50/40',
+                      'border-b last:border-b-0 transition-colors',
+                      dirty[row.employee_id] ? 'bg-blue-50/50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50',
+                      row.is_temp && 'bg-orange-50/30'
                     )}
                   >
-                    {COLUMNS.map((col, colIdx) => {
-                      const val = getCellValue(row, col.key);
-
-                      // Action column
-                      if (col.type === 'action') {
-                        return (
-                          <td key={col.key} className="p-0.5 text-center" style={{ width: widths[colIdx] }}>
-                            {row.is_temp ? (
-                              <button
-                                onClick={() => handleDeleteTemp(row)}
-                                disabled={deletingTemp === row.employee_id}
-                                className="p-1.5 rounded hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
-                                title="Remove temp employee"
-                              >
-                                {deletingTemp === row.employee_id
-                                  ? <Loader2 className="w-4 h-4 animate-spin" />
-                                  : <Trash2 className="w-4 h-4" />
-                                }
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => setRemoveTarget(row)}
-                                className="p-1.5 rounded hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors"
-                                title="Remove employee"
-                              >
-                                <UserMinus className="w-4 h-4" />
-                              </button>
-                            )}
-                          </td>
-                        );
-                      }
-
-                      // Editable number columns
-                      if (col.editable) {
-                        const numVal = val as number;
-                        const isAtt = col.type === 'attendance';
-                        return (
-                          <td key={col.key} className="p-0.5" style={{ width: widths[colIdx] }}>
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              min="0"
-                              step="1"
-                              value={numVal || ''}
-                              onChange={e => handleFieldChange(row.employee_id, col.key as keyof TeamSummaryRow, e.target.value)}
-                              placeholder="0"
-                              className={cn(
-                                'w-full h-9 text-center text-sm font-semibold border-0 outline-none',
-                                'focus:ring-2 focus:ring-inset',
-                                'placeholder:text-gray-300 placeholder:font-normal',
-                                isAtt
-                                  ? 'bg-emerald-50/60 text-emerald-800 focus:ring-emerald-400 focus:bg-emerald-50'
-                                  : 'bg-blue-50/60 text-blue-800 focus:ring-blue-400 focus:bg-blue-50',
-                              )}
-                            />
-                          </td>
-                        );
-                      }
-
-                      // Text columns (code, name)
-                      if (col.key === 'employee_code') {
-                        return (
-                          <td
-                            key={col.key}
-                            className="px-1.5 py-1 text-xs font-mono text-gray-500 whitespace-nowrap truncate"
-                            style={{ width: widths[colIdx] }}
-                          >
-                            {val as string}
-                          </td>
-                        );
-                      }
-
-                      // Name column
-                      return (
-                        <td
-                          key={col.key}
-                          className="px-1.5 py-1 text-sm font-medium text-gray-900 whitespace-nowrap"
-                          style={{ width: widths[colIdx], maxWidth: widths[colIdx] }}
+                    <td className="px-2 py-1.5 font-mono text-gray-700 text-[11px]">{row.employee_code || '—'}</td>
+                    <td className="px-2 py-1.5 font-medium text-gray-900 truncate max-w-[100px]">
+                      {row.full_name}
+                      {row.is_temp && (
+                        <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 text-orange-600 border-orange-300 bg-orange-50">
+                          TEMP
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="px-0.5 py-0.5">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={row.present || ''}
+                        onChange={e => handleFieldChange(row.employee_id, 'present', e.target.value)}
+                        className="h-7 text-[11px] text-center bg-emerald-50/50 border-emerald-200 focus:border-emerald-400"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="px-0.5 py-0.5">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={row.wo || ''}
+                        onChange={e => handleFieldChange(row.employee_id, 'wo', e.target.value)}
+                        className="h-7 text-[11px] text-center bg-emerald-50/50 border-emerald-200 focus:border-emerald-400"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="px-0.5 py-0.5">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={row.adv1 || ''}
+                        onChange={e => handleFieldChange(row.employee_id, 'adv1', e.target.value)}
+                        className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="px-0.5 py-0.5">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={row.office_advance || ''}
+                        onChange={e => handleFieldChange(row.employee_id, 'office_advance', e.target.value)}
+                        className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="px-0.5 py-0.5">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={row.dress_advance || ''}
+                        onChange={e => handleFieldChange(row.employee_id, 'dress_advance', e.target.value)}
+                        className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="px-0.5 py-0.5 text-center">
+                      {row.is_temp ? (
+                        <button
+                          onClick={() => handleDeleteTemp(row)}
+                          disabled={deletingTemp === row.employee_id}
+                          className="p-1 rounded hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                          title="Remove temp employee"
                         >
-                          <div className="flex items-center gap-1 min-w-0">
-                            <span className="truncate">{val as string}</span>
-                            {row.is_temp && (
-                              <Badge variant="outline" className="text-[9px] px-1 py-0 text-orange-600 border-orange-300 bg-orange-50 shrink-0 leading-none">
-                                T
-                              </Badge>
-                            )}
-                          </div>
-                        </td>
-                      );
-                    })}
+                          {deletingTemp === row.employee_id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <Trash2 className="w-3.5 h-3.5" />
+                          }
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setRemoveTarget(row)}
+                          className="p-1 rounded hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors"
+                          title="Remove employee (mark as left)"
+                        >
+                          <UserMinus className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
-
-              {/* ── Totals Footer ── */}
-              <tfoot className="sticky bottom-0 z-10">
-                <tr className="bg-gray-200/90 border-t-2 border-gray-400">
-                  <td
-                    colSpan={2}
-                    className="px-2 py-2 text-xs font-bold text-gray-700 whitespace-nowrap"
-                  >
-                    TOTAL ({rows.length})
-                  </td>
-                  {COLUMNS.slice(2).map((col, i) => {
-                    if (col.type === 'action') {
-                      return <td key={col.key} className="p-1" />;
-                    }
-                    const totalVal = totals[col.key as keyof TeamSummaryTotals] || 0;
-                    const isAtt = col.type === 'attendance';
-                    return (
-                      <td
-                        key={col.key}
-                        className={cn(
-                          'px-1 py-2 text-center text-sm font-bold',
-                          isAtt ? 'text-emerald-800' : 'text-blue-800',
-                        )}
-                      >
-                        {totalVal}
-                      </td>
-                    );
-                  })}
+              <tfoot>
+                <tr className="bg-gray-100 border-t-2 border-gray-300 font-bold">
+                  <td colSpan={2} className="px-2 py-2 text-gray-800 text-[11px]">TOTAL ({rows.length})</td>
+                  <td className="px-1 py-2 text-center text-emerald-700">{totals.present}</td>
+                  <td className="px-1 py-2 text-center text-emerald-700">{totals.wo}</td>
+                  <td className="px-1 py-2 text-center text-blue-700">{totals.adv1}</td>
+                  <td className="px-1 py-2 text-center text-blue-700">{totals.office_advance}</td>
+                  <td className="px-1 py-2 text-center text-blue-700">{totals.dress_advance}</td>
+                  <td></td>
                 </tr>
               </tfoot>
             </table>

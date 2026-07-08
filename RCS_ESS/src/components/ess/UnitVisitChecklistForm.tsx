@@ -13,7 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Loader2, Upload, X, CheckCircle2, MapPin, Camera, ImageIcon,
+  Loader2, Upload, X, CheckCircle2, MapPin, Camera,
 } from 'lucide-react';
 
 // ══════════════════════════════════════════════════════════════
@@ -67,7 +67,6 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
   const [submitting, setSubmitting] = useState(false);
 
   const docInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // Filter units when client changes (units are already filtered by access allocation)
   useEffect(() => {
@@ -104,51 +103,7 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
     });
   }, [unitId, visitMonth, visitYear, employeeId]);
 
-  // Compress image to max 1MB HD quality (like WhatsApp)
-  const compressImage = (file: File): Promise<File> => {
-    return new Promise((resolve, reject) => {
-      const MAX_SIZE = 1024 * 1024; // 1MB
-      if (file.size <= MAX_SIZE) { resolve(file); return; }
-
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let w = img.width, h = img.height;
-
-        // Limit max dimension to 1920px (HD)
-        const MAX_DIM = 1920;
-        if (w > MAX_DIM || h > MAX_DIM) {
-          if (w > h) { h = Math.round(h * MAX_DIM / w); w = MAX_DIM; }
-          else { w = Math.round(w * MAX_DIM / h); h = MAX_DIM; }
-        }
-
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(img, 0, 0, w, h);
-
-        // Start at quality 0.8 and reduce until under 1MB
-        let quality = 0.8;
-        const tryCompress = () => {
-          canvas.toBlob((blob) => {
-            if (!blob) { reject(new Error('Compression failed')); return; }
-            if (blob.size <= MAX_SIZE || quality <= 0.1) {
-              const compressed = new File([blob], file.name, { type: 'image/jpeg' });
-              resolve(compressed);
-            } else {
-              quality -= 0.1;
-              tryCompress();
-            }
-          }, 'image/jpeg', quality);
-        };
-        tryCompress();
-      };
-      img.onerror = () => reject(new Error('Failed to load image'));
-      img.src = URL.createObjectURL(file);
-    });
-  };
-
-  // Document upload — image only (gallery/upload)
+  // Document upload — image only
   const handleDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -158,41 +113,13 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
       return;
     }
     setUploadingDoc(true);
-    try {
-      const compressed = await compressImage(file);
-      const { url, error } = await uploadFile(compressed, 'unit-visits');
-      if (error) { toast.error(error); return; }
-      setDocumentUrl(url || '');
-      const reader = new FileReader();
-      reader.onload = () => setDocPreview(reader.result as string);
-      reader.readAsDataURL(compressed);
-    } catch (err) {
-      toast.error('Failed to process image');
-    } finally {
-      setUploadingDoc(false);
-      if (docInputRef.current) docInputRef.current.value = '';
-    }
-  };
-
-  // Camera capture — image only
-  const handleCameraCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingDoc(true);
-    try {
-      const compressed = await compressImage(file);
-      const { url, error } = await uploadFile(compressed, 'unit-visits');
-      if (error) { toast.error(error); return; }
-      setDocumentUrl(url || '');
-      const reader = new FileReader();
-      reader.onload = () => setDocPreview(reader.result as string);
-      reader.readAsDataURL(compressed);
-    } catch (err) {
-      toast.error('Failed to process camera image');
-    } finally {
-      setUploadingDoc(false);
-      if (cameraInputRef.current) cameraInputRef.current.value = '';
-    }
+    const { url, error } = await uploadFile(file, 'unit-visits');
+    if (error) { toast.error(error); setUploadingDoc(false); return; }
+    setDocumentUrl(url || '');
+    const reader = new FileReader();
+    reader.onload = () => setDocPreview(reader.result as string);
+    reader.readAsDataURL(file);
+    setUploadingDoc(false);
   };
 
   // Submit
@@ -222,9 +149,8 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
 
   return (
     <div className="space-y-4">
-      {/* Hidden file inputs — gallery (no capture) and camera (with capture) */}
-      <input ref={docInputRef} type="file" accept="image/*" className="hidden" onChange={handleDocUpload} />
-      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCameraCapture} />
+      {/* Hidden file input — images only */}
+      <input ref={docInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleDocUpload} />
 
       {/* Main Form Card */}
       <Card className="border-2 border-emerald-200">
@@ -312,38 +238,22 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
-                <Button
-                  variant="outline"
-                  className="h-24 border-2 border-dashed border-gray-300 hover:border-emerald-400 hover:bg-emerald-50/50 flex-col gap-1.5"
-                  onClick={() => cameraInputRef.current?.click()}
-                  disabled={uploadingDoc}
-                >
-                  {uploadingDoc ? (
-                    <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-                  ) : (
-                    <>
-                      <Camera className="w-6 h-6 text-gray-400" />
-                      <span className="text-xs text-gray-500">Camera</span>
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-24 border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50/50 flex-col gap-1.5"
-                  onClick={() => docInputRef.current?.click()}
-                  disabled={uploadingDoc}
-                >
-                  {uploadingDoc ? (
-                    <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-                  ) : (
-                    <>
-                      <ImageIcon className="w-6 h-6 text-gray-400" />
-                      <span className="text-xs text-gray-500">Upload / Gallery</span>
-                    </>
-                  )}
-                </Button>
-              </div>
+              <Button
+                variant="outline"
+                className="w-full h-28 border-2 border-dashed border-gray-300 hover:border-emerald-400 hover:bg-emerald-50/50 flex-col gap-2"
+                onClick={() => docInputRef.current?.click()}
+                disabled={uploadingDoc}
+              >
+                {uploadingDoc ? (
+                  <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                ) : (
+                  <>
+                    <Camera className="w-7 h-7 text-gray-400" />
+                    <span className="text-sm text-gray-500">Tap to take photo or upload image</span>
+                    <span className="text-[10px] text-gray-400">JPG, PNG, HEIC</span>
+                  </>
+                )}
+              </Button>
             )}
           </div>
 

@@ -27,6 +27,9 @@ import {
   Eye,
   EyeOff,
   Download,
+  LogOut,
+  ArrowRightLeft,
+  CalendarX,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -38,6 +41,8 @@ import {
   fetchEmployeeById,
   fetchClients,
   fetchUnits,
+  exitEmployee,
+  transferEmployee,
 } from '@/lib/ess-api';
 import type { Employee, ClientOption, UnitOption } from '@/lib/ess-types';
 import type { AccessLevel } from '@/lib/access-types';
@@ -149,6 +154,15 @@ export default function DirectoryPage({
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [viewingDoc, setViewingDoc] = useState<{ url: string; title: string } | null>(null);
+
+  // Manager actions
+  const isManager = role !== 'employee';
+  const [exitDialogOpen, setExitDialogOpen] = useState(false);
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [exitDate, setExitDate] = useState('');
+  const [transferClient, setTransferClient] = useState('');
+  const [transferUnit, setTransferUnit] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   // ── Load filter options (filtered by access allocation) ──
   const loadFilters = useCallback(async () => {
@@ -285,6 +299,55 @@ export default function DirectoryPage({
       // Keep the basic data from the list
     } finally {
       setProfileLoading(false);
+    }
+  };
+
+  const handleExit = async () => {
+    if (!selectedEmployee || !exitDate) return;
+    setActionLoading(true);
+    try {
+      const { error } = await exitEmployee({
+        employee_id: selectedEmployee.id,
+        exit_date: exitDate,
+      });
+      if (error) {
+        toast.error(error);
+      } else {
+        toast.success(`${selectedEmployee.full_name} marked as inactive`);
+        setExitDialogOpen(false);
+        setProfileOpen(false);
+        loadEmployees(); // refresh list
+      }
+    } catch {
+      toast.error('Failed to remove employee');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleTransfer = async () => {
+    if (!selectedEmployee) return;
+    setActionLoading(true);
+    try {
+      const payload: { employee_id: number; client_id?: number; unit_id?: number } = {
+        employee_id: selectedEmployee.id,
+      };
+      if (transferClient && transferClient !== 'all_clients') payload.client_id = Number(transferClient);
+      if (transferUnit) payload.unit_id = Number(transferUnit);
+
+      const { error } = await transferEmployee(payload);
+      if (error) {
+        toast.error(error);
+      } else {
+        toast.success(`${selectedEmployee.full_name} transferred successfully`);
+        setTransferDialogOpen(false);
+        setProfileOpen(false);
+        loadEmployees(); // refresh list
+      }
+    } catch {
+      toast.error('Failed to transfer employee');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -665,7 +728,29 @@ export default function DirectoryPage({
                       <ProfileRow icon={Hash} label="PIN Code" value={emp.pin_code} />
                     </ProfileSection>
 
-                    {/* Employment */}
+                    {/* Manager Actions — only for active employees */}
+                  {isManager && isActive(emp) && (
+                    <div className="flex gap-2 pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 gap-1.5 text-xs border-orange-300 text-orange-700 hover:bg-orange-50"
+                        onClick={() => { setExitDate(''); setExitDialogOpen(true); }}
+                      >
+                        <CalendarX className="h-3.5 w-3.5" /> Remove Employee
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 gap-1.5 text-xs border-blue-300 text-blue-700 hover:bg-blue-50"
+                        onClick={() => { setTransferClient(String(emp.client_id || '')); setTransferUnit(''); setTransferDialogOpen(true); }}
+                      >
+                        <ArrowRightLeft className="h-3.5 w-3.5" /> Transfer
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Employment */}
                     <ProfileSection title="Employment">
                       <ProfileRow
                         icon={Building2}
@@ -746,6 +831,100 @@ export default function DirectoryPage({
               )}
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Exit Employee Dialog ── */}
+      <Dialog open={exitDialogOpen} onOpenChange={setExitDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Remove Employee</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Mark <strong>{selectedEmployee?.full_name}</strong> as inactive.
+              They will no longer appear in the directory.
+            </p>
+            <div className="space-y-2">
+              <Label className="text-xs">Exit Date</Label>
+              <Input
+                type="date"
+                value={exitDate}
+                onChange={(e) => setExitDate(e.target.value)}
+                max={new Date().toISOString().split('T')[0]}
+                className="h-9"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="flex-1" onClick={() => setExitDialogOpen(false)} disabled={actionLoading}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1 bg-orange-600 hover:bg-orange-700"
+                onClick={handleExit}
+                disabled={!exitDate || actionLoading}
+              >
+                {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                <span className="ml-1">Remove</span>
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Transfer Employee Dialog ── */}
+      <Dialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Transfer Employee</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Change client/unit for <strong>{selectedEmployee?.full_name}</strong>.
+            </p>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Client</Label>
+                <Select value={transferClient} onValueChange={(v) => { setTransferClient(v); setTransferUnit(''); }}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select client" /></SelectTrigger>
+                  <SelectContent>
+                    {clients.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Unit</Label>
+                <Select value={transferUnit} onValueChange={setTransferUnit}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select unit" /></SelectTrigger>
+                  <SelectContent>
+                    {(transferClient
+                      ? units.filter((u) => !transferClient || transferClient === 'all_clients' || u.client_id === Number(transferClient))
+                      : units
+                    ).map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="flex-1" onClick={() => setTransferDialogOpen(false)} disabled={actionLoading}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1"
+                onClick={handleTransfer}
+                disabled={(!transferClient && !transferUnit) || actionLoading}
+              >
+                {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
+                <span className="ml-1">Transfer</span>
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

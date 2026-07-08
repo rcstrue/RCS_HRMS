@@ -491,3 +491,25 @@ export async function removeEmployee(data: {
     body: JSON.stringify({ ...data, action: 'remove_emp' }),
   }));
 }
+
+// ===== Manager Employee Actions =====
+export async function exitEmployee(data: {
+  employee_id: number;
+  exit_date: string; // YYYY-MM-DD
+}) {
+  return unwrap(apiRequest('/ess/employee-actions', {
+    method: 'POST',
+    body: JSON.stringify({ ...data, action: 'exit' }),
+  }));
+}
+
+export async function transferEmployee(data: {
+  employee_id: number;
+  client_id?: number;
+  unit_id?: number;
+}) {
+  return unwrap(apiRequest('/ess/employee-actions', {
+    method: 'POST',
+    body: JSON.stringify({ ...data, action: 'transfer' }),
+  }));
+}
