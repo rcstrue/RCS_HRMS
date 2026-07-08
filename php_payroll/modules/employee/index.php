@@ -101,41 +101,6 @@
                 </div>
             </a>
         </div>
-        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
-            <a href="index.php?page=recruitment/list" class="text-decoration-none">
-                <div class="card module-card h-100">
-                    <div class="card-body">
-                        <div class="mod-icon bg-teal-soft"><i class="bi bi-person-plus"></i></div>
-                        <div class="mod-title">Recruitment</div>
-                        <div class="mod-desc">Manage recruitment pipeline</div>
-                    </div>
-                    <i class="bi bi-arrow-right mod-arrow"></i>
-                </div>
-            </a>
-        </div>
-        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
-            <a href="index.php?page=deployment/list" class="text-decoration-none">
-                <div class="card module-card h-100">
-                    <div class="card-body">
-                        <div class="mod-icon bg-indigo-soft"><i class="bi bi-geo-alt"></i></div>
-                        <div class="mod-title">Deployment</div>
-                        <div class="mod-desc">Employee site deployments</div>
-                    </div>
-                    <i class="bi bi-arrow-right mod-arrow"></i>
-                </div>
-            </a>
-        </div>
-        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
-            <a href="index.php?page=requisition/list" class="text-decoration-none">
-                <div class="card module-card h-100">
-                    <div class="card-body">
-                        <div class="mod-icon bg-lime-soft"><i class="bi bi-clipboard-data"></i></div>
-                        <div class="mod-title">Requisition</div>
-                        <div class="mod-desc">Manpower requisitions</div>
-                    </div>
-                    <i class="bi bi-arrow-right mod-arrow"></i>
-                </div>
-            </a>
-        </div>
+
     </div>
 </div>

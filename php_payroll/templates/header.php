@@ -98,7 +98,7 @@
                 $entryModules = ['attendance','advance','leave','loan','entry','expense','timesheet'];
                 $complianceModules = ['compliance','forms'];
                 $reportModules = ['report','settlement','billing','ratecard','contract'];
-                $employeeModules = ['employee','client','unit','recruitment','deployment','requisition'];
+                $employeeModules = ['employee','client','unit'];
                 $helpdeskModules = ['helpdesk','feedback'];
                 $settingsModules = ['settings','assets','audit','announcement','notifications'];
                 ?>
@@ -117,21 +117,7 @@
                         <li><a href="index.php?page=client/index" class="<?php echo strpos($page,'client') === 0 ? 'active' : ''; ?>">
                             <i class="bi bi-building me-1"></i>Clients & Units
                         </a></li>
-                        <?php if (showMenu($auth, 'employee')): ?>
-                        <li><a href="index.php?page=recruitment/list" class="<?php echo strpos($page,'recruitment') === 0 ? 'active' : ''; ?>">
-                            <i class="bi bi-person-plus me-1"></i>Recruitment
-                        </a></li>
-                        <?php endif; ?>
-                        <?php if (showMenu($auth, 'employee')): ?>
-                        <li><a href="index.php?page=deployment/list" class="<?php echo strpos($page,'deployment') === 0 ? 'active' : ''; ?>">
-                            <i class="bi bi-geo-alt me-1"></i>Deployment
-                        </a></li>
-                        <?php endif; ?>
-                        <?php if (showMenu($auth, 'employee')): ?>
-                        <li><a href="index.php?page=requisition/list" class="<?php echo strpos($page,'requisition') === 0 ? 'active' : ''; ?>">
-                            <i class="bi bi-clipboard-data me-1"></i>Requisition
-                        </a></li>
-                        <?php endif; ?>
+
                     </ul>
                 </li>
                 <?php endif; ?>
@@ -147,11 +133,6 @@
                         <li><a href="index.php?page=attendance/index" class="<?php echo strpos($page,'attendance') === 0 ? 'active' : ''; ?>">
                             <i class="bi bi-calendar-check me-1"></i>Attendance
                         </a></li>
-                        <?php if (showMenu($auth, 'advance')): ?>
-                        <li><a href="index.php?page=advance/index" class="<?php echo strpos($page,'advance') === 0 ? 'active' : ''; ?>">
-                            <i class="bi bi-wallet2 me-1"></i>Advance
-                        </a></li>
-                        <?php endif; ?>
                         <?php if (showMenu($auth, 'leave')): ?>
                         <li><a href="index.php?page=leave/index" class="<?php echo strpos($page,'leave') === 0 ? 'active' : ''; ?>">
                             <i class="bi bi-calendar-x me-1"></i>Leave
@@ -373,10 +354,7 @@
                             'client'     => 'Clients & Units',
                             'contract'   => 'Contracts',
                             'billing'    => 'Billing',
-                            'recruitment'=> 'Recruitment',
                             'announcement'=> 'Announcements',
-                            'requisition'=> 'Requisitions',
-                            'deployment' => 'Deployments',
                             'ratecard'   => 'Rate Cards',
                             'timesheet'  => 'Timesheets',
                             'loan'       => 'Loans',
@@ -397,9 +375,6 @@
                             'expense'     => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
                             'timesheet'   => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
                             'client'      => ['label' => 'Employees', 'link' => 'index.php?page=employee/index'],
-                            'recruitment' => ['label' => 'Employees', 'link' => 'index.php?page=employee/index'],
-                            'deployment'  => ['label' => 'Employees', 'link' => 'index.php?page=employee/index'],
-                            'requisition' => ['label' => 'Employees', 'link' => 'index.php?page=employee/index'],
                             'compliance'  => ['label' => 'Compliance', 'link' => 'index.php?page=compliance/index'],
                             'forms'       => ['label' => 'Compliance', 'link' => 'index.php?page=compliance/index'],
                             'settlement'  => ['label' => 'Reports', 'link' => 'index.php?page=report/index'],

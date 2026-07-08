@@ -415,6 +415,15 @@ $monthLabel = $monthNames[$month] ?? '';
     border-color: #0d6efd;
     box-shadow: 0 0 0 2px rgba(13,110,253,0.15);
 }
+/* Hide number input spinners */
+.payroll-input::-webkit-outer-spin-button,
+.payroll-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.payroll-input[type=number] {
+    -moz-appearance: textfield;
+}
 .payroll-input.att-input { background: #e3f2fd; }
 .payroll-input.adv-input { background: #fce4ec; }
 
@@ -796,36 +805,36 @@ $monthLabel = $monthNames[$month] ?? '';
 
                 <!-- ── ATTENDANCE (editable) ─────────────────── -->
                 <td class="text-center col-att" data-col-group="att">
-                    <input type="number" class="payroll-input att-input att-field" name="att_present" value="<?= $attPresent ?>" min="0" max="31" step="0.5">
+                    <input type="number" class="payroll-input att-input att-field" name="att_present" value="<?= $attPresent > 0 ? $attPresent : '' ?>" min="0" max="31" step="0.5">
                 </td>
                 <td class="text-center col-att" data-col-group="att">
-                    <input type="number" class="payroll-input att-input att-field" name="att_wo" value="<?= $attWO ?>" min="0" max="31" step="0.5">
+                    <input type="number" class="payroll-input att-input att-field" name="att_wo" value="<?= $attWO > 0 ? $attWO : '' ?>" min="0" max="31" step="0.5">
                 </td>
                 <td class="text-center col-att" data-col-group="att">
-                    <input type="number" class="payroll-input att-input att-field" name="att_extra" value="<?= $attExtra ?>" min="0" max="31" step="0.5">
+                    <input type="number" class="payroll-input att-input att-field" name="att_extra" value="<?= $attExtra > 0 ? $attExtra : '' ?>" min="0" max="31" step="0.5">
                 </td>
                 <td class="text-center col-att" data-col-group="att">
-                    <input type="number" class="payroll-input att-input att-field" name="ot_hours" value="<?= $attOtHours ?>" min="0" max="200" step="0.5">
+                    <input type="number" class="payroll-input att-input att-field" name="ot_hours" value="<?= $attOtHours > 0 ? $attOtHours : '' ?>" min="0" max="200" step="0.5">
                 </td>
 
                 <!-- ── WAGE DETAILS (editable, monthly amounts) ── -->
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_basic_da" value="<?= $wBasicDa ?>" min="0" step="1">
+                    <input type="number" class="payroll-input wage-field" name="w_basic_da" value="<?= $wBasicDa > 0 ? $wBasicDa : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_hra" value="<?= $wHra ?>" min="0" step="1">
+                    <input type="number" class="payroll-input wage-field" name="w_hra" value="<?= $wHra > 0 ? $wHra : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_leave_enc" value="<?= $wLeaveEnc ?>" min="0" step="1">
+                    <input type="number" class="payroll-input wage-field" name="w_leave_enc" value="<?= $wLeaveEnc > 0 ? $wLeaveEnc : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_bonus_enc" value="<?= $wBonusEnc ?>" min="0" step="1">
+                    <input type="number" class="payroll-input wage-field" name="w_bonus_enc" value="<?= $wBonusEnc > 0 ? $wBonusEnc : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_wash" value="<?= $wWash ?>" min="0" step="1">
+                    <input type="number" class="payroll-input wage-field" name="w_wash" value="<?= $wWash > 0 ? $wWash : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_ot_rate" value="<?= $wOtRate ?>" min="0" step="0.01">
+                    <input type="number" class="payroll-input wage-field" name="w_ot_rate" value="<?= $wOtRate > 0 ? $wOtRate : '' ?>" min="0" step="0.01">
                 </td>
 
                 <!-- ── EARNINGS (auto-calculated, readonly) ───── -->
@@ -845,13 +854,13 @@ $monthLabel = $monthNames[$month] ?? '';
                 <td class="text-end col-ded calc-val ded-pt" data-col-group="ded">--</td>
                 <td class="text-end col-ded calc-val ded-lwf" data-col-group="ded">--</td>
                 <td class="text-end col-ded" data-col-group="ded">
-                    <input type="number" class="payroll-input adv-input ded-field" name="advance" value="<?= $totalAdvance ?>" min="0" step="1">
+                    <input type="number" class="payroll-input adv-input ded-field" name="advance" value="<?= $totalAdvance > 0 ? $totalAdvance : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-ded" data-col-group="ded" style="background:#f3e5f5;">
                     <input type="number" class="payroll-input ded-field" name="loan_emi" value="<?= $loanEmiDisplay > 0 ? $loanEmiDisplay : '' ?>" min="0" step="1" placeholder="0">
                 </td>
                 <td class="text-end col-ded" data-col-group="ded">
-                    <input type="number" class="payroll-input adv-input ded-field" name="office_ded" value="<?= $officeDeduction ?>" min="0" step="1">
+                    <input type="number" class="payroll-input adv-input ded-field" name="office_ded" value="<?= $officeDeduction > 0 ? $officeDeduction : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-ded col-gross fw-bold calc-val total-deductions" data-col-group="ded" style="border-left:2px solid #666;">--</td>
 
