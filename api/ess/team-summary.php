@@ -57,7 +57,7 @@ try {
 // ─── Helper: Check if caller has access to a unit ─────────────────────────────
 function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string $callerRole): bool
 {
-    if ($callerRole === 'admin') return true;
+    if ($callerRole === 'admin' || $callerRole === 'regional_manager') return true;
 
     $codeStmt = $conn->prepare('SELECT employee_code FROM ess_employee_cache WHERE employee_id = ?');
     $codeStmt->bind_param('s', $employeeId);
@@ -66,14 +66,17 @@ function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string 
     $codeStmt->close();
     $employeeCode = trim($codeRow['employee_code'] ?? '');
 
-    $nameStmt = $conn->prepare('SELECT name FROM units WHERE id = ?');
+    $nameStmt = $conn->prepare('SELECT id, name, client_id FROM units WHERE id = ?');
     $nameStmt->bind_param('i', $unitId);
     $nameStmt->execute();
-    $unitName = trim($nameStmt->get_result()->fetch_assoc()['name'] ?? '');
+    $unitRow = $nameStmt->get_result()->fetch_assoc();
+    $unitName = trim($unitRow['name'] ?? '');
+    $unitClientId = (int)($unitRow['client_id'] ?? 0);
     $nameStmt->close();
 
     if (empty($unitName)) return false;
 
+    // Check 1: user_access by unit name (existing)
     if (!empty($employeeCode)) {
         $accStmt = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id = ?");
         $accStmt->bind_param('ss', $employeeCode, $unitName);
@@ -81,8 +84,17 @@ function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string 
         $hasAccess = $accStmt->get_result()->num_rows > 0;
         $accStmt->close();
         if ($hasAccess) return true;
+
+        // Check 1b: user_access by unit ID (numeric string)
+        $accStmt2 = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id = ?");
+        $accStmt2->bind_param('ss', $employeeCode, (string)$unitId);
+        $accStmt2->execute();
+        $hasAccess2 = $accStmt2->get_result()->num_rows > 0;
+        $accStmt2->close();
+        if ($hasAccess2) return true;
     }
 
+    // Check 2: employee_city_allocations (legacy)
     $legacyStmt = $conn->prepare("SELECT 1 FROM employee_city_allocations WHERE employee_id = ? AND allocation_type = 'unit' AND allocation_value = ?");
     $legacyStmt->bind_param('ss', $employeeId, $unitName);
     $legacyStmt->execute();
@@ -90,6 +102,22 @@ function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string 
     $legacyStmt->close();
     if ($hasLegacy) return true;
 
+    // Check 3: Manager has access to ANY unit under the same client → allow all client units
+    if ($unitClientId > 0 && !empty($employeeCode)) {
+        $clientStmt = $conn->prepare("
+            SELECT 1 FROM units u
+            INNER JOIN user_access ua ON ua.access_type = 'unit' AND (ua.access_id = u.name OR ua.access_id = CAST(u.id AS CHAR))
+            WHERE u.client_id = ? AND ua.user_id = ?
+            LIMIT 1
+        ");
+        $clientStmt->bind_param('is', $unitClientId, $employeeCode);
+        $clientStmt->execute();
+        $hasClientAccess = $clientStmt->get_result()->num_rows > 0;
+        $clientStmt->close();
+        if ($hasClientAccess) return true;
+    }
+
+    // Check 4: Own unit
     $ownStmt = $conn->prepare('SELECT unit_id FROM ess_employee_cache WHERE employee_id = ?');
     $ownStmt->bind_param('s', $employeeId);
     $ownStmt->execute();
@@ -124,7 +152,7 @@ function _handleGetSummary(): void
     $conn = getDbConnection();
 
     $callerRole = getEmployeeRole($conn, $employeeId);
-    if (!in_array($callerRole, ['manager', 'supervisor', 'admin'], true)) {
+    if (!in_array($callerRole, ['manager', 'supervisor', 'regional_manager', 'admin'], true)) {
         jsonOutput(['success' => false, 'error' => 'Access denied'], 403);
     }
 
@@ -265,7 +293,7 @@ function _handleSaveAdvance(array $input): void
     $conn = getDbConnection();
 
     $callerRole = getEmployeeRole($conn, $employeeId);
-    if (!in_array($callerRole, ['manager', 'supervisor', 'admin'], true)) {
+    if (!in_array($callerRole, ['manager', 'supervisor', 'regional_manager', 'admin'], true)) {
         jsonOutput(['success' => false, 'error' => 'Access denied'], 403);
     }
 
