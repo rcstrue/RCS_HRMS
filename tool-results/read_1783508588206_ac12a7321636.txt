@@ -1,0 +1,736 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Employee List Page
+     4→ * Updated for new database schema
+     5→ *
+     6→ * NOTE: Column visibility dropdown added - users can toggle columns on/off
+     7→ * Preferences are saved in localStorage for persistence
+     8→ */
+     9→
+    10→$pageTitle = 'Employees';
+    11→
+    12→// Define available columns for the visibility dropdown
+    13→// NOTE: Add new columns here when adding new fields to the employee table
+    14→// 'default' => true means column is visible by default
+    15→$availableColumns = [
+    16→    'employee_code' => ['label' => 'Employee Code', 'default' => true],
+    17→    'full_name' => ['label' => 'Name', 'default' => true],
+    18→    'father_name' => ['label' => 'Father Name', 'default' => false],
+    19→    'designation' => ['label' => 'Designation', 'default' => true],
+    20→    'department' => ['label' => 'Department', 'default' => false],
+    21→    'client_unit' => ['label' => 'Client / Unit', 'default' => true],
+    22→    'doj_dob' => ['label' => 'DOJ / DOB', 'default' => true],
+    23→    'worker_category' => ['label' => 'Category', 'default' => true],
+    24→    'employment_type' => ['label' => 'Employment Type', 'default' => false],
+    25→    'date_of_leaving' => ['label' => 'DOL', 'default' => false],
+    26→    'pf_esi' => ['label' => 'PF/ESI', 'default' => true],
+    27→    'uan_number' => ['label' => 'UAN', 'default' => false],
+    28→    'esic_number' => ['label' => 'ESIC No', 'default' => false],
+    29→    'mobile_number' => ['label' => 'Mobile', 'default' => true],
+    30→    'alternate_mobile' => ['label' => 'Alt Mobile', 'default' => false],
+    31→    'email' => ['label' => 'Email', 'default' => false],
+    32→    'aadhaar_number' => ['label' => 'Aadhaar', 'default' => false],
+    33→    'gender' => ['label' => 'Gender', 'default' => false],
+    34→    'date_of_birth' => ['label' => 'DOB', 'default' => false],
+    35→    // 'doj_dob' is a virtual column - not in DB, merged DOJ+DOB display
+    36→    'address' => ['label' => 'Address', 'default' => false],
+    37→    'state' => ['label' => 'State', 'default' => false],
+    38→    'district' => ['label' => 'District', 'default' => false],
+    39→    'pin_code' => ['label' => 'Pin Code', 'default' => false],
+    40→    'bank_name' => ['label' => 'Bank Name', 'default' => false],
+    41→    'account_number' => ['label' => 'Account No', 'default' => false],
+    42→    'ifsc_code' => ['label' => 'IFSC', 'default' => false],
+    43→    'nominee_name' => ['label' => 'Nominee', 'default' => false],
+    44→    'nominee_relation' => ['label' => 'Nominee Relation', 'default' => false],
+    45→    'emergency_contact' => ['label' => 'Emergency Contact', 'default' => false],
+    46→    'status' => ['label' => 'Status', 'default' => true],
+    47→    'actions' => ['label' => 'Actions', 'default' => true]
+    48→];
+    49→
+    50→// Get filters - default to 'approved' (active) employees
+    51→// Sanitize all user inputs to prevent XSS
+    52→$filters = [
+    53→    'status' => sanitize($_GET['status'] ?? 'approved'), // Default to approved/active
+    54→    'client_id' => !empty($_GET['client_id']) ? (int)$_GET['client_id'] : null,
+    55→    'unit_id' => !empty($_GET['unit_id']) ? (int)$_GET['unit_id'] : null,
+    56→    'worker_category' => sanitize($_GET['worker_category'] ?? ''),
+    57→    'search' => sanitize($_GET['search'] ?? '')
+    58→];
+    59→
+    60→// Handle export - check if we can set headers (export should be handled before header.php)
+    61→if ((isset($isExportRequest) || isset($_GET['export'])) && !headers_sent()) {
+    62→    // Get all employees for export (no pagination)
+    63→    $result = $employee->getAll($filters, 1, 10000);
+    64→    $exportData = $result['data'];
+    65→    
+    66→    // Set headers for Excel download
+    67→    header('Content-Type: text/csv; charset=utf-8');
+    68→    header('Content-Disposition: attachment; filename="employees_export_' . date('Y-m-d_His') . '.csv"');
+    69→    header('Pragma: no-cache');
+    70→    header('Expires: 0');
+    71→    
+    72→    // Output CSV with BOM for Excel
+    73→    echo "\xEF\xBB\xBF";
+    74→    
+    75→    // CSV headers
+    76→    $headers = [
+    77→        'Employee Code',
+    78→        'Full Name',
+    79→        'Father Name',
+    80→        'Date of Birth',
+    81→        'Gender',
+    82→        'Mobile Number',
+    83→        'Alternate Mobile',
+    84→        'Email',
+    85→        'Aadhaar Number',
+    86→        'UAN Number',
+    87→        'ESIC Number',
+    88→        'Address',
+    89→        'Pin Code',
+    90→        'State',
+    91→        'District',
+    92→        'Bank Name',
+    93→        'Account Number',
+    94→        'IFSC Code',
+    95→        'Client Name',
+    96→        'Unit Name',
+    97→        'Designation',
+    98→        'Department',
+    99→        'Worker Category',
+   100→        'Employment Type',
+   101→        'Date of Joining',
+   102→        'Date of Leaving',
+   103→        'Status',
+   104→        'PF Applicable',
+   105→        'ESI Applicable',
+   106→        'Basic + DA',
+   107→        'Gross Salary',
+   108→        'Nominee Name',
+   109→        'Nominee Relationship',
+   110→        'Emergency Contact Name',
+   111→        'Emergency Contact Relation'
+   112→    ];
+   113→    
+   114→    $output = fopen('php://output', 'w');
+   115→    fputcsv($output, $headers, ',', '"', '\\');
+   116→    
+   117→    foreach ($exportData as $emp) {
+   118→        $row = [
+   119→            $emp['employee_code'] ?? '',
+   120→            $emp['full_name'] ?? '',
+   121→            $emp['father_name'] ?? '',
+   122→            $emp['date_of_birth'] ?? '',
+   123→            $emp['gender'] ?? '',
+   124→            $emp['mobile_number'] ?? '',
+   125→            $emp['alternate_mobile'] ?? '',
+   126→            $emp['email'] ?? '',
+   127→            $emp['aadhaar_number'] ?? '',
+   128→            $emp['uan_number'] ?? '',
+   129→            $emp['esic_number'] ?? '',
+   130→            $emp['address'] ?? '',
+   131→            $emp['pin_code'] ?? '',
+   132→            $emp['state'] ?? '',
+   133→            $emp['district'] ?? '',
+   134→            $emp['bank_name'] ?? '',
+   135→            $emp['account_number'] ?? '',
+   136→            $emp['ifsc_code'] ?? '',
+   137→            $emp['client_name_display'] ?? $emp['client_name'] ?? '',
+   138→            $emp['unit_name_display'] ?? $emp['unit_name'] ?? '',
+   139→            $emp['designation'] ?? '',
+   140→            $emp['department'] ?? '',
+   141→            $emp['worker_category'] ?? '',
+   142→            $emp['employment_type'] ?? '',
+   143→            $emp['date_of_joining'] ?? '',
+   144→            $emp['date_of_leaving'] ?? '',
+   145→            $emp['status'] ?? '',
+   146→            !empty($emp['pf_applicable']) ? 'Yes' : 'No',
+   147→            !empty($emp['esi_applicable']) ? 'Yes' : 'No',
+   148→            $emp['basic_da'] ?? '',
+   149→            $emp['gross_salary'] ?? '',
+   150→            $emp['nominee_name'] ?? '',
+   151→            $emp['nominee_relationship'] ?? '',
+   152→            $emp['emergency_contact_name'] ?? '',
+   153→            $emp['emergency_contact_relation'] ?? ''
+   154→        ];
+   155→        fputcsv($output, $row, ',', '"', '\\');
+   156→    }
+   157→    
+   158→    fclose($output);
+   159→    exit;
+   160→}
+   161→
+   162→// Get employees
+   163→$page = isset($_GET['pg']) ? (int)$_GET['pg'] : 1;
+   164→$result = $employee->getAll($filters, $page, 50);
+   165→$employees = $result['data'];
+   166→$totalPages = $result['total_pages'];
+   167→$total = $result['total'];
+   168→
+   169→// Get clients for filter (with error handling)
+   170→$clients = [];
+   171→try {
+   172→    $stmt = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
+   173→    $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
+   174→} catch (Exception $e) {
+   175→    // Table doesn't exist
+   176→}
+   177→
+   178→// Get units for filter based on selected client
+   179→$units = [];
+   180→$filterClientId = $filters['client_id'];
+   181→try {
+   182→    if ($filterClientId) {
+   183→        $stmt = $db->prepare("SELECT id, name, client_id FROM units WHERE client_id = ? AND is_active = 1 ORDER BY name");
+   184→        $stmt->execute([$filterClientId]);
+   185→    } else {
+   186→        $stmt = $db->query("SELECT id, name, client_id FROM units WHERE is_active = 1 ORDER BY name");
+   187→    }
+   188→    $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
+   189→} catch (Exception $e) {
+   190→    // Table doesn't exist
+   191→}
+   192→?>
+   193→
+   194→<div class="row">
+   195→    <div class="col-12">
+   196→        <div class="card">
+   197→            <div class="card-header">
+   198→                <h5 class="card-title mb-0"><i class="bi bi-people me-2"></i>Employee List</h5>
+   199→                <div class="card-actions">
+   200→                    <button type="button" class="btn btn-success btn-sm" onclick="exportEmployees()">
+   201→                        <i class="bi bi-download me-1"></i>Export All
+   202→                    </button>
+   203→                    <a href="index.php?page=employee/add" class="btn btn-primary btn-sm">
+   204→                        <i class="bi bi-plus-lg me-1"></i>Add Employee
+   205→                    </a>
+   206→                    <a href="index.php?page=employee/import" class="btn btn-outline-primary btn-sm">
+   207→                        <i class="bi bi-upload me-1"></i>Import
+   208→                    </a>
+   209→                    <!-- Column Visibility Dropdown -->
+   210→                    <div class="btn-group" role="group">
+   211→                        <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+   212→                            <i class="bi bi-layout-three-columns me-1"></i>Columns
+   213→                        </button>
+   214→                        <ul class="dropdown-menu dropdown-menu-end p-2" style="min-width: 220px; max-height: 400px; overflow-y: auto;">
+   215→                            <li><small class="text-muted d-block mb-2">Toggle column visibility:</small></li>
+   216→                            <?php foreach ($availableColumns as $colKey => $colInfo): ?>
+   217→                            <li>
+   218→                                <div class="form-check">
+   219→                                    <input type="checkbox" class="form-check-input column-toggle" id="col_<?php echo $colKey; ?>" 
+   220→                                           data-column="<?php echo $colKey; ?>" <?php echo $colInfo['default'] ? 'checked' : ''; ?>>
+   221→                                    <label class="form-check-label small" for="col_<?php echo $colKey; ?>"><?php echo $colInfo['label']; ?></label>
+   222→                                </div>
+   223→                            </li>
+   224→                            <?php endforeach; ?>
+   225→                            <li><hr class="dropdown-divider"></li>
+   226→                            <li>
+   227→                                <button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="resetColumnVisibility()">
+   228→                                    <i class="bi bi-arrow-counterclockwise me-1"></i>Reset to Default
+   229→                                </button>
+   230→                            </li>
+   231→                        </ul>
+   232→                    </div>
+   233→                </div>
+   234→            </div>
+   235→            
+   236→            <!-- Filters -->
+   237→            <div class="card-body border-bottom">
+   238→                <form method="GET" class="row g-3" id="filterForm">
+   239→                    <input type="hidden" name="page" value="employee/list">
+   240→                    
+   241→                    <div class="col-md-2">
+   242→                        <input type="text" class="form-control" name="search" 
+   243→                               placeholder="Search by name, code, mobile..." 
+   244→                               value="<?php echo htmlspecialchars($filters['search'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+   245→                    </div>
+   246→                    
+   247→                    <div class="col-md-2">
+   248→                        <select class="form-select" name="status">
+   249→                            <option value="approved" <?php echo $filters['status'] === 'approved' ? 'selected' : ''; ?>>Active</option>
+   250→                            <option value="" <?php echo $filters['status'] === '' ? 'selected' : ''; ?>>All Status</option>
+   251→                            <option value="pending" <?php echo $filters['status'] === 'pending' ? 'selected' : ''; ?>>Pending</option>
+   252→                            <option value="removed" <?php echo $filters['status'] === 'removed' ? 'selected' : ''; ?>>Removed</option>
+   253→                        </select>
+   254→                    </div>
+   255→                    
+   256→                    <div class="col-md-2">
+   257→                        <select class="form-select" name="client_id" id="clientFilter" onchange="filterUnits()">
+   258→                            <option value="">All Clients</option>
+   259→                            <?php foreach ($clients as $c): ?>
+   260→                            <option value="<?php echo $c['id']; ?>" <?php echo $filters['client_id'] == $c['id'] ? 'selected' : ''; ?>>
+   261→                                <?php echo sanitize($c['name']); ?>
+   262→                            </option>
+   263→                            <?php endforeach; ?>
+   264→                        </select>
+   265→                    </div>
+   266→                    
+   267→                    <div class="col-md-2">
+   268→                        <select class="form-select" name="unit_id" id="unitFilter">
+   269→                            <option value="">All Units</option>
+   270→                            <?php foreach ($units as $u): ?>
+   271→                            <option value="<?php echo $u['id']; ?>" <?php echo $filters['unit_id'] == $u['id'] ? 'selected' : ''; ?>>
+   272→                                <?php echo sanitize($u['name']); ?>
+   273→                            </option>
+   274→                            <?php endforeach; ?>
+   275→                        </select>
+   276→                    </div>
+   277→                    
+   278→                    <div class="col-md-2">
+   279→                        <select class="form-select" name="worker_category">
+   280→                            <option value="">All Categories</option>
+   281→                            <option value="Skilled" <?php echo $filters['worker_category'] === 'Skilled' ? 'selected' : ''; ?>>Skilled</option>
+   282→                            <option value="Semi-Skilled" <?php echo $filters['worker_category'] === 'Semi-Skilled' ? 'selected' : ''; ?>>Semi-Skilled</option>
+   283→                            <option value="Unskilled" <?php echo $filters['worker_category'] === 'Unskilled' ? 'selected' : ''; ?>>Unskilled</option>
+   284→                            <option value="Supervisor" <?php echo $filters['worker_category'] === 'Supervisor' ? 'selected' : ''; ?>>Supervisor</option>
+   285→                            <option value="Manager" <?php echo $filters['worker_category'] === 'Manager' ? 'selected' : ''; ?>>Manager</option>
+   286→                        </select>
+   287→                    </div>
+   288→                    
+   289→                    <div class="col-md-2">
+   290→                        <button type="submit" class="btn btn-primary">
+   291→                            <i class="bi bi-search me-1"></i>Search
+   292→                        </button>
+   293→                        <a href="index.php?page=employee/list" class="btn btn-outline-secondary">Reset</a>
+   294→                    </div>
+   295→                </form>
+   296→            </div>
+   297→            
+   298→            <!-- Employee Table -->
+   299→            <div class="card-body p-0">
+   300→                <div class="table-responsive">
+   301→                    <table class="table table-hover table-sm mb-0" id="employees-table">
+   302→                        <thead class="table-light">
+   303→                            <tr>
+   304→                                <?php foreach ($availableColumns as $colKey => $colInfo): ?>
+   305→                                <?php if ($colKey === 'pf_esi'): ?>
+   306→                                <th data-column="pf_esi" class="text-center" <?php echo $colInfo['default'] ? '' : 'style="display:none;"'; ?>>PF/ESI</th>
+   307→                                <?php elseif ($colKey === 'status'): ?>
+   308→                                <th data-column="status" class="text-center" <?php echo $colInfo['default'] ? '' : 'style="display:none;"'; ?>>Status</th>
+   309→                                <?php elseif ($colKey === 'actions'): ?>
+   310→                                <th data-column="actions" class="text-center" <?php echo $colInfo['default'] ? '' : 'style="display:none;"'; ?>>Actions</th>
+   311→                                <?php else: ?>
+   312→                                <th data-column="<?php echo $colKey; ?>" <?php echo $colInfo['default'] ? '' : 'style="display:none;"'; ?>><?php echo $colInfo['label']; ?></th>
+   313→                                <?php endif; ?>
+   314→                                <?php endforeach; ?>
+   315→                            </tr>
+   316→                        </thead>
+   317→                        <tbody>
+   318→                            <?php if (empty($employees)): ?>
+   319→                            <tr>
+   320→                                <td colspan="<?php echo count($availableColumns); ?>" class="text-center py-4 text-muted">
+   321→                                    No employees found. <a href="index.php?page=employee/add">Add first employee</a>
+   322→                                </td>
+   323→                            </tr>
+   324→                            <?php else: ?>
+   325→                            <?php foreach ($employees as $emp): ?>
+   326→                            <tr>
+   327→                                <!-- Employee Code - Bold and Larger -->
+   328→                                <td data-column="employee_code" <?php echo $availableColumns['employee_code']['default'] ? '' : 'style="display:none;"'; ?>>
+   329→                                    <a href="index.php?page=employee/view&id=<?php echo $emp['id']; ?>" class="text-decoration-none">
+   330→                                        <span class="fw-bold fs-5 text-primary"><?php echo sanitize($emp['employee_code']); ?></span>
+   331→                                    </a>
+   332→                                </td>
+   333→                                <!-- Full Name -->
+   334→                                <td data-column="full_name" <?php echo $availableColumns['full_name']['default'] ? '' : 'style="display:none;"'; ?>>
+   335→                                    <div class="d-flex align-items-center">
+   336→                                        <?php
+   337→                                        $picUrl = !empty($emp['profile_pic_cropped_url']) ? $emp['profile_pic_cropped_url'] : (!empty($emp['profile_pic_url']) ? $emp['profile_pic_url'] : '');
+   338→                                        if (!empty($picUrl)):
+   339→                                        ?>
+   340→                                        <img src="<?php echo sanitize($picUrl); ?>" alt="<?php echo sanitize($emp['full_name'] ?? ''); ?>" class="me-2 rounded-circle" style="width:32px;height:32px;object-fit:cover;flex-shrink:0;cursor:pointer;transition:transform .2s;" loading="lazy" onclick="openProfileSlider('<?php echo sanitize($picUrl); ?>', '<?php echo sanitize(addslashes($emp['full_name'] ?? 'Employee')); ?>')" onerror="this.style.display='none';">
+   341→                                        <?php endif; ?>
+   342→                                        <div>
+   343→                                            <div class="fw-medium"><?php echo sanitize($emp['full_name'] ?? '-'); ?></div>
+   344→                                            <small class="text-muted"><?php echo sanitize($emp['mobile_number'] ?? ''); ?></small>
+   345→                                        </div>
+   346→                                    </div>
+   347→                                </td>
+   348→                                <!-- Father Name -->
+   349→                                <td data-column="father_name" <?php echo $availableColumns['father_name']['default'] ? '' : 'style="display:none;"'; ?>>
+   350→                                    <?php echo sanitize($emp['father_name'] ?? '-'); ?>
+   351→                                </td>
+   352→                                <!-- Designation -->
+   353→                                <td data-column="designation" <?php echo $availableColumns['designation']['default'] ? '' : 'style="display:none;"'; ?>>
+   354→                                    <?php echo sanitize($emp['designation'] ?? '-'); ?>
+   355→                                </td>
+   356→                                <!-- Department -->
+   357→                                <td data-column="department" <?php echo $availableColumns['department']['default'] ? '' : 'style="display:none;"'; ?>>
+   358→                                    <?php echo sanitize($emp['department'] ?? '-'); ?>
+   359→                                </td>
+   360→                                <!-- Client / Unit -->
+   361→                                <td data-column="client_unit" <?php echo $availableColumns['client_unit']['default'] ? '' : 'style="display:none;"'; ?>>
+   362→                                    <div><?php echo sanitize($emp['client_name_display'] ?? $emp['client_name'] ?? '-'); ?></div>
+   363→                                    <div class="text-muted" style="font-size:0.85em;"><?php echo sanitize($emp['unit_name_display'] ?? $emp['unit_name'] ?? '-'); ?></div>
+   364→                                </td>
+   365→                                <!-- DOJ / DOB -->
+   366→                                <td data-column="doj_dob" <?php echo $availableColumns['doj_dob']['default'] ? '' : 'style="display:none;"'; ?>>
+   367→                                    <div class="text-muted" style="font-size:0.85em;"><?php echo formatDate($emp['date_of_joining']); ?></div>
+   368→                                    <div class="text-muted" style="font-size:0.85em;"><?php echo formatDate($emp['date_of_birth']); ?></div>
+   369→                                </td>
+   370→                                <!-- Worker Category -->
+   371→                                <td data-column="worker_category" <?php echo $availableColumns['worker_category']['default'] ? '' : 'style="display:none;"'; ?>>
+   372→                                    <span class="badge bg-info-soft"><?php echo sanitize($emp['worker_category'] ?? '-'); ?></span>
+   373→                                </td>
+   374→                                <!-- Employment Type -->
+   375→                                <td data-column="employment_type" <?php echo $availableColumns['employment_type']['default'] ? '' : 'style="display:none;"'; ?>>
+   376→                                    <span class="badge bg-secondary-soft"><?php echo sanitize($emp['employment_type'] ?? '-'); ?></span>
+   377→                                </td>
+   378→                                <!-- Date of Leaving -->
+   379→                                <td data-column="date_of_leaving" <?php echo $availableColumns['date_of_leaving']['default'] ? '' : 'style="display:none;"'; ?>>
+   380→                                    <?php echo formatDate($emp['date_of_leaving']); ?>
+   381→                                </td>
+   382→                                <!-- PF/ESI -->
+   383→                                <td data-column="pf_esi" class="text-center" <?php echo $availableColumns['pf_esi']['default'] ? '' : 'style="display:none;"'; ?>>
+   384→                                    <?php if (!empty($emp['pf_applicable'])): ?><span class="badge bg-primary-soft">PF</span><?php endif; ?>
+   385→                                    <?php if (!empty($emp['esi_applicable'])): ?><span class="badge bg-success-soft">ESI</span><?php endif; ?>
+   386→                                    <?php if (empty($emp['pf_applicable']) && empty($emp['esi_applicable'])): ?><span class="text-muted">-</span><?php endif; ?>
+   387→                                </td>
+   388→                                <!-- UAN Number -->
+   389→                                <td data-column="uan_number" <?php echo $availableColumns['uan_number']['default'] ? '' : 'style="display:none;"'; ?>>
+   390→                                    <code><?php echo sanitize($emp['uan_number'] ?? '-'); ?></code>
+   391→                                </td>
+   392→                                <!-- ESIC Number -->
+   393→                                <td data-column="esic_number" <?php echo $availableColumns['esic_number']['default'] ? '' : 'style="display:none;"'; ?>>
+   394→                                    <code><?php echo sanitize($emp['esic_number'] ?? '-'); ?></code>
+   395→                                </td>
+   396→                                <!-- Mobile Number -->
+   397→                                <td data-column="mobile_number" <?php echo $availableColumns['mobile_number']['default'] ? '' : 'style="display:none;"'; ?>>
+   398→                                    <a href="tel:<?php echo sanitize($emp['mobile_number'] ?? ''); ?>"><?php echo sanitize($emp['mobile_number'] ?? '-'); ?></a>
+   399→                                </td>
+   400→                                <!-- Alternate Mobile -->
+   401→                                <td data-column="alternate_mobile" <?php echo $availableColumns['alternate_mobile']['default'] ? '' : 'style="display:none;"'; ?>>
+   402→                                    <?php echo sanitize($emp['alternate_mobile'] ?? '-'); ?>
+   403→                                </td>
+   404→                                <!-- Email -->
+   405→                                <td data-column="email" <?php echo $availableColumns['email']['default'] ? '' : 'style="display:none;"'; ?>>
+   406→                                    <a href="mailto:<?php echo sanitize($emp['email'] ?? ''); ?>"><?php echo sanitize($emp['email'] ?? '-'); ?></a>
+   407→                                </td>
+   408→                                <!-- Aadhaar Number -->
+   409→                                <td data-column="aadhaar_number" <?php echo $availableColumns['aadhaar_number']['default'] ? '' : 'style="display:none;"'; ?>>
+   410→                                    <?php echo sanitize($emp['aadhaar_number'] ?? '-'); ?>
+   411→                                </td>
+   412→                                <!-- Gender -->
+   413→                                <td data-column="gender" <?php echo $availableColumns['gender']['default'] ? '' : 'style="display:none;"'; ?>>
+   414→                                    <?php echo sanitize($emp['gender'] ?? '-'); ?>
+   415→                                </td>
+   416→                                <!-- Address -->
+   417→                                <td data-column="address" <?php echo $availableColumns['address']['default'] ? '' : 'style="display:none;"'; ?>>
+   418→                                    <small><?php echo sanitize($emp['address'] ?? '-'); ?></small>
+   419→                                </td>
+   420→                                <!-- State -->
+   421→                                <td data-column="state" <?php echo $availableColumns['state']['default'] ? '' : 'style="display:none;"'; ?>>
+   422→                                    <?php echo sanitize($emp['state'] ?? '-'); ?>
+   423→                                </td>
+   424→                                <!-- District -->
+   425→                                <td data-column="district" <?php echo $availableColumns['district']['default'] ? '' : 'style="display:none;"'; ?>>
+   426→                                    <?php echo sanitize($emp['district'] ?? '-'); ?>
+   427→                                </td>
+   428→                                <!-- Pin Code -->
+   429→                                <td data-column="pin_code" <?php echo $availableColumns['pin_code']['default'] ? '' : 'style="display:none;"'; ?>>
+   430→                                    <?php echo sanitize($emp['pin_code'] ?? '-'); ?>
+   431→                                </td>
+   432→                                <!-- Bank Name -->
+   433→                                <td data-column="bank_name" <?php echo $availableColumns['bank_name']['default'] ? '' : 'style="display:none;"'; ?>>
+   434→                                    <?php echo sanitize($emp['bank_name'] ?? '-'); ?>
+   435→                                </td>
+   436→                                <!-- Account Number -->
+   437→                                <td data-column="account_number" <?php echo $availableColumns['account_number']['default'] ? '' : 'style="display:none;"'; ?>>
+   438→                                    <?php echo sanitize($emp['account_number'] ?? '-'); ?>
+   439→                                </td>
+   440→                                <!-- IFSC Code -->
+   441→                                <td data-column="ifsc_code" <?php echo $availableColumns['ifsc_code']['default'] ? '' : 'style="display:none;"'; ?>>
+   442→                                    <code><?php echo sanitize($emp['ifsc_code'] ?? '-'); ?></code>
+   443→                                </td>
+   444→                                <!-- Nominee Name -->
+   445→                                <td data-column="nominee_name" <?php echo $availableColumns['nominee_name']['default'] ? '' : 'style="display:none;"'; ?>>
+   446→                                    <?php echo sanitize($emp['nominee_name'] ?? '-'); ?>
+   447→                                </td>
+   448→                                <!-- Nominee Relation -->
+   449→                                <td data-column="nominee_relation" <?php echo $availableColumns['nominee_relation']['default'] ? '' : 'style="display:none;"'; ?>>
+   450→                                    <?php echo sanitize($emp['nominee_relationship'] ?? '-'); ?>
+   451→                                </td>
+   452→                                <!-- Emergency Contact -->
+   453→                                <td data-column="emergency_contact" <?php echo $availableColumns['emergency_contact']['default'] ? '' : 'style="display:none;"'; ?>>
+   454→                                    <?php if (!empty($emp['emergency_contact_name'])): ?>
+   455→                                        <div><?php echo sanitize($emp['emergency_contact_name']); ?></div>
+   456→                                        <small class="text-muted"><?php echo sanitize($emp['emergency_contact_relation'] ?? ''); ?></small>
+   457→                                    <?php else: ?>
+   458→                                        -
+   459→                                    <?php endif; ?>
+   460→                                </td>
+   461→                                <!-- Status -->
+   462→                                <td data-column="status" class="text-center" <?php echo $availableColumns['status']['default'] ? '' : 'style="display:none;"'; ?>>
+   463→                                    <?php 
+   464→                                    $statusClass = 'secondary';
+   465→                                    $statusText = $emp['status'] ?? 'Unknown';
+   466→                                    if ($statusText === 'approved') {
+   467→                                        $statusClass = 'success';
+   468→                                        $statusText = 'Active';
+   469→                                    } elseif (strpos($statusText, 'pending') !== false) {
+   470→                                        $statusClass = 'warning';
+   471→                                        $statusText = 'Pending';
+   472→                                    } elseif ($statusText === 'removed') {
+   473→                                        $statusClass = 'danger';
+   474→                                        $statusText = 'Removed';
+   475→                                    } elseif ($statusText === 'inactive' || $statusText === 'terminated') {
+   476→                                        $statusClass = 'danger';
+   477→                                    }
+   478→                                    ?>
+   479→                                    <span class="badge bg-<?php echo $statusClass; ?>-soft"><?php echo sanitize($statusText); ?></span>
+   480→                                </td>
+   481→                                <!-- Actions -->
+   482→                                <td data-column="actions" class="text-center" <?php echo $availableColumns['actions']['default'] ? '' : 'style="display:none;"'; ?>>
+   483→                                    <div class="btn-group btn-group-sm">
+   484→                                        <?php if (strpos($emp['status'] ?? '', 'pending') !== false): ?>
+   485→                                        <button type="button" class="btn btn-success" 
+   486→                                                onclick="approveEmployee('<?php echo $emp['id']; ?>')" title="Approve">
+   487→                                            <i class="bi bi-check-circle"></i>
+   488→                                        </button>
+   489→                                        <?php endif; ?>
+   490→                                        <a href="index.php?page=employee/view&id=<?php echo $emp['id']; ?>" 
+   491→                                           class="btn btn-outline-primary" title="View">
+   492→                                            <i class="bi bi-eye"></i>
+   493→                                        </a>
+   494→                                        <a href="index.php?page=employee/add&id=<?php echo $emp['id']; ?>" 
+   495→                                           class="btn btn-outline-secondary" title="Edit">
+   496→                                            <i class="bi bi-pencil"></i>
+   497→                                        </a>
+   498→                                        <?php if ($emp['status'] === 'approved'): ?>
+   499→                                        <button type="button" class="btn btn-outline-warning" 
+   500→                                                onclick="removeEmployee('<?php echo $emp['id']; ?>')" title="Remove">
+   501→                                            <i class="bi bi-person-x"></i>
+   502→                                        </button>
+   503→                                        <?php endif; ?>
+   504→                                    </div>
+   505→                                </td>
+   506→                            </tr>
+   507→                            <?php endforeach; ?>
+   508→                            <?php endif; ?>
+   509→                        </tbody>
+   510→                    </table>
+   511→                </div>
+   512→            </div>
+   513→            
+   514→            <!-- Pagination -->
+   515→            <?php if ($totalPages > 1): ?>
+   516→            <div class="card-footer">
+   517→                <div class="d-flex justify-content-between align-items-center">
+   518→                    <div class="text-muted">
+   519→                        Showing <?php echo number_format(($page - 1) * 50 + 1); ?> to 
+   520→                        <?php echo number_format(min($page * 50, $total)); ?> of 
+   521→                        <?php echo number_format($total); ?> employees
+   522→                    </div>
+   523→                    <nav>
+   524→                        <ul class="pagination mb-0">
+   525→                            <?php if ($page > 1): ?>
+   526→                            <li class="page-item">
+   527→                                <a class="page-link" href="?page=employee/list&pg=<?php echo $page - 1; ?>&<?php echo http_build_query(array_filter($filters)); ?>">Previous</a>
+   528→                            </li>
+   529→                            <?php endif; ?>
+   530→                            
+   531→                            <?php for ($i = max(1, $page - 2); $i <= min($totalPages, $page + 2); $i++): ?>
+   532→                            <li class="page-item <?php echo $i === $page ? 'active' : ''; ?>">
+   533→                                <a class="page-link" href="?page=employee/list&pg=<?php echo $i; ?>&<?php echo http_build_query(array_filter($filters)); ?>"><?php echo $i; ?></a>
+   534→                            </li>
+   535→                            <?php endfor; ?>
+   536→                            
+   537→                            <?php if ($page < $totalPages): ?>
+   538→                            <li class="page-item">
+   539→                                <a class="page-link" href="?page=employee/list&pg=<?php echo $page + 1; ?>&<?php echo http_build_query(array_filter($filters)); ?>">Next</a>
+   540→                            </li>
+   541→                            <?php endif; ?>
+   542→                        </ul>
+   543→                    </nav>
+   544→                </div>
+   545→            </div>
+   546→            <?php endif; ?>
+   547→        </div>
+   548→    </div>
+   549→</div>
+   550→
+   551→<?php
+   552→// Define global JS functions (will be placed outside document.ready)
+   553→$extraJS = <<<'JS'
+   554→<script>
+   555→// Global functions for employee list page
+   556→window.removeEmployee = function(id) {
+   557→    if (confirm('Are you sure you want to remove this employee?\n\nThe employee will be hidden from the active list but data will be preserved in the database.')) {
+   558→        window.location.href = 'index.php?page=employee/delete&id=' + id;
+   559→    }
+   560→};
+   561→
+   562→window.approveEmployee = function(id) {
+   563→    if (confirm('Approve this employee?\n\nThe employee will become active and available for payroll processing.')) {
+   564→        fetch('index.php?page=api/employees&action=approve&id=' + id, {
+   565→            method: 'POST',
+   566→            headers: {
+   567→                'Content-Type': 'application/json'
+   568→            }
+   569→        })
+   570→        .then(response => response.json())
+   571→        .then(data => {
+   572→            if (data.success) {
+   573→                location.reload();
+   574→            } else {
+   575→                alert('Error: ' + (data.message || 'Failed to approve employee'));
+   576→            }
+   577→        })
+   578→        .catch(err => {
+   579→            alert('Error approving employee. Please try again.');
+   580→        });
+   581→    }
+   582→};
+   583→
+   584→function exportEmployees() {
+   585→    // Get current filter values
+   586→    const form = document.getElementById('filterForm');
+   587→    const params = new URLSearchParams();
+   588→    
+   589→    params.append('page', 'employee/list');
+   590→    params.append('export', '1');
+   591→    
+   592→    // Add filter values
+   593→    const search = form.querySelector('[name="search"]').value;
+   594→    const status = form.querySelector('[name="status"]').value;
+   595→    const clientId = form.querySelector('[name="client_id"]').value;
+   596→    const unitId = form.querySelector('[name="unit_id"]').value;
+   597→    const workerCategory = form.querySelector('[name="worker_category"]').value;
+   598→    
+   599→    if (search) params.append('search', search);
+   600→    if (status) params.append('status', status);
+   601→    if (clientId) params.append('client_id', clientId);
+   602→    if (unitId) params.append('unit_id', unitId);
+   603→    if (workerCategory) params.append('worker_category', workerCategory);
+   604→    
+   605→    window.location.href = 'index.php?' + params.toString();
+   606→}
+   607→
+   608→// Profile Picture Lightbox Slider
+   609→function openProfileSlider(src, name) {
+   610→    // Remove existing slider if any
+   611→    const old = document.getElementById('profilePicSlider');
+   612→    if (old) old.remove();
+   613→    
+   614→    const slider = document.createElement('div');
+   615→    slider.id = 'profilePicSlider';
+   616→    slider.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .25s;cursor:zoom-out;backdrop-filter:blur(4px);';
+   617→    slider.innerHTML = '<div style="position:relative;max-width:90vw;max-height:90vh;display:flex;flex-direction:column;align-items:center;">' +
+   618→        '<img src="' + src + '" style="max-width:80vw;max-height:75vh;border-radius:12px;object-fit:contain;box-shadow:0 8px 32px rgba(0,0,0,.4);transition:transform .3s;" onerror="this.alt=\'Image not available\'" />' +
+   619→        '<p style="color:#fff;margin-top:12px;font-size:15px;opacity:.9;">' + name + '</p>' +
+   620→        '<button onclick="closeProfileSlider()" style="position:absolute;top:-40px;right:-10px;background:none;border:none;color:#fff;font-size:28px;cursor:pointer;opacity:.7;transition:opacity .2s;" onmouseover="this.style.opacity=\'1\'" onmouseout="this.style.opacity=\'.7\'">&times;</button>' +
+   621→        '</div>';
+   622→    document.body.appendChild(slider);
+   623→    requestAnimationFrame(() => slider.style.opacity = '1');
+   624→    
+   625→    slider.addEventListener('click', function(e) {
+   626→        if (e.target === slider) closeProfileSlider();
+   627→    });
+   628→    document.addEventListener('keydown', handleSliderEsc);
+   629→}
+   630→
+   631→function closeProfileSlider() {
+   632→    const slider = document.getElementById('profilePicSlider');
+   633→    if (slider) {
+   634→        slider.style.opacity = '0';
+   635→        setTimeout(() => slider.remove(), 250);
+   636→    }
+   637→    document.removeEventListener('keydown', handleSliderEsc);
+   638→}
+   639→
+   640→function handleSliderEsc(e) {
+   641→    if (e.key === 'Escape') closeProfileSlider();
+   642→}
+   643→
+   644→function filterUnits() {
+   645→    const clientId = document.getElementById('clientFilter').value;
+   646→    const unitSelect = document.getElementById('unitFilter');
+   647→    
+   648→    // Clear current options
+   649→    unitSelect.innerHTML = '<option value="">Loading...</option>';
+   650→    
+   651→    // Fetch units based on client
+   652→    fetch('index.php?page=api/units&client_id=' + clientId)
+   653→        .then(response => response.json())
+   654→        .then(data => {
+   655→            unitSelect.innerHTML = '<option value="">All Units</option>';
+   656→            if (data.units) {
+   657→                data.units.forEach(unit => {
+   658→                    const option = document.createElement('option');
+   659→                    option.value = unit.id;
+   660→                    option.textContent = unit.name;
+   661→                    unitSelect.appendChild(option);
+   662→                });
+   663→            }
+   664→        })
+   665→        .catch(() => {
+   666→            unitSelect.innerHTML = '<option value="">All Units</option>';
+   667→        });
+   668→}
+   669→
+   670→// Column visibility functions - save preferences to localStorage
+   671→function toggleColumn(columnKey, isVisible) {
+   672→    const table = document.getElementById('employees-table');
+   673→    
+   674→    // Toggle header
+   675→    const header = table.querySelector('th[data-column="' + columnKey + '"]');
+   676→    if (header) {
+   677→        header.style.display = isVisible ? '' : 'none';
+   678→    }
+   679→    
+   680→    // Toggle all body cells
+   681→    const cells = table.querySelectorAll('td[data-column="' + columnKey + '"]');
+   682→    cells.forEach(cell => {
+   683→        cell.style.display = isVisible ? '' : 'none';
+   684→    });
+   685→    
+   686→    // Save preference
+   687→    saveColumnPreferences();
+   688→}
+   689→
+   690→function saveColumnPreferences() {
+   691→    const preferences = {};
+   692→    document.querySelectorAll('.column-toggle').forEach(checkbox => {
+   693→        preferences[checkbox.dataset.column] = checkbox.checked;
+   694→    });
+   695→    localStorage.setItem('employeeListColumnPrefs', JSON.stringify(preferences));
+   696→}
+   697→
+   698→function loadColumnPreferences() {
+   699→    const saved = localStorage.getItem('employeeListColumnPrefs');
+   700→    if (saved) {
+   701→        try {
+   702→            const preferences = JSON.parse(saved);
+   703→            Object.keys(preferences).forEach(columnKey => {
+   704→                const checkbox = document.querySelector('.column-toggle[data-column="' + columnKey + '"]');
+   705→                if (checkbox) {
+   706→                    checkbox.checked = preferences[columnKey];
+   707→                    toggleColumn(columnKey, preferences[columnKey]);
+   708→                }
+   709→            });
+   710→        } catch (e) {
+   711→            console.error('Error loading column preferences:', e);
+   712→        }
+   713→    }
+   714→}
+   715→
+   716→function resetColumnVisibility() {
+   717→    localStorage.removeItem('employeeListColumnPrefs');
+   718→    location.reload();
+   719→}
+   720→
+   721→// Initialize column toggle handlers on page load
+   722→document.addEventListener('DOMContentLoaded', function() {
+   723→    // Add change handlers to all column toggles
+   724→    document.querySelectorAll('.column-toggle').forEach(checkbox => {
+   725→        checkbox.addEventListener('change', function() {
+   726→            toggleColumn(this.dataset.column, this.checked);
+   727→        });
+   728→    });
+   729→    
+   730→    // Load saved preferences
+   731→    loadColumnPreferences();
+   732→});
+   733→</script>
+   734→JS;
+   735→?>
+   736→
