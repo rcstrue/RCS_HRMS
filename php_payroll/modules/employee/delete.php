@@ -43,10 +43,11 @@ if (!$empData) {
     redirect(EMPLOYEE_LIST_URL);
 }
 
-// Soft delete - update status to 'removed' with date_of_leaving and reason
+// Soft delete - update status to 'removed' with date_of_leaving
+// Note: reason is stored in activity log since employees table has no remarks column
 try {
-    $stmt = $db->prepare("UPDATE employees SET status = 'removed', date_of_leaving = ?, remarks = ?, updated_at = NOW() WHERE id = ?");
-    $result = $stmt->execute([$dateOfLeaving, $reason, $employeeId]);
+    $stmt = $db->prepare("UPDATE employees SET status = 'removed', date_of_leaving = ?, updated_at = NOW() WHERE id = ?");
+    $result = $stmt->execute([$dateOfLeaving, $employeeId]);
     
     if ($result) {
         // Log activity
