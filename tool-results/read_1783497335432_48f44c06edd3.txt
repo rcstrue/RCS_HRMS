@@ -1,0 +1,1060 @@
+     1→import { useState, useEffect, useCallback, useMemo } from 'react';
+     2→import { toast } from 'sonner';
+     3→import {
+     4→  Search,
+     5→  Users,
+     6→  Phone,
+     7→  Building2,
+     8→  Briefcase,
+     9→  MapPin,
+    10→  Loader2,
+    11→  AlertCircle,
+    12→  ChevronLeft,
+    13→  ChevronRight,
+    14→  X,
+    15→  Mail,
+    16→  Calendar,
+    17→  User,
+    18→  Shield,
+    19→  IdCard,
+    20→  Inbox,
+    21→  CreditCard,
+    22→  Heart,
+    23→  Hash,
+    24→  UsersRound,
+    25→  FileText,
+    26→  Clock,
+    27→  Eye,
+    28→  EyeOff,
+    29→  Download,
+    30→  LogOut,
+    31→  ArrowRightLeft,
+    32→  CalendarX,
+    33→} from 'lucide-react';
+    34→
+    35→import { cn } from '@/lib/utils';
+    36→import { getFileUrl } from '@/lib/api/config';
+    37→import { usePullToRefresh } from './hooks/usePullToRefresh';
+    38→import { useExportCSV } from './hooks/useExportCSV';
+    39→import {
+    40→  fetchEmployees,
+    41→  fetchEmployeeById,
+    42→  fetchClients,
+    43→  fetchUnits,
+    44→  exitEmployee,
+    45→  transferEmployee,
+    46→} from '@/lib/ess-api';
+    47→import type { Employee, ClientOption, UnitOption } from '@/lib/ess-types';
+    48→import type { AccessLevel } from '@/lib/access-types';
+    49→
+    50→import { Button } from '@/components/ui/button';
+    51→import { Badge } from '@/components/ui/badge';
+    52→import { Input } from '@/components/ui/input';
+    53→import { Label } from '@/components/ui/label';
+    54→import { Skeleton } from '@/components/ui/skeleton';
+    55→import { Separator } from '@/components/ui/separator';
+    56→import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+    57→import {
+    58→  Dialog,
+    59→  DialogContent,
+    60→  DialogHeader,
+    61→  DialogTitle,
+    62→} from '@/components/ui/dialog';
+    63→import {
+    64→  Select,
+    65→  SelectContent,
+    66→  SelectItem,
+    67→  SelectTrigger,
+    68→  SelectValue,
+    69→} from '@/components/ui/select';
+    70→
+    71→// ── Props ──────────────────────────────────────────────
+    72→interface DirectoryPageProps {
+    73→  employeeId: number;
+    74→  role: string;
+    75→  scope: string;
+    76→  accessLevel: AccessLevel;
+    77→  unitIds: number[];
+    78→  unitIdsParam: string;
+    79→}
+    80→
+    81→// ── Constants ──────────────────────────────────────────
+    82→const PAGE_SIZE = 20;
+    83→
+    84→// ── Helpers ────────────────────────────────────────────
+    85→function getInitials(name: string): string {
+    86→  return name
+    87→    .split(' ')
+    88→    .map((w) => w[0])
+    89→    .filter(Boolean)
+    90→    .slice(0, 2)
+    91→    .join('')
+    92→    .toUpperCase();
+    93→}
+    94→
+    95→function maskMobile(mobile: string): string {
+    96→  // Show full mobile number — no masking
+    97→  return mobile || '';
+    98→}
+    99→
+   100→function maskSensitive(value: string | number | undefined): string {
+   101→  const str = value != null ? String(value) : '';
+   102→  if (!str) return '****';
+   103→  if (str.length <= 4) return '****';
+   104→  const first = str.slice(0, 2);
+   105→  const last = str.slice(-2);
+   106→  const middleLen = str.length - 4;
+   107→  return first + '*'.repeat(middleLen) + last;
+   108→}
+   109→
+   110→function formatDate(dateStr?: string): string {
+   111→  if (!dateStr) return '—';
+   112→  const d = new Date(dateStr);
+   113→  return d.toLocaleDateString('en-IN', {
+   114→    day: 'numeric',
+   115→    month: 'short',
+   116→    year: 'numeric',
+   117→  });
+   118→}
+   119→
+   120→function isActive(employee: Employee): boolean {
+   121→  return !employee.date_of_leaving && employee.status !== 'inactive' && employee.status !== 'resigned';
+   122→}
+   123→
+   124→// ── Component ──────────────────────────────────────────
+   125→export default function DirectoryPage({
+   126→  employeeId,
+   127→  role,
+   128→  scope,
+   129→  accessLevel,
+   130→  unitIds,
+   131→  unitIdsParam,
+   132→}: DirectoryPageProps) {
+   133→  // ── State ──
+   134→  const [employees, setEmployees] = useState<Employee[]>([]);
+   135→  const [loading, setLoading] = useState(false);
+   136→  const [error, setError] = useState<string | null>(null);
+   137→  const [searchedOnce, setSearchedOnce] = useState(false); // track if user has searched
+   138→  const [page, setPage] = useState(1);
+   139→  const [totalPages, setTotalPages] = useState(1);
+   140→  const [total, setTotal] = useState(0);
+   141→
+   142→  // Search & filters
+   143→  const [searchQuery, setSearchQuery] = useState('');
+   144→  const [searchInput, setSearchInput] = useState('');
+   145→  const [selectedClient, setSelectedClient] = useState('');
+   146→  const [selectedUnit, setSelectedUnit] = useState('');
+   147→  // Filter options
+   148→  const [clients, setClients] = useState<ClientOption[]>([]);
+   149→  const [units, setUnits] = useState<UnitOption[]>([]);
+   150→  const [filtersLoading, setFiltersLoading] = useState(true);
+   151→
+   152→  // Profile dialog
+   153→  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+   154→  const [profileOpen, setProfileOpen] = useState(false);
+   155→  const [profileLoading, setProfileLoading] = useState(false);
+   156→  const [viewingDoc, setViewingDoc] = useState<{ url: string; title: string } | null>(null);
+   157→
+   158→  // Manager actions
+   159→  const isManager = role !== 'employee';
+   160→  const [exitDialogOpen, setExitDialogOpen] = useState(false);
+   161→  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+   162→  const [exitDate, setExitDate] = useState('');
+   163→  const [transferClient, setTransferClient] = useState('');
+   164→  const [transferUnit, setTransferUnit] = useState('');
+   165→  const [actionLoading, setActionLoading] = useState(false);
+   166→
+   167→  // ── Load filter options (filtered by access allocation) ──
+   168→  const loadFilters = useCallback(async () => {
+   169→    setFiltersLoading(true);
+   170→    try {
+   171→      const promises: Promise<void>[] = [
+   172→        // Pass unit_ids so only allocated clients/units show
+   173→        fetchClients(scope, employeeId, unitIds.length > 0 ? unitIds : undefined).then((r) => {
+   174→          setClients(Array.isArray(r?.data) ? r.data : []);
+   175→        }),
+   176→        fetchUnits(scope, employeeId, undefined, unitIds.length > 0 ? unitIds : undefined).then((r) => {
+   177→          setUnits(Array.isArray(r?.data) ? r.data : []);
+   178→        }),
+   179→      ];
+   180→      await Promise.all(promises);
+   181→    } catch (err) {
+   182→      console.error('Failed to load filters:', err);
+   183→    } finally {
+   184→      setFiltersLoading(false);
+   185→    }
+   186→  }, [scope, employeeId, unitIds]);
+   187→
+   188→  // ── Load employees (only after user applies a filter or search) ──
+   189→  const loadEmployees = useCallback(async () => {
+   190→    setLoading(true);
+   191→    setError(null);
+   192→    setSearchedOnce(true);
+   193→    try {
+   194→      const { data: res, error: fetchError } = await fetchEmployees({
+   195→        scope,
+   196→        requester_id: employeeId,
+   197→        page,
+   198→        limit: PAGE_SIZE,
+   199→        q: searchQuery || undefined,
+   200→        client_id: selectedClient ? Number(selectedClient) : undefined,
+   201→        unit_id: selectedUnit ? Number(selectedUnit) : undefined,
+   202→        // Access allocation from payroll (server-side filtering)
+   203→        unit_ids: unitIds.length > 0 ? unitIds : undefined,
+   204→      });
+   205→      if (fetchError) {
+   206→        toast.error(fetchError);
+   207→        return;
+   208→      }
+   209→      const items = (res as Record<string, unknown>)?.items as Employee[] ?? [];
+   210→      // PHP buildPagination merges at top level: { items, total, page, limit, total_pages }
+   211→      // NOT nested under pagination key
+   212→      const rawTotal = (res as Record<string, unknown>)?.total as number | undefined;
+   213→      const rawTotalPages = (res as Record<string, unknown>)?.total_pages as number | undefined;
+   214→      // Fallback to items.length if backend has no pagination metadata
+   215→      const effectiveTotal = typeof rawTotal === 'number' ? rawTotal : items.length;
+   216→      const effectiveTotalPages = typeof rawTotalPages === 'number' ? rawTotalPages : Math.max(1, Math.ceil(effectiveTotal / PAGE_SIZE));
+   217→      setEmployees(items);
+   218→      setTotal(effectiveTotal);
+   219→      setTotalPages(effectiveTotalPages);
+   220→    } catch (err) {
+   221→      console.error('Failed to fetch employees:', err);
+   222→      setError('Failed to load directory. Please try again.');
+   223→      toast.error('Failed to load employee directory');
+   224→    } finally {
+   225→      setLoading(false);
+   226→    }
+   227→  }, [scope, employeeId, page, searchQuery, selectedClient, selectedUnit, unitIds]);
+   228→
+   229→  // Pull-to-refresh (after loadEmployees is defined to avoid TDZ)
+   230→  const pullRefresh = usePullToRefresh<HTMLDivElement>({
+   231→    onRefresh: loadEmployees,
+   232→  });
+   233→
+   234→  useEffect(() => {
+   235→    loadFilters();
+   236→  }, [loadFilters]);
+   237→
+   238→  const hasClientFilter = selectedClient && selectedClient !== 'all_clients';
+   239→  const hasSearchOrFilter = hasClientFilter || (selectedUnit && selectedUnit !== 'all_units');
+   240→  const filterKey = `${searchQuery}|${selectedClient}|${selectedUnit}|${page}`;
+   241→
+   242→  // Only fetch when user has selected a client (required by API)
+   243→  useEffect(() => {
+   244→    if (hasClientFilter) {
+   245→      loadEmployees();
+   246→    }
+   247→  }, [filterKey, loadEmployees]);
+   248→
+   249→  // Reset page when search/filter changes
+   250→  useEffect(() => {
+   251→    setPage(1);
+   252→  }, [searchQuery, selectedClient, selectedUnit]);
+   253→
+   254→  // ── Filtered units by selected client ──
+   255→  const filteredUnits = useMemo(() => {
+   256→    if (!selectedClient) return units;
+   257→    return units.filter((u) => u.client_id === Number(selectedClient) || !u.client_id);
+   258→  }, [units, selectedClient]);
+   259→
+   260→  // ── Clear filters ──
+   261→  const clearFilters = () => {
+   262→    setSearchQuery('');
+   263→    setSearchInput('');
+   264→    setSelectedClient('');
+   265→    setSelectedUnit('');
+   266→  };
+   267→
+   268→  const hasActiveFilters = searchQuery || (selectedClient && selectedClient !== 'all_clients') || (selectedUnit && selectedUnit !== 'all_units');
+   269→
+   270→  // ── CSV Export ──
+   271→  const { exportCSV } = useExportCSV();
+   272→  const handleExport = () => {
+   273→    const headers = ['Name', 'Employee Code', 'Mobile', 'Designation', 'Client', 'Unit', 'City'];
+   274→    const rows = employees.map((e) => [
+   275→      e.full_name || '',
+   276→      String(e.employee_code || ''),
+   277→      e.mobile_number || '',
+   278→      e.designation || '',
+   279→      e.client_name || '',
+   280→      e.unit_name || '',
+   281→      (e as Record<string, unknown>).city || '',
+   282→    ]);
+   283→    exportCSV('Employee_Directory.csv', headers, rows);
+   284→    toast.success('Directory exported successfully');
+   285→  };
+   286→
+   287→  // ── Open profile dialog with full details ──
+   288→  const openProfile = async (emp: Employee) => {
+   289→    setSelectedEmployee(emp);
+   290→    setProfileOpen(true);
+   291→    setProfileLoading(true);
+   292→    try {
+   293→      const { data: fullEmp } = await fetchEmployeeById(emp.id);
+   294→      if (fullEmp) {
+   295→        setSelectedEmployee(fullEmp);
+   296→      }
+   297→    } catch (err) {
+   298→      console.error('Failed to fetch full employee details:', err);
+   299→      // Keep the basic data from the list
+   300→    } finally {
+   301→      setProfileLoading(false);
+   302→    }
+   303→  };
+   304→
+   305→  const handleExit = async () => {
+   306→    if (!selectedEmployee || !exitDate) return;
+   307→    setActionLoading(true);
+   308→    try {
+   309→      const { error } = await exitEmployee({
+   310→        employee_id: selectedEmployee.id,
+   311→        exit_date: exitDate,
+   312→      });
+   313→      if (error) {
+   314→        toast.error(error);
+   315→      } else {
+   316→        toast.success(`${selectedEmployee.full_name} marked as inactive`);
+   317→        setExitDialogOpen(false);
+   318→        setProfileOpen(false);
+   319→        loadEmployees(); // refresh list
+   320→      }
+   321→    } catch {
+   322→      toast.error('Failed to remove employee');
+   323→    } finally {
+   324→      setActionLoading(false);
+   325→    }
+   326→  };
+   327→
+   328→  const handleTransfer = async () => {
+   329→    if (!selectedEmployee) return;
+   330→    setActionLoading(true);
+   331→    try {
+   332→      const payload: { employee_id: number; client_id?: number; unit_id?: number } = {
+   333→        employee_id: selectedEmployee.id,
+   334→      };
+   335→      if (transferClient && transferClient !== 'all_clients') payload.client_id = Number(transferClient);
+   336→      if (transferUnit) payload.unit_id = Number(transferUnit);
+   337→
+   338→      const { error } = await transferEmployee(payload);
+   339→      if (error) {
+   340→        toast.error(error);
+   341→      } else {
+   342→        toast.success(`${selectedEmployee.full_name} transferred successfully`);
+   343→        setTransferDialogOpen(false);
+   344→        setProfileOpen(false);
+   345→        loadEmployees(); // refresh list
+   346→      }
+   347→    } catch {
+   348→      toast.error('Failed to transfer employee');
+   349→    } finally {
+   350→      setActionLoading(false);
+   351→    }
+   352→  };
+   353→
+   354→  const emp = selectedEmployee;
+   355→
+   356→  // Pull-to-refresh wrapper props
+   357→  const pullRefreshProps = {
+   358→    ref: pullRefresh.containerRef,
+   359→    onTouchStart: pullRefresh.handleTouchStart,
+   360→    onTouchMove: pullRefresh.handleTouchMove,
+   361→    onTouchEnd: pullRefresh.handleTouchEnd,
+   362→  };
+   363→
+   364→  // ── Render ──
+   365→  return (
+   366→    <div {...pullRefreshProps} className="flex flex-col gap-4 pb-6" style={{ touchAction: 'pan-y' }}>
+   367→      {/* Pull-to-refresh indicator */}
+   368→      <div style={pullRefresh.pullIndicatorStyle} className="flex items-center justify-center">
+   369→        <Loader2 className={cn("h-5 w-5 text-primary", (pullRefresh.isRefreshing || pullRefresh.pullDistance > 20) && "animate-spin")} />
+   370→      </div>
+   371→      {/* Header */}
+   372→      <div className="flex items-start justify-between gap-2">
+   373→        <div>
+   374→          <h2 className="text-xl font-bold tracking-tight">Directory</h2>
+   375→          <p className="text-sm text-muted-foreground">
+   376→          {searchedOnce && (total > 0 || employees.length > 0) ? `${total || employees.length} employee${(total || employees.length) > 1 ? 's' : ''} found` :
+   377→           searchedOnce && employees.length === 0 ? 'No employees found' :
+   378→           'Search employees by name, client, or unit'}
+   379→        </p>
+   380→        </div>
+   381→        {employees.length > 0 && (
+   382→          <Button variant="outline" size="sm" className="gap-1.5 shrink-0 mt-0.5" onClick={handleExport}>
+   383→            <Download className="h-4 w-4" />
+   384→            <span className="text-xs font-medium hidden sm:inline">Export</span>
+   385→          </Button>
+   386→        )}
+   387→      </div>
+   388→
+   389→      {/* Search */}
+   390→      <div className="relative">
+   391→        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+   392→        <Input
+   393→          placeholder="Search by name or employee code..."
+   394→          className="pl-9 pr-9"
+   395→          value={searchInput}
+   396→          onChange={(e) => setSearchInput(e.target.value)}
+   397→          onKeyDown={(e) => {
+   398→            if (e.key === 'Enter') {
+   399→              setSearchQuery(searchInput.trim());
+   400→            }
+   401→          }}
+   402→        />
+   403→        {searchInput && (
+   404→          <button
+   405→            onClick={() => { setSearchInput(''); setSearchQuery(''); }}
+   406→            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+   407→          >
+   408→            <X className="h-4 w-4" />
+   409→          </button>
+   410→        )}
+   411→      </div>
+   412→
+   413→      {/* Filter dropdowns */}
+   414→      <div className="grid grid-cols-2 gap-2">
+   415→        <Select value={selectedClient} onValueChange={(v) => { setSelectedClient(v); setSelectedUnit(''); }}>
+   416→          <SelectTrigger className="h-9 text-sm">
+   417→            <SelectValue placeholder={filtersLoading ? 'Loading...' : 'All Clients'} />
+   418→          </SelectTrigger>
+   419→          <SelectContent>
+   420→            <SelectItem value="all_clients">All Clients</SelectItem>
+   421→            {clients.map((c) => (
+   422→              <SelectItem key={c.id} value={String(c.id)}>
+   423→                {c.name}
+   424→              </SelectItem>
+   425→            ))}
+   426→          </SelectContent>
+   427→        </Select>
+   428→
+   429→        <Select value={selectedUnit} onValueChange={setSelectedUnit}>
+   430→          <SelectTrigger className="h-9 text-sm">
+   431→            <SelectValue placeholder={filtersLoading ? 'Loading...' : 'All Units'} />
+   432→          </SelectTrigger>
+   433→          <SelectContent>
+   434→            <SelectItem value="all_units">All Units</SelectItem>
+   435→            {filteredUnits.map((u) => (
+   436→              <SelectItem key={u.id} value={String(u.id)}>
+   437→                {u.name}
+   438→              </SelectItem>
+   439→            ))}
+   440→          </SelectContent>
+   441→        </Select>
+   442→      </div>
+   443→
+   444→      {/* Pagination - under dropdowns, before list */}
+   445→      {searchedOnce && employees.length > 0 && (
+   446→        <div className="flex items-center justify-between">
+   447→          <p className="text-xs text-muted-foreground">
+   448→            {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+   449→          </p>
+   450→          <div className="flex items-center gap-1.5">
+   451→            <Button
+   452→              variant="outline"
+   453→              size="sm"
+   454→              className="h-7 px-2"
+   455→              disabled={page <= 1}
+   456→              onClick={() => setPage((p) => Math.max(1, p - 1))}
+   457→            >
+   458→              <ChevronLeft className="h-3.5 w-3.5" />
+   459→            </Button>
+   460→            <span className="text-sm font-medium">
+   461→              {page} / {totalPages}
+   462→            </span>
+   463→            <Button
+   464→              variant="outline"
+   465→              size="sm"
+   466→              className="h-7 px-2"
+   467→              disabled={page >= totalPages}
+   468→              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+   469→            >
+   470→              <ChevronRight className="h-3.5 w-3.5" />
+   471→            </Button>
+   472→          </div>
+   473→        </div>
+   474→      )}
+   475→
+   476→      {/* Active filters indicator */}
+   477→      {hasActiveFilters && (
+   478→        <div className="flex items-center gap-2">
+   479→          <span className="text-xs text-muted-foreground">Active filters:</span>
+   480→          {searchQuery && (
+   481→            <Badge variant="secondary" className="gap-1 text-xs">
+   482→              &ldquo;{searchQuery}&rdquo;
+   483→              <button onClick={() => { setSearchQuery(''); setSearchInput(''); }}>
+   484→                <X className="h-3 w-3" />
+   485→              </button>
+   486→            </Badge>
+   487→          )}
+   488→          {selectedClient && selectedClient !== 'all_clients' && (
+   489→            <Badge variant="secondary" className="gap-1 text-xs">
+   490→              {clients.find((c) => String(c.id) === selectedClient)?.name || 'Client'}
+   491→              <button onClick={() => setSelectedClient('')}>
+   492→                <X className="h-3 w-3" />
+   493→              </button>
+   494→            </Badge>
+   495→          )}
+   496→          {selectedUnit && selectedUnit !== 'all_units' && (
+   497→            <Badge variant="secondary" className="gap-1 text-xs">
+   498→              {filteredUnits.find((u) => String(u.id) === selectedUnit)?.name || 'Unit'}
+   499→              <button onClick={() => setSelectedUnit('')}>
+   500→                <X className="h-3 w-3" />
+   501→              </button>
+   502→            </Badge>
+   503→          )}
+   504→          <button
+   505→            onClick={clearFilters}
+   506→            className="text-xs text-muted-foreground hover:text-foreground underline"
+   507→          >
+   508→            Clear all
+   509→          </button>
+   510→        </div>
+   511→      )}
+   512→
+   513→      {/* Content */}
+   514→      {loading ? (
+   515→        <div className="flex flex-col gap-2">
+   516→          {Array.from({ length: 6 }).map((_, i) => (
+   517→            <div key={i} className="flex items-center gap-3 rounded-lg border p-3">
+   518→              <Skeleton className="h-10 w-10 rounded-full shrink-0" />
+   519→              <div className="flex-1 space-y-2">
+   520→                <Skeleton className="h-4 w-36" />
+   521→                <Skeleton className="h-3 w-48" />
+   522→                <Skeleton className="h-3 w-28" />
+   523→              </div>
+   524→            </div>
+   525→          ))}
+   526→        </div>
+   527→      ) : error ? (
+   528→        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-8 text-center">
+   529→          <AlertCircle className="h-10 w-10 text-destructive" />
+   530→          <p className="text-sm text-destructive">{error}</p>
+   531→          <Button variant="outline" size="sm" onClick={loadEmployees}>
+   532→            Retry
+   533→          </Button>
+   534→        </div>
+   535→      ) : !searchedOnce ? (
+   536→        /* ── Prompt to search before showing results ── */
+   537→        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-10 text-center">
+   538→          <Search className="h-10 w-10 text-muted-foreground/50" />
+   539→          <div>
+   540→            <p className="font-medium text-muted-foreground">Search Employees</p>
+   541→            <p className="text-sm text-muted-foreground/70">
+   542→              Enter a name or employee code, or select a client/unit to find employees
+   543→            </p>
+   544→          </div>
+   545→        </div>
+   546→      ) : employees.length === 0 ? (
+   547→        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-10 text-center">
+   548→          <Inbox className="h-10 w-10 text-muted-foreground/50" />
+   549→          <div>
+   550→            <p className="font-medium text-muted-foreground">No employees found</p>
+   551→            <p className="text-sm text-muted-foreground/70">
+   552→              Try adjusting your search or filters
+   553→            </p>
+   554→          </div>
+   555→          <Button variant="outline" size="sm" className="mt-1" onClick={clearFilters}>
+   556→            Clear Filters
+   557→          </Button>
+   558→        </div>
+   559→      ) : (
+   560→        <>
+   561→          {/* Employee list */}
+   562→          <div className="flex flex-col gap-2">
+   563→            {employees.map((emp) => (
+   564→              <button
+   565→                key={emp.id}
+   566→                onClick={() => openProfile(emp)}
+   567→                className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:opacity-90 w-full ${
+   568→                  emp.gender?.toLowerCase() === 'male'
+   569→                    ? 'bg-blue-50/60 border-blue-100'
+   570→                    : emp.gender?.toLowerCase() === 'female'
+   571→                    ? 'bg-pink-50/60 border-pink-100'
+   572→                    : 'bg-card'
+   573→                }`}
+   574→              >
+   575→                {/* Avatar */}
+   576→                <div className="relative shrink-0">
+   577→                  <Avatar className="h-11 w-11">
+   578→                    <AvatarImage src={getFileUrl(emp.profile_pic_url) || undefined} alt={emp.full_name} />
+   579→                    <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
+   580→                      {getInitials(emp.full_name || 'U')}
+   581→                    </AvatarFallback>
+   582→                  </Avatar>
+   583→                  {/* Status dot */}
+   584→                  {isActive(emp) && (
+   585→                    <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-emerald-500" />
+   586→                  )}
+   587→                </div>
+   588→
+   589→                {/* Info */}
+   590→                <div className="flex-1 min-w-0">
+   591→                  <div className="flex items-center gap-2">
+   592→                    <p className="font-semibold text-sm truncate">{emp.full_name}</p>
+   593→                    {!isActive(emp) && (
+   594→                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-slate-100 text-slate-500 border-slate-200 shrink-0">
+   595→                        Inactive
+   596→                      </Badge>
+   597→                    )}
+   598→                  </div>
+   599→                  {emp.designation && (
+   600→                    <p className="text-xs text-muted-foreground truncate">{emp.designation}</p>
+   601→                  )}
+   602→                  <div className="flex items-center gap-3 mt-0.5">
+   603→                    {(emp.client_name || emp.unit_name) && (
+   604→                      <span className="text-xs text-muted-foreground/80 truncate">
+   605→                        {[emp.client_name, emp.unit_name].filter(Boolean).join(' / ')}
+   606→                      </span>
+   607→                    )}
+   608→                  </div>
+   609→                </div>
+   610→
+   611→                {/* Employee Code + Mobile */}
+   612→                <div className="flex flex-col items-end shrink-0 gap-0.5">
+   613→                  {emp.employee_code && (
+   614→                    <span className="text-xs font-bold font-mono text-gray-700">{emp.employee_code}</span>
+   615→                  )}
+   616→                  {emp.mobile_number && (
+   617→                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+   618→                      <Phone className="h-3 w-3" />
+   619→                      <span>{maskMobile(emp.mobile_number)}</span>
+   620→                    </div>
+   621→                  )}
+   622→                </div>
+   623→              </button>
+   624→            ))}
+   625→          </div>
+   626→
+   627→          {/* Pagination at bottom of list */}
+   628→          {totalPages > 1 && (
+   629→            <div className="flex items-center justify-center gap-2 pt-2">
+   630→              <Button
+   631→                variant="outline"
+   632→                size="icon"
+   633→                className="h-8 w-8"
+   634→                disabled={page <= 1}
+   635→                onClick={() => setPage((p) => Math.max(1, p - 1))}
+   636→              >
+   637→                <ChevronLeft className="h-4 w-4" />
+   638→              </Button>
+   639→              <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
+   640→              <Button
+   641→                variant="outline"
+   642→                size="icon"
+   643→                className="h-8 w-8"
+   644→                disabled={page >= totalPages}
+   645→                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+   646→              >
+   647→                <ChevronRight className="h-4 w-4" />
+   648→              </Button>
+   649→            </div>
+   650→          )}
+   651→        </>
+   652→      )}
+   653→
+   654→      {/* ── Profile Dialog (Full Detail) ── */}
+   655→      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+   656→        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md p-0">
+   657→          <DialogTitle className="sr-only">Employee Profile — {emp?.full_name || 'Employee'}</DialogTitle>
+   658→          {emp && (
+   659→            <>
+   660→              {profileLoading ? (
+   661→                <div className="flex items-center justify-center py-20">
+   662→                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+   663→                </div>
+   664→              ) : (
+   665→                <>
+   666→                  {/* Header with avatar */}
+   667→                  <div className="flex flex-col items-center gap-3 pt-6 pb-4 px-4">
+   668→                    <div className="relative">
+   669→                      <Avatar className="h-20 w-20 border-2 border-primary/20">
+   670→                        <AvatarImage src={getFileUrl(emp.profile_pic_cropped_url || emp.profile_pic_url) || undefined} alt={emp.full_name} />
+   671→                        <AvatarFallback className="bg-primary/10 text-primary text-xl font-semibold">
+   672→                          {getInitials(emp.full_name || 'U')}
+   673→                        </AvatarFallback>
+   674→                      </Avatar>
+   675→                      <span
+   676→                        className={cn(
+   677→                          'absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-background',
+   678→                          isActive(emp) ? 'bg-emerald-500' : 'bg-slate-400'
+   679→                        )}
+   680→                      />
+   681→                    </div>
+   682→                    <div className="text-center">
+   683→                      <h3 className="text-lg font-bold">{emp.full_name}</h3>
+   684→                      <p className="text-sm text-muted-foreground">
+   685→                        {emp.employee_code || `EMP-${emp.id}`}
+   686→                      </p>
+   687→                      <div className="flex items-center justify-center gap-2 mt-1">
+   688→                        <Badge
+   689→                          variant="outline"
+   690→                          className={cn(
+   691→                            isActive(emp)
+   692→                              ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+   693→                              : 'bg-slate-100 text-slate-500 border-slate-200'
+   694→                          )}
+   695→                        >
+   696→                          {isActive(emp) ? 'Active' : 'Inactive'}
+   697→                        </Badge>
+   698→                        {emp.designation && (
+   699→                          <Badge variant="secondary" className="text-[10px]">
+   700→                            {emp.designation}
+   701→                          </Badge>
+   702→                        )}
+   703→                      </div>
+   704→                    </div>
+   705→                  </div>
+   706→
+   707→                  <div className="px-4 pb-6 space-y-4">
+   708→                    {/* Personal Information */}
+   709→                    <ProfileSection title="Personal">
+   710→                      <ProfileRow icon={User} label="Father/Husband Name" value={emp.father_name} />
+   711→                      <ProfileRow icon={Calendar} label="Date of Birth" value={emp.date_of_birth ? formatDate(emp.date_of_birth) : undefined} />
+   712→                      <ProfileRow icon={User} label="Gender" value={emp.gender} />
+   713→                      <ProfileRow icon={Heart} label="Marital Status" value={emp.marital_status} />
+   714→                      <ProfileRow icon={Heart} label="Blood Group" value={emp.blood_group} />
+   715→                    </ProfileSection>
+   716→
+   717→                    {/* Contact */}
+   718→                    <ProfileSection title="Contact">
+   719→                      <ProfileRow icon={Phone} label="Mobile" value={emp.mobile_number ? maskMobile(emp.mobile_number) : undefined} />
+   720→                      <SensitiveProfileRow icon={Phone} label="Alternate Mobile" value={emp.alternate_mobile} />
+   721→                      <ProfileRow icon={Mail} label="Email" value={emp.email} />
+   722→                      <ProfileRow icon={MapPin} label="Address" value={emp.address} />
+   723→                      <ProfileRow
+   724→                        icon={MapPin}
+   725→                        label="Location"
+   726→                        value={[emp.city, emp.district, emp.state].filter(Boolean).join(', ') || undefined}
+   727→                      />
+   728→                      <ProfileRow icon={Hash} label="PIN Code" value={emp.pin_code} />
+   729→                    </ProfileSection>
+   730→
+   731→                    {/* Manager Actions — only for active employees */}
+   732→                  {isManager && isActive(emp) && (
+   733→                    <div className="flex gap-2 pt-2">
+   734→                      <Button
+   735→                        variant="outline"
+   736→                        size="sm"
+   737→                        className="flex-1 gap-1.5 text-xs border-orange-300 text-orange-700 hover:bg-orange-50"
+   738→                        onClick={() => { setExitDate(''); setExitDialogOpen(true); }}
+   739→                      >
+   740→                        <CalendarX className="h-3.5 w-3.5" /> Remove Employee
+   741→                      </Button>
+   742→                      <Button
+   743→                        variant="outline"
+   744→                        size="sm"
+   745→                        className="flex-1 gap-1.5 text-xs border-blue-300 text-blue-700 hover:bg-blue-50"
+   746→                        onClick={() => { setTransferClient(String(emp.client_id || '')); setTransferUnit(''); setTransferDialogOpen(true); }}
+   747→                      >
+   748→                        <ArrowRightLeft className="h-3.5 w-3.5" /> Transfer
+   749→                      </Button>
+   750→                    </div>
+   751→                  )}
+   752→
+   753→                  {/* Employment */}
+   754→                    <ProfileSection title="Employment">
+   755→                      <ProfileRow
+   756→                        icon={Building2}
+   757→                        label="Client / Unit"
+   758→                        value={[emp.client_name, emp.unit_name].filter(Boolean).join(' / ') || undefined}
+   759→                      />
+   760→                      <ProfileRow icon={Building2} label="Department" value={emp.department} />
+   761→                      <ProfileRow icon={Briefcase} label="Employment Type" value={emp.employment_type} />
+   762→                      <ProfileRow icon={Shield} label="Worker Category" value={emp.worker_category} />
+   763→                      <ProfileRow icon={IdCard} label="Role" value={emp.employee_role} />
+   764→                      <ProfileRow icon={Clock} label="Date of Joining" value={emp.date_of_joining ? formatDate(emp.date_of_joining) : undefined} />
+   765→                      <ProfileRow icon={Calendar} label="Confirmation Date" value={emp.confirmation_date ? formatDate(emp.confirmation_date) : undefined} />
+   766→                      <ProfileRow icon={Clock} label="Probation Period" value={emp.probation_period ? `${emp.probation_period} months` : undefined} />
+   767→                      <ProfileRow icon={Calendar} label="Date of Leaving" value={emp.date_of_leaving ? formatDate(emp.date_of_leaving) : undefined} />
+   768→                    </ProfileSection>
+   769→
+   770→                    {/* Government IDs — always show section */}
+   771→                    <ProfileSection title="Government IDs">
+   772→                      <SensitiveProfileRow icon={IdCard} label="Aadhaar Number" value={emp.aadhaar_number} />
+   773→                      <SensitiveProfileRow icon={Hash} label="UAN Number" value={emp.uan_number} />
+   774→                      <SensitiveProfileRow icon={Hash} label="ESIC Number" value={emp.esic_number} />
+   775→                    </ProfileSection>
+   776→
+   777→                    {/* Bank Details — always show section */}
+   778→                    <ProfileSection title="Bank Details">
+   779→                      <ProfileRow icon={CreditCard} label="Bank Name" value={emp.bank_name} />
+   780→                      <ProfileRow icon={User} label="Account Holder" value={emp.account_holder_name} />
+   781→                      <SensitiveProfileRow icon={CreditCard} label="Account Number" value={emp.account_number} />
+   782→                      <SensitiveProfileRow icon={Hash} label="IFSC Code" value={emp.ifsc_code} />
+   783→                    </ProfileSection>
+   784→
+   785→                    {/* Emergency Contact — always show section */}
+   786→                    <ProfileSection title="Emergency Contact">
+   787→                      <ProfileRow icon={UsersRound} label="Contact Name" value={emp.emergency_contact_name} />
+   788→                      <ProfileRow icon={UsersRound} label="Relation" value={emp.emergency_contact_relation} />
+   789→                    </ProfileSection>
+   790→
+   791→                    {/* Nominee — always show section */}
+   792→                    <ProfileSection title="Nominee">
+   793→                      <ProfileRow icon={UsersRound} label="Nominee Name" value={emp.nominee_name} />
+   794→                      <ProfileRow icon={UsersRound} label="Relationship" value={emp.nominee_relationship} />
+   795→                      <ProfileRow icon={Calendar} label="Nominee DOB" value={emp.nominee_dob ? formatDate(emp.nominee_dob) : undefined} />
+   796→                      <SensitiveProfileRow icon={Phone} label="Nominee Contact" value={emp.nominee_contact} />
+   797→                    </ProfileSection>
+   798→
+   799→                    {/* Documents — always show section */}
+   800→                    <ProfileSection title="Documents">
+   801→                      {emp.aadhaar_front_url ? (
+   802→                        <DocThumbnail
+   803→                          label="Aadhaar Front"
+   804→                          url={getFileUrl(emp.aadhaar_front_url)}
+   805→                          onClick={() => setViewingDoc({ url: getFileUrl(emp.aadhaar_front_url), title: 'Aadhaar Front' })}
+   806→                        />
+   807→                      ) : (
+   808→                        <ProfileRow icon={FileText} label="Aadhaar Front" value={undefined} />
+   809→                      )}
+   810→                      {emp.aadhaar_back_url ? (
+   811→                        <DocThumbnail
+   812→                          label="Aadhaar Back"
+   813→                          url={getFileUrl(emp.aadhaar_back_url)}
+   814→                          onClick={() => setViewingDoc({ url: getFileUrl(emp.aadhaar_back_url), title: 'Aadhaar Back' })}
+   815→                        />
+   816→                      ) : (
+   817→                        <ProfileRow icon={FileText} label="Aadhaar Back" value={undefined} />
+   818→                      )}
+   819→                      {emp.bank_document_url ? (
+   820→                        <DocThumbnail
+   821→                          label="Bank Document"
+   822→                          url={getFileUrl(emp.bank_document_url)}
+   823→                          onClick={() => setViewingDoc({ url: getFileUrl(emp.bank_document_url), title: 'Bank Document' })}
+   824→                        />
+   825→                      ) : (
+   826→                        <ProfileRow icon={FileText} label="Bank Document" value={undefined} />
+   827→                      )}
+   828→                    </ProfileSection>
+   829→                  </div>
+   830→                </>
+   831→              )}
+   832→            </>
+   833→          )}
+   834→        </DialogContent>
+   835→      </Dialog>
+   836→
+   837→      {/* ── Exit Employee Dialog ── */}
+   838→      <Dialog open={exitDialogOpen} onOpenChange={setExitDialogOpen}>
+   839→        <DialogContent className="sm:max-w-sm">
+   840→          <DialogHeader>
+   841→            <DialogTitle className="text-sm">Remove Employee</DialogTitle>
+   842→          </DialogHeader>
+   843→          <div className="space-y-4">
+   844→            <p className="text-sm text-muted-foreground">
+   845→              Mark <strong>{selectedEmployee?.full_name}</strong> as inactive.
+   846→              They will no longer appear in the directory.
+   847→            </p>
+   848→            <div className="space-y-2">
+   849→              <Label className="text-xs">Exit Date</Label>
+   850→              <Input
+   851→                type="date"
+   852→                value={exitDate}
+   853→                onChange={(e) => setExitDate(e.target.value)}
+   854→                max={new Date().toISOString().split('T')[0]}
+   855→                className="h-9"
+   856→              />
+   857→            </div>
+   858→            <div className="flex gap-2">
+   859→              <Button variant="outline" size="sm" className="flex-1" onClick={() => setExitDialogOpen(false)} disabled={actionLoading}>
+   860→                Cancel
+   861→              </Button>
+   862→              <Button
+   863→                size="sm"
+   864→                className="flex-1 bg-orange-600 hover:bg-orange-700"
+   865→                onClick={handleExit}
+   866→                disabled={!exitDate || actionLoading}
+   867→              >
+   868→                {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+   869→                <span className="ml-1">Remove</span>
+   870→              </Button>
+   871→            </div>
+   872→          </div>
+   873→        </DialogContent>
+   874→      </Dialog>
+   875→
+   876→      {/* ── Transfer Employee Dialog ── */}
+   877→      <Dialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen}>
+   878→        <DialogContent className="sm:max-w-sm">
+   879→          <DialogHeader>
+   880→            <DialogTitle className="text-sm">Transfer Employee</DialogTitle>
+   881→          </DialogHeader>
+   882→          <div className="space-y-4">
+   883→            <p className="text-sm text-muted-foreground">
+   884→              Change client/unit for <strong>{selectedEmployee?.full_name}</strong>.
+   885→            </p>
+   886→            <div className="space-y-3">
+   887→              <div className="space-y-1.5">
+   888→                <Label className="text-xs">Client</Label>
+   889→                <Select value={transferClient} onValueChange={(v) => { setTransferClient(v); setTransferUnit(''); }}>
+   890→                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select client" /></SelectTrigger>
+   891→                  <SelectContent>
+   892→                    {clients.map((c) => (
+   893→                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+   894→                    ))}
+   895→                  </SelectContent>
+   896→                </Select>
+   897→              </div>
+   898→              <div className="space-y-1.5">
+   899→                <Label className="text-xs">Unit</Label>
+   900→                <Select value={transferUnit} onValueChange={setTransferUnit}>
+   901→                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select unit" /></SelectTrigger>
+   902→                  <SelectContent>
+   903→                    {(transferClient
+   904→                      ? units.filter((u) => !transferClient || transferClient === 'all_clients' || u.client_id === Number(transferClient))
+   905→                      : units
+   906→                    ).map((u) => (
+   907→                      <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+   908→                    ))}
+   909→                  </SelectContent>
+   910→                </Select>
+   911→              </div>
+   912→            </div>
+   913→            <div className="flex gap-2">
+   914→              <Button variant="outline" size="sm" className="flex-1" onClick={() => setTransferDialogOpen(false)} disabled={actionLoading}>
+   915→                Cancel
+   916→              </Button>
+   917→              <Button
+   918→                size="sm"
+   919→                className="flex-1"
+   920→                onClick={handleTransfer}
+   921→                disabled={(!transferClient && !transferUnit) || actionLoading}
+   922→              >
+   923→                {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
+   924→                <span className="ml-1">Transfer</span>
+   925→              </Button>
+   926→            </div>
+   927→          </div>
+   928→        </DialogContent>
+   929→      </Dialog>
+   930→
+   931→      {/* ── Document Viewer Dialog ── */}
+   932→      <Dialog open={!!viewingDoc} onOpenChange={() => setViewingDoc(null)}>
+   933→        <DialogContent className="sm:max-w-lg p-0">
+   934→          <DialogHeader className="p-3 border-b">
+   935→            <DialogTitle className="text-sm">{viewingDoc?.title}</DialogTitle>
+   936→          </DialogHeader>
+   937→          <div className="p-2">
+   938→            {viewingDoc?.url && (
+   939→              <img
+   940→                src={viewingDoc.url}
+   941→                alt={viewingDoc.title}
+   942→                className="w-full rounded-lg"
+   943→              />
+   944→            )}
+   945→          </div>
+   946→        </DialogContent>
+   947→      </Dialog>
+   948→    </div>
+   949→  );
+   950→}
+   951→
+   952→// ── Profile Section ────────────────────────────────────
+   953→function ProfileSection({ title, children }: { title: string; children: React.ReactNode }) {
+   954→  return (
+   955→    <div className="space-y-2">
+   956→      <h4 className="text-xs font-semibold text-primary uppercase tracking-wider">{title}</h4>
+   957→      <div className="space-y-2">{children}</div>
+   958→    </div>
+   959→  );
+   960→}
+   961→
+   962→// ── Profile Row ────────────────────────────────────────
+   963→function ProfileRow({
+   964→  icon: Icon,
+   965→  label,
+   966→  value,
+   967→}: {
+   968→  icon: typeof User;
+   969→  label: string;
+   970→  value?: string;
+   971→}) {
+   972→  return (
+   973→    <div className="flex items-start gap-3">
+   974→      <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+   975→      <div className="flex flex-col">
+   976→        <span className="text-xs text-muted-foreground">{label}</span>
+   977→        <span className={cn("text-sm font-medium", !value && "text-muted-foreground/50 italic")}>
+   978→          {value || '—'}
+   979→        </span>
+   980→      </div>
+   981→    </div>
+   982→  );
+   983→}
+   984→
+   985→// ── Sensitive Profile Row (with eye toggle) ──────────
+   986→function SensitiveProfileRow({
+   987→  icon: Icon,
+   988→  label,
+   989→  value,
+   990→}: {
+   991→  icon: typeof User;
+   992→  label: string;
+   993→  value?: string | number;
+   994→}) {
+   995→  const [revealed, setRevealed] = useState(false);
+   996→  const displayValue = value != null ? String(value) : '';
+   997→
+   998→  if (!displayValue) {
+   999→    return (
+  1000→      <div className="flex items-start gap-3">
+  1001→        <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1002→        <div className="flex flex-col">
+  1003→          <span className="text-xs text-muted-foreground">{label}</span>
+  1004→          <span className="text-sm font-medium text-muted-foreground/50 italic">—</span>
+  1005→        </div>
+  1006→      </div>
+  1007→    );
+  1008→  }
+  1009→
+  1010→  return (
+  1011→    <div className="flex items-start gap-3">
+  1012→      <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1013→      <div className="flex flex-col flex-1 min-w-0">
+  1014→        <span className="text-xs text-muted-foreground">{label}</span>
+  1015→        <span className="text-sm font-medium font-mono">
+  1016→          {revealed ? displayValue : maskSensitive(displayValue)}
+  1017→        </span>
+  1018→      </div>
+  1019→      <button
+  1020→        type="button"
+  1021→        onClick={() => setRevealed((r) => !r)}
+  1022→        className="mt-0.5 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
+  1023→        aria-label={revealed ? `Hide ${label}` : `Reveal ${label}`}
+  1024→      >
+  1025→        {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+  1026→      </button>
+  1027→    </div>
+  1028→  );
+  1029→}
+  1030→
+  1031→// ── Document Thumbnail ──────────────────────────────────
+  1032→function DocThumbnail({
+  1033→  label,
+  1034→  url,
+  1035→  onClick,
+  1036→}: {
+  1037→  label: string;
+  1038→  url: string;
+  1039→  onClick: () => void;
+  1040→}) {
+  1041→  return (
+  1042→    <button
+  1043→      onClick={onClick}
+  1044→      className="flex items-center gap-3 p-2 rounded-lg border hover:bg-accent/30 transition-colors text-left w-full"
+  1045→    >
+  1046→      <img
+  1047→        src={url}
+  1048→        alt={label}
+  1049→        className="h-10 w-14 rounded object-cover border"
+  1050→      />
+  1051→      <div className="flex-1 min-w-0">
+  1052→        <p className="text-sm font-medium truncate">{label}</p>
+  1053→        <p className="text-xs text-muted-foreground flex items-center gap-1">
+  1054→          <Eye className="h-3 w-3" /> Tap to view
+  1055→        </p>
+  1056→      </div>
+  1057→    </button>
+  1058→  );
+  1059→}
+  1060→
