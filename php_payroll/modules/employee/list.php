@@ -469,6 +469,9 @@ try {
                                     } elseif (strpos($statusText, 'pending') !== false) {
                                         $statusClass = 'warning';
                                         $statusText = 'Pending';
+                                    } elseif ($statusText === 'removed') {
+                                        $statusClass = 'danger';
+                                        $statusText = 'Removed';
                                     } elseif ($statusText === 'inactive' || $statusText === 'terminated') {
                                         $statusClass = 'danger';
                                     }
