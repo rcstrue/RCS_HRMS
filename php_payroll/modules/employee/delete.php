@@ -2,6 +2,7 @@
 /**
  * RCS HRMS Pro - Soft Delete Employee
  * Marks employee as 'removed' instead of deleting from database
+ * Requires date_of_leaving and reason via POST
  */
 
 // Define redirect URL constant
@@ -15,6 +16,25 @@ if ($employeeId <= 0) {
     redirect(EMPLOYEE_LIST_URL);
 }
 
+// Require POST with date_of_leaving and reason
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    setFlash('error', 'Invalid request. Please use the Remove button on the Employee List page.');
+    redirect(EMPLOYEE_LIST_URL);
+}
+
+$dateOfLeaving = sanitize($_POST['date_of_leaving'] ?? '');
+$reason = sanitize($_POST['reason'] ?? '');
+
+if (empty($dateOfLeaving)) {
+    setFlash('error', 'Date of Leaving is required.');
+    redirect(EMPLOYEE_LIST_URL);
+}
+
+if (empty($reason)) {
+    setFlash('error', 'Reason for removal is required.');
+    redirect(EMPLOYEE_LIST_URL);
+}
+
 // Get employee details before updating
 $empData = $employee->getById($employeeId);
 
@@ -23,14 +43,14 @@ if (!$empData) {
     redirect(EMPLOYEE_LIST_URL);
 }
 
-// Soft delete - update status to 'removed' instead of deleting
+// Soft delete - update status to 'removed' with date_of_leaving and reason
 try {
-    $stmt = $db->prepare("UPDATE employees SET status = 'removed', updated_at = NOW() WHERE id = ?");
-    $result = $stmt->execute([$employeeId]);
+    $stmt = $db->prepare("UPDATE employees SET status = 'removed', date_of_leaving = ?, remarks = ?, updated_at = NOW() WHERE id = ?");
+    $result = $stmt->execute([$dateOfLeaving, $reason, $employeeId]);
     
     if ($result) {
         // Log activity
-        logActivity('delete', 'employees', $employeeId, "Removed employee: " . $empData['full_name'] . " (" . $empData['employee_code'] . ")");
+        logActivity('delete', 'employees', $employeeId, "Removed employee: " . $empData['full_name'] . " (" . $empData['employee_code'] . ") | DOL: " . $dateOfLeaving . " | Reason: " . $reason);
         
         setFlash('success', "Employee '{$empData['full_name']}' has been removed successfully.");
     } else {

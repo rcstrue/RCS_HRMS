@@ -497,7 +497,7 @@ try {
                                         </a>
                                         <?php if ($emp['status'] === 'approved'): ?>
                                         <button type="button" class="btn btn-outline-warning" 
-                                                onclick="removeEmployee('<?php echo $emp['id']; ?>')" title="Remove">
+                                                onclick="removeEmployee('<?php echo $emp['id']; ?>', '<?php echo addslashes($emp['full_name']); ?>')" title="Remove">
                                             <i class="bi bi-person-x"></i>
                                         </button>
                                         <?php endif; ?>
@@ -548,15 +548,70 @@ try {
     </div>
 </div>
 
+<!-- Remove Employee Modal -->
+<div class="modal fade" id="removeEmployeeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" id="removeEmployeeForm">
+                <input type="hidden" id="removeEmployeeId" name="employee_id" value="">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title"><i class="bi bi-person-x me-2"></i>Remove Employee</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning mb-3">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        You are about to remove <strong id="removeEmployeeName"></strong>. This action will mark the employee as removed.
+                    </div>
+                    <div class="mb-3">
+                        <label for="removeDol" class="form-label">Date of Leaving <span class="text-danger">*</span></label>
+                        <input type="date" id="removeDol" class="form-control" name="date_of_leaving" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="removeReason" class="form-label">Reason for Removal <span class="text-danger">*</span></label>
+                        <textarea id="removeReason" class="form-control" name="reason" rows="3" placeholder="e.g. Resigned, Terminated, Absconded..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-warning" onclick="confirmRemoveEmployee()">
+                        <i class="bi bi-person-x me-1"></i>Remove Employee
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <?php
 // Define global JS functions (will be placed outside document.ready)
 $extraJS = <<<'JS'
 <script>
 // Global functions for employee list page
-window.removeEmployee = function(id) {
-    if (confirm('Are you sure you want to remove this employee?\n\nThe employee will be hidden from the active list but data will be preserved in the database.')) {
-        window.location.href = 'index.php?page=employee/delete&id=' + id;
+window.removeEmployee = function(id, name) {
+    document.getElementById('removeEmployeeId').value = id;
+    document.getElementById('removeEmployeeName').textContent = name;
+    document.getElementById('removeDol').value = new Date().toISOString().split('T')[0];
+    document.getElementById('removeReason').value = '';
+    var modal = new bootstrap.Modal(document.getElementById('removeEmployeeModal'));
+    modal.show();
+};
+
+window.confirmRemoveEmployee = function() {
+    var id = document.getElementById('removeEmployeeId').value;
+    var dol = document.getElementById('removeDol').value;
+    var reason = document.getElementById('removeReason').value.trim();
+    if (!dol) {
+        alert('Please select the Date of Leaving.');
+        return;
     }
+    if (!reason) {
+        alert('Please provide a reason for removal.');
+        return;
+    }
+    var form = document.getElementById('removeEmployeeForm');
+    form.action = 'index.php?page=employee/delete&id=' + id;
+    form.submit();
 };
 
 window.approveEmployee = function(id) {
@@ -604,6 +659,19 @@ function exportEmployees() {
     
     window.location.href = 'index.php?' + params.toString();
 }
+
+// Remove Employee Modal - submit on Enter key in reason field
+document.addEventListener('DOMContentLoaded', function() {
+    var reasonField = document.getElementById('removeReason');
+    if (reasonField) {
+        reasonField.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                confirmRemoveEmployee();
+            }
+        });
+    }
+});
 
 // Profile Picture Lightbox Slider
 function openProfileSlider(src, name) {
