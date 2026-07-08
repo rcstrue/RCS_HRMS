@@ -1,0 +1,996 @@
+     1→     1→<?php
+     2→     2→/**
+     3→     3→ * RCS HRMS Pro - Notification Class
+     4→     4→ * Handles SMS, Email, and WhatsApp notifications
+     5→     5→ * 
+     6→     6→ * Free SMS: Using Fast2SMS / TextLocal / MSG91 APIs
+     7→     7→ * Email: Using PHPMailer / SendGrid
+     8→     8→ * WhatsApp: Using WhatsApp Web QR Scan (Free) or Business API
+     9→     9→ */
+    10→    10→
+    11→    11→// Constant to avoid string duplication
+    12→    12→define('REGEX_NON_NUMERIC', '/[^0-9]/');
+    13→    13→
+    14→    14→class Notification {
+    15→    15→    private $db;
+    16→    16→    private $smsApiKey;
+    17→    17→    private $smsProvider;
+    18→    18→    private $emailConfig;
+    19→    19→    private $whatsappConfig;
+    20→    20→    
+    21→    21→    public function __construct() {
+    22→    22→        $this->db = Database::getInstance();
+    23→    23→        $this->loadConfig();
+    24→    24→    }
+    25→    25→    
+    26→    26→    private function loadConfig() {
+    27→    27→        // Get settings from database
+    28→    28→        $settings = $this->db->fetchAll(
+    29→    29→            "SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'notif_%'"
+    30→    30→        );
+    31→    31→        
+    32→    32→        foreach ($settings as $s) {
+    33→    33→            switch ($s['setting_key']) {
+    34→    34→                case 'notif_sms_api_key':
+    35→    35→                    $this->smsApiKey = $s['setting_value'];
+    36→    36→                    break;
+    37→    37→                case 'notif_sms_provider':
+    38→    38→                    $this->smsProvider = $s['setting_value'];
+    39→    39→                    break;
+    40→    40→                case 'notif_email_host':
+    41→    41→                    $this->emailConfig['host'] = $s['setting_value'];
+    42→    42→                    break;
+    43→    43→                case 'notif_email_user':
+    44→    44→                    $this->emailConfig['user'] = $s['setting_value'];
+    45→    45→                    break;
+    46→    46→                case 'notif_email_pass':
+    47→    47→                    $this->emailConfig['pass'] = $s['setting_value'];
+    48→    48→                    break;
+    49→    49→                case 'notif_wa_bot_url':
+    50→    50→                    $this->whatsappConfig['api_url'] = rtrim($s['setting_value'], '/');
+    51→    51→                    break;
+    52→    52→                case 'notif_wa_bot_key':
+    53→    53→                    $this->whatsappConfig['api_key'] = $s['setting_value'];
+    54→    54→                    break;
+    55→    55→                default:
+    56→    56→                    // Ignore unknown settings
+    57→    57→                    break;
+    58→    58→            }
+    59→    59→        }
+    60→    60→    }
+    61→    61→    
+    62→    62→    // ============================================
+    63→    63→    // SMS Methods (Free providers)
+    64→    64→    // ============================================
+    65→    65→    
+    66→    66→    /**
+    67→    67→     * Send SMS using Fast2SMS (Free tier available)
+    68→    68→     * Get API key from: https://docs.fast2sms.com
+    69→    69→     */
+    70→    70→    public function sendSMS($mobile, $message, $templateId = null) {
+    71→    71→        // Clean mobile number
+    72→    72→        $mobile = preg_replace(REGEX_NON_NUMERIC, '', $mobile);
+    73→    73→        
+    74→    74→        if (strlen($mobile) == 10) {
+    75→    75→            $mobile = '91' . $mobile;
+    76→    76→        }
+    77→    77→        
+    78→    78→        // Fast2SMS API
+    79→    79→        $apiKey = $this->smsApiKey ?? 'YOUR_FAST2SMS_API_KEY';
+    80→    80→        
+    81→    81→        $url = "https://www.fast2sms.com/dev/bulkV2";
+    82→    82→        
+    83→    83→        $data = [
+    84→    84→            'route' => 'q', // Quick transactional route
+    85→    85→            'message' => $message,
+    86→    86→            'language' => 'english',
+    87→    87→            'flash' => 0,
+    88→    88→            'numbers' => substr($mobile, 2) // Remove country code for Fast2SMS
+    89→    89→        ];
+    90→    90→        
+    91→    91→        if ($templateId) {
+    92→    92→            $data['route'] = 'dlt'; // DLT route
+    93→    93→            $data['template_id'] = $templateId;
+    94→    94→        }
+    95→    95→        
+    96→    96→        $ch = curl_init();
+    97→    97→        curl_setopt($ch, CURLOPT_URL, $url);
+    98→    98→        curl_setopt($ch, CURLOPT_POST, true);
+    99→    99→        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+   100→   100→        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+   101→   101→            'authorization: ' . $apiKey,
+   102→   102→            'Content-Type: application/x-www-form-urlencoded'
+   103→   103→        ]);
+   104→   104→        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+   105→   105→        
+   106→   106→        $response = curl_exec($ch);
+   107→   107→        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+   108→   108→        curl_close($ch);
+   109→   109→        
+   110→   110→        $result = json_decode($response, true);
+   111→   111→        
+   112→   112→        // Log the SMS
+   113→   113→        $this->logNotification('sms', $mobile, $message, $httpCode == 200 ? 'sent' : 'failed', $response);
+   114→   114→        
+   115→   115→        return [
+   116→   116→            'success' => $httpCode == 200 && ($result['return'] ?? false),
+   117→   117→            'message' => $result['message'] ?? 'SMS sent',
+   118→   118→            'response' => $result
+   119→   119→        ];
+   120→   120→    }
+   121→   121→    
+   122→   122→    /**
+   123→   123→     * Send SMS using TextLocal (Free trial)
+   124→   124→     * Get API key from: https://api.textlocal.in
+   125→   125→     */
+   126→   126→    public function sendSMSTextLocal($mobile, $message) {
+   127→   127→        $apiKey = $this->smsApiKey ?? 'YOUR_TEXTLOCAL_API_KEY';
+   128→   128→        
+   129→   129→        $mobile = preg_replace(REGEX_NON_NUMERIC, '', $mobile);
+   130→   130→        if (strlen($mobile) == 10) {
+   131→   131→            $mobile = '91' . $mobile;
+   132→   132→        }
+   133→   133→        
+   134→   134→        $url = "https://api.textlocal.in/send/";
+   135→   135→        
+   136→   136→        $data = [
+   137→   137→            'apikey' => $apiKey,
+   138→   138→            'numbers' => $mobile,
+   139→   139→            'message' => urlencode($message),
+   140→   140→            'sender' => 'TXTLCL' // Replace with approved sender ID
+   141→   141→        ];
+   142→   142→        
+   143→   143→        $ch = curl_init();
+   144→   144→        curl_setopt($ch, CURLOPT_URL, $url . '?' . http_build_query($data));
+   145→   145→        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+   146→   146→        
+   147→   147→        $response = curl_exec($ch);
+   148→   148→        curl_close($ch);
+   149→   149→        
+   150→   150→        $result = json_decode($response, true);
+   151→   151→        
+   152→   152→        $this->logNotification('sms', $mobile, $message, $result['status'] == 'success' ? 'sent' : 'failed', $response);
+   153→   153→        
+   154→   154→        return [
+   155→   155→            'success' => $result['status'] == 'success',
+   156→   156→            'message' => 'SMS sent via TextLocal',
+   157→   157→            'response' => $result
+   158→   158→        ];
+   159→   159→    }
+   160→   160→    
+   161→   161→    // ============================================
+   162→   162→    // Email Methods
+   163→   163→    // ============================================
+   164→   164→    
+   165→   165→    /**
+   166→   166→     * Send Email using PHP's mail() or SMTP
+   167→   167→     */
+   168→   168→    public function sendEmail($to, $subject, $body, $attachments = [], $isHTML = true) {
+   169→   169→        $fromEmail = $this->emailConfig['user'] ?? 'noreply@rcshrms.com';
+   170→   170→        $fromName = 'RCS HRMS Pro';
+   171→   171→        
+   172→   172→        // Headers
+   173→   173→        $headers = [
+   174→   174→            'From' => $fromName . ' <' . $fromEmail . '>',
+   175→   175→            'Reply-To' => $fromEmail,
+   176→   176→            'X-Mailer' => 'PHP/' . phpversion()
+   177→   177→        ];
+   178→   178→        
+   179→   179→        if ($isHTML) {
+   180→   180→            $headers['MIME-Version'] = '1.0';
+   181→   181→            $headers['Content-Type'] = 'text/html; charset=UTF-8';
+   182→   182→        }
+   183→   183→        
+   184→   184→        // Convert headers array to string
+   185→   185→        $headerStr = '';
+   186→   186→        foreach ($headers as $key => $value) {
+   187→   187→            $headerStr .= $key . ': ' . $value . "\r\n";
+   188→   188→        }
+   189→   189→        
+   190→   190→        // Handle attachments (simple implementation)
+   191→   191→        if (!empty($attachments)) {
+   192→   192→            $boundary = md5(time());
+   193→   193→            $headerStr = "MIME-Version: 1.0\r\n";
+   194→   194→            $headerStr .= "Content-Type: multipart/mixed; boundary=\"$boundary\"\r\n";
+   195→   195→            
+   196→   196→            $mimeBody = "--$boundary\r\n";
+   197→   197→            $mimeBody .= "Content-Type: text/html; charset=UTF-8\r\n";
+   198→   198→            $mimeBody .= "Content-Transfer-Encoding: 7bit\r\n\r\n";
+   199→   199→            $mimeBody .= $body . "\r\n";
+   200→   200→            
+   201→   201→            foreach ($attachments as $attachment) {
+   202→   202→                if (file_exists($attachment['path'])) {
+   203→   203→                    $content = chunk_split(base64_encode(file_get_contents($attachment['path'])));
+   204→   204→                    $mimeBody .= "--$boundary\r\n";
+   205→   205→                    $mimeBody .= "Content-Type: " . ($attachment['type'] ?? 'application/octet-stream') . "; name=\"" . $attachment['name'] . "\"\r\n";
+   206→   206→                    $mimeBody .= "Content-Transfer-Encoding: base64\r\n";
+   207→   207→                    $mimeBody .= "Content-Disposition: attachment; filename=\"" . $attachment['name'] . "\"\r\n\r\n";
+   208→   208→                    $mimeBody .= $content . "\r\n";
+   209→   209→                }
+   210→   210→            }
+   211→   211→            $mimeBody .= "--$boundary--";
+   212→   212→            $body = $mimeBody;
+   213→   213→        }
+   214→   214→        
+   215→   215→        // Send email
+   216→   216→        $result = mail($to, $subject, $body, $headerStr);
+   217→   217→        
+   218→   218→        // Log
+   219→   219→        $this->logNotification('email', $to, $subject, $result ? 'sent' : 'failed', '');
+   220→   220→        
+   221→   221→        return [
+   222→   222→            'success' => $result,
+   223→   223→            'message' => $result ? 'Email sent successfully' : 'Failed to send email'
+   224→   224→        ];
+   225→   225→    }
+   226→   226→    
+   227→   227→    /**
+   228→   228→     * Send email using Gmail SMTP (more reliable)
+   229→   229→     */
+   230→   230→    public function sendEmailSMTP($to, $subject, $body, $attachments = []) {
+   231→   231→        // Check if PHPMailer is available
+   232→   232→        $phpmailerPath = APP_ROOT . '/vendor/phpmailer/phpmailer/src/PHPMailer.php';
+   233→   233→        
+   234→   234→        if (!file_exists($phpmailerPath)) {
+   235→   235→            // Fall back to basic mail
+   236→   236→            return $this->sendEmail($to, $subject, $body, $attachments);
+   237→   237→        }
+   238→   238→        
+   239→   239→        require_once $phpmailerPath;
+   240→   240→        require_once APP_ROOT . '/vendor/phpmailer/phpmailer/src/SMTP.php';
+   241→   241→        
+   242→   242→        $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+   243→   243→        
+   244→   244→        try {
+   245→   245→            // SMTP Configuration
+   246→   246→            $mail->isSMTP();
+   247→   247→            $mail->Host = $this->emailConfig['host'] ?? 'smtp.gmail.com';
+   248→   248→            $mail->SMTPAuth = true;
+   249→   249→            $mail->Username = $this->emailConfig['user'] ?? 'your-email@gmail.com';
+   250→   250→            $mail->Password = $this->emailConfig['pass'] ?? 'your-app-password';
+   251→   251→            $mail->SMTPSecure = 'tls';
+   252→   252→            $mail->Port = 587;
+   253→   253→            
+   254→   254→            $mail->setFrom($this->emailConfig['user'] ?? 'noreply@rcshrms.com', 'RCS HRMS Pro');
+   255→   255→            $mail->addAddress($to);
+   256→   256→            
+   257→   257→            $mail->isHTML(true);
+   258→   258→            $mail->Subject = $subject;
+   259→   259→            $mail->Body = $body;
+   260→   260→            
+   261→   261→            // Attachments
+   262→   262→            foreach ($attachments as $attachment) {
+   263→   263→                if (file_exists($attachment['path'])) {
+   264→   264→                    $mail->addAttachment($attachment['path'], $attachment['name']);
+   265→   265→                }
+   266→   266→            }
+   267→   267→            
+   268→   268→            $mail->send();
+   269→   269→            
+   270→   270→            $this->logNotification('email', $to, $subject, 'sent', '');
+   271→   271→            
+   272→   272→            return ['success' => true, 'message' => 'Email sent via SMTP'];
+   273→   273→            
+   274→   274→        } catch (Exception $e) {
+   275→   275→            $this->logNotification('email', $to, $subject, 'failed', $e->getMessage());
+   276→   276→            
+   277→   277→            return ['success' => false, 'message' => $e->getMessage()];
+   278→   278→        }
+   279→   279→    }
+   280→   280→    
+   281→   281→    // ============================================
+   282→   282→    // WhatsApp Methods (Free via QR Scan)
+   283→   283→    // ============================================
+   284→   284→    
+   285→   285→    /**
+   286→   286→     * Generate WhatsApp link (Free - opens WhatsApp Web/App)
+   287→   287→     * User can scan QR or click link to send message
+   288→   288→     */
+   289→   289→    public function generateWhatsAppLink($mobile, $message) {
+   290→   290→        $mobile = preg_replace(REGEX_NON_NUMERIC, '', $mobile);
+   291→   291→        if (strlen($mobile) == 10) {
+   292→   292→            $mobile = '91' . $mobile;
+   293→   293→        }
+   294→   294→        
+   295→   295→        return [
+   296→   296→            'link' => "https://wa.me/{$mobile}?text=" . urlencode($message),
+   297→   297→            'qr_code' => "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" . urlencode("https://wa.me/{$mobile}?text=" . urlencode($message)),
+   298→   298→            'instructions' => 'Click link or scan QR code to send message via WhatsApp'
+   299→   299→        ];
+   300→   300→    }
+   301→   301→    
+   302→   302→    /**
+   303→   303→     * Send WhatsApp message automatically via WhatsApp Bot API
+   304→   304→     * (Scan QR once, messages sent from your WhatsApp)
+   305→   305→     * Falls back to link generation if bot not configured
+   306→   306→     */
+   307→   307→    public function sendWhatsApp($mobile, $message, $autoSend = true) {
+   308→   308→        $mobile = preg_replace(REGEX_NON_NUMERIC, '', $mobile);
+   309→   309→        if (strlen($mobile) == 10) {
+   310→   310→            $mobile = '91' . $mobile;
+   311→   311→        }
+   312→   312→        
+   313→   313→        // Try WhatsApp Bot API (auto-send via Baileys)
+   314→   314→        if ($autoSend && !empty($this->whatsappConfig['api_url']) && !empty($this->whatsappConfig['api_key'])) {
+   315→   315→            $botUrl = rtrim($this->whatsappConfig['api_url'], '/') . '/send-message';
+   316→   316→            $apiKey = $this->whatsappConfig['api_key'];
+   317→   317→            
+   318→   318→            $ch = curl_init();
+   319→   319→            curl_setopt_array($ch, [
+   320→   320→                CURLOPT_URL => $botUrl,
+   321→   321→                CURLOPT_POST => true,
+   322→   322→                CURLOPT_RETURNTRANSFER => true,
+   323→   323→                CURLOPT_TIMEOUT => 30,
+   324→   324→                CURLOPT_CONNECTTIMEOUT => 5,
+   325→   325→                CURLOPT_HTTPHEADER => [
+   326→   326→                    'Content-Type: application/json',
+   327→   327→                    'X-API-Key: ' . $apiKey
+   328→   328→                ],
+   329→   329→                CURLOPT_POSTFIELDS => json_encode([
+   330→   330→                    'mobile' => $mobile,
+   331→   331→                    'message' => $message
+   332→   332→                ])
+   333→   333→            ]);
+   334→   334→            
+   335→   335→            $response = curl_exec($ch);
+   336→   336→            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+   337→   337→            $curlError = curl_error($ch);
+   338→   338→            curl_close($ch);
+   339→   339→            
+   340→   340→            $result = json_decode($response, true);
+   341→   341→            
+   342→   342→            if ($httpCode == 200 && ($result['success'] ?? false)) {
+   343→   343→                $status = ($result['queued'] ?? false) ? 'queued' : 'sent';
+   344→   344→                $this->logNotification('whatsapp', $mobile, $message, $status, $response);
+   345→   345→                
+   346→   346→                return [
+   347→   347→                    'success' => true,
+   348→   348→                    'message' => $result['message'] ?? 'WhatsApp message sent via bot',
+   349→   349→                    'queued' => $result['queued'] ?? false
+   350→   350→                ];
+   351→   351→            }
+   352→   352→            
+   353→   353→            // Bot API failed — log and fall back to link
+   354→   354→            $this->logNotification('whatsapp', $mobile, $message, 'failed', $response . ' | Error: ' . $curlError);
+   355→   355→        }
+   356→   356→        
+   357→   357→        // Fall back to WhatsApp link generation (manual send)
+   358→   358→        $link = $this->generateWhatsAppLink($mobile, $message);
+   359→   359→        $this->logNotification('whatsapp', $mobile, $message, 'link_generated', json_encode($link));
+   360→   360→        
+   361→   361→        return [
+   362→   362→            'success' => true,
+   363→   363→            'manual' => true,
+   364→   364→            'link' => $link['link'],
+   365→   365→            'qr_code' => $link['qr_code'],
+   366→   366→            'message' => 'Bot not configured — WhatsApp link generated for manual send'
+   367→   367→        ];
+   368→   368→    }
+   369→   369→    
+   370→   370→    /**
+   371→   371→     * Send WhatsApp with media (image/document)
+   372→   372→     * Requires WhatsApp Bot API to be configured
+   373→   373→     */
+   374→   374→    public function sendWhatsAppMedia($mobile, $message, $mediaUrl, $mediaCaption = '') {
+   375→   375→        if (empty($this->whatsappConfig['api_url']) || empty($this->whatsappConfig['api_key'])) {
+   376→   376→            return ['success' => false, 'message' => 'WhatsApp Bot API not configured'];
+   377→   377→        }
+   378→   378→        
+   379→   379→        $mobile = preg_replace(REGEX_NON_NUMERIC, '', $mobile);
+   380→   380→        if (strlen($mobile) == 10) {
+   381→   381→            $mobile = '91' . $mobile;
+   382→   382→        }
+   383→   383→        
+   384→   384→        $botUrl = rtrim($this->whatsappConfig['api_url'], '/') . '/api/send';
+   385→   385→        
+   386→   386→        $ch = curl_init();
+   387→   387→        curl_setopt_array($ch, [
+   388→   388→            CURLOPT_URL => $botUrl,
+   389→   389→            CURLOPT_POST => true,
+   390→   390→            CURLOPT_RETURNTRANSFER => true,
+   391→   391→            CURLOPT_TIMEOUT => 30,
+   392→   392→            CURLOPT_HTTPHEADER => [
+   393→   393→                'Content-Type: application/json',
+   394→   394→                'X-API-Key: ' . $this->whatsappConfig['api_key']
+   395→   395→            ],
+   396→   396→            CURLOPT_POSTFIELDS => json_encode([
+   397→   397→                'to' => $mobile,
+   398→   398→                'message' => $mediaCaption ?: $message,
+   399→   399→                'media_url' => $mediaUrl
+   400→   400→            ])
+   401→   401→        ]);
+   402→   402→        
+   403→   403→        $response = curl_exec($ch);
+   404→   404→        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+   405→   405→        curl_close($ch);
+   406→   406→        
+   407→   407→        $result = json_decode($response, true);
+   408→   408→        
+   409→   409→        $this->logNotification('whatsapp', $mobile, ($mediaCaption ?: $message) . ' [MEDIA]', 
+   410→   410→            ($httpCode == 200 && ($result['success'] ?? false)) ? 'sent' : 'failed', $response);
+   411→   411→        
+   412→   412→        return [
+   413→   413→            'success' => ($httpCode == 200 && ($result['success'] ?? false)),
+   414→   414→            'message' => $result['message'] ?? 'Failed to send media'
+   415→   415→        ];
+   416→   416→    }
+   417→   417→    
+   418→   418→    /**
+   419→   419→     * Send bulk WhatsApp messages via Bot API
+   420→   420→     */
+   421→   421→    public function sendWhatsAppBulk($recipients, $message) {
+   422→   422→        if (empty($this->whatsappConfig['api_url']) || empty($this->whatsappConfig['api_key'])) {
+   423→   423→            return ['success' => false, 'message' => 'WhatsApp Bot API not configured', 'sent' => 0, 'failed' => 0];
+   424→   424→        }
+   425→   425→        
+   426→   426→        $messages = [];
+   427→   427→        foreach ($recipients as $r) {
+   428→   428→            $mobile = is_array($r) ? ($r['mobile'] ?? $r['phone'] ?? $r['to']) : $r;
+   429→   429→            $mobile = preg_replace(REGEX_NON_NUMERIC, '', (string)$mobile);
+   430→   430→            if (strlen($mobile) >= 10) {
+   431→   431→                $messages[] = ['to' => $mobile, 'message' => $message];
+   432→   432→            }
+   433→   433→        }
+   434→   434→        
+   435→   435→        if (empty($messages)) {
+   436→   436→            return ['success' => false, 'message' => 'No valid phone numbers', 'sent' => 0, 'failed' => 0];
+   437→   437→        }
+   438→   438→        
+   439→   439→        $ch = curl_init();
+   440→   440→        curl_setopt_array($ch, [
+   441→   441→            CURLOPT_URL => $this->whatsappConfig['api_url'] . '/api/send-bulk',
+   442→   442→            CURLOPT_POST => true,
+   443→   443→            CURLOPT_RETURNTRANSFER => true,
+   444→   444→            CURLOPT_TIMEOUT => 600, // 10 min timeout for bulk
+   445→   445→            CURLOPT_HTTPHEADER => [
+   446→   446→                'Content-Type: application/json',
+   447→   447→                'X-API-Key: ' . $this->whatsappConfig['api_key']
+   448→   448→            ],
+   449→   449→            CURLOPT_POSTFIELDS => json_encode(['messages' => $messages])
+   450→   450→        ]);
+   451→   451→        
+   452→   452→        $response = curl_exec($ch);
+   453→   453→        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+   454→   454→        curl_close($ch);
+   455→   455→        
+   456→   456→        $result = json_decode($response, true);
+   457→   457→        
+   458→   458→        return [
+   459→   459→            'success' => ($httpCode == 200 && ($result['success'] ?? false)),
+   460→   460→            'message' => $result['message'] ?? 'Bulk send failed',
+   461→   461→            'sent' => $result['data']['sent'] ?? 0,
+   462→   462→            'failed' => $result['data']['failed'] ?? 0,
+   463→   463→            'queued' => $result['data']['queued'] ?? 0
+   464→   464→        ];
+   465→   465→    }
+   466→   466→    
+   467→   467→    /**
+   468→   468→     * Check WhatsApp Bot connection status
+   469→   469→     */
+   470→   470→    public function getWhatsAppBotStatus() {
+   471→   471→        if (empty($this->whatsappConfig['api_url']) || empty($this->whatsappConfig['api_key'])) {
+   472→   472→            return ['connected' => false, 'message' => 'WhatsApp Bot API not configured'];
+   473→   473→        }
+   474→   474→        
+   475→   475→        $ch = curl_init();
+   476→   476→        curl_setopt_array($ch, [
+   477→   477→            CURLOPT_URL => $this->whatsappConfig['api_url'] . '/api/status',
+   478→   478→            CURLOPT_RETURNTRANSFER => true,
+   479→   479→            CURLOPT_TIMEOUT => 10,
+   480→   480→            CURLOPT_HTTPHEADER => ['X-API-Key: ' . $this->whatsappConfig['api_key']]
+   481→   481→        ]);
+   482→   482→        
+   483→   483→        $response = curl_exec($ch);
+   484→   484→        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+   485→   485→        $error = curl_error($ch);
+   486→   486→        curl_close($ch);
+   487→   487→        
+   488→   488→        if ($error) {
+   489→   489→            return ['connected' => false, 'message' => 'Cannot reach bot: ' . $error];
+   490→   490→        }
+   491→   491→        
+   492→   492→        $result = json_decode($response, true);
+   493→   493→        return [
+   494→   494→            'connected' => ($result['connected'] ?? false),
+   495→   495→            'phone' => $result['phone'] ?? null,
+   496→   496→            'name' => $result['name'] ?? null,
+   497→   497→            'queueLength' => $result['queueLength'] ?? 0,
+   498→   498→            'messagesSent' => $result['messagesSent'] ?? 0,
+   499→   499→            'message' => ($result['connected'] ?? false) ? 'WhatsApp Bot is connected' : 'WhatsApp Bot is offline'
+   500→   500→        ];
+   501→   501→    }
+   502→   502→    
+   503→   503→    // ============================================
+   504→   504→    // Bulk Notifications
+   505→   505→    // ============================================
+   506→   506→    
+   507→   507→    /**
+   508→   508→     * Send bulk SMS
+   509→   509→     */
+   510→   510→    public function sendBulkSMS($recipients, $message) {
+   511→   511→        $results = [];
+   512→   512→        
+   513→   513→        foreach ($recipients as $recipient) {
+   514→   514→            $mobile = is_array($recipient) ? ($recipient['mobile'] ?? $recipient['phone']) : $recipient;
+   515→   515→            $results[] = [
+   516→   516→                'mobile' => $mobile,
+   517→   517→                'result' => $this->sendSMS($mobile, $message)
+   518→   518→            ];
+   519→   519→        }
+   520→   520→        
+   521→   521→        return $results;
+   522→   522→    }
+   523→   523→    
+   524→   524→    /**
+   525→   525→     * Send payslip via email
+   526→   526→     */
+   527→   527→    public function sendPayslipEmail($employeeId, $payrollId) {
+   528→   528→        // Get employee and payroll details
+   529→   529→        $data = $this->db->fetch(
+   530→   530→            "SELECT e.full_name, e.personal_email, e.official_email, e.employee_code,
+   531→   531→                    p.*, pp.month, pp.year
+   532→   532→             FROM payroll p
+   533→   533→             JOIN employees e ON p.employee_id = e.employee_code
+   534→   534→             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
+   535→   535→             WHERE e.id = :eid AND p.id = :pid",
+   536→   536→            ['eid' => $employeeId, 'pid' => $payrollId]
+   537→   537→        );
+   538→   538→        
+   539→   539→        if (!$data) {
+   540→   540→            return ['success' => false, 'message' => 'Data not found'];
+   541→   541→        }
+   542→   542→        
+   543→   543→        $email = $data['personal_email'] ?: $data['official_email'];
+   544→   544→        
+   545→   545→        if (!$email) {
+   546→   546→            return ['success' => false, 'message' => 'No email address found'];
+   547→   547→        }
+   548→   548→        
+   549→   549→        // Generate email body
+   550→   550→        $monthYear = date('F Y', mktime(0, 0, 0, $data['month'], 1, $data['year']));
+   551→   551→        
+   552→   552→        $body = $this->getEmailTemplate('payslip', [
+   553→   553→            'employee_name' => $data['full_name'],
+   554→   554→            'employee_code' => $data['employee_code'],
+   555→   555→            'month_year' => $monthYear,
+   556→   556→            'net_pay' => formatCurrency($data['net_salary']),
+   557→   557→            'gross' => formatCurrency($data['gross_earnings'] ?? $data['basic'] * 1.4),
+   558→   558→            'deductions' => formatCurrency($data['total_deductions'] ?? 0),
+   559→   559→            'company_name' => 'RCS TRUE FACILITIES PVT LTD'
+   560→   560→        ]);
+   561→   561→        
+   562→   562→        return $this->sendEmail(
+   563→   563→            $email,
+   564→   564→            "Payslip for {$monthYear} - RCS HRMS",
+   565→   565→            $body
+   566→   566→        );
+   567→   567→    }
+   568→   568→    
+   569→   569→    // ============================================
+   570→   570→    // Notification Templates
+   571→   571→    // ============================================
+   572→   572→    
+   573→   573→    public function getEmailTemplate($type, $data) {
+   574→   574→        $templates = [
+   575→   575→            'payslip' => '
+   576→   576→                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+   577→   577→                    <div style="background: #4e73df; color: white; padding: 20px; text-align: center;">
+   578→   578→                        <h2 style="margin: 0;">Payslip Notification</h2>
+   579→   579→                    </div>
+   580→   580→                    <div style="padding: 20px; border: 1px solid #ddd;">
+   581→   581→                        <p>Dear <strong>{{employee_name}}</strong>,</p>
+   582→   582→                        <p>Your payslip for <strong>{{month_year}}</strong> has been processed.</p>
+   583→   583→                        
+   584→   584→                        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+   585→   585→                            <tr style="background: #f8f9fc;">
+   586→   586→                                <td style="padding: 10px; border: 1px solid #ddd;">Employee Code</td>
+   587→   587→                                <td style="padding: 10px; border: 1px solid #ddd;">{{employee_code}}</td>
+   588→   588→                            </tr>
+   589→   589→                            <tr>
+   590→   590→                                <td style="padding: 10px; border: 1px solid #ddd;">Gross Earnings</td>
+   591→   591→                                <td style="padding: 10px; border: 1px solid #ddd;">{{gross}}</td>
+   592→   592→                            </tr>
+   593→   593→                            <tr>
+   594→   594→                                <td style="padding: 10px; border: 1px solid #ddd;">Total Deductions</td>
+   595→   595→                                <td style="padding: 10px; border: 1px solid #ddd;">{{deductions}}</td>
+   596→   596→                            </tr>
+   597→   597→                            <tr style="background: #e8f5e9;">
+   598→   598→                                <td style="padding: 10px; border: 1px solid #ddd;"><strong>Net Pay</strong></td>
+   599→   599→                                <td style="padding: 10px; border: 1px solid #ddd;"><strong>{{net_pay}}</strong></td>
+   600→   600→                            </tr>
+   601→   601→                        </table>
+   602→   602→                        
+   603→   603→                        <p>Please login to the HRMS portal to view/download your detailed payslip.</p>
+   604→   604→                        
+   605→   605→                        <p>Best regards,<br>{{company_name}}</p>
+   606→   606→                    </div>
+   607→   607→                </div>
+   608→   608→            ',
+   609→   609→            
+   610→   610→            'salary_credit' => '
+   611→   611→                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+   612→   612→                    <div style="background: #1cc88a; color: white; padding: 20px; text-align: center;">
+   613→   613→                        <h2 style="margin: 0;">💰 Salary Credited!</h2>
+   614→   614→                    </div>
+   615→   615→                    <div style="padding: 20px; border: 1px solid #ddd;">
+   616→   616→                        <p>Dear <strong>{{employee_name}}</strong>,</p>
+   617→   617→                        <p>Your salary for <strong>{{month_year}}</strong> has been credited to your bank account.</p>
+   618→   618→                        <p><strong>Amount: {{net_pay}}</strong></p>
+   619→   619→                        <p>Thank you for your hard work and dedication!</p>
+   620→   620→                        <p>Best regards,<br>{{company_name}}</p>
+   621→   621→                    </div>
+   622→   622→                </div>
+   623→   623→            ',
+   624→   624→            
+   625→   625→            'leave_approval' => '
+   626→   626→                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+   627→   627→                    <div style="background: #36b9cc; color: white; padding: 20px; text-align: center;">
+   628→   628→                        <h2 style="margin: 0;">Leave Application Update</h2>
+   629→   629→                    </div>
+   630→   630→                    <div style="padding: 20px; border: 1px solid #ddd;">
+   631→   631→                        <p>Dear <strong>{{employee_name}}</strong>,</p>
+   632→   632→                        <p>Your leave application for <strong>{{leave_dates}}</strong> has been <strong>{{status}}</strong>.</p>
+   633→   633→                        <p><strong>Reason:</strong> {{leave_reason}}</p>
+   634→   634→                        <p>Best regards,<br>{{company_name}}</p>
+   635→   635→                    </div>
+   636→   636→                </div>
+   637→   637→            '
+   638→   638→        ];
+   639→   639→        
+   640→   640→        $template = $templates[$type] ?? '';
+   641→   641→        
+   642→   642→        // Replace placeholders
+   643→   643→        foreach ($data as $key => $value) {
+   644→   644→            $template = str_replace('{{' . $key . '}}', $value, $template);
+   645→   645→        }
+   646→   646→        
+   647→   647→        return $template;
+   648→   648→    }
+   649→   649→    
+   650→   650→    // ============================================
+   651→   651→    // WhatsApp Templates (for payroll notifications)
+   652→   652→    // ============================================
+   653→   653→
+   654→   654→    /**
+   655→   655→     * Get WhatsApp message template
+   656→   656→     */
+   657→   657→    public function getWhatsAppTemplate($type, $data) {
+   658→   658→        $templates = [
+   659→   659→            'salary_credit' => "\U0001F4B0 *SALARY CREDITED*\n\n" .
+   660→   660→                "Dear *{name}*,\n\n" .
+   661→   661→                "Your salary for *{month_year}* has been credited to your bank account.\n\n" .
+   662→   662→                "\U0001F4CB *Payslip Details:*\n" .
+   663→   663→                "Gross: *Rs. {gross}*\n" .
+   664→   664→                "Deductions: *Rs. {deductions}*\n" .
+   665→   665→                "*Net Pay: Rs. {net_pay}*\n\n" .
+   666→   666→                "Login to HRMS portal for detailed payslip.\n\n" .
+   667→   667→                "_RCS TRUE FACILITIES PVT LTD_",
+   668→   668→
+   669→   669→            'attendance_alert' => "\U0001F4CA *ATTENDANCE ALERT*\n\n" .
+   670→   670→                "Dear *{name}*,\n\n" .
+   671→   671→                "You have been marked *{status}* for *{date}* at *{unit_name}*.\n\n" .
+   672→   672→                "If this is incorrect, please contact HR immediately.\n\n" .
+   673→   673→                "_RCS TRUE FACILITIES PVT LTD_",
+   674→   674→
+   675→   675→            'attendance_absent' => "\u26A0\uFE0F *ABSENT MARKED*\n\n" .
+   676→   676→                "Dear *{name}*,\n\n" .
+   677→   677→                "You are marked *ABSENT* for today (*{date}*) at *{unit_name}*.\n\n" .
+   678→   678→                "Please contact your supervisor or HR if this is incorrect.\n\n" .
+   679→   679→                "_RCS TRUE FACILITIES PVT LTD_",
+   680→   680→
+   681→   681→            'leave_approval' => "\U0001F4CB *LEAVE UPDATE*\n\n" .
+   682→   682→                "Dear *{name}*,\n\n" .
+   683→   683→                "Your leave application for *{dates}* has been *{status}*.\n\n" .
+   684→   684→                "Reason: {reason}\n\n" .
+   685→   685→                "_RCS TRUE FACILITIES PVT LTD_",
+   686→   686→
+   687→   687→            'payslip_ready' => "\U0001F4E6 *PAYSLIP READY*\n\n" .
+   688→   688→                "Dear *{name}*,\n\n" .
+   689→   689→                "Your payslip for *{month_year}* is ready.\n\n" .
+   690→   690→                "*Net Pay: Rs. {net_pay}*\n\n" .
+   691→   691→                "Please check the HRMS portal for details.\n\n" .
+   692→   692→                "_RCS TRUE FACILITIES PVT LTD_",
+   693→   693→
+   694→   694→            'employee_update' => "\U0001F465 *EMPLOYEE UPDATE*\n\n" .
+   695→   695→                "Dear *{name}*,\n\n" .
+   696→   696→                "{message}\n\n" .
+   697→   697→                "_RCS TRUE FACILITIES PVT LTD_"
+   698→   698→        ];
+   699→   699→
+   700→   700→        $template = $templates[$type] ?? '';
+   701→   701→        foreach ($data as $key => $value) {
+   702→   702→            $template = str_replace('{' . $key . '}', $value, $template);
+   703→   703→        }
+   704→   704→
+   705→   705→        return $template;
+   706→   706→    }
+   707→   707→
+   708→   708→    /**
+   709→   709→     * Send salary credit notification via WhatsApp
+   710→   710→     */
+   711→   711→    public function sendSalaryCreditWhatsApp($employeeData, $payrollData) {
+   712→   712→        $mobile = $employeeData['mobile'] ?? '';
+   713→   713→        if (empty($mobile)) {
+   714→   714→            return ['success' => false, 'message' => 'No mobile number'];
+   715→   715→        }
+   716→   716→
+   717→   717→        $monthYear = date('F Y', mktime(0, 0, 0, $payrollData['month'], 1, $payrollData['year']));
+   718→   718→
+   719→   719→        $message = $this->getWhatsAppTemplate('salary_credit', [
+   720→   720→            'name' => $employeeData['full_name'] ?? 'Employee',
+   721→   721→            'month_year' => $monthYear,
+   722→   722→            'gross' => number_format($payrollData['gross_earnings'] ?? 0, 2),
+   723→   723→            'deductions' => number_format($payrollData['total_deductions'] ?? 0, 2),
+   724→   724→            'net_pay' => number_format($payrollData['net_pay'] ?? $payrollData['net_salary'] ?? 0, 2)
+   725→   725→        ]);
+   726→   726→
+   727→   727→        return $this->sendWhatsApp($mobile, $message);
+   728→   728→    }
+   729→   729→
+   730→   730→    /**
+   731→   731→     * Send salary credit WhatsApp to ALL employees in a payroll batch
+   732→   732→     */
+   733→   733→    public function sendBulkSalaryCreditWhatsApp($payrollPeriodId, $unitId = null) {
+   734→   734→        $where = "p.payroll_period_id = :pid AND p.net_pay > 0";
+   735→   735→        $params = ['pid' => $payrollPeriodId];
+   736→   736→        if ($unitId) {
+   737→   737→            $where .= " AND p.unit_id = :uid";
+   738→   738→            $params['uid'] = $unitId;
+   739→   739→        }
+   740→   740→
+   741→   741→        $rows = $this->db->fetchAll(
+   742→   742→            "SELECT e.full_name, e.mobile, e.employee_code,
+   743→   743→                    p.gross_earnings, p.total_deductions, p.net_pay,
+   744→   744→                    pp.month, pp.year
+   745→   745→             FROM payroll p
+   746→   746→             JOIN employees e ON p.employee_id = e.employee_code
+   747→   747→             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
+   748→   748→             WHERE $where",
+   749→   749→            $params
+   750→   750→        );
+   751→   751→
+   752→   752→        if (empty($rows)) {
+   753→   753→            return ['success' => false, 'message' => 'No payroll records found', 'sent' => 0];
+   754→   754→        }
+   755→   755→
+   756→   756→        $monthYear = date('F Y', mktime(0, 0, 0, $rows[0]['month'], 1, $rows[0]['year']));
+   757→   757→        $recipients = [];
+   758→   758→        $sent = 0;
+   759→   759→        $failed = 0;
+   760→   760→
+   761→   761→        foreach ($rows as $row) {
+   762→   762→            $mobile = $row['mobile'];
+   763→   763→            if (empty($mobile)) { $failed++; continue; }
+   764→   764→
+   765→   765→            $msg = $this->getWhatsAppTemplate('salary_credit', [
+   766→   766→                'name' => $row['full_name'],
+   767→   767→                'month_year' => $monthYear,
+   768→   768→                'gross' => number_format($row['gross_earnings'] ?? 0, 2),
+   769→   769→                'deductions' => number_format($row['total_deductions'] ?? 0, 2),
+   770→   770→                'net_pay' => number_format($row['net_pay'] ?? 0, 2)
+   771→   771→            ]);
+   772→   772→
+   773→   773→            $recipients[] = ['to' => $mobile, 'message' => $msg];
+   774→   774→        }
+   775→   775→
+   776→   776→        $result = $this->sendWhatsAppBulk($recipients, '');
+   777→   777→        return $result;
+   778→   778→    }
+   779→   779→
+   780→   780→    public function getSMSTemplate($type, $data) {
+   781→   781→        $templates = [
+   782→   782→            'salary_credit' => 'Dear {name}, your salary of Rs. {amount} for {month} has been credited to your account. - RCS HRMS',
+   783→   783→            'leave_approval' => 'Dear {name}, your leave for {dates} has been {status}. - RCS HRMS',
+   784→   784→            'attendance_alert' => 'Dear {name}, you are marked absent today. Please contact HR if this is incorrect. - RCS HRMS',
+   785→   785→            'pf_update' => 'Dear {name}, your PF contribution for {month} is Rs. {amount}. UAN: {uan} - RCS HRMS'
+   786→   786→        ];
+   787→   787→        
+   788→   788→        $template = $templates[$type] ?? '';
+   789→   789→        
+   790→   790→        foreach ($data as $key => $value) {
+   791→   791→            $template = str_replace('{' . $key . '}', $value, $template);
+   792→   792→        }
+   793→   793→        
+   794→   794→        return $template;
+   795→   795→    }
+   796→   796→    
+   797→   797→    // ============================================
+   798→   798→    // Logging
+   799→   799→    // ============================================
+   800→   800→    
+   801→   801→    private function logNotification($type, $recipient, $message, $status, $response) {
+   802→   802→        try {
+   803→   803→            $this->db->insert('notification_logs', [
+   804→   804→                'type' => $type,
+   805→   805→                'recipient' => $recipient,
+   806→   806→                'message' => substr($message, 0, 500),
+   807→   807→                'status' => $status,
+   808→   808→                'response' => substr($response, 0, 500),
+   809→   809→                'created_at' => date('Y-m-d H:i:s'),
+   810→   810→                'created_by' => $_SESSION['user_id'] ?? null
+   811→   811→            ]);
+   812→   812→        } catch (Exception $e) {
+   813→   813→            // Log error silently
+   814→   814→            error_log('Notification log error: ' . $e->getMessage());
+   815→   815→        }
+   816→   816→    }
+   817→   817→    
+   818→   818→    // ============================================
+   819→   819→    // Dashboard Alerts
+   820→   820→    // ============================================
+   821→   821→    
+   822→   822→    public function getDashboardAlerts() {
+   823→   823→        $alerts = [];
+   824→   824→        
+   825→   825→        // Check for pending compliance
+   826→   826→        $pendingCompliance = $this->db->fetchColumn(
+   827→   827→            "SELECT COUNT(*) FROM compliance_filings WHERE status = 'Pending' AND due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY)"
+   828→   828→        );
+   829→   829→        
+   830→   830→        if ($pendingCompliance > 0) {
+   831→   831→            $alerts[] = [
+   832→   832→                'type' => 'warning',
+   833→   833→                'icon' => 'exclamation-triangle',
+   834→   834→                'title' => 'Compliance Pending',
+   835→   835→                'message' => "$pendingCompliance compliance filings due within 7 days",
+   836→   836→                'link' => 'index.php?page=compliance/dashboard'
+   837→   837→            ];
+   838→   838→        }
+   839→   839→        
+   840→   840→        // Check for pending salary below minimum wage
+   841→   841→        $belowMinWage = $this->db->fetchColumn(
+   842→   842→            "SELECT COUNT(*) FROM employees e
+   843→   843→             LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id
+   844→   844→             LEFT JOIN minimum_wages mw ON e.state = mw.state
+   845→   845→             WHERE e.status = 'approved' AND ess.gross_salary < mw.total_per_month"
+   846→   846→        );
+   847→   847→        
+   848→   848→        if ($belowMinWage > 0) {
+   849→   849→            $alerts[] = [
+   850→   850→                'type' => 'danger',
+   851→   851→                'icon' => 'exclamation-circle',
+   852→   852→                'title' => 'Minimum Wage Violation',
+   853→   853→                'message' => "$belowMinWage employees paid below minimum wage",
+   854→   854→                'link' => 'index.php?page=compliance/minimum-wage-check'
+   855→   855→            ];
+   856→   856→        }
+   857→   857→        
+   858→   858→        // Check for pending F&F settlements
+   859→   859→        try {
+   860→   860→            $pendingFF = $this->db->fetchColumn(
+   861→   861→                "SELECT COUNT(*) FROM employee_settlements WHERE status = 'pending'"
+   862→   862→            );
+   863→   863→            
+   864→   864→            if ($pendingFF > 0) {
+   865→   865→                $alerts[] = [
+   866→   866→                    'type' => 'info',
+   867→   867→                    'icon' => 'cash-coin',
+   868→   868→                    'title' => 'Pending Settlements',
+   869→   869→                    'message' => "$pendingFF F&F settlements pending approval",
+   870→   870→                    'link' => 'index.php?page=settlement/list'
+   871→   871→                ];
+   872→   872→            }
+   873→   873→        } catch (Exception $e) {
+   874→   874→            // employee_settlements table may not exist
+   875→   875→        }
+   876→   876→        
+   877→   877→        // Check for pending approvals
+   878→   878→        $pendingApprovals = $this->db->fetchColumn(
+   879→   879→            "SELECT COUNT(*) FROM employees WHERE status LIKE 'pending%'"
+   880→   880→        );
+   881→   881→        
+   882→   882→        if ($pendingApprovals > 0) {
+   883→   883→            $alerts[] = [
+   884→   884→                'type' => 'primary',
+   885→   885→                'icon' => 'person-plus',
+   886→   886→                'title' => 'Pending Approvals',
+   887→   887→                'message' => "$pendingApprovals employees pending approval",
+   888→   888→                'link' => 'index.php?page=employee/list&status=pending'
+   889→   889→            ];
+   890→   890→        }
+   891→   891→        
+   892→   892→        return $alerts;
+   893→   893→    }
+   894→   894→    
+   895→   895→    // ============================================
+   896→   896→    // In-App Notifications
+   897→   897→    // ============================================
+   898→   898→    
+   899→   899→    /**
+   900→   900→     * Create in-app notification for users
+   901→   901→     * @param string $title Notification title
+   902→   902→     * @param string $message Notification message
+   903→   903→     * @param string $link Link to navigate when clicked
+   904→   904→     * @param string $type Notification type (info, warning, danger, success)
+   905→   905→     * @param int|null $userId Specific user ID, or null for all admins
+   906→   906→     * @return bool
+   907→   907→     */
+   908→   908→    public function createNotification($title, $message, $link = '', $type = 'info', $userId = null) {
+   909→   909→        try {
+   910→   910→            // If no specific user, notify all admin/HR users
+   911→   911→            if ($userId === null) {
+   912→   912→                $users = $this->db->fetchAll(
+   913→   913→                    "SELECT u.id FROM users u 
+   914→   914→                     JOIN roles r ON u.role_id = r.id 
+   915→   915→                     WHERE r.role_code IN ('admin', 'hr_executive') AND u.is_active = 1"
+   916→   916→                );
+   917→   917→                
+   918→   918→                foreach ($users as $user) {
+   919→   919→                    $this->db->insert('notifications', [
+   920→   920→                        'user_id' => $user['id'],
+   921→   921→                        'title' => $title,
+   922→   922→                        'message' => $message,
+   923→   923→                        'link' => $link,
+   924→   924→                        'type' => $type,
+   925→   925→                        'is_read' => 0,
+   926→   926→                        'created_at' => date('Y-m-d H:i:s')
+   927→   927→                    ]);
+   928→   928→                }
+   929→   929→            } else {
+   930→   930→                $this->db->insert('notifications', [
+   931→   931→                    'user_id' => $userId,
+   932→   932→                    'title' => $title,
+   933→   933→                    'message' => $message,
+   934→   934→                    'link' => $link,
+   935→   935→                    'type' => $type,
+   936→   936→                    'is_read' => 0,
+   937→   937→                    'created_at' => date('Y-m-d H:i:s')
+   938→   938→                ]);
+   939→   939→            }
+   940→   940→            
+   941→   941→            return true;
+   942→   942→        } catch (Exception $e) {
+   943→   943→            error_log('Notification creation error: ' . $e->getMessage());
+   944→   944→            return false;
+   945→   945→        }
+   946→   946→    }
+   947→   947→    
+   948→   948→    /**
+   949→   949→     * Notify about new employee registration (pending approval)
+   950→   950→     * @param array $employeeData Employee data
+   951→   951→     * @return bool
+   952→   952→     */
+   953→   953→    public function notifyNewEmployeeRegistration($employeeData) {
+   954→   954→        $title = 'New Employee Registration';
+   955→   955→        $message = sprintf(
+   956→   956→            '%s (%s) has registered and is pending approval.',
+   957→   957→            $employeeData['full_name'] ?? 'New Employee',
+   958→   958→            $employeeData['employee_code'] ?? 'No Code'
+   959→   959→        );
+   960→   960→        $link = 'index.php?page=employee/view&id=' . ($employeeData['id'] ?? '');
+   961→   961→        
+   962→   962→        return $this->createNotification($title, $message, $link, 'warning');
+   963→   963→    }
+   964→   964→    
+   965→   965→    /**
+   966→   966→     * Get unread notification count for user
+   967→   967→     * @param int $userId
+   968→   968→     * @return int
+   969→   969→     */
+   970→   970→    public function getUnreadCount($userId) {
+   971→   971→        try {
+   972→   972→            return (int)$this->db->fetchColumn(
+   973→   973→                "SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0",
+   974→   974→                [$userId]
+   975→   975→            );
+   976→   976→        } catch (Exception $e) {
+   977→   977→            return 0;
+   978→   978→        }
+   979→   979→    }
+   980→   980→    
+   981→   981→    /**
+   982→   982→     * Get pending employees count
+   983→   983→     * @return int
+   984→   984→     */
+   985→   985→    public function getPendingEmployeesCount() {
+   986→   986→        try {
+   987→   987→            return (int)$this->db->fetchColumn(
+   988→   988→                "SELECT COUNT(*) FROM employees WHERE status LIKE 'pending%'"
+   989→   989→            );
+   990→   990→        } catch (Exception $e) {
+   991→   991→            return 0;
+   992→   992→        }
+   993→   993→    }
+   994→   994→}
+   995→   995→?>
+   996→   996→

@@ -1,0 +1,27 @@
+RewriteEngine On
+
+# If the request is NOT a real file, append .php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ $1.php [QSA,L]
+
+# Security: Deny direct access to sensitive files
+<FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# CORS is handled exclusively by cors.php (PHP-level origin whitelist).
+# No wildcard CORS headers here — cors.php is the single source of truth.
+
+# Handle preflight requests
+<IfModule mod_rewrite.c>
+    RewriteCond %{REQUEST_METHOD} OPTIONS
+    RewriteRule ^(.*)$ $1.php [QSA,L]
+</IfModule>
+
+# Cache control for API responses
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType application/json "access plus 0 seconds"
+</IfModule>

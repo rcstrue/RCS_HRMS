@@ -1,0 +1,776 @@
+     1→import { useState, useCallback, useRef } from 'react';
+     2→import * as XLSX from 'xlsx';
+     3→import { toast } from 'sonner';
+     4→import {
+     5→  Download,
+     6→  Upload,
+     7→  FileSpreadsheet,
+     8→  AlertCircle,
+     9→  CheckCircle2,
+    10→  Loader2,
+    11→  Trash2,
+    12→} from 'lucide-react';
+    13→
+    14→import { Button } from '@/components/ui/button';
+    15→import {
+    16→  Card,
+    17→  CardContent,
+    18→  CardDescription,
+    19→  CardFooter,
+    20→  CardHeader,
+    21→  CardTitle,
+    22→} from '@/components/ui/card';
+    23→import {
+    24→  Table,
+    25→  TableBody,
+    26→  TableCell,
+    27→  TableHead,
+    28→  TableHeader,
+    29→  TableRow,
+    30→} from '@/components/ui/table';
+    31→import { Badge } from '@/components/ui/badge';
+    32→import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+    33→import { Separator } from '@/components/ui/separator';
+    34→import { apiRequest } from '@/lib/api/config';
+    35→
+    36→// ──────────────────────────────────────────────
+    37→// Types
+    38→// ──────────────────────────────────────────────
+    39→
+    40→interface SalaryRow {
+    41→  /** Index from the original upload (1-based, used for display) */
+    42→  rowIndex: number;
+    43→  employeeId: string;
+    44→  employeeName: string;
+    45→  amount: number;
+    46→  month: number;
+    47→  year: number;
+    48→  date: string;
+    49→  remarks: string;
+    50→  /** Auto-calculated: sum of amounts for same employee from previous rows */
+    51→  carryForward: number;
+    52→  /** Per-row validation errors (empty = valid) */
+    53→  errors: string[];
+    54→}
+    55→
+    56→interface SummaryStats {
+    57→  totalRows: number;
+    58→  totalAmount: number;
+    59→  errorRows: number;
+    60→  validRows: number;
+    61→}
+    62→
+    63→const TEMPLATE_HEADERS = [
+    64→  'Employee ID',
+    65→  'Employee Name',
+    66→  'Amount',
+    67→  'Month',
+    68→  'Year',
+    69→  'Date',
+    70→  'Remarks',
+    71→  'Carry Forward (Auto-calculated)',
+    72→] as const;
+    73→
+    74→const MONTH_NAMES = [
+    75→  '',
+    76→  'January',
+    77→  'February',
+    78→  'March',
+    79→  'April',
+    80→  'May',
+    81→  'June',
+    82→  'July',
+    83→  'August',
+    84→  'September',
+    85→  'October',
+    86→  'November',
+    87→  'December',
+    88→] as const;
+    89→
+    90→// ──────────────────────────────────────────────
+    91→// Helpers
+    92→// ──────────────────────────────────────────────
+    93→
+    94→/** Normalise a header string to a comparable key (lowercase, no extra spaces) */
+    95→function headerToKey(raw: string): string {
+    96→  return String(raw).trim().toLowerCase();
+    97→}
+    98→
+    99→/** Case-insensitive column mapping */
+   100→function buildColumnMap(headers: string[]): Record<string, number> {
+   101→  const map: Record<string, number> = {};
+   102→  headers.forEach((h, idx) => {
+   103→    const key = headerToKey(h);
+   104→    if (key.includes('employee') && key.includes('id')) map.employeeId = idx;
+   105→    else if (key.includes('employee') && key.includes('name')) map.employeeName = idx;
+   106→    else if (key === 'amount') map.amount = idx;
+   107→    else if (key === 'month') map.month = idx;
+   108→    else if (key === 'year') map.year = idx;
+   109→    else if (key === 'date') map.date = idx;
+   110→    else if (key === 'remarks' || key === 'remark') map.remarks = idx;
+   111→    // carry forward is auto-calculated; we ignore any data in that column
+   112→  });
+   113→  return map;
+   114→}
+   115→
+   116→/** Validate a single parsed row */
+   117→function validateRow(
+   118→  row: Omit<SalaryRow, 'carryForward' | 'errors' | 'rowIndex'>,
+   119→  rowIdx: number
+   120→): string[] {
+   121→  const errors: string[] = [];
+   122→
+   123→  if (!row.employeeId || String(row.employeeId).trim() === '') {
+   124→    errors.push('Employee ID is required');
+   125→  }
+   126→
+   127→  if (row.amount === undefined || row.amount === null || isNaN(row.amount)) {
+   128→    errors.push('Amount must be a valid number');
+   129→  } else if (row.amount <= 0) {
+   130→    errors.push('Amount must be a positive number');
+   131→  }
+   132→
+   133→  if (row.month === undefined || row.month === null || isNaN(row.month)) {
+   134→    errors.push('Month is required');
+   135→  } else if (!Number.isInteger(row.month) || row.month < 1 || row.month > 12) {
+   136→    errors.push('Month must be 1–12');
+   137→  }
+   138→
+   139→  if (row.year === undefined || row.year === null || isNaN(row.year)) {
+   140→    errors.push('Year is required');
+   141→  } else {
+   142→    const y = Number(row.year);
+   143→    if (!Number.isInteger(y) || y < 1900 || y > 2100 || String(y).length !== 4) {
+   144→      errors.push('Year must be a valid 4-digit number');
+   145→    }
+   146→  }
+   147→
+   148→  if (!row.date || String(row.date).trim() === '') {
+   149→    errors.push('Date is required');
+   150→  }
+   151→
+   152→  return errors;
+   153→}
+   154→
+   155→/** Parse raw XLSX worksheet into salary rows (with validation & carry-forward) */
+   156→function parseSheetToRows(worksheet: XLSX.WorkSheet): SalaryRow[] {
+   157→  // Convert sheet to array of arrays (each sub-array is a row)
+   158→  const rawData: unknown[][] = XLSX.utils.sheet_to_json(worksheet, {
+   159→    header: 1,
+   160→    defval: '',
+   161→  });
+   162→
+   163→  if (rawData.length < 2) return []; // need at least header + 1 data row
+   164→
+   165→  // First row = headers
+   166→  const headerRow = rawData[0].map(String);
+   167→  const colMap = buildColumnMap(headerRow);
+   168→
+   169→  // Track cumulative amounts per employee for carry-forward calculation
+   170→  const carryForwardMap = new Map<string, number>();
+   171→
+   172→  const rows: SalaryRow[] = [];
+   173→
+   174→  for (let i = 1; i < rawData.length; i++) {
+   175→    const raw = rawData[i] as (string | number | boolean | null | undefined)[];
+   176→    if (!raw || raw.every((cell) => cell === '' || cell === null || cell === undefined)) {
+   177→      continue; // skip completely empty rows
+   178→    }
+   179→
+   180→    const getCell = (idx?: number): string => {
+   181→      if (idx === undefined) return '';
+   182→      const val = raw[idx];
+   183→      if (val === null || val === undefined) return '';
+   184→      return String(val).trim();
+   185→    };
+   186→
+   187→    const rawRow: Omit<SalaryRow, 'carryForward' | 'errors' | 'rowIndex'> = {
+   188→      employeeId: getCell(colMap.employeeId),
+   189→      employeeName: getCell(colMap.employeeName),
+   190→      amount: Number(getCell(colMap.amount)) || 0,
+   191→      month: Number(getCell(colMap.month)) || 0,
+   192→      year: Number(getCell(colMap.year)) || 0,
+   193→      date: getCell(colMap.date),
+   194→      remarks: getCell(colMap.remarks),
+   195→    };
+   196→
+   197→    const errors = validateRow(rawRow, i);
+   198→
+   199→    // Calculate carry-forward regardless of validation errors (still useful)
+   200→    const empId = rawRow.employeeId.trim();
+   201→    const prevTotal = carryForwardMap.get(empId) ?? 0;
+   202→    const carryForward = prevTotal;
+   203→    // Only accumulate if the row has no errors
+   204→    if (errors.length === 0) {
+   205→      carryForwardMap.set(empId, prevTotal + rawRow.amount);
+   206→    }
+   207→
+   208→    rows.push({
+   209→      rowIndex: i,
+   210→      ...rawRow,
+   211→      carryForward,
+   212→      errors,
+   213→    });
+   214→  }
+   215→
+   216→  return rows;
+   217→}
+   218→
+   219→function computeSummary(rows: SalaryRow[]): SummaryStats {
+   220→  const errorRows = rows.filter((r) => r.errors.length > 0).length;
+   221→  const totalAmount = rows.reduce((sum, r) => sum + (r.errors.length === 0 ? r.amount : 0), 0);
+   222→  return {
+   223→    totalRows: rows.length,
+   224→    totalAmount,
+   225→    errorRows,
+   226→    validRows: rows.length - errorRows,
+   227→  };
+   228→}
+   229→
+   230→// ──────────────────────────────────────────────
+   231→// Template Generation
+   232→// ──────────────────────────────────────────────
+   233→
+   234→function downloadTemplate(): void {
+   235→  const wb = XLSX.utils.book_new();
+   236→
+   237→  // Header row
+   238→  const headers = [...TEMPLATE_HEADERS];
+   239→  const sampleData = [
+   240→    ['EMP-101', 'Rahul Sharma', 5000, 1, 2025, '2025-01-31', 'January salary', ''],
+   241→    ['EMP-101', 'Rahul Sharma', 3000, 2, 2025, '2025-02-28', 'February bonus', ''],
+   242→    ['EMP-102', 'Priya Patel', 2000, 1, 2025, '2025-01-31', 'January salary', ''],
+   243→  ];
+   244→
+   245→  const wsData = [headers, ...sampleData];
+   246→  const ws = XLSX.utils.aoa_to_sheet(wsData);
+   247→
+   248→  // Column widths
+   249→  ws['!cols'] = [
+   250→    { wch: 16 }, // Employee ID
+   251→    { wch: 22 }, // Employee Name
+   252→    { wch: 14 }, // Amount
+   253→    { wch: 10 }, // Month
+   254→    { wch: 10 }, // Year
+   255→    { wch: 14 }, // Date
+   256→    { wch: 24 }, // Remarks
+   257→    { wch: 28 }, // Carry Forward
+   258→  ];
+   259→
+   260→  // Freeze top row
+   261→  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+   262→
+   263→  // Style the header row via cell objects (xlsx community edition supports basic props)
+   264→  const headerStyle: Partial<XLSX.CellObject> = {
+   265→    bold: true,
+   266→    fill: { fgColor: { rgb: 'C6EFCE' } }, // light green background
+   267→    alignment: { horizontal: 'center', vertical: 'center' },
+   268→  };
+   269→
+   270→  for (let c = 0; c < headers.length; c++) {
+   271→    const addr = XLSX.utils.encode_cell({ r: 0, c });
+   272→    if (ws[addr]) {
+   273→      ws[addr].s = headerStyle;
+   274→    }
+   275→  }
+   276→
+   277→  XLSX.utils.book_append_sheet(wb, ws, 'Salary Upload');
+   278→  XLSX.writeFile(wb, 'Salary_Upload_Template.xlsx');
+   279→}
+   280→
+   281→// ──────────────────────────────────────────────
+   282→// Component
+   283→// ──────────────────────────────────────────────
+   284→
+   285→export function SalaryUpload() {
+   286→  // ── State ──────────────────────────────────
+   287→  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+   288→  const [parsedRows, setParsedRows] = useState<SalaryRow[]>([]);
+   289→  const [summary, setSummary] = useState<SummaryStats | null>(null);
+   290→  const [isDragging, setIsDragging] = useState(false);
+   291→  const [isSubmitting, setIsSubmitting] = useState(false);
+   292→  const [parseError, setParseError] = useState<string | null>(null);
+   293→  const fileInputRef = useRef<HTMLInputElement>(null);
+   294→
+   295→  // ── File handling ─────────────────────────
+   296→  const processFile = useCallback((file: File) => {
+   297→    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+   298→      toast.error('Invalid file type. Please upload an XLSX file.');
+   299→      return;
+   300→    }
+   301→
+   302→    setSelectedFile(file);
+   303→    setParseError(null);
+   304→    setParsedRows([]);
+   305→    setSummary(null);
+   306→
+   307→    const reader = new FileReader();
+   308→    reader.onload = (e) => {
+   309→      try {
+   310→        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+   311→        const workbook = XLSX.read(data, { type: 'array' });
+   312→
+   313→        // Use the first sheet
+   314→        const sheetName = workbook.SheetNames[0];
+   315→        const worksheet = workbook.Sheets[sheetName];
+   316→
+   317→        const rows = parseSheetToRows(worksheet);
+   318→        if (rows.length === 0) {
+   319→          setParseError(
+   320→            'No valid data rows found. Please check your file uses the correct template format.'
+   321→          );
+   322→          toast.error('No valid data rows found in the uploaded file.');
+   323→          return;
+   324→        }
+   325→
+   326→        setParsedRows(rows);
+   327→        setSummary(computeSummary(rows));
+   328→
+   329→        const errCount = rows.filter((r) => r.errors.length > 0).length;
+   330→        if (errCount > 0) {
+   331→          toast.warning(
+   332→            `Parsed ${rows.length} rows. ${errCount} row(s) have validation errors.`
+   333→          );
+   334→        } else {
+   335→          toast.success(`Successfully parsed ${rows.length} rows.`);
+   336→        }
+   337→      } catch (err) {
+   338→        console.error('Parse error:', err);
+   339→        setParseError('Failed to parse the uploaded file. Please ensure it is a valid XLSX.');
+   340→        toast.error('Failed to parse the file.');
+   341→      }
+   342→    };
+   343→    reader.onerror = () => {
+   344→      setParseError('Failed to read the file.');
+   345→      toast.error('File read error.');
+   346→    };
+   347→    reader.readAsArrayBuffer(file);
+   348→  }, []);
+   349→
+   350→  const handleFileChange = useCallback(
+   351→    (e: React.ChangeEvent<HTMLInputElement>) => {
+   352→      const file = e.target.files?.[0];
+   353→      if (file) processFile(file);
+   354→    },
+   355→    [processFile]
+   356→  );
+   357→
+   358→  // Drag & drop handlers
+   359→  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+   360→    e.preventDefault();
+   361→    e.stopPropagation();
+   362→    setIsDragging(true);
+   363→  }, []);
+   364→
+   365→  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+   366→    e.preventDefault();
+   367→    e.stopPropagation();
+   368→    setIsDragging(false);
+   369→  }, []);
+   370→
+   371→  const handleDrop = useCallback(
+   372→    (e: React.DragEvent<HTMLDivElement>) => {
+   373→      e.preventDefault();
+   374→      e.stopPropagation();
+   375→      setIsDragging(false);
+   376→      const file = e.dataTransfer.files?.[0];
+   377→      if (file) processFile(file);
+   378→    },
+   379→    [processFile]
+   380→  );
+   381→
+   382→  // ── Clear / Reset ─────────────────────────
+   383→  const handleClear = useCallback(() => {
+   384→    setSelectedFile(null);
+   385→    setParsedRows([]);
+   386→    setSummary(null);
+   387→    setParseError(null);
+   388→    if (fileInputRef.current) {
+   389→      fileInputRef.current.value = '';
+   390→    }
+   391→    toast.info('Upload data cleared.');
+   392→  }, []);
+   393→
+   394→  // ── Submit ─────────────────────────────────
+   395→  const handleSubmit = useCallback(async () => {
+   396→    if (parsedRows.length === 0) {
+   397→      toast.error('No data to submit.');
+   398→      return;
+   399→    }
+   400→
+   401→    const validRows = parsedRows.filter((r) => r.errors.length === 0);
+   402→    if (validRows.length === 0) {
+   403→      toast.error('Cannot submit — all rows have validation errors.');
+   404→      return;
+   405→    }
+   406→
+   407→    setIsSubmitting(true);
+   408→
+   409→    try {
+   410→      // Build payload: only send valid rows, omitting internal fields
+   411→      const payload = validRows.map((r) => ({
+   412→        employeeId: r.employeeId,
+   413→        employeeName: r.employeeName,
+   414→        amount: r.amount,
+   415→        month: r.month,
+   416→        year: r.year,
+   417→        date: r.date,
+   418→        remarks: r.remarks,
+   419→        carryForward: r.carryForward,
+   420→      }));
+   421→
+   422→      const { data, error } = await apiRequest<{ success?: boolean; message?: string }>(
+   423→        '/ess/salary-upload.php',
+   424→        {
+   425→          method: 'POST',
+   426→          body: JSON.stringify({ rows: payload }),
+   427→        }
+   428→      );
+   429→
+   430→      if (error) {
+   431→        toast.error(error);
+   432→        return;
+   433→      }
+   434→
+   435→      toast.success(
+   436→        data?.message || `Successfully submitted ${validRows.length} salary records.`
+   437→      );
+   438→      // Optionally clear after success
+   439→      handleClear();
+   440→    } catch {
+   441→      toast.error('An unexpected error occurred while submitting.');
+   442→    } finally {
+   443→      setIsSubmitting(false);
+   444→    }
+   445→  }, [parsedRows, handleClear]);
+   446→
+   447→  // ── Derived booleans ──────────────────────
+   448→  const hasData = parsedRows.length > 0;
+   449→  const hasErrors = summary ? summary.errorRows > 0 : false;
+   450→  const canSubmit = hasData && summary ? summary.validRows > 0 : false;
+   451→
+   452→  // ── Format helpers ───────────────────────
+   453→  const formatCurrency = (val: number) =>
+   454→    new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(
+   455→      val
+   456→    );
+   457→
+   458→  // ──────────────────────────────────────────
+   459→  // Render
+   460→  // ──────────────────────────────────────────
+   461→  return (
+   462→    <div className="min-h-screen flex flex-col">
+   463→      {/* Page Header */}
+   464→      <div className="mb-6">
+   465→        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+   466→          <FileSpreadsheet className="w-6 h-6 text-emerald-600" />
+   467→          Salary Upload
+   468→        </h1>
+   469→        <p className="text-muted-foreground mt-1">
+   470→          Download the template, fill in salary data, and upload to process bulk payments.
+   471→        </p>
+   472→      </div>
+   473→
+   474→      {/* Template Download Card */}
+   475→      <Card className="mb-6">
+   476→        <CardHeader className="pb-3">
+   477→          <CardTitle className="text-lg">Step 1 — Download Template</CardTitle>
+   478→          <CardDescription>
+   479→            Download the Excel template with the required columns, fill in the salary data,
+   480→            then upload below.
+   481→          </CardDescription>
+   482→        </CardHeader>
+   483→        <CardContent>
+   484→          <Button onClick={downloadTemplate} className="gap-2">
+   485→            <Download className="w-4 h-4" />
+   486→            Download Template (.xlsx)
+   487→          </Button>
+   488→        </CardContent>
+   489→      </Card>
+   490→
+   491→      {/* Upload Card */}
+   492→      <Card className="mb-6 flex-1 flex flex-col">
+   493→        <CardHeader className="pb-3">
+   494→          <CardTitle className="text-lg">Step 2 — Upload File</CardTitle>
+   495→          <CardDescription>
+   496→            Drag & drop or click to select your completed XLSX file.
+   497→          </CardDescription>
+   498→        </CardHeader>
+   499→        <CardContent className="flex-1 flex flex-col">
+   500→          {/* Drop Zone */}
+   501→          <div
+   502→            role="button"
+   503→            tabIndex={0}
+   504→            aria-label="Upload salary file"
+   505→            onDragOver={handleDragOver}
+   506→            onDragLeave={handleDragLeave}
+   507→            onDrop={handleDrop}
+   508→            onClick={() => fileInputRef.current?.click()}
+   509→            onKeyDown={(e) => {
+   510→              if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
+   511→            }}
+   512→            className={`
+   513→              relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed
+   514→              p-8 text-center cursor-pointer transition-all duration-200
+   515→              ${
+   516→                isDragging
+   517→                  ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30'
+   518→                  : 'border-muted-foreground/25 hover:border-emerald-400 hover:bg-muted/50'
+   519→              }
+   520→            `}
+   521→          >
+   522→            <Upload
+   523→              className={`w-10 h-10 ${isDragging ? 'text-emerald-600' : 'text-muted-foreground/60'}`}
+   524→            />
+   525→            <div>
+   526→              {selectedFile ? (
+   527→                <div className="flex flex-col items-center gap-1">
+   528→                  <p className="font-medium text-emerald-700 dark:text-emerald-400">
+   529→                    {selectedFile.name}
+   530→                  </p>
+   531→                  <p className="text-sm text-muted-foreground">
+   532→                    {(selectedFile.size / 1024).toFixed(1)} KB — Click or drop to replace
+   533→                  </p>
+   534→                </div>
+   535→              ) : (
+   536→                <>
+   537→                  <p className="font-medium">
+   538→                    Drag & drop your XLSX file here
+   539→                  </p>
+   540→                  <p className="text-sm text-muted-foreground">
+   541→                    or click to browse — only .xlsx files accepted
+   542→                  </p>
+   543→                </>
+   544→              )}
+   545→            </div>
+   546→            <input
+   547→              ref={fileInputRef}
+   548→              type="file"
+   549→              accept=".xlsx,.xls"
+   550→              onChange={handleFileChange}
+   551→              className="hidden"
+   552→            />
+   553→          </div>
+   554→
+   555→          {/* Parse Error */}
+   556→          {parseError && (
+   557→            <Alert variant="destructive" className="mt-4">
+   558→              <AlertCircle className="w-4 h-4" />
+   559→              <AlertTitle>Parse Error</AlertTitle>
+   560→              <AlertDescription>{parseError}</AlertDescription>
+   561→            </Alert>
+   562→          )}
+   563→
+   564→          {/* Summary Stats */}
+   565→          {summary && (
+   566→            <div className="mt-6">
+   567→              <Separator className="mb-4" />
+   568→              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+   569→                <div className="rounded-lg border bg-card p-3 text-center">
+   570→                  <p className="text-xs text-muted-foreground uppercase tracking-wide">
+   571→                    Total Rows
+   572→                  </p>
+   573→                  <p className="text-xl font-bold mt-1">{summary.totalRows}</p>
+   574→                </div>
+   575→                <div className="rounded-lg border bg-card p-3 text-center">
+   576→                  <p className="text-xs text-muted-foreground uppercase tracking-wide">
+   577→                    Total Amount
+   578→                  </p>
+   579→                  <p className="text-xl font-bold mt-1 text-emerald-600">
+   580→                    {formatCurrency(summary.totalAmount)}
+   581→                  </p>
+   582→                </div>
+   583→                <div className="rounded-lg border bg-card p-3 text-center">
+   584→                  <p className="text-xs text-muted-foreground uppercase tracking-wide">
+   585→                    Valid Rows
+   586→                  </p>
+   587→                  <p className="text-xl font-bold mt-1 text-blue-600">
+   588→                    {summary.validRows}
+   589→                  </p>
+   590→                </div>
+   591→                <div className="rounded-lg border bg-card p-3 text-center">
+   592→                  <p className="text-xs text-muted-foreground uppercase tracking-wide">
+   593→                    Error Rows
+   594→                  </p>
+   595→                  <p className={`text-xl font-bold mt-1 ${summary.errorRows > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+   596→                    {summary.errorRows}
+   597→                  </p>
+   598→                </div>
+   599→              </div>
+   600→            </div>
+   601→          )}
+   602→
+   603→          {/* Preview Table */}
+   604→          {hasData && (
+   605→            <div className="mt-6 flex-1">
+   606→              <Separator className="mb-4" />
+   607→              <h3 className="text-base font-semibold mb-3">Data Preview</h3>
+   608→
+   609→              {hasErrors && (
+   610→                <Alert variant="destructive" className="mb-4">
+   611→                  <AlertCircle className="w-4 h-4" />
+   612→                  <AlertTitle>Validation Errors Detected</AlertTitle>
+   613→                  <AlertDescription>
+   614→                    {summary?.errorRows} row(s) contain errors and will be excluded from
+   615→                    submission. Fix the highlighted rows and re-upload, or submit the valid
+   616→                    rows only.
+   617→                  </AlertDescription>
+   618→                </Alert>
+   619→              )}
+   620→
+   621→              <div className="rounded-lg border overflow-hidden">
+   622→                <div className="max-h-[420px] overflow-y-auto overflow-x-auto custom-scrollbar">
+   623→                  <Table>
+   624→                    <TableHeader className="sticky top-0 z-10 bg-background">
+   625→                      <TableRow>
+   626→                        <TableHead className="w-12 text-center">#</TableHead>
+   627→                        <TableHead className="min-w-[100px]">Employee ID</TableHead>
+   628→                        <TableHead className="min-w-[140px]">Employee Name</TableHead>
+   629→                        <TableHead className="min-w-[100px] text-right">Amount</TableHead>
+   630→                        <TableHead className="min-w-[80px] text-center">Month</TableHead>
+   631→                        <TableHead className="min-w-[70px] text-center">Year</TableHead>
+   632→                        <TableHead className="min-w-[110px]">Date</TableHead>
+   633→                        <TableHead className="min-w-[140px]">Remarks</TableHead>
+   634→                        <TableHead className="min-w-[120px] text-right bg-emerald-100 dark:bg-emerald-950/50">
+   635→                          Carry Forward
+   636→                        </TableHead>
+   637→                        <TableHead className="min-w-[50px] text-center">Status</TableHead>
+   638→                      </TableRow>
+   639→                    </TableHeader>
+   640→                    <TableBody>
+   641→                      {parsedRows.map((row, idx) => {
+   642→                        const isErr = row.errors.length > 0;
+   643→                        return (
+   644→                          <TableRow
+   645→                            key={row.rowIndex}
+   646→                            className={`
+   647→                              ${idx % 2 === 0 ? 'bg-background' : 'bg-muted/40'}
+   648→                              ${isErr ? 'bg-red-50 dark:bg-red-950/20' : ''}
+   649→                            `}
+   650→                          >
+   651→                            <TableCell className="text-center text-muted-foreground text-xs">
+   652→                              {row.rowIndex}
+   653→                            </TableCell>
+   654→                            <TableCell className="font-medium">{row.employeeId || '—'}</TableCell>
+   655→                            <TableCell>{row.employeeName || '—'}</TableCell>
+   656→                            <TableCell className="text-right font-mono">
+   657→                              {formatCurrency(row.amount)}
+   658→                            </TableCell>
+   659→                            <TableCell className="text-center">
+   660→                              {row.month >= 1 && row.month <= 12
+   661→                                ? MONTH_NAMES[row.month]
+   662→                                : String(row.month || '—')}
+   663→                            </TableCell>
+   664→                            <TableCell className="text-center">{row.year || '—'}</TableCell>
+   665→                            <TableCell>{row.date || '—'}</TableCell>
+   666→                            <TableCell className="max-w-[180px] truncate">
+   667→                              {row.remarks || '—'}
+   668→                            </TableCell>
+   669→                            <TableCell
+   670→                              className="text-right font-mono bg-emerald-100 dark:bg-emerald-950/50 font-semibold"
+   671→                              title={`₹${row.carryForward.toLocaleString('en-IN')}`}
+   672→                            >
+   673→                              {formatCurrency(row.carryForward)}
+   674→                            </TableCell>
+   675→                            <TableCell className="text-center">
+   676→                              {isErr ? (
+   677→                                <Badge
+   678→                                  variant="destructive"
+   679→                                  className="text-[10px] px-1.5"
+   680→                                >
+   681→                                  Error
+   682→                                </Badge>
+   683→                              ) : (
+   684→                                <Badge className="bg-emerald-600 hover:bg-emerald-700 text-[10px] px-1.5">
+   685→                                  <CheckCircle2 className="w-3 h-3 mr-0.5" />
+   686→                                  OK
+   687→                                </Badge>
+   688→                              )}
+   689→                            </TableCell>
+   690→                          </TableRow>
+   691→                        );
+   692→                      })}
+   693→                    </TableBody>
+   694→                  </Table>
+   695→                </div>
+   696→              </div>
+   697→
+   698→              {/* Row-level errors detail */}
+   699→              {hasErrors && (
+   700→                <div className="mt-4 space-y-2">
+   701→                  <h4 className="text-sm font-semibold text-red-600 flex items-center gap-1">
+   702→                    <AlertCircle className="w-4 h-4" />
+   703→                    Row-Level Errors
+   704→                  </h4>
+   705→                  <div className="max-h-48 overflow-y-auto rounded-lg border bg-card p-3 space-y-2">
+   706→                    {parsedRows
+   707→                      .filter((r) => r.errors.length > 0)
+   708→                      .map((r) => (
+   709→                        <div
+   710→                          key={r.rowIndex}
+   711→                          className="flex items-start gap-2 text-sm"
+   712→                        >
+   713→                          <Badge variant="destructive" className="shrink-0 text-[10px] px-1.5 mt-0.5">
+   714→                            Row {r.rowIndex}
+   715→                          </Badge>
+   716→                          <span className="text-red-700 dark:text-red-400">
+   717→                            {r.errors.join(' · ')}
+   718→                            {r.employeeId ? ` (Employee ID: ${r.employeeId})` : ''}
+   719→                          </span>
+   720→                        </div>
+   721→                      ))}
+   722→                  </div>
+   723→                </div>
+   724→              )}
+   725→            </div>
+   726→          )}
+   727→        </CardContent>
+   728→
+   729→        {/* Sticky Footer with Actions */}
+   730→        {hasData && (
+   731→          <CardFooter className="border-t bg-muted/30 px-6 py-4 sticky bottom-0 z-20">
+   732→            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between w-full gap-3">
+   733→              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+   734→                {hasErrors && (
+   735→                  <span className="text-red-600 font-medium">
+   736→                    {summary?.errorRows} row(s) with errors will be skipped.
+   737→                  </span>
+   738→                )}
+   739→                {!hasErrors && (
+   740→                  <span className="text-emerald-600 font-medium flex items-center gap-1">
+   741→                    <CheckCircle2 className="w-4 h-4" />
+   742→                    All rows validated — ready to submit.
+   743→                  </span>
+   744→                )}
+   745→              </div>
+   746→              <div className="flex items-center gap-2 shrink-0">
+   747→                <Button variant="outline" onClick={handleClear} className="gap-2">
+   748→                  <Trash2 className="w-4 h-4" />
+   749→                  Clear
+   750→                </Button>
+   751→                <Button
+   752→                  onClick={handleSubmit}
+   753→                  disabled={!canSubmit || isSubmitting}
+   754→                  className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+   755→                >
+   756→                  {isSubmitting ? (
+   757→                    <>
+   758→                      <Loader2 className="w-4 h-4 animate-spin" />
+   759→                      Submitting…
+   760→                    </>
+   761→                  ) : (
+   762→                    <>
+   763→                      <Upload className="w-4 h-4" />
+   764→                      Submit {summary?.validRows ?? 0} Row(s)
+   765→                    </>
+   766→                  )}
+   767→                </Button>
+   768→              </div>
+   769→            </div>
+   770→          </CardFooter>
+   771→        )}
+   772→      </Card>
+   773→    </div>
+   774→  );
+   775→}
+   776→

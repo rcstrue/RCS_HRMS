@@ -1,0 +1,873 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Add/Edit Employee Page
+     4→ * Updated with file upload support
+     5→ * NOTE: All documents upload to web root (/uploads/...) with / prefix in database
+     6→ * 
+     7→ * Upload Paths:
+     8→ * - Profile photos: /uploads/profile/
+     9→ * - Aadhaar documents: /uploads/aadhaar/
+    10→ * - Bank documents: /uploads/bank/
+    11→ */
+    12→
+    13→$pageTitle = 'Add Employee';
+    14→$employeeData = null;
+    15→$isEdit = false;
+    16→
+    17→// Define upload path constants - paths stored in DB with / prefix
+    18→define('EMPLOYEE_PHOTO_UPLOAD_PATH', 'uploads/profile/');
+    19→define('EMPLOYEE_AADHAAR_UPLOAD_PATH', 'uploads/aadhaar/');
+    20→define('EMPLOYEE_BANK_UPLOAD_PATH', 'uploads/bank/');
+    21→
+    22→// Check if editing
+    23→if (isset($_GET['id'])) {
+    24→    $employeeData = $employee->getById($_GET['id']);
+    25→    if ($employeeData) {
+    26→        $pageTitle = 'Edit Employee';
+    27→        $isEdit = true;
+    28→    }
+    29→}
+    30→
+    31→/**
+    32→ * Handle file uploads to web root
+    33→ * @param array $file The $_FILES array element
+    34→ * @param string $uploadDir Directory to upload to (relative to web root)
+    35→ * @return array|null Result with 'path' or 'error' key, or null if no file
+    36→ */
+    37→function handleFileUpload($file, $uploadDir = 'uploads/profile/') {
+    38→    $response = null;
+    39→    $maxSize = 5 * 1024 * 1024; // 5MB
+    40→
+    41→    // Extension whitelist — NEVER trust the client-supplied filename extension
+    42→    $allowedImageExtensions = ['jpg', 'jpeg', 'png', 'gif'];
+    43→    $allowedPdfExtension    = ['pdf'];
+    44→    $allowedExtensions      = array_merge($allowedImageExtensions, $allowedPdfExtension);
+    45→
+    46→    // Map of real MIME type (from finfo) → safe forced extension
+    47→    $mimeToExtension = [
+    48→        'image/jpeg' => 'jpg',
+    49→        'image/png'  => 'png',
+    50→        'image/gif'  => 'gif',
+    51→        'application/pdf' => 'pdf',
+    52→    ];
+    53→
+    54→    // Check if file was uploaded via PHP
+    55→    if (!isset($file['tmp_name']) || empty($file['tmp_name'])) {
+    56→        return $response;
+    57→    }
+    58→
+    59→    // Check for upload errors
+    60→    if ($file['error'] !== UPLOAD_ERR_OK) {
+    61→        return $response;
+    62→    }
+    63→
+    64→    // Validate file size
+    65→    if ($file['size'] > $maxSize) {
+    66→        $response = ['error' => 'File size must be less than 5MB.'];
+    67→        return $response;
+    68→    }
+    69→
+    70→    // ─── Validate REAL file content with finfo (magic bytes), not client Content-Type ───
+    71→    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    72→    $detectedMime = $finfo->file($file['tmp_name']);
+    73→
+    74→    if (!isset($mimeToExtension[$detectedMime])) {
+    75→        $response = ['error' => 'Invalid file type. Only JPG, PNG, GIF, PDF allowed.'];
+    76→        return $response;
+    77→    }
+    78→
+    79→    // Force the extension from the detected MIME type — ignore the uploaded filename entirely
+    80→    $safeExtension = $mimeToExtension[$detectedMime];
+    81→
+    82→    // For images, also validate with getimagesize() to confirm it's a real image
+    83→    if (in_array($safeExtension, $allowedImageExtensions)) {
+    84→        $imageInfo = @getimagesize($file['tmp_name']);
+    85→        if ($imageInfo === false) {
+    86→            $response = ['error' => 'Invalid image file. The content is not a valid image.'];
+    87→            return $response;
+    88→        }
+    89→        // Re-encode images server-side to strip any embedded payloads
+    90→        $destImage = null;
+    91→        switch ($safeExtension) {
+    92→            case 'jpg':
+    93→            case 'jpeg':
+    94→                $src = @imagecreatefromjpeg($file['tmp_name']);
+    95→                if ($src) { $destImage = $src; }
+    96→                break;
+    97→            case 'png':
+    98→                $src = @imagecreatefrompng($file['tmp_name']);
+    99→                if ($src) { $destImage = $src; }
+   100→                break;
+   101→            case 'gif':
+   102→                $src = @imagecreatefromgif($file['tmp_name']);
+   103→                if ($src) { $destImage = $src; }
+   104→                break;
+   105→        }
+   106→        if (!$destImage) {
+   107→            $response = ['error' => 'Failed to process image. Please upload a valid image file.'];
+   108→            return $response;
+   109→        }
+   110→    }
+   111→
+   112→    // Get web root (parent of APP_ROOT which is hrms folder)
+   113→    $webRoot = dirname(APP_ROOT);
+   114→
+   115→    // Create upload directory if not exists
+   116→    $fullPath = $webRoot . '/' . $uploadDir;
+   117→    if (!is_dir($fullPath)) {
+   118→        mkdir($fullPath, 0755, true);
+   119→    }
+   120→
+   121→    // Generate unique filename using ONLY the safe, forced extension
+   122→    $filename = uniqid() . '_' . time() . '.' . $safeExtension;
+   123→
+   124→    // Database path starts with / for web root
+   125→    $dbPath = '/' . $uploadDir . $filename;
+   126→
+   127→    // Save file: re-encode images via GD to strip payloads; copy PDFs directly
+   128→    $targetPath = $fullPath . $filename;
+   129→    if (in_array($safeExtension, $allowedImageExtensions)) {
+   130→        // Re-encode and save via GD (strips EXIF, comments, embedded scripts)
+   131→        $saveOk = false;
+   132→        switch ($safeExtension) {
+   133→            case 'jpg':
+   134→            case 'jpeg':
+   135→                $saveOk = imagejpeg($destImage, $targetPath, 90);
+   136→                break;
+   137→            case 'png':
+   138→                $saveOk = imagepng($destImage, $targetPath);
+   139→                break;
+   140→            case 'gif':
+   141→                $saveOk = imagegif($destImage, $targetPath);
+   142→                break;
+   143→        }
+   144→        imagedestroy($destImage);
+   145→        if (!$saveOk) {
+   146→            $response = ['error' => 'Failed to save processed image.'];
+   147→            return $response;
+   148→        }
+   149→    } else {
+   150→        // PDF: just move the validated file (finfo already confirmed it's a PDF)
+   151→        if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
+   152→            $response = ['error' => 'Failed to upload file.'];
+   153→            return $response;
+   154→        }
+   155→    }
+   156→
+   157→    $response = ['path' => $dbPath];
+   158→    return $response;
+   159→}
+   160→
+   161→// Handle form submission
+   162→if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+   163→    $data = [
+   164→        'full_name' => sanitize($_POST['full_name']),
+   165→        'father_name' => sanitize($_POST['father_name'] ?? ''),
+   166→        'mobile_number' => sanitize($_POST['mobile_number'] ?? ''),
+   167→        'alternate_mobile' => sanitize($_POST['alternate_mobile'] ?? ''),
+   168→        'email' => sanitize($_POST['email'] ?? ''),
+   169→        'gender' => sanitize($_POST['gender'] ?? ''),
+   170→        'date_of_birth' => !empty($_POST['date_of_birth']) ? date('Y-m-d', strtotime($_POST['date_of_birth'])) : null,
+   171→        'marital_status' => sanitize($_POST['marital_status'] ?? ''),
+   172→        'blood_group' => sanitize($_POST['blood_group'] ?? ''),
+   173→        'aadhaar_number' => sanitize($_POST['aadhaar_number'] ?? ''),
+   174→        'uan_number' => sanitize($_POST['uan_number'] ?? ''),
+   175→        'esic_number' => sanitize($_POST['esic_number'] ?? ''),
+   176→        'address' => sanitize($_POST['address'] ?? ''),
+   177→        'pin_code' => sanitize($_POST['pin_code'] ?? ''),
+   178→        'state' => sanitize($_POST['state'] ?? ''),
+   179→        'district' => sanitize($_POST['district'] ?? ''),
+   180→        'bank_name' => sanitize($_POST['bank_name'] ?? ''),
+   181→        'account_number' => sanitize($_POST['account_number'] ?? ''),
+   182→        'ifsc_code' => sanitize($_POST['ifsc_code'] ?? ''),
+   183→        'account_holder_name' => sanitize($_POST['account_holder_name'] ?? ''),
+   184→        'client_id' => !empty($_POST['client_id']) ? (int)$_POST['client_id'] : null,
+   185→        'client_name' => sanitize($_POST['client_name'] ?? ''),
+   186→        'unit_id' => !empty($_POST['unit_id']) ? (int)$_POST['unit_id'] : null,
+   187→        'unit_name' => sanitize($_POST['unit_name'] ?? ''),
+   188→        'designation' => sanitize($_POST['designation'] ?? ''),
+   189→        'department' => sanitize($_POST['department'] ?? ''),
+   190→        'worker_category' => sanitize($_POST['worker_category'] ?? 'Unskilled'),
+   191→        'employment_type' => sanitize($_POST['employment_type'] ?? 'Contract'),
+   192→        'date_of_joining' => !empty($_POST['date_of_joining']) ? date('Y-m-d', strtotime($_POST['date_of_joining'])) : null,
+   193→        'probation_period' => (int)($_POST['probation_period'] ?? 3),
+   194→        'nominee_name' => sanitize($_POST['nominee_name'] ?? ''),
+   195→        'nominee_relationship' => sanitize($_POST['nominee_relationship'] ?? ''),
+   196→        'nominee_dob' => !empty($_POST['nominee_dob']) ? date('Y-m-d', strtotime($_POST['nominee_dob'])) : null,
+   197→        'nominee_contact' => sanitize($_POST['nominee_contact'] ?? ''),
+   198→        'emergency_contact_name' => sanitize($_POST['emergency_contact_name'] ?? ''),
+   199→        'emergency_contact_relation' => sanitize($_POST['emergency_contact_relation'] ?? ''),
+   200→        'emergency_contact_number' => sanitize($_POST['emergency_contact_number'] ?? ''),
+   201→        'status' => 'pending_hr_verification',
+   202→        // Salary structure fields (matching database columns)
+   203→        'basic_da' => floatval($_POST['basic_da'] ?? 0),
+   204→        'hra' => floatval($_POST['hra'] ?? 0),
+   205→        'leave_encashment' => floatval($_POST['leave_encashment'] ?? 0),
+   206→        'bonus_encashment' => floatval($_POST['bonus_encashment'] ?? 0),
+   207→        'washing_allowance' => floatval($_POST['washing_allowance'] ?? 0),
+   208→        'gross_salary' => floatval($_POST['gross_salary'] ?? 0),
+   209→        'pf_applicable' => isset($_POST['pf_applicable']) ? 1 : 0,
+   210→        'esi_applicable' => isset($_POST['esi_applicable']) ? 1 : 0,
+   211→        'pt_applicable' => isset($_POST['pt_applicable']) ? 1 : 0,
+   212→        'lwf_applicable' => isset($_POST['lwf_applicable']) ? 1 : 0,
+   213→        'bonus_applicable' => isset($_POST['bonus_applicable']) ? 1 : 0,
+   214→        'gratuity_applicable' => isset($_POST['gratuity_applicable']) ? 1 : 0,
+   215→        'overtime_applicable' => isset($_POST['overtime_applicable']) ? 1 : 0,
+   216→    ];
+   217→    
+   218→    // Handle file uploads with correct paths
+   219→    if (!empty($_FILES['profile_pic']['name'])) {
+   220→        $result = handleFileUpload($_FILES['profile_pic'], EMPLOYEE_PHOTO_UPLOAD_PATH);
+   221→        if (isset($result['path'])) {
+   222→            $data['profile_pic_url'] = $result['path'];
+   223→        }
+   224→    }
+   225→    
+   226→    if (!empty($_FILES['aadhaar_front']['name'])) {
+   227→        $result = handleFileUpload($_FILES['aadhaar_front'], EMPLOYEE_AADHAAR_UPLOAD_PATH);
+   228→        if (isset($result['path'])) {
+   229→            $data['aadhaar_front_url'] = $result['path'];
+   230→        }
+   231→    }
+   232→    
+   233→    if (!empty($_FILES['aadhaar_back']['name'])) {
+   234→        $result = handleFileUpload($_FILES['aadhaar_back'], EMPLOYEE_AADHAAR_UPLOAD_PATH);
+   235→        if (isset($result['path'])) {
+   236→            $data['aadhaar_back_url'] = $result['path'];
+   237→        }
+   238→    }
+   239→    
+   240→    if (!empty($_FILES['bank_document']['name'])) {
+   241→        $result = handleFileUpload($_FILES['bank_document'], EMPLOYEE_BANK_UPLOAD_PATH);
+   242→        if (isset($result['path'])) {
+   243→            $data['bank_document_url'] = $result['path'];
+   244→        }
+   245→    }
+   246→    
+   247→    // For edit, also set status if provided
+   248→    if ($isEdit && !empty($_POST['status'])) {
+   249→        $data['status'] = sanitize($_POST['status']);
+   250→    }
+   251→    
+   252→    if ($isEdit) {
+   253→        $result = $employee->update($employeeData['id'], $data);
+   254→    } else {
+   255→        $result = $employee->create($data);
+   256→    }
+   257→    
+   258→    if (isset($result['success']) && $result['success']) {
+   259→        setFlash('success', $isEdit ? 'Employee updated successfully!' : 'Employee added successfully!');
+   260→        redirect('index.php?page=employee/view&id=' . ($isEdit ? $employeeData['id'] : $result['employee_id']));
+   261→    } else {
+   262→        setFlash('error', $result['message'] ?? 'Failed to save employee');
+   263→    }
+   264→}
+   265→
+   266→// Get dropdown data
+   267→$clients = [];
+   268→try {
+   269→    $stmt = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
+   270→    $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
+   271→} catch (Exception $e) {
+   272→    // Table may not exist yet - log error silently
+   273→    error_log('Failed to load clients: ' . $e->getMessage());
+   274→}
+   275→
+   276→$units = [];
+   277→try {
+   278→    if ($isEdit && !empty($employeeData['client_id'])) {
+   279→        $stmt = $db->prepare("SELECT id, name FROM units WHERE client_id = ? AND is_active = 1 ORDER BY name");
+   280→        $stmt->execute([$employeeData['client_id']]);
+   281→        $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
+   282→    }
+   283→} catch (Exception $e) {
+   284→    error_log('Failed to load units: ' . $e->getMessage());
+   285→}
+   286→
+   287→$designations = [];
+   288→try {
+   289→    $designations = $db->query("SELECT id, name FROM designations ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+   290→} catch (Exception $e) {
+   291→    error_log('Failed to load designations: ' . $e->getMessage());
+   292→}
+   293→
+   294→// Salary components for display
+   295→$salaryComponents = [
+   296→    'basic_da' => ['label' => 'Basic + DA', 'default' => 0],
+   297→    'hra' => ['label' => 'HRA', 'default' => 0],
+   298→    'leave_encashment' => ['label' => 'Leave Encashment', 'default' => 0],
+   299→    'bonus_encashment' => ['label' => 'Bonus Encashment', 'default' => 0],
+   300→    'washing_allowance' => ['label' => 'Washing Allowance', 'default' => 0],
+   301→];
+   302→
+   303→// Blood group options
+   304→$bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+   305→
+   306→// Gender options
+   307→$genders = ['Male', 'Female', 'Other'];
+   308→
+   309→// Marital status options
+   310→$maritalStatuses = ['Single', 'Married', 'Divorced', 'Widowed'];
+   311→
+   312→// Worker categories
+   313→$workerCategories = ['Unskilled', 'Semi-skilled', 'Skilled', 'Highly Skilled', 'Supervisor', 'Manager'];
+   314→
+   315→// Employment types
+   316→$employmentTypes = ['Contract', 'Permanent', 'Temporary', 'Apprentice'];
+   317→
+   318→// States list (Indian states)
+   319→$states = [
+   320→    'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+   321→    'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand',
+   322→    'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
+   323→    'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab',
+   324→    'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura',
+   325→    'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+   326→    'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
+   327→    'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry'
+   328→];
+   329→
+   330→// Nominee relationships
+   331→$nomineeRelationships = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Brother', 'Sister', ''];
+   332→// Emergency contact relationships (includes Other)
+   333→$relationships = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Brother', 'Sister', 'Other', ''];
+   334→?>
+   335→
+   336→<div class="row">
+   337→    <div class="col-lg-12">
+   338→        <div class="card">
+   339→            <div class="card-header">
+   340→                <h5 class="card-title mb-0">
+   341→                    <i class="bi bi-person-plus me-2"></i>
+   342→                    <?php echo $isEdit ? 'Edit Employee: ' . sanitize($employeeData['full_name'] ?? '') : 'Add New Employee'; ?>
+   343→                </h5>
+   344→            </div>
+   345→            <div class="card-body">
+   346→                <form method="POST" enctype="multipart/form-data" id="employeeForm">
+   347→                    
+   348→                    <!-- Personal Information -->
+   349→                    <div class="row mb-4">
+   350→                        <div class="col-12">
+   351→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   352→                                <i class="bi bi-person me-2"></i>Personal Information
+   353→                            </h6>
+   354→                        </div>
+   355→                        <div class="col-md-3 mb-3">
+   356→                            <label for="full_name" class="form-label">Full Name <span class="text-danger">*</span></label>
+   357→                            <input type="text" class="form-control" id="full_name" name="full_name" 
+   358→                                   value="<?php echo sanitize($employeeData['full_name'] ?? ''); ?>" required>
+   359→                        </div>
+   360→                        <div class="col-md-3 mb-3">
+   361→                            <label for="father_name" class="form-label">Father's Name</label>
+   362→                            <input type="text" class="form-control" id="father_name" name="father_name" 
+   363→                                   value="<?php echo sanitize($employeeData['father_name'] ?? ''); ?>">
+   364→                        </div>
+   365→                        <div class="col-md-3 mb-3">
+   366→                            <label for="mobile_number" class="form-label">Mobile Number <span class="text-danger">*</span></label>
+   367→                            <input type="tel" class="form-control" id="mobile_number" name="mobile_number" 
+   368→                                   value="<?php echo sanitize($employeeData['mobile_number'] ?? ''); ?>" 
+   369→                                   pattern="[0-9]{10}" maxlength="10" required>
+   370→                        </div>
+   371→                        <div class="col-md-3 mb-3">
+   372→                            <label for="alternate_mobile" class="form-label">Alternate Mobile</label>
+   373→                            <input type="tel" class="form-control" id="alternate_mobile" name="alternate_mobile" 
+   374→                                   value="<?php echo sanitize($employeeData['alternate_mobile'] ?? ''); ?>" 
+   375→                                   pattern="[0-9]{10}" maxlength="10">
+   376→                        </div>
+   377→                        <div class="col-md-3 mb-3">
+   378→                            <label for="email" class="form-label">Email</label>
+   379→                            <input type="email" class="form-control" id="email" name="email" 
+   380→                                   value="<?php echo sanitize($employeeData['email'] ?? ''); ?>">
+   381→                        </div>
+   382→                        <div class="col-md-3 mb-3">
+   383→                            <label for="gender" class="form-label">Gender</label>
+   384→                            <select class="form-select" id="gender" name="gender">
+   385→                                <option value="">Select</option>
+   386→                                <?php foreach ($genders as $g): ?>
+   387→                                <option value="<?php echo $g; ?>" <?php echo ($employeeData['gender'] ?? '') == $g ? 'selected' : ''; ?>>
+   388→                                    <?php echo $g; ?>
+   389→                                </option>
+   390→                                <?php endforeach; ?>
+   391→                            </select>
+   392→                        </div>
+   393→                        <div class="col-md-3 mb-3">
+   394→                            <label for="date_of_birth" class="form-label">Date of Birth</label>
+   395→                            <input type="date" class="form-control" id="date_of_birth" name="date_of_birth" 
+   396→                                   value="<?php echo $employeeData['date_of_birth'] ?? ''; ?>">
+   397→                        </div>
+   398→                        <div class="col-md-3 mb-3">
+   399→                            <label for="marital_status" class="form-label">Marital Status</label>
+   400→                            <select class="form-select" id="marital_status" name="marital_status">
+   401→                                <option value="">Select</option>
+   402→                                <?php foreach ($maritalStatuses as $m): ?>
+   403→                                <option value="<?php echo $m; ?>" <?php echo ($employeeData['marital_status'] ?? '') == $m ? 'selected' : ''; ?>>
+   404→                                    <?php echo $m; ?>
+   405→                                </option>
+   406→                                <?php endforeach; ?>
+   407→                            </select>
+   408→                        </div>
+   409→                        <div class="col-md-3 mb-3">
+   410→                            <label for="blood_group" class="form-label">Blood Group</label>
+   411→                            <select class="form-select" id="blood_group" name="blood_group">
+   412→                                <option value="">Select</option>
+   413→                                <?php foreach ($bloodGroups as $bg): ?>
+   414→                                <option value="<?php echo $bg; ?>" <?php echo ($employeeData['blood_group'] ?? '') == $bg ? 'selected' : ''; ?>>
+   415→                                    <?php echo $bg; ?>
+   416→                                </option>
+   417→                                <?php endforeach; ?>
+   418→                            </select>
+   419→                        </div>
+   420→                        <div class="col-md-3 mb-3">
+   421→                            <label for="aadhaar_number" class="form-label">Aadhaar Number</label>
+   422→                            <input type="text" class="form-control" id="aadhaar_number" name="aadhaar_number" 
+   423→                                   value="<?php echo sanitize($employeeData['aadhaar_number'] ?? ''); ?>" 
+   424→                                   pattern="[0-9]{12}" maxlength="12" placeholder="12 digit Aadhaar">
+   425→                        </div>
+   426→                    </div>
+   427→                    
+   428→                    <!-- Address Information -->
+   429→                    <div class="row mb-4">
+   430→                        <div class="col-12">
+   431→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   432→                                <i class="bi bi-geo-alt me-2"></i>Address Information
+   433→                            </h6>
+   434→                        </div>
+   435→                        <div class="col-md-6 mb-3">
+   436→                            <label for="address" class="form-label">Address</label>
+   437→                            <textarea class="form-control" id="address" name="address" rows="2"><?php echo sanitize($employeeData['address'] ?? ''); ?></textarea>
+   438→                        </div>
+   439→                        <div class="col-md-2 mb-3">
+   440→                            <label for="pin_code" class="form-label">PIN Code</label>
+   441→                            <input type="text" class="form-control" id="pin_code" name="pin_code" 
+   442→                                   value="<?php echo sanitize($employeeData['pin_code'] ?? ''); ?>" 
+   443→                                   pattern="[0-9]{6}" maxlength="6">
+   444→                        </div>
+   445→                        <div class="col-md-2 mb-3">
+   446→                            <label for="state" class="form-label">State</label>
+   447→                            <select class="form-select" id="state" name="state">
+   448→                                <option value="">Select</option>
+   449→                                <?php foreach ($states as $s): ?>
+   450→                                <option value="<?php echo $s; ?>" <?php echo ($employeeData['state'] ?? '') == $s ? 'selected' : ''; ?>>
+   451→                                    <?php echo $s; ?>
+   452→                                </option>
+   453→                                <?php endforeach; ?>
+   454→                            </select>
+   455→                        </div>
+   456→                        <div class="col-md-2 mb-3">
+   457→                            <label for="district" class="form-label">District</label>
+   458→                            <input type="text" class="form-control" id="district" name="district" 
+   459→                                   value="<?php echo sanitize($employeeData['district'] ?? ''); ?>">
+   460→                        </div>
+   461→                    </div>
+   462→                    
+   463→                    <!-- Employment Details -->
+   464→                    <div class="row mb-4">
+   465→                        <div class="col-12">
+   466→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   467→                                <i class="bi bi-briefcase me-2"></i>Employment Details
+   468→                            </h6>
+   469→                        </div>
+   470→                        <div class="col-md-3 mb-3">
+   471→                            <label for="client_id" class="form-label">Client</label>
+   472→                            <select class="form-select" id="client_id" name="client_id" required>
+   473→                                <option value="">Select Client</option>
+   474→                                <?php foreach ($clients as $c): ?>
+   475→                                <option value="<?php echo $c['id']; ?>" <?php echo ($employeeData['client_id'] ?? '') == $c['id'] ? 'selected' : ''; ?>>
+   476→                                    <?php echo sanitize($c['name']); ?>
+   477→                                </option>
+   478→                                <?php endforeach; ?>
+   479→                            </select>
+   480→                        </div>
+   481→                        <div class="col-md-3 mb-3">
+   482→                            <label for="unit_id" class="form-label">Unit</label>
+   483→                            <select class="form-select" id="unit_id" name="unit_id">
+   484→                                <option value="">Select Unit</option>
+   485→                                <?php foreach ($units as $u): ?>
+   486→                                <option value="<?php echo $u['id']; ?>" <?php echo ($employeeData['unit_id'] ?? '') == $u['id'] ? 'selected' : ''; ?>>
+   487→                                    <?php echo sanitize($u['name']); ?>
+   488→                                </option>
+   489→                                <?php endforeach; ?>
+   490→                            </select>
+   491→                        </div>
+   492→                        <div class="col-md-3 mb-3">
+   493→                            <label for="designation" class="form-label">Designation</label>
+   494→                            <select class="form-select" id="designation" name="designation">
+   495→                                <option value="">Select Designation</option>
+   496→                                <?php foreach ($designations as $des): ?>
+   497→                                <option value="<?php echo sanitize($des['name']); ?>" <?php echo ($employeeData['designation'] ?? '') == $des['name'] ? 'selected' : ''; ?>>
+   498→                                    <?php echo sanitize($des['name']); ?>
+   499→                                </option>
+   500→                                <?php endforeach; ?>
+   501→                            </select>
+   502→                        </div>
+   503→                        <div class="col-md-3 mb-3">
+   504→                            <label for="department" class="form-label">Department</label>
+   505→                            <input type="text" class="form-control" id="department" name="department" 
+   506→                                   value="<?php echo sanitize($employeeData['department'] ?? ''); ?>">
+   507→                        </div>
+   508→                        <div class="col-md-3 mb-3">
+   509→                            <label for="worker_category" class="form-label">Worker Category</label>
+   510→                            <select class="form-select" id="worker_category" name="worker_category">
+   511→                                <?php foreach ($workerCategories as $wc): ?>
+   512→                                <option value="<?php echo $wc; ?>" <?php echo ($employeeData['worker_category'] ?? 'Unskilled') == $wc ? 'selected' : ''; ?>>
+   513→                                    <?php echo $wc; ?>
+   514→                                </option>
+   515→                                <?php endforeach; ?>
+   516→                            </select>
+   517→                        </div>
+   518→                        <div class="col-md-3 mb-3">
+   519→                            <label for="employment_type" class="form-label">Employment Type</label>
+   520→                            <select class="form-select" id="employment_type" name="employment_type">
+   521→                                <?php foreach ($employmentTypes as $et): ?>
+   522→                                <option value="<?php echo $et; ?>" <?php echo ($employeeData['employment_type'] ?? 'Contract') == $et ? 'selected' : ''; ?>>
+   523→                                    <?php echo $et; ?>
+   524→                                </option>
+   525→                                <?php endforeach; ?>
+   526→                            </select>
+   527→                        </div>
+   528→                        <div class="col-md-3 mb-3">
+   529→                            <label for="date_of_joining" class="form-label">Date of Joining</label>
+   530→                            <input type="date" class="form-control" id="date_of_joining" name="date_of_joining" 
+   531→                                   value="<?php echo $employeeData['date_of_joining'] ?? ''; ?>">
+   532→                        </div>
+   533→                        <div class="col-md-3 mb-3">
+   534→                            <label for="probation_period" class="form-label">Probation Period (Months)</label>
+   535→                            <input type="number" class="form-control" id="probation_period" name="probation_period" 
+   536→                                   value="<?php echo $employeeData['probation_period'] ?? 3; ?>" min="0" max="12">
+   537→                        </div>
+   538→                        <div class="col-md-3 mb-3">
+   539→                            <label for="uan_number" class="form-label">UAN Number</label>
+   540→                            <input type="text" class="form-control" id="uan_number" name="uan_number" 
+   541→                                   value="<?php echo sanitize($employeeData['uan_number'] ?? ''); ?>">
+   542→                        </div>
+   543→                        <div class="col-md-3 mb-3">
+   544→                            <label for="esic_number" class="form-label">ESIC Number</label>
+   545→                            <input type="text" class="form-control" id="esic_number" name="esic_number" 
+   546→                                   value="<?php echo sanitize($employeeData['esic_number'] ?? ''); ?>">
+   547→                        </div>
+   548→                    </div>
+   549→                    
+   550→                    <!-- Salary Structure -->
+   551→                    <div class="row mb-4">
+   552→                        <div class="col-12">
+   553→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   554→                                <i class="bi bi-currency-rupee me-2"></i>Salary Structure
+   555→                            </h6>
+   556→                        </div>
+   557→                        <?php foreach ($salaryComponents as $field => $comp): ?>
+   558→                        <div class="col-md-2 mb-3">
+   559→                            <label for="<?php echo $field; ?>" class="form-label"><?php echo $comp['label']; ?></label>
+   560→                            <input type="number" class="form-control salary-component" id="<?php echo $field; ?>" 
+   561→                                   name="<?php echo $field; ?>" 
+   562→                                   value="<?php echo $employeeData[$field] ?? $comp['default']; ?>" 
+   563→                                   min="0" step="0.01">
+   564→                        </div>
+   565→                        <?php endforeach; ?>
+   566→                        <div class="col-md-2 mb-3">
+   567→                            <label for="gross_salary" class="form-label">Gross Salary</label>
+   568→                            <input type="number" class="form-control" id="gross_salary" name="gross_salary" 
+   569→                                   value="<?php echo $employeeData['gross_salary'] ?? 0; ?>" readonly>
+   570→                        </div>
+   571→                        
+   572→                        <!-- Applicability Checkboxes -->
+   573→                        <div class="col-12 mt-2">
+   574→                            <div class="row">
+   575→                                <div class="col-md-2">
+   576→                                    <div class="form-check">
+   577→                                        <input class="form-check-input" type="checkbox" id="pf_applicable" name="pf_applicable" 
+   578→                                               <?php echo !empty($employeeData['pf_applicable']) ? 'checked' : ''; ?>>
+   579→                                        <label class="form-check-label" for="pf_applicable">PF Applicable</label>
+   580→                                    </div>
+   581→                                </div>
+   582→                                <div class="col-md-2">
+   583→                                    <div class="form-check">
+   584→                                        <input class="form-check-input" type="checkbox" id="esi_applicable" name="esi_applicable" 
+   585→                                               <?php echo !empty($employeeData['esi_applicable']) ? 'checked' : ''; ?>>
+   586→                                        <label class="form-check-label" for="esi_applicable">ESI Applicable</label>
+   587→                                    </div>
+   588→                                </div>
+   589→                                <div class="col-md-2">
+   590→                                    <div class="form-check">
+   591→                                        <input class="form-check-input" type="checkbox" id="pt_applicable" name="pt_applicable" 
+   592→                                               <?php echo !empty($employeeData['pt_applicable']) ? 'checked' : ''; ?>>
+   593→                                        <label class="form-check-label" for="pt_applicable">PT Applicable</label>
+   594→                                    </div>
+   595→                                </div>
+   596→                                <div class="col-md-2">
+   597→                                    <div class="form-check">
+   598→                                        <input class="form-check-input" type="checkbox" id="bonus_applicable" name="bonus_applicable" 
+   599→                                               <?php echo !empty($employeeData['bonus_applicable']) ? 'checked' : ''; ?>>
+   600→                                        <label class="form-check-label" for="bonus_applicable">Bonus Applicable</label>
+   601→                                    </div>
+   602→                                </div>
+   603→                            </div>
+   604→                        </div>
+   605→                    </div>
+   606→                    
+   607→                    <!-- Bank Details -->
+   608→                    <div class="row mb-4">
+   609→                        <div class="col-12">
+   610→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   611→                                <i class="bi bi-bank me-2"></i>Bank Details
+   612→                            </h6>
+   613→                        </div>
+   614→                        <div class="col-md-3 mb-3">
+   615→                            <label for="bank_name" class="form-label">Bank Name</label>
+   616→                            <input type="text" class="form-control" id="bank_name" name="bank_name" 
+   617→                                   value="<?php echo sanitize($employeeData['bank_name'] ?? ''); ?>">
+   618→                        </div>
+   619→                        <div class="col-md-3 mb-3">
+   620→                            <label for="account_number" class="form-label">Account Number</label>
+   621→                            <input type="text" class="form-control" id="account_number" name="account_number" 
+   622→                                   value="<?php echo sanitize($employeeData['account_number'] ?? ''); ?>">
+   623→                        </div>
+   624→                        <div class="col-md-3 mb-3">
+   625→                            <label for="ifsc_code" class="form-label">IFSC Code</label>
+   626→                            <input type="text" class="form-control" id="ifsc_code" name="ifsc_code" 
+   627→                                   value="<?php echo sanitize($employeeData['ifsc_code'] ?? ''); ?>">
+   628→                        </div>
+   629→                        <div class="col-md-3 mb-3">
+   630→                            <label for="account_holder_name" class="form-label">Account Holder Name</label>
+   631→                            <input type="text" class="form-control" id="account_holder_name" name="account_holder_name" 
+   632→                                   value="<?php echo sanitize($employeeData['account_holder_name'] ?? ''); ?>">
+   633→                        </div>
+   634→                    </div>
+   635→                    
+   636→                    <!-- Documents Upload -->
+   637→                    <div class="row mb-4">
+   638→                        <div class="col-12">
+   639→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   640→                                <i class="bi bi-file-earmark me-2"></i>Documents
+   641→                            </h6>
+   642→                        </div>
+   643→                        <div class="col-md-3 mb-3">
+   644→                            <label for="profile_pic" class="form-label">Profile Photo</label>
+   645→                            <?php if (!empty($employeeData['profile_pic_url'])): ?>
+   646→                            <div class="mb-2">
+   647→                                <img id="empProfilePhoto" src="<?php echo sanitize($employeeData['profile_pic_url']); ?>" 
+   648→                                     alt="Profile photo" class="img-thumbnail" style="max-height: 100px;">
+   649→                            </div>
+   650→                            <?php if ($isEdit): ?>
+   651→                            <button type="button" class="btn btn-sm btn-outline-primary mb-2" onclick="editEmpProfilePhoto()">
+   652→                                <i class="bi bi-crop me-1"></i>Edit Photo
+   653→                            </button>
+   654→                            <?php endif; ?>
+   655→                            <?php endif; ?>
+   656→                            <input type="file" class="form-control" id="profile_pic" name="profile_pic" accept="image/*">
+   657→                            <small class="text-muted">JPG, PNG (max 5MB) - Saved to /uploads/profile/</small>
+   658→                        </div>
+   659→                        <div class="col-md-3 mb-3">
+   660→                            <label for="aadhaar_front" class="form-label">Aadhaar Front</label>
+   661→                            <?php if (!empty($employeeData['aadhaar_front_url'])): ?>
+   662→                            <div class="mb-2">
+   663→                                <a href="<?php echo sanitize($employeeData['aadhaar_front_url']); ?>" target="_blank" class="btn btn-sm btn-outline-success">
+   664→                                    <i class="bi bi-eye"></i> View
+   665→                                </a>
+   666→                            </div>
+   667→                            <?php endif; ?>
+   668→                            <input type="file" class="form-control" id="aadhaar_front" name="aadhaar_front" accept="image/*,.pdf">
+   669→                            <small class="text-muted">JPG, PNG, PDF (max 5MB)</small>
+   670→                        </div>
+   671→                        <div class="col-md-3 mb-3">
+   672→                            <label for="aadhaar_back" class="form-label">Aadhaar Back</label>
+   673→                            <?php if (!empty($employeeData['aadhaar_back_url'])): ?>
+   674→                            <div class="mb-2">
+   675→                                <a href="<?php echo sanitize($employeeData['aadhaar_back_url']); ?>" target="_blank" class="btn btn-sm btn-outline-success">
+   676→                                    <i class="bi bi-eye"></i> View
+   677→                                </a>
+   678→                            </div>
+   679→                            <?php endif; ?>
+   680→                            <input type="file" class="form-control" id="aadhaar_back" name="aadhaar_back" accept="image/*,.pdf">
+   681→                            <small class="text-muted">JPG, PNG, PDF (max 5MB)</small>
+   682→                        </div>
+   683→                        <div class="col-md-3 mb-3">
+   684→                            <label for="bank_document" class="form-label">Bank Passbook</label>
+   685→                            <?php if (!empty($employeeData['bank_document_url'])): ?>
+   686→                            <div class="mb-2">
+   687→                                <a href="<?php echo sanitize($employeeData['bank_document_url']); ?>" target="_blank" class="btn btn-sm btn-outline-success">
+   688→                                    <i class="bi bi-eye"></i> View
+   689→                                </a>
+   690→                            </div>
+   691→                            <?php endif; ?>
+   692→                            <input type="file" class="form-control" id="bank_document" name="bank_document" accept="image/*,.pdf">
+   693→                            <small class="text-muted">JPG, PNG, PDF (max 5MB)</small>
+   694→                        </div>
+   695→                    </div>
+   696→                    
+   697→                    <!-- Nominee Details -->
+   698→                    <div class="row mb-4">
+   699→                        <div class="col-12">
+   700→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   701→                                <i class="bi bi-people me-2"></i>Nominee Details
+   702→                            </h6>
+   703→                        </div>
+   704→                        <div class="col-md-3 mb-3">
+   705→                            <label for="nominee_name" class="form-label">Nominee Name</label>
+   706→                            <input type="text" class="form-control" id="nominee_name" name="nominee_name" 
+   707→                                   value="<?php echo sanitize($employeeData['nominee_name'] ?? ''); ?>">
+   708→                        </div>
+   709→                        <div class="col-md-3 mb-3">
+   710→                            <label for="nominee_relationship" class="form-label">Relationship</label>
+   711→                            <select class="form-select" id="nominee_relationship" name="nominee_relationship">
+   712→                                <?php foreach ($nomineeRelationships as $r): ?>
+   713→                                <option value="<?php echo $r; ?>" <?php echo ($employeeData['nominee_relationship'] ?? '') == $r ? 'selected' : ''; ?>>
+   714→                                    <?php echo $r ?: 'Select'; ?>
+   715→                                </option>
+   716→                                <?php endforeach; ?>
+   717→                            </select>
+   718→                        </div>
+   719→                        <div class="col-md-3 mb-3">
+   720→                            <label for="nominee_dob" class="form-label">Nominee DOB</label>
+   721→                            <input type="date" class="form-control" id="nominee_dob" name="nominee_dob" 
+   722→                                   value="<?php echo $employeeData['nominee_dob'] ?? ''; ?>">
+   723→                        </div>
+   724→                        <div class="col-md-3 mb-3">
+   725→                            <label for="nominee_contact" class="form-label">Nominee Contact</label>
+   726→                            <input type="tel" class="form-control" id="nominee_contact" name="nominee_contact" 
+   727→                                   value="<?php echo sanitize($employeeData['nominee_contact'] ?? ''); ?>" 
+   728→                                   pattern="[0-9]{10}" maxlength="10">
+   729→                        </div>
+   730→                    </div>
+   731→                    
+   732→                    <!-- Emergency Contact -->
+   733→                    <div class="row mb-4">
+   734→                        <div class="col-12">
+   735→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   736→                                <i class="bi bi-telephone me-2"></i>Emergency Contact
+   737→                            </h6>
+   738→                        </div>
+   739→                        <div class="col-md-4 mb-3">
+   740→                            <label for="emergency_contact_name" class="form-label">Contact Name</label>
+   741→                            <input type="text" class="form-control" id="emergency_contact_name" name="emergency_contact_name" 
+   742→                                   value="<?php echo sanitize($employeeData['emergency_contact_name'] ?? ''); ?>">
+   743→                        </div>
+   744→                        <div class="col-md-4 mb-3">
+   745→                            <label for="emergency_contact_relation" class="form-label">Relationship</label>
+   746→                            <select class="form-select" id="emergency_contact_relation" name="emergency_contact_relation">
+   747→                                <?php foreach ($relationships as $r): ?>
+   748→                                <option value="<?php echo $r; ?>" <?php echo ($employeeData['emergency_contact_relation'] ?? '') == $r ? 'selected' : ''; ?>>
+   749→                                    <?php echo $r ?: 'Select'; ?>
+   750→                                </option>
+   751→                                <?php endforeach; ?>
+   752→                            </select>
+   753→                        </div>
+   754→                        <div class="col-md-4 mb-3">
+   755→                            <label for="emergency_contact_number" class="form-label">Contact Number</label>
+   756→                            <input type="tel" class="form-control" id="emergency_contact_number" name="emergency_contact_number" 
+   757→                                   value="<?php echo sanitize($employeeData['emergency_contact_number'] ?? ''); ?>" 
+   758→                                   pattern="[0-9]{10}" maxlength="10">
+   759→                        </div>
+   760→                    </div>
+   761→                    
+   762→                    <?php if ($isEdit): ?>
+   763→                    <!-- Status (Edit Only) -->
+   764→                    <div class="row mb-4">
+   765→                        <div class="col-md-4">
+   766→                            <label for="status" class="form-label">Status</label>
+   767→                            <select class="form-select" id="status" name="status">
+   768→                                <option value="pending_hr_verification" <?php echo ($employeeData['status'] ?? '') == 'pending_hr_verification' ? 'selected' : ''; ?>>Pending HR Verification</option>
+   769→                                <option value="approved" <?php echo ($employeeData['status'] ?? '') == 'approved' ? 'selected' : ''; ?>>Approved</option>
+   770→                                <option value="rejected" <?php echo ($employeeData['status'] ?? '') == 'rejected' ? 'selected' : ''; ?>>Rejected</option>
+   771→                                <option value="inactive" <?php echo ($employeeData['status'] ?? '') == 'inactive' ? 'selected' : ''; ?>>Inactive</option>
+   772→                            </select>
+   773→                        </div>
+   774→                    </div>
+   775→                    <?php endif; ?>
+   776→                    
+   777→                    <!-- Submit Buttons -->
+   778→                    <div class="row">
+   779→                        <div class="col-12">
+   780→                            <button type="submit" class="btn btn-primary">
+   781→                                <i class="bi bi-save me-1"></i>
+   782→                                <?php echo $isEdit ? 'Update Employee' : 'Add Employee'; ?>
+   783→                            </button>
+   784→                            <a href="index.php?page=employee/list" class="btn btn-secondary ms-2">
+   785→                                <i class="bi bi-x-lg me-1"></i>Cancel
+   786→                            </a>
+   787→                        </div>
+   788→                    </div>
+   789→                </form>
+   790→            </div>
+   791→        </div>
+   792→    </div>
+   793→</div>
+   794→
+   795→<script>
+   796→// Unit dropdown population on client change
+   797→document.getElementById('client_id')?.addEventListener('change', function() {
+   798→    const clientId = this.value;
+   799→    const unitSelect = document.getElementById('unit_id');
+   800→    unitSelect.innerHTML = '<option value="">Loading...</option>';
+   801→    
+   802→    if (clientId) {
+   803→        fetch('index.php?page=api/units&client_id=' + clientId)
+   804→            .then(r => r.json())
+   805→            .then(data => {
+   806→                let html = '<option value="">Select Unit</option>';
+   807→                (data.units || []).forEach(u => {
+   808→                    html += `<option value="${u.id}">${u.name}</option>`;
+   809→                });
+   810→                unitSelect.innerHTML = html;
+   811→            })
+   812→            .catch(() => {
+   813→                unitSelect.innerHTML = '<option value="">Select Unit</option>';
+   814→            });
+   815→    } else {
+   816→        unitSelect.innerHTML = '<option value="">Select Unit</option>';
+   817→    }
+   818→});
+   819→
+   820→// Calculate gross salary
+   821→function calculateGross() {
+   822→    const components = document.querySelectorAll('.salary-component');
+   823→    let total = 0;
+   824→    components.forEach(c => {
+   825→        total += parseFloat(c.value) || 0;
+   826→    });
+   827→    document.getElementById('gross_salary').value = total.toFixed(2);
+   828→}
+   829→
+   830→// Add event listeners to salary components
+   831→document.querySelectorAll('.salary-component').forEach(input => {
+   832→    input.addEventListener('input', calculateGross);
+   833→});
+   834→
+   835→// Edit profile photo with lite editor (only available in edit mode)
+   836→function editEmpProfilePhoto() {
+   837→    const photoImg = document.getElementById('empProfilePhoto');
+   838→    if (!photoImg || !photoImg.src) return;
+   839→    
+   840→    const photoUrl = '<?php echo sanitize($employeeData['profile_pic_url'] ?? ''); ?>';
+   841→    
+   842→    openLiteEditor(photoImg.src + '?t=' + Date.now(), function(base64DataUrl) {
+   843→        const formData = new FormData();
+   844→        formData.append('action', 'save_canvas');
+   845→        formData.append('file', photoUrl);
+   846→        formData.append('image_data', base64DataUrl);
+   847→        
+   848→        fetch('?page=api/image-tool&ie_action=save_canvas', {
+   849→            method: 'POST',
+   850→            body: formData
+   851→        })
+   852→        .then(r => r.json())
+   853→        .then(res => {
+   854→            if (res.ok) {
+   855→                const newSrc = (res.rel ? '/' + res.rel : photoUrl) + '?t=' + Date.now();
+   856→                photoImg.src = newSrc;
+   857→                alert('Photo saved successfully!');
+   858→            } else {
+   859→                alert('Save failed: ' + (res.msg || 'Unknown error'));
+   860→            }
+   861→        })
+   862→        .catch(err => alert('Error saving photo: ' + err.message));
+   863→    });
+   864→}
+   865→
+   866→// Initial calculation
+   867→calculateGross();
+   868→</script>
+   869→
+   870→<?php if ($isEdit): ?>
+   871→<?php include_once 'modules/settings/image-tool-lite.php'; ?>
+   872→<?php endif; ?>
+   873→
