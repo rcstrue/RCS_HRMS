@@ -111,13 +111,18 @@
                         <i class="bi bi-chevron-down ms-auto sub-arrow"></i>
                     </a>
                     <ul class="sidebar-submenu">
+                        <li><a href="index.php?page=employee/list" class="<?php echo $page === 'employee/list' ? 'active' : ''; ?>">
+                            <i class="bi bi-list-ul me-1"></i>Employee List
+                        </a></li>
+                        <li><a href="index.php?page=employee/add" class="<?php echo $page === 'employee/add' ? 'active' : ''; ?>">
+                            <i class="bi bi-person-plus me-1"></i>Add Employee
+                        </a></li>
                         <li><a href="index.php?page=employee/index" class="<?php echo $page === 'employee/index' ? 'active' : ''; ?>">
-                            <i class="bi bi-people me-1"></i>Employee Hub
+                            <i class="bi bi-grid me-1"></i>Employee Hub
                         </a></li>
                         <li><a href="index.php?page=client/index" class="<?php echo strpos($page,'client') === 0 ? 'active' : ''; ?>">
                             <i class="bi bi-building me-1"></i>Clients & Units
                         </a></li>
-
                     </ul>
                 </li>
                 <?php endif; ?>

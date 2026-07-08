@@ -126,6 +126,14 @@ $complianceSummary = $compliance->getSummary();
             <div class="card-body px-4 pb-4">
                 <div class="row g-3">
                     <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 col-6">
+                        <a href="index.php?page=employee/list" class="text-decoration-none">
+                            <div class="quick-action-card" style="--qa-color: #0d9488; --qa-bg: #f0fdfa; --qa-hover: #ccfbf1;">
+                                <div class="qa-icon"><i class="bi bi-people-fill"></i></div>
+                                <div class="qa-label">Employee List</div>
+                            </div>
+                        </a>
+                    </div>
+                    <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 col-6">
                         <a href="index.php?page=employee/add" class="text-decoration-none">
                             <div class="quick-action-card" style="--qa-color: #2563eb; --qa-bg: #eff6ff; --qa-hover: #dbeafe;">
                                 <div class="qa-icon"><i class="bi bi-person-plus-fill"></i></div>

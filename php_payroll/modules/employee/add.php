@@ -820,9 +820,11 @@ $relationships = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Bro
                             <label for="status" class="form-label">Status</label>
                             <select class="form-select" id="status" name="status">
                                 <option value="pending_hr_verification" <?php echo ($employeeData['status'] ?? '') == 'pending_hr_verification' ? 'selected' : ''; ?>>Pending HR Verification</option>
-                                <option value="approved" <?php echo ($employeeData['status'] ?? '') == 'approved' ? 'selected' : ''; ?>>Approved</option>
+                                <option value="approved" <?php echo ($employeeData['status'] ?? '') == 'approved' ? 'selected' : ''; ?>>Active</option>
                                 <option value="rejected" <?php echo ($employeeData['status'] ?? '') == 'rejected' ? 'selected' : ''; ?>>Rejected</option>
                                 <option value="inactive" <?php echo ($employeeData['status'] ?? '') == 'inactive' ? 'selected' : ''; ?>>Inactive</option>
+                                <option value="terminated" <?php echo ($employeeData['status'] ?? '') == 'terminated' ? 'selected' : ''; ?>>Terminated</option>
+                                <option value="removed" <?php echo ($employeeData['status'] ?? '') == 'removed' ? 'selected' : ''; ?>>Removed</option>
                             </select>
                         </div>
                     </div>
