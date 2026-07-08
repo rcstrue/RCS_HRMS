@@ -553,6 +553,7 @@ try {
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST" id="removeEmployeeForm">
+                <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" id="removeEmployeeId" name="employee_id" value="">
                 <div class="modal-header bg-warning text-dark">
                     <h5 class="modal-title"><i class="bi bi-person-x me-2"></i>Remove Employee</h5>
