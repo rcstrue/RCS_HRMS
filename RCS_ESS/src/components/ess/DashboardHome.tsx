@@ -312,20 +312,8 @@ export default function DashboardHome({
           <SummaryCard loading={loading} icon={<ClipboardList className="w-3.5 h-3.5 text-blue-500" />} label="Manpower" value="Update" subtext="Daily status" onClick={() => onNavigate('manpower-status')} />
         )}
         {canViewEmployees && (
-          <SummaryCard loading={loading} icon={<MapPin className="w-3.5 h-3.5 text-teal-500" />} label="Unit Visits" value="Go" subtext="Submit checklists" onClick={() => onNavigate('unit-visits')} />
+          <SummaryCard loading={loading} icon={<MapPin className="w-3.5 h-3.5 text-teal-500" />} label="Unit Visits" value="Submit" subtext="Checklists" onClick={() => onNavigate('unit-visits')} />
         )}
-        <SummaryCard loading={loading} icon={<LogIn className="w-3.5 h-3.5 text-emerald-500" />} label="Today" value={(() => {
-            const s = dashboardData?.todayAttendance?.status;
-            if (!s || s === 'absent') return 'Not marked';
-            if (s === 'checked_in') return 'Checked In';
-            if (s === 'checked_out') return 'Checked Out';
-            if (s === 'present') return 'Present';
-            if (s === 'late') return 'Late';
-            if (s === 'half_day') return 'Half Day';
-            if (s === 'leave') return 'On Leave';
-            if (s === 'holiday') return 'Holiday';
-            return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ');
-          })()} subtext="Attendance" />
         <SummaryCard loading={loading} icon={<ListTodo className="w-3.5 h-3.5 text-violet-500" />} label="Tasks" value={String(dashboardData?.pendingTasks ?? 0)} subtext="Pending" />
       </div>
 
@@ -354,13 +342,14 @@ export default function DashboardHome({
 }
 
 // ── Internal: Summary Card ─────────────────────────────────
-function SummaryCard({ loading, icon, label, value, subtext, onClick }: {
+function SummaryCard({ loading, icon, label, value, subtext, onClick, valueLarge }: {
   loading: boolean;
   icon: React.ReactNode;
   label: string;
   value: string;
   subtext: string;
   onClick?: () => void;
+  valueLarge?: boolean;
 }) {
   return (
     <Card className={`border-0 shadow-sm ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow active:scale-[0.98]' : ''}`}>
@@ -376,7 +365,7 @@ function SummaryCard({ loading, icon, label, value, subtext, onClick }: {
               {icon}
               <span className="text-xs text-gray-500">{label}</span>
             </div>
-            <p className="text-2xl font-bold text-gray-900">{value}</p>
+            <p className={valueLarge ? "text-lg font-bold text-gray-900" : "text-2xl font-bold text-gray-900"}>{value}</p>
             <p className="text-xs text-gray-400 mt-0.5">{subtext}</p>
           </>
         )}
