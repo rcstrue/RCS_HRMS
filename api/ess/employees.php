@@ -30,6 +30,7 @@ try {
     $clientId = $_GET['client_id'] ?? '';
     $unitId = $_GET['unit_id'] ?? '';
     $department = $_GET['department'] ?? '';
+    $statusFilter = trim($_GET['status'] ?? '');
     list($page, $limit, $offset) = getPaginationParams();
 
     // Access allocation params (sent from frontend useAccess hook)
@@ -38,7 +39,16 @@ try {
     $unitIds = array_values(array_filter($unitIds, function($v) { return $v > 0; }));
 
     // ─── Build Base Query ─────────────────────────────────────────────────
-    $whereClause = "WHERE e.status IN ('approved', 'active')";
+    if ($statusFilter === 'all') {
+        $whereClause = "WHERE 1=1";
+    } elseif ($statusFilter === 'pending') {
+        $whereClause = "WHERE e.status = 'pending'";
+    } elseif ($statusFilter === 'inactive') {
+        $whereClause = "WHERE e.status IN ('inactive', 'resigned', 'removed')";
+    } else {
+        // Default: active only
+        $whereClause = "WHERE e.status IN ('approved', 'active')";
+    }
     $types = '';
     $params = array();
 
