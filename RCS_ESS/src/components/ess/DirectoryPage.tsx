@@ -30,6 +30,8 @@ import {
   LogOut,
   ArrowRightLeft,
   CalendarX,
+  Phone,
+  MessageCircle,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -728,29 +730,7 @@ export default function DirectoryPage({
                       <ProfileRow icon={Hash} label="PIN Code" value={emp.pin_code} />
                     </ProfileSection>
 
-                    {/* Manager Actions — only for active employees */}
-                  {isManager && isActive(emp) && (
-                    <div className="flex gap-2 pt-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 gap-1.5 text-xs border-orange-300 text-orange-700 hover:bg-orange-50"
-                        onClick={() => { setExitDate(''); setExitDialogOpen(true); }}
-                      >
-                        <CalendarX className="h-3.5 w-3.5" /> Remove Employee
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 gap-1.5 text-xs border-blue-300 text-blue-700 hover:bg-blue-50"
-                        onClick={() => { setTransferClient(String(emp.client_id || '')); setTransferUnit(''); setTransferDialogOpen(true); }}
-                      >
-                        <ArrowRightLeft className="h-3.5 w-3.5" /> Transfer
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Employment */}
+                    {/* Employment */}
                     <ProfileSection title="Employment">
                       <ProfileRow
                         icon={Building2}
@@ -826,6 +806,60 @@ export default function DirectoryPage({
                         <ProfileRow icon={FileText} label="Bank Document" value={undefined} />
                       )}
                     </ProfileSection>
+
+                    {/* Manager Actions — only for active employees */}
+                    {isManager && isActive(emp) && (
+                      <div className="grid grid-cols-2 gap-2 px-4 pt-2 pb-4">
+                        <a
+                          href={`tel:${emp.mobile_number}`}
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-green-300 bg-green-50 px-3 py-2.5 text-xs font-medium text-green-700 hover:bg-green-100 transition-colors"
+                        >
+                          <Phone className="h-3.5 w-3.5" /> Call
+                        </a>
+                        <a
+                          href={`https://wa.me/91${emp.mobile_number?.replace(/[^0-9]/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+                        >
+                          <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                        </a>
+                        <button
+                          type="button"
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-blue-300 bg-blue-50 px-3 py-2.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+                          onClick={() => { setTransferClient(String(emp.client_id || '')); setTransferUnit(''); setTransferDialogOpen(true); }}
+                        >
+                          <ArrowRightLeft className="h-3.5 w-3.5" /> Transfer
+                        </button>
+                        <button
+                          type="button"
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-orange-300 bg-orange-50 px-3 py-2.5 text-xs font-medium text-orange-700 hover:bg-orange-100 transition-colors"
+                          onClick={() => { setExitDate(''); setExitDialogOpen(true); }}
+                        >
+                          <CalendarX className="h-3.5 w-3.5" /> Remove
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Manager Actions for inactive/resigned employees */}
+                    {isManager && !isActive(emp) && emp.mobile_number && (
+                      <div className="grid grid-cols-2 gap-2 px-4 pt-2 pb-4">
+                        <a
+                          href={`tel:${emp.mobile_number}`}
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-green-300 bg-green-50 px-3 py-2.5 text-xs font-medium text-green-700 hover:bg-green-100 transition-colors"
+                        >
+                          <Phone className="h-3.5 w-3.5" /> Call
+                        </a>
+                        <a
+                          href={`https://wa.me/91${emp.mobile_number?.replace(/[^0-9]/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+                        >
+                          <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                        </a>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
