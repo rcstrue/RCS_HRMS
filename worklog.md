@@ -26,3 +26,33 @@ Stage Summary:
 - fetchTasks removed from dashboard to reduce DB connections
 - Home page changes (Go→Checklist, remove sections, late display) were already done in previous session
 - Frontend built and ready; needs production server deploy
+
+---
+Task ID: 2
+Agent: main
+Task: Auto-assign app_role based on designation (list first, then apply)
+
+Work Log:
+- Created `/RCS_HRMS/api/ess/auto-role.php` — new PHP endpoint:
+  - GET: Returns preview of all designations with employee counts, current role distribution, and proposed app_role
+  - POST: Applies auto-role mapping — updates `employees.app_role` for all active employees based on designation keywords
+- Mapping rules (mirrors `determineEssRole()` in helpers.php):
+  - "regional manager" → regional_manager
+  - "manager" / "field officer" / "area manager" → manager
+  - "supervisor" / "team lead" → supervisor
+  - everything else → employee
+  - Admin employees (employee_role = admin) are skipped
+- Updated `/RCS_ESS/src/lib/api/designations.ts` — added types and API functions: `getAutoRolePreview()`, `applyAutoRole()`
+- Rewrote `/RCS_ESS/src/components/admin/DesignationManagement.tsx` — added "Auto Assign App Role" card below designation table:
+  - "Load Preview" button fetches the mapping list
+  - Table shows: designation, employee count, current role badges, proposed role
+  - Rows needing update are highlighted in orange
+  - "Apply Auto Role" button executes the bulk update
+  - Shows results summary after apply (updated/unchanged/skipped/errors)
+- Built frontend, deployed to api/
+
+Stage Summary:
+- Backend: auto-role.php created at /RCS_HRMS/api/ess/auto-role.php
+- Frontend: DesignationManagement.tsx now has auto-role preview + apply UI
+- Frontend built and deployed to /home/z/my-project/api/
+- Production deploy needed: copy auto-role.php to server's api/ess/ directory
