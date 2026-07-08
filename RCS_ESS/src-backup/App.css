@@ -1,0 +1,6 @@
+import url from "url";
+
+// ══════════════════════════════════════════════════════════════
+// If you need a Vite global, you can use this hack.
+// Vite exposes `import.meta.env` automatically.
+// ══════════════════════════════════════════════════════════════
