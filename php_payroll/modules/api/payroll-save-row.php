@@ -147,28 +147,46 @@ if (!empty($validationErrors)) {
 }
 
 // ══ AUTO-MIGRATION: Must run OUTSIDE transaction (DDL causes implicit COMMIT in InnoDB) ══
+// Step 1: Detect which columns exist in payroll table
+$payrollColNames = [];
 try {
-    $payrollCols = $db->fetchColumn("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payroll' AND COLUMN_NAME = ?", ['loan_emi']);
-    if (!$payrollCols) {
-        $db->exec("ALTER TABLE payroll ADD COLUMN loan_emi DECIMAL(10,2) DEFAULT 0.00");
-    }
+    $colRows = $db->fetchAll("SHOW COLUMNS FROM payroll");
+    $payrollColNames = array_column($colRows, 'Field');
 } catch (Exception $e) {
-    error_log('Auto-migrate loan_emi column: ' . $e->getMessage());
+    error_log('Payroll column detection failed: ' . $e->getMessage());
 }
+$payrollColSet = array_flip($payrollColNames); // for O(1) lookup
 
-try {
-    $monthCol = $db->fetchColumn("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payroll' AND COLUMN_NAME = ?", ['month']);
-    if (!$monthCol) {
-        $db->exec("ALTER TABLE payroll ADD COLUMN month INT NOT NULL DEFAULT 0");
-        $db->exec("ALTER TABLE payroll ADD COLUMN year INT NOT NULL DEFAULT 0");
+// Step 2: Add missing columns via ALTER TABLE
+if (!isset($payrollColSet['loan_emi'])) {
+    try {
+        $db->exec("ALTER TABLE payroll ADD COLUMN loan_emi DECIMAL(10,2) DEFAULT 0.00");
+        $payrollColSet['loan_emi'] = true;
+        error_log('Auto-migrate: Added loan_emi column to payroll table');
+    } catch (Exception $e) {
+        error_log('Auto-migrate loan_emi FAILED: ' . $e->getMessage());
+    }
+}
+$monthYearMissing = !isset($payrollColSet['month']) || !isset($payrollColSet['year']);
+if ($monthYearMissing) {
+    try {
+        if (!isset($payrollColSet['month'])) {
+            $db->exec("ALTER TABLE payroll ADD COLUMN month INT NOT NULL DEFAULT 0");
+            error_log('Auto-migrate: Added month column to payroll table');
+        }
+        if (!isset($payrollColSet['year'])) {
+            $db->exec("ALTER TABLE payroll ADD COLUMN year INT NOT NULL DEFAULT 0");
+            error_log('Auto-migrate: Added year column to payroll table');
+        }
         $db->exec("ALTER TABLE payroll ADD INDEX idx_month_year (month, year)");
         // Backfill existing data from payroll_periods
         try {
             $db->exec("UPDATE payroll p INNER JOIN payroll_periods pp ON p.payroll_period_id = pp.id SET p.month = pp.month, p.year = pp.year WHERE p.month = 0");
         } catch (Exception $migEx) {}
+        $monthYearMissing = false;
+    } catch (Exception $e) {
+        error_log('Auto-migrate month/year FAILED: ' . $e->getMessage());
     }
-} catch (Exception $e) {
-    error_log('Auto-migrate month/year columns: ' . $e->getMessage());
 }
 
 try {
@@ -297,13 +315,15 @@ try {
     // 4. PAYROLL — Upsert on employee_id(=code) + month + year
     // ═══════════════════════════════════════════════════════════════
     $existingPay = null;
-    // Try direct month/year lookup first (new schema)
-    try {
-        $existingPay = $db->fetch(
-            "SELECT id FROM payroll WHERE employee_id = ? AND month = ? AND year = ?",
-            [$employeeCode, $month, $year]
-        );
-    } catch (Exception $e) {}
+    if (!$monthYearMissing) {
+        // Try direct month/year lookup (new schema)
+        try {
+            $existingPay = $db->fetch(
+                "SELECT id FROM payroll WHERE employee_id = ? AND month = ? AND year = ?",
+                [$employeeCode, $month, $year]
+            );
+        } catch (Exception $e) {}
+    }
     if (empty($existingPay)) {
         // Fallback: via payroll_period_id for old data not yet migrated
         try {
@@ -313,6 +333,12 @@ try {
                     "SELECT id FROM payroll WHERE employee_id = ? AND payroll_period_id = ?",
                     [$employeeCode, (int)$pp['id']]
                 );
+                // Backfill month/year on this old record if columns now exist
+                if ($existingPay && !$monthYearMissing) {
+                    try {
+                        $db->query("UPDATE payroll SET month = ?, year = ? WHERE id = ?", [$month, $year, (int)$existingPay['id']]);
+                    } catch (Exception $e) {}
+                }
             }
         } catch (Exception $e) {}
     }
@@ -401,11 +427,18 @@ try {
     // Include loan_emi from the grid input
     $payData['loan_emi'] = round2($advances['loan_emi'] ?? 0);
 
+    // Filter $payData to only include columns that actually exist in the payroll table
+    // This prevents SQL errors if auto-migration failed to add month/year
+    $safePayData = array_intersect_key($payData, $payrollColSet);
+    if (empty($safePayData)) {
+        throw new Exception('Payroll table column detection failed — cannot save');
+    }
+
     if ($existingPay) {
-        $db->update('payroll', $payData, 'id = :id', ['id' => $existingPay['id']]);
+        $db->update('payroll', $safePayData, 'id = :id', ['id' => $existingPay['id']]);
     } else {
-        $payData['created_at'] = date('Y-m-d H:i:s');
-        $db->insert('payroll', $payData);
+        $safePayData['created_at'] = date('Y-m-d H:i:s');
+        $db->insert('payroll', $safePayData);
     }
 
     // ── Update employee statutory flags in salary structure ──────
