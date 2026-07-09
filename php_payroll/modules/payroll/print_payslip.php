@@ -38,14 +38,6 @@ if (!$data) {
 $periodDisplay = '';
 if (!empty($data['month']) && !empty($data['year'])) {
     $periodDisplay = date('F Y', mktime(0, 0, 0, $data['month'], 1, $data['year']));
-} else {
-    // Fallback: try payroll_periods for old data
-    try {
-        $period = $db->prepare("SELECT * FROM payroll_periods WHERE id = ?");
-        $period->execute([$data['payroll_period_id'] ?? 0]);
-        $periodData = $period->fetch(PDO::FETCH_ASSOC);
-        $periodDisplay = $periodData['period_name'] ?? '';
-    } catch (Exception $e) {}
 }
 
 // Number to words function (Indian numbering)

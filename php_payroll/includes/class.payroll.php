@@ -199,8 +199,8 @@ class Payroll {
     }
 
     // Get employee payroll
-    public function getEmployeePayroll($employeeCode, $periodId = null) {
-        if ($periodId) {
+    public function getEmployeePayroll($employeeCode, $periodId = null, $month = null, $year = null) {
+        if ($month && $year) {
             return $this->db->fetch(
                 "SELECT p.*, e.full_name, e.designation,
                         c.name as client_name, u.name as unit_name
@@ -208,18 +208,17 @@ class Payroll {
                  JOIN employees e ON p.employee_id = e.employee_code
                  LEFT JOIN clients c ON e.client_id = c.id
                  LEFT JOIN units u ON e.unit_id = u.id
-                 WHERE p.employee_id = :emp_code AND p.payroll_period_id = :period_id",
-                ['emp_code' => $employeeCode, 'period_id' => $periodId]
+                 WHERE p.employee_id = :emp_code AND p.month = :month AND p.year = :year",
+                ['emp_code' => $employeeCode, 'month' => $month, 'year' => $year]
             );
         }
 
         return $this->db->fetchAll(
-            "SELECT p.*, pp.period_name, pp.month, pp.year, e.full_name, e.designation
+            "SELECT p.*, e.full_name, e.designation
              FROM payroll p
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
              JOIN employees e ON p.employee_id = e.employee_code
              WHERE p.employee_id = :emp_code
-             ORDER BY pp.year DESC, pp.month DESC",
+             ORDER BY p.year DESC, p.month DESC",
             ['emp_code' => $employeeCode]
         );
     }
@@ -1157,20 +1156,19 @@ class Payroll {
     /**
      * Get payslip data by period and employee code
      */
-    public function getPayslip($periodId, $employeeCode) {
+    public function getPayslip($month, $year, $employeeCode) {
         return $this->db->fetch(
-            "SELECT p.*, pp.period_name, pp.month, pp.year, pp.start_date, pp.end_date,
+            "SELECT p.*,
                     e.full_name, e.employee_code, e.designation, e.department,
                     c.name as client_name, u.name as unit_name, e.date_of_joining,
                     e.uan_number, e.esic_number, e.mobile_number,
                     e.bank_name, e.account_number, e.ifsc_code
              FROM payroll p
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
              JOIN employees e ON p.employee_id = e.employee_code
              LEFT JOIN clients c ON e.client_id = c.id
              LEFT JOIN units u ON e.unit_id = u.id
-             WHERE p.payroll_period_id = :period_id AND p.employee_id = :emp_code",
-            ['period_id' => $periodId, 'emp_code' => $employeeCode]
+             WHERE p.employee_id = :emp_code AND p.month = :month AND p.year = :year",
+            ['emp_code' => $employeeCode, 'month' => $month, 'year' => $year]
         );
     }
 
@@ -1179,13 +1177,12 @@ class Payroll {
      */
     public function getPayslipById($payrollId) {
         return $this->db->fetch(
-            "SELECT p.*, pp.period_name, pp.month, pp.year, pp.start_date, pp.end_date,
+            "SELECT p.*,
                     e.full_name, e.employee_code, e.designation, e.department,
                     c.name as client_name, u.name as unit_name, e.date_of_joining,
                     e.uan_number, e.esic_number, e.mobile_number,
                     e.bank_name, e.account_number, e.ifsc_code
              FROM payroll p
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
              JOIN employees e ON p.employee_id = e.employee_code
              LEFT JOIN clients c ON e.client_id = c.id
              LEFT JOIN units u ON e.unit_id = u.id

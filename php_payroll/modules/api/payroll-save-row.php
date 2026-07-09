@@ -179,10 +179,7 @@ if ($monthYearMissing) {
             error_log('Auto-migrate: Added year column to payroll table');
         }
         $db->exec("ALTER TABLE payroll ADD INDEX idx_month_year (month, year)");
-        // Backfill existing data from payroll_periods
-        try {
-            $db->exec("UPDATE payroll p INNER JOIN payroll_periods pp ON p.payroll_period_id = pp.id SET p.month = pp.month, p.year = pp.year WHERE p.month = 0");
-        } catch (Exception $migEx) {}
+        // Backfill no longer needed — payroll_period_id column removed
         $monthYearMissing = false;
     } catch (Exception $e) {
         error_log('Auto-migrate month/year FAILED: ' . $e->getMessage());
@@ -315,33 +312,12 @@ try {
     // 4. PAYROLL — Upsert on employee_id(=code) + month + year
     // ═══════════════════════════════════════════════════════════════
     $existingPay = null;
-    if (!$monthYearMissing) {
-        // Try direct month/year lookup (new schema)
-        try {
-            $existingPay = $db->fetch(
-                "SELECT id FROM payroll WHERE employee_id = ? AND month = ? AND year = ?",
-                [$employeeCode, $month, $year]
-            );
-        } catch (Exception $e) {}
-    }
-    if (empty($existingPay)) {
-        // Fallback: via payroll_period_id for old data not yet migrated
-        try {
-            $pp = $db->fetch("SELECT id FROM payroll_periods WHERE month = ? AND year = ? LIMIT 1", [$month, $year]);
-            if ($pp) {
-                $existingPay = $db->fetch(
-                    "SELECT id FROM payroll WHERE employee_id = ? AND payroll_period_id = ?",
-                    [$employeeCode, (int)$pp['id']]
-                );
-                // Backfill month/year on this old record if columns now exist
-                if ($existingPay && !$monthYearMissing) {
-                    try {
-                        $db->query("UPDATE payroll SET month = ?, year = ? WHERE id = ?", [$month, $year, (int)$existingPay['id']]);
-                    } catch (Exception $e) {}
-                }
-            }
-        } catch (Exception $e) {}
-    }
+    try {
+        $existingPay = $db->fetch(
+            "SELECT id FROM payroll WHERE employee_id = ? AND month = ? AND year = ?",
+            [$employeeCode, $month, $year]
+        );
+    } catch (Exception $e) {}
 
     $totalDays = (int)($payroll['total_days'] ?? 0) ?: cal_days_in_month(CAL_GREGORIAN, $month, $year);
 

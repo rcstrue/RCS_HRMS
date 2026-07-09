@@ -300,16 +300,6 @@ if (isset($_GET['load']) && (int)$_GET['load'] === 1 && $unitId > 0) {
                  WHERE employee_id = ? AND month = ? AND year = ?",
                 [$empCode, $month, $year]
             );
-            if (empty($existing)) {
-                // Fallback: via payroll_periods for old data
-                $existing = $db->fetch(
-                    "SELECT p.* FROM payroll p
-                     JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-                     WHERE p.employee_id = ? AND pp.month = ? AND pp.year = ?
-                     ORDER BY p.id DESC LIMIT 1",
-                    [$empCode, $month, $year]
-                );
-            }
         } catch (Exception $e) {
             $existing = [];
         }
