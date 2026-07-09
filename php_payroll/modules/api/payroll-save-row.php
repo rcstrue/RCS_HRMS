@@ -146,28 +146,33 @@ if (!empty($validationErrors)) {
     exit;
 }
 
+// ══ AUTO-MIGRATION: Must run OUTSIDE transaction (DDL causes implicit COMMIT in InnoDB) ══
 try {
-    $db->exec("START TRANSACTION");
-
-    // Ensure loan_emi column exists in payroll table
-    try {
-        $db->query("SELECT loan_emi FROM payroll LIMIT 1");
-    } catch (Exception $colEx) {
-        $db->exec("ALTER TABLE payroll ADD COLUMN loan_emi DECIMAL(10,2) DEFAULT 0.00 AFTER salary_advance");
+    $payrollCols = $db->fetchColumn("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payroll' AND COLUMN_NAME = ?", ['loan_emi']);
+    if (!$payrollCols) {
+        $db->exec("ALTER TABLE payroll ADD COLUMN loan_emi DECIMAL(10,2) DEFAULT 0.00");
     }
+} catch (Exception $e) {
+    error_log('Auto-migrate loan_emi column: ' . $e->getMessage());
+}
 
-    // Ensure month/year columns exist in payroll table (period-free schema)
-    try {
-        $db->query("SELECT month FROM payroll LIMIT 1");
-    } catch (Exception $colEx) {
-        $db->exec("ALTER TABLE payroll ADD COLUMN month INT NOT NULL DEFAULT 0 AFTER payroll_period_id");
-        $db->exec("ALTER TABLE payroll ADD COLUMN year INT NOT NULL DEFAULT 0 AFTER month");
+try {
+    $monthCol = $db->fetchColumn("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payroll' AND COLUMN_NAME = ?", ['month']);
+    if (!$monthCol) {
+        $db->exec("ALTER TABLE payroll ADD COLUMN month INT NOT NULL DEFAULT 0");
+        $db->exec("ALTER TABLE payroll ADD COLUMN year INT NOT NULL DEFAULT 0");
         $db->exec("ALTER TABLE payroll ADD INDEX idx_month_year (month, year)");
-        // Migrate existing data from payroll_periods
+        // Backfill existing data from payroll_periods
         try {
             $db->exec("UPDATE payroll p INNER JOIN payroll_periods pp ON p.payroll_period_id = pp.id SET p.month = pp.month, p.year = pp.year WHERE p.month = 0");
-        } catch (Exception $e) {}
+        } catch (Exception $migEx) {}
     }
+} catch (Exception $e) {
+    error_log('Auto-migrate month/year columns: ' . $e->getMessage());
+}
+
+try {
+    $db->exec("START TRANSACTION");
 
     // ═══════════════════════════════════════════════════════════════
     // 1. ATTENDANCE_SUMMARY — Upsert on employee_id + month + year
@@ -299,13 +304,16 @@ try {
             [$employeeCode, $month, $year]
         );
     } catch (Exception $e) {}
-    if (empty($existingPay) && $payrollPeriodId > 0) {
-        // Fallback: via payroll_period_id for old data
+    if (empty($existingPay)) {
+        // Fallback: via payroll_period_id for old data not yet migrated
         try {
-            $existingPay = $db->fetch(
-                "SELECT id FROM payroll WHERE employee_id = ? AND payroll_period_id = ?",
-                [$employeeCode, $payrollPeriodId]
-            );
+            $pp = $db->fetch("SELECT id FROM payroll_periods WHERE month = ? AND year = ? LIMIT 1", [$month, $year]);
+            if ($pp) {
+                $existingPay = $db->fetch(
+                    "SELECT id FROM payroll WHERE employee_id = ? AND payroll_period_id = ?",
+                    [$employeeCode, (int)$pp['id']]
+                );
+            }
         } catch (Exception $e) {}
     }
 

@@ -441,30 +441,8 @@ try {
 $unitWiseCountJson = json_encode($unitWiseCount);
 
 $inlineJS = <<<'JS'
-// Payroll Pipeline Widget
-const pipelineData = PIPELINE_DATA;
-if (document.getElementById('pipelineWidget') && pipelineData.steps) {
-    const container = document.getElementById('pipelineWidget');
-    let html = '';
-    pipelineData.steps.forEach(function(step, i) {
-        if (i > 0) {
-            const connClass = i <= pipelineData.currentStep ? 'completed' : '';
-            html += '<div class="pipeline-connector ' + connClass + '"></div>';
-        }
-        let stepClass = '';
-        if (i < pipelineData.currentStep) stepClass = 'completed';
-        else if (i === pipelineData.currentStep) stepClass = 'active';
-        const bgStyle = stepClass === 'active' ? 'background:' + step.color : (stepClass === 'completed' ? '' : '');
-        html += '<div class="pipeline-step ' + stepClass + '">' +
-            '<div class="pipeline-step-circle" style="' + bgStyle + '">' +
-            '<i class="bi ' + step.icon + '"></i></div>' +
-            '<div class="pipeline-step-label">' + step.label + '</div></div>';
-    });
-    container.innerHTML = html;
-}
-
 // Unit Distribution Chart
-const unitWiseCount = UNIT_WISE_COUNT_DATA; // Replaced with actual data below
+const unitWiseCount = UNIT_WISE_COUNT_DATA;
 
 if (document.getElementById('unitChart') && typeof Chart !== 'undefined') {
     const unitCtx = document.getElementById('unitChart').getContext('2d');
@@ -494,6 +472,5 @@ if (document.getElementById('unitChart') && typeof Chart !== 'undefined') {
 JS;
 
 // Now replace placeholders with actual data
-$inlineJS = str_replace('PIPELINE_DATA', $pipelineJson, $inlineJS);
 $inlineJS = str_replace('UNIT_WISE_COUNT_DATA', $unitWiseCountJson, $inlineJS);
 ?>
