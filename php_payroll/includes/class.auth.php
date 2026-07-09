@@ -349,7 +349,6 @@ class Auth {
             ]],
             
             'payroll' => ['label' => 'Payroll', 'icon' => 'bi-cash-stack', 'parent' => null, 'order' => 6, 'submenus' => [
-                'payroll_process' => ['label' => 'Process Payroll', 'url' => 'payroll/process'],
                 'payroll_view' => ['label' => 'View Payroll', 'url' => 'payroll/view'],
                 'payroll_salary_revision' => ['label' => 'Salary Revision', 'url' => 'payroll/salary-revision'],
                 'payroll_payslips' => ['label' => 'Payslips', 'url' => 'payroll/payslips'],

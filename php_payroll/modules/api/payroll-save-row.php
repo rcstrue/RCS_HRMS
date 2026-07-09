@@ -62,8 +62,6 @@ $employeeCode = trim($data['employee_code'] ?? '');
 $month        = (int)($data['month'] ?? 0);
 $year         = (int)($data['year'] ?? 0);
 $unitId       = (int)($data['unit_id'] ?? 0);
-$payrollPeriodId = (int)($data['payroll_period_id'] ?? 0);
-
 if ($employeeId <= 0 || empty($employeeCode) || $month < 1 || $month > 12 || $year < 2020) {
     echo json_encode(['success' => false, 'message' => 'Missing required fields (employee_id, employee_code, month, year)']);
     exit;
@@ -87,12 +85,33 @@ if ($attWO < 0)      $validationErrors[] = 'Weekly off days cannot be negative';
 if ($attExtra < 0)   $validationErrors[] = 'Extra days cannot be negative';
 if ($attOtHours < 0) $validationErrors[] = 'OT hours cannot be negative';
 
-// Get total_days for validation
+// Get total_days for validation from unit_salary_formulas (same logic as process-edit.php)
 $calDays = cal_days_in_month(CAL_GREGORIAN, $month, $year);
 $vTotalDays = $calDays;
-if ($payrollPeriodId > 0) {
-    $vPeriod = $db->fetch("SELECT pay_days FROM payroll_periods WHERE id = ?", [$payrollPeriodId]);
-    if ($vPeriod) $vTotalDays = (int)$vPeriod['pay_days'];
+if ($unitId > 0) {
+    $vUnitFormula = $db->fetch(
+        "SELECT * FROM unit_salary_formulas WHERE unit_id = ? AND is_active = 1 ORDER BY effective_from DESC LIMIT 1",
+        [$unitId]
+    );
+    if ($vUnitFormula) {
+        $vPayDaysType = $vUnitFormula['pay_days_type'] ?? 'actual';
+        switch ($vPayDaysType) {
+            case 'fixed_30': $vTotalDays = 30; break;
+            case 'previous_month':
+                $pm = $month - 1; $py = $year;
+                if ($pm < 1) { $pm = 12; $py--; }
+                $vTotalDays = (int)cal_days_in_month(CAL_GREGORIAN, $pm, $py);
+                break;
+            case 'calendar_minus_sundays':
+                $s = 0;
+                for ($d = 1; $d <= $calDays; $d++) {
+                    if ((int)date('N', strtotime("$year-$month-$d")) === 7) $s++;
+                }
+                $vTotalDays = $calDays - $s;
+                break;
+            default: $vTotalDays = $calDays; break;
+        }
+    }
 }
 $computedPaidDays = $attPresent + $attWO + $attExtra;
 if ($computedPaidDays > $vTotalDays) {
@@ -135,6 +154,19 @@ try {
         $db->query("SELECT loan_emi FROM payroll LIMIT 1");
     } catch (Exception $colEx) {
         $db->exec("ALTER TABLE payroll ADD COLUMN loan_emi DECIMAL(10,2) DEFAULT 0.00 AFTER salary_advance");
+    }
+
+    // Ensure month/year columns exist in payroll table (period-free schema)
+    try {
+        $db->query("SELECT month FROM payroll LIMIT 1");
+    } catch (Exception $colEx) {
+        $db->exec("ALTER TABLE payroll ADD COLUMN month INT NOT NULL DEFAULT 0 AFTER payroll_period_id");
+        $db->exec("ALTER TABLE payroll ADD COLUMN year INT NOT NULL DEFAULT 0 AFTER month");
+        $db->exec("ALTER TABLE payroll ADD INDEX idx_month_year (month, year)");
+        // Migrate existing data from payroll_periods
+        try {
+            $db->exec("UPDATE payroll p INNER JOIN payroll_periods pp ON p.payroll_period_id = pp.id SET p.month = pp.month, p.year = pp.year WHERE p.month = 0");
+        } catch (Exception $e) {}
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -257,32 +289,27 @@ try {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 4. PAYROLL — Upsert on employee_id(=code) + payroll_period_id (preferred) or month+year
+    // 4. PAYROLL — Upsert on employee_id(=code) + month + year
     // ═══════════════════════════════════════════════════════════════
     $existingPay = null;
-    if ($payrollPeriodId > 0) {
+    // Try direct month/year lookup first (new schema)
+    try {
         $existingPay = $db->fetch(
-            "SELECT id FROM payroll WHERE employee_id = ? AND payroll_period_id = ?",
-            [$employeeCode, $payrollPeriodId]
-        );
-    }
-    if (empty($existingPay)) {
-        // Fallback: join via payroll_periods to find by month/year
-        $existingPay = $db->fetch(
-            "SELECT p.id FROM payroll p
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-             WHERE p.employee_id = ? AND pp.month = ? AND pp.year = ?
-             ORDER BY p.id DESC LIMIT 1",
+            "SELECT id FROM payroll WHERE employee_id = ? AND month = ? AND year = ?",
             [$employeeCode, $month, $year]
         );
+    } catch (Exception $e) {}
+    if (empty($existingPay) && $payrollPeriodId > 0) {
+        // Fallback: via payroll_period_id for old data
+        try {
+            $existingPay = $db->fetch(
+                "SELECT id FROM payroll WHERE employee_id = ? AND payroll_period_id = ?",
+                [$employeeCode, $payrollPeriodId]
+            );
+        } catch (Exception $e) {}
     }
 
     $totalDays = (int)($payroll['total_days'] ?? 0) ?: cal_days_in_month(CAL_GREGORIAN, $month, $year);
-    // Override total_days from payroll period if available
-    if ($payrollPeriodId > 0) {
-        $periodDays = $db->fetch("SELECT pay_days FROM payroll_periods WHERE id = ?", [$payrollPeriodId]);
-        if ($periodDays) $totalDays = (int)$periodDays['pay_days'];
-    }
 
     // Read PF/ESI rates from DB (for employer contribution calculation if not sent from JS)
     $pfEmployerShare = 3.67; $pfEmployerEps = 8.33; $pfEmployerEdlis = 0.50; $pfEpfAdmin = 0.50; $esiEmployerShare = 3.25;
@@ -325,7 +352,8 @@ try {
     $payData = [
         'employee_id'      => $employeeCode,
         'unit_id'          => $unitId,
-        'payroll_period_id'=> $payrollPeriodId ?: null,
+        'month'            => $month,
+        'year'             => $year,
         'basic_da'         => round2($payroll['basic_da'] ?? 0),
         'hra'              => round2($payroll['hra'] ?? 0),
         'leave_encashment' => round2($payroll['leave_encashment'] ?? 0),
@@ -505,16 +533,14 @@ try {
                 'deducted_via_payroll' => 1
             ]);
 
-            // Try to link to payroll row (payroll.employee_id is employee_code string)
+            // Try to link to payroll row by month/year
             try {
                 $linkedPayrollId = null;
-                if ($payrollPeriodId > 0) {
-                    $pRow = $db->fetch(
-                        "SELECT id FROM payroll WHERE employee_id = ? AND payroll_period_id = ?",
-                        [$employeeCode, $payrollPeriodId]
-                    );
-                    $linkedPayrollId = $pRow ? (int)$pRow['id'] : null;
-                }
+                $pRow = $db->fetch(
+                    "SELECT id FROM payroll WHERE employee_id = ? AND month = ? AND year = ?",
+                    [$employeeCode, $month, $year]
+                );
+                $linkedPayrollId = $pRow ? (int)$pRow['id'] : null;
                 if ($linkedPayrollId) {
                     $db->query(
                         "UPDATE loan_emi_log SET payroll_id = ? WHERE loan_id = ? AND month = ? AND year = ?",

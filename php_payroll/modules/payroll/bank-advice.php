@@ -11,9 +11,9 @@ $year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
 $clientName = isset($_GET['client_name']) ? sanitize($_GET['client_name']) : '';
 $unitName = isset($_GET['unit_name']) ? sanitize($_GET['unit_name']) : '';
 
-// Get payroll periods
+// Get distinct month/year combos from payroll table
 $periods = $db->query(
-    "SELECT DISTINCT month, year FROM payroll_periods ORDER BY year DESC, month DESC"
+    "SELECT DISTINCT month, year FROM payroll ORDER BY year DESC, month DESC"
 )->fetchAll(PDO::FETCH_ASSOC);
 
 // Get clients for filter
@@ -22,7 +22,7 @@ $clients = $db->query(
 )->fetchAll(PDO::FETCH_ASSOC);
 
 // Build query for bank advice
-$where = "pp.month = :month AND pp.year = :year";
+$where = "p.month = :month AND p.year = :year";
 $params = ['month' => $month, 'year' => $year];
 
 if ($clientName) {
@@ -50,7 +50,6 @@ $sql = "SELECT
         JOIN employees e ON p.employee_id = e.employee_code
         LEFT JOIN clients c ON e.client_id = c.id
         LEFT JOIN units u ON e.unit_id = u.id
-        JOIN payroll_periods pp ON p.payroll_period_id = pp.id
         WHERE {$where}
         AND p.salary_hold = 0
         AND p.net_pay > 0

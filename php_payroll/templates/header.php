@@ -429,7 +429,6 @@
                             'attendance/view'   => 'View Attendance',
                             'attendance/report' => 'Attendance Report',
                             // Payroll
-                            'payroll/process'      => 'Process Payroll',
                             'payroll/process-edit' => 'Payroll Entry',
                             'payroll/payslips'     => 'Payslips',
                             'payroll/print_payslip'=> 'Print Payslip',

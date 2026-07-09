@@ -30,8 +30,6 @@ if (isset($_GET['client_id'])) $clientId = (int)$_GET['client_id'];
 if (isset($_GET['unit_id']))   $unitId   = (int)$_GET['unit_id'];
 if (isset($_GET['month']))     $month    = (int)$_GET['month'];
 if (isset($_GET['year']))      $year     = (int)$_GET['year'];
-$payrollPeriodId = (int)($_GET['period_id'] ?? 0);
-
 // Save back to session for persistence
 $_SESSION['filter_client_id'] = $clientId;
 $_SESSION['filter_unit_id']   = $unitId;
@@ -83,26 +81,7 @@ $unitOtCalcType = $unitFormula['ot_calculation_type'] ?? 'double_pay';
 $unitOtCalcOn   = $unitFormula['ot_calculation_on'] ?? 'basic_da';
 $unitOtHrsPerDay = (float)($unitFormula['ot_hours_per_day'] ?? 8);
 
-// ── Look up payroll period (for period_id + pay_days) ──────────
-$periodPayDays = 0;
-if ($payrollPeriodId > 0) {
-    $periodInfo = $db->fetch("SELECT pay_days FROM payroll_periods WHERE id = ?", [$payrollPeriodId]);
-    if ($periodInfo) $periodPayDays = (int)$periodInfo['pay_days'];
-} elseif ($unitId > 0) {
-    // Fallback: look up period by month/year
-    $periodInfo = $db->fetch(
-        "SELECT id, pay_days FROM payroll_periods WHERE month = ? AND year = ? ORDER BY id DESC LIMIT 1",
-        [$month, $year]
-    );
-    if ($periodInfo) {
-        $payrollPeriodId = (int)$periodInfo['id'];
-        $periodPayDays = (int)$periodInfo['pay_days'];
-    }
-}
-// For 'actual' type, prefer payroll_periods.pay_days over calendar days
-if ($payDaysType === 'actual' && $periodPayDays > 0) {
-    $totalDays = $periodPayDays;
-}
+// ── Pay days calculation is handled above via unit_salary_formulas ──
 
 // ── Fetch PF/ESI rates from DB (match process.php class.payroll.php) ──
 $pfEmployeeShare = 12.00;
@@ -264,18 +243,17 @@ if (isset($_GET['load']) && (int)$_GET['load'] === 1 && $unitId > 0) {
             $adv = [];
         }
 
-        // Existing payroll record (if already processed) — prefer period_id lookup
+        // Existing payroll record (if already saved for this month/year)
         $existing = [];
         try {
-            if ($payrollPeriodId > 0) {
-                $existing = $db->fetch(
-                    "SELECT * FROM payroll
-                     WHERE employee_id = ? AND payroll_period_id = ?",
-                    [$empCode, $payrollPeriodId]
-                );
-            }
+            // Try direct month/year lookup first (new schema)
+            $existing = $db->fetch(
+                "SELECT * FROM payroll
+                 WHERE employee_id = ? AND month = ? AND year = ?",
+                [$empCode, $month, $year]
+            );
             if (empty($existing)) {
-                // Fallback: join via payroll_periods to find by month/year
+                // Fallback: via payroll_periods for old data
                 $existing = $db->fetch(
                     "SELECT p.* FROM payroll p
                      JOIN payroll_periods pp ON p.payroll_period_id = pp.id
@@ -1082,7 +1060,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const MONTH = <?= $month ?>;
     const YEAR  = <?= $year ?>;
     const UNIT_ID = <?= $unitId ?>;
-    const PERIOD_ID = <?= $payrollPeriodId ?>;
     const SAVE_URL = 'index.php?page=api/payroll-save-row';
 
     // PT slabs from database (for unit's state)
@@ -1555,7 +1532,6 @@ document.addEventListener('DOMContentLoaded', function() {
             month: MONTH,
             year: YEAR,
             unit_id: UNIT_ID,
-            payroll_period_id: PERIOD_ID,
             pf_applicable: $tr.data('pf') === 1,
             esi_applicable: $tr.data('esi') === 1,
             pt_applicable: $tr.data('pt') === 1,

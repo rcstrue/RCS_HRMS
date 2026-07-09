@@ -18,18 +18,6 @@
             </a>
         </div>
         <div class="col-lg-3 col-md-4 col-sm-6 col-6">
-            <a href="index.php?page=payroll/process" class="text-decoration-none">
-                <div class="card module-card h-100">
-                    <div class="card-body">
-                        <div class="mod-icon bg-primary-soft"><i class="bi bi-play-circle"></i></div>
-                        <div class="mod-title">Process Payroll</div>
-                        <div class="mod-desc">Run monthly payroll processing</div>
-                    </div>
-                    <i class="bi bi-arrow-right mod-arrow"></i>
-                </div>
-            </a>
-        </div>
-        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
             <a href="index.php?page=payroll/view" class="text-decoration-none">
                 <div class="card module-card h-100">
                     <div class="card-body">

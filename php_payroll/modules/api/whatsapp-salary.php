@@ -6,12 +6,13 @@
 
 header('Content-Type: application/json');
 
-$periodId = (int)($_GET['period_id'] ?? 0);
+$month = (int)($_GET['month'] ?? 0);
+$year  = (int)($_GET['year'] ?? 0);
 $clientId = (int)($_GET['client_id'] ?? 0);
 $unitId   = (int)($_GET['unit_id'] ?? 0);
 
-if (!$periodId || !$clientId) {
-    echo json_encode(['success' => false, 'message' => 'Missing period_id or client_id']);
+if (!$month || !$year || !$clientId) {
+    echo json_encode(['success' => false, 'message' => 'Missing month, year or client_id']);
     exit;
 }
 
@@ -34,20 +35,11 @@ if (empty($waUrl) || empty($waKey)) {
     exit;
 }
 
-// Get period info
-$period = $db->fetch("SELECT month, year FROM payroll_periods WHERE id = ?", [$periodId]);
-if (!$period) {
-    echo json_encode(['success' => false, 'message' => 'Payroll period not found']);
-    exit;
-}
-
-$month = (int)$period['month'];
-$year  = (int)$period['year'];
 $monthYear = date('F Y', mktime(0, 0, 0, $month, 1, $year));
 
-// Get employees with payroll data for this period/client/unit
-$where = "p.payroll_period_id = :pid AND p.net_pay > 0";
-$params = ['pid' => $periodId];
+// Get employees with payroll data for this month/year/client/unit
+$where = "p.month = :month AND p.year = :year AND p.net_pay > 0";
+$params = ['month' => $month, 'year' => $year];
 
 // Join employees table to get mobile and filter by client
 $where .= " AND e.client_id = :cid";

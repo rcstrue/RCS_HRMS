@@ -11,16 +11,14 @@ $employeeCounts = $employee->getCounts();
 
 // Get payroll summary for current month
 $currentMonth = prev_month_num();
-$currentYear = date('Y');
-
-$stmt = $db->prepare("SELECT id FROM payroll_periods WHERE month = ? AND year = ?");
-$stmt->execute([$currentMonth, $currentYear]);
-$currentPeriod = $stmt->fetch(PDO::FETCH_ASSOC);
+$currentYear = prev_month_year();
 
 $payrollSummary = null;
-if ($currentPeriod) {
-    $payrollSummary = $payroll->getPayrollTotals($currentPeriod['id']);
-}
+try {
+    $countStmt = $db->prepare("SELECT COUNT(*) as emp_count, SUM(gross_earnings) as gross, SUM(total_deductions) as deductions, SUM(net_pay) as net, SUM(pf_employee) + SUM(pf_employer) as pf_total, SUM(esi_employee) + SUM(esi_employer) as esi_total FROM payroll WHERE month = ? AND year = ?");
+    $countStmt->execute([$currentMonth, $currentYear]);
+    $payrollSummary = $countStmt->fetch(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
 
 // Get compliance alerts
 $complianceAlerts = $compliance->checkDeadlineAlerts();
@@ -150,10 +148,10 @@ $complianceSummary = $compliance->getSummary();
                         </a>
                     </div>
                     <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 col-6">
-                        <a href="index.php?page=payroll/process" class="text-decoration-none">
+                        <a href="index.php?page=payroll/process-edit" class="text-decoration-none">
                             <div class="quick-action-card" style="--qa-color: #d97706; --qa-bg: #fffbeb; --qa-hover: #fef3c7;">
                                 <div class="qa-icon"><i class="bi bi-calculator-fill"></i></div>
-                                <div class="qa-label">Process Payroll</div>
+                                <div class="qa-label">Payroll Entry</div>
                             </div>
                         </a>
                     </div>
@@ -187,59 +185,42 @@ $complianceSummary = $compliance->getSummary();
     </div>
     
     <?php
-// Get payroll period status for current month (and previous month as fallback)
-$displayPeriod = null;
-$displayPeriodStatus = null;
+// Check if payroll exists for current month
+$displayPeriod = false;
+$displayPeriodName = date('F Y', mktime(0, 0, 0, $currentMonth, 1, $currentYear));
 
-// Check current month
-$cpCheck = $db->fetch("SELECT id, status, period_name, month, year FROM payroll_periods WHERE month = ? AND year = ? ORDER BY id DESC LIMIT 1", [$currentMonth, $currentYear]);
-if ($cpCheck) {
-    $displayPeriod = $cpCheck;
-    $displayPeriodStatus = $cpCheck['status'];
-} else {
-    // Fallback: check previous month
-    $prevM = $currentMonth == 1 ? 12 : $currentMonth - 1;
-    $prevY = $currentMonth == 1 ? $currentYear - 1 : $currentYear;
-    $ppCheck = $db->fetch("SELECT id, status, period_name, month, year FROM payroll_periods WHERE month = ? AND year = ? ORDER BY id DESC LIMIT 1", [$prevM, $prevY]);
-    if ($ppCheck) {
-        $displayPeriod = $ppCheck;
-        $displayPeriodStatus = $ppCheck['status'];
+try {
+    $payExists = $db->fetch("SELECT COUNT(*) as cnt FROM payroll WHERE month = ? AND year = ?", [$currentMonth, $currentYear]);
+    if ($payExists && $payExists['cnt'] > 0) {
+        $displayPeriod = true;
     }
-}
-
-// Build pipeline data for JS
-$pipeline = unserialize(PAYROLL_PIPELINE);
-$currentStep = $displayPeriodStatus ? getPayrollPipelineStep($displayPeriodStatus) : -1;
-// Merge Frozen and Locked into same visual step (step 4)
-if ($currentStep === 5) $currentStep = 4;
-$pipelineJson = json_encode(['steps' => array_slice($pipeline, 0, 5), 'currentStep' => $currentStep, 'periodName' => $displayPeriod['period_name'] ?? null, 'periodId' => $displayPeriod['id'] ?? null]);
+} catch (Exception $e) {}
 ?>
 
 <!-- Payroll Pipeline Widget -->
 <div class="col-12 mb-4">
     <div class="card border-0 shadow-sm">
         <div class="card-header bg-transparent border-0 pt-4 pb-0 px-4">
-            <h5 class="card-title mb-0"><i class="bi bi-diagram-3 text-primary me-2"></i>Payroll Pipeline</h5>
+            <h5 class="card-title mb-0"><i class="bi bi-diagram-3 text-primary me-2"></i>Payroll</h5>
         </div>
         <div class="card-body px-4 pb-4">
             <?php if ($displayPeriod): ?>
             <div class="d-flex align-items-center mb-2">
                 <span class="text-muted me-2">Period:</span>
-                <strong id="pipeline-period-name"><?php echo sanitize($displayPeriod['period_name']); ?></strong>
-                <span class="badge bg-<?php echo $displayPeriodStatus === 'Paid' || $displayPeriodStatus === 'Frozen' || $displayPeriodStatus === 'Locked' ? 'success' : ($displayPeriodStatus === 'Approved' ? 'info' : ($displayPeriodStatus === 'Processed' ? 'primary' : 'secondary')); ?> ms-2" id="pipeline-status-badge"><?php echo sanitize($displayPeriodStatus); ?></span>
+                <strong><?php echo sanitize($displayPeriodName); ?></strong>
+                <span class="badge bg-success ms-2">Data Exists</span>
             </div>
-            <div class="pipeline-steps" id="pipelineWidget"></div>
             <div class="text-center mt-2">
-                <a href="index.php?page=payroll/process<?php echo $displayPeriod ? '&period_id=' . $displayPeriod['id'] : ''; ?>" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-arrow-right-circle me-1"></i>Open Payroll
+                <a href="index.php?page=payroll/process-edit&month=<?php echo $currentMonth; ?>&year=<?php echo $currentYear; ?>" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Open Payroll Entry
                 </a>
             </div>
             <?php else: ?>
             <div class="text-center py-3 text-muted">
                 <i class="bi bi-inbox fs-3 d-block mb-2"></i>
-                No payroll period found for this month.
-                <br><a href="index.php?page=payroll/process" class="btn btn-sm btn-outline-primary mt-2">
-                    <i class="bi bi-plus-circle me-1"></i>Create Period
+                No payroll data for this month.
+                <br><a href="index.php?page=payroll/process-edit" class="btn btn-sm btn-outline-primary mt-2">
+                    <i class="bi bi-plus-circle me-1"></i>Start Payroll Entry
                 </a>
             </div>
             <?php endif; ?>

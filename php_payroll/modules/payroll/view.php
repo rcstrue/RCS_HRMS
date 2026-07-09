@@ -14,11 +14,21 @@ $pageTitle = 'Payroll';
 // Handle AJAX detail request
 if (isset($_GET['action']) && $_GET['action'] === 'detail') {
     header('Content-Type: text/html');
-    $periodId = (int)($_GET['period_id'] ?? 0);
+    $detailMonth = (int)($_GET['month'] ?? 0);
+    $detailYear = (int)($_GET['year'] ?? 0);
     $employeeCode = sanitize($_GET['employee_id'] ?? '');
     
-    if ($periodId && $employeeCode) {
-        $detail = $payroll->getPayrollDetail($periodId, $employeeCode);
+    if ($detailMonth && $detailYear && $employeeCode) {
+        $detail = $db->fetch(
+            "SELECT p.*, e.full_name, e.employee_code, e.designation, e.department,
+                    c.name as client_name, u.name as unit_name
+             FROM payroll p
+             JOIN employees e ON p.employee_id = e.employee_code
+             LEFT JOIN clients c ON e.client_id = c.id
+             LEFT JOIN units u ON e.unit_id = u.id
+             WHERE p.employee_id = ? AND p.month = ? AND p.year = ?",
+            [$employeeCode, $detailMonth, $detailYear]
+        );
         if ($detail):
 ?>
 <div class="row">
@@ -178,7 +188,7 @@ $statusFilter = isset($_GET['status']) ? sanitize($_GET['status']) : '';
 $clients = $db->query("SELECT DISTINCT c.name as client_name FROM employees e LEFT JOIN clients c ON e.client_id = c.id WHERE c.name IS NOT NULL AND c.name != '' ORDER BY client_name")->fetchAll(PDO::FETCH_ASSOC);
 
 // Build query
-$where = "pp.month = :month AND pp.year = :year";
+$where = "p.month = :month AND p.year = :year";
 $params = [':month' => $month, ':year' => $year];
 
 if ($clientFilter) {
@@ -199,13 +209,11 @@ if ($statusFilter) {
 // Get payroll records
 $sql = "SELECT p.*, e.full_name, e.employee_code, e.designation,
         c.name as client_name,
-        u.name as unit_name,
-        pp.period_name
+        u.name as unit_name
         FROM payroll p
         JOIN employees e ON p.employee_id = e.employee_code
         LEFT JOIN clients c ON e.client_id = c.id
         LEFT JOIN units u ON e.unit_id = u.id
-        LEFT JOIN payroll_periods pp ON p.payroll_period_id = pp.id
         WHERE {$where}
         ORDER BY client_name, unit_name, e.full_name";
 
@@ -439,7 +447,7 @@ if ($clientFilter) {
                                 <tr>
                                     <td colspan="13" class="text-center text-muted py-4">
                                         No payroll records found for the selected period.
-                                        <br><a href="index.php?page=payroll/process">Process payroll</a> first.
+                                        <br><a href="index.php?page=payroll/process-edit">Enter payroll</a> first.
                                     </td>
                                 </tr>
                             <?php endif; ?>
