@@ -310,6 +310,7 @@ function PayslipHTMLPreview({ data }: { data: PayslipData }) {
     { label: 'Professional Tax', value: pr.professional_tax },
     { label: 'Labour Welfare Fund', value: pr.lwf_employee },
     { label: 'Salary Advance', value: pr.salary_advance },
+    { label: 'Loan EMI', value: pr.loan_emi },
     { label: 'Office Deduction', value: pr.office_deduction },
     { label: 'Trust Deduction', value: pr.trust_deduction },
     ...(pr.extra_deductions || []).map(d => ({ label: d.label, value: d.value })),

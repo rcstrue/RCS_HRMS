@@ -50,11 +50,10 @@ function _handleGet(): void
 function _getAvailablePeriods(mysqli $conn, string $employeeId): void
 {
     $stmt = $conn->prepare('
-        SELECT DISTINCT pp.id, pp.period_name, pp.month, pp.year, pp.status
-        FROM payroll_periods pp
-        INNER JOIN payroll p ON p.payroll_period_id = pp.id
-        WHERE p.employee_id = ? AND p.status NOT IN ("Draft", "Cancelled")
-        ORDER BY pp.year DESC, pp.month DESC
+        SELECT DISTINCT month, year
+        FROM payroll
+        WHERE employee_id = ? AND status NOT IN ("Draft", "Cancelled")
+        ORDER BY year DESC, month DESC
         LIMIT 24
     ');
     $stmt->bind_param('s', $employeeId);
@@ -63,12 +62,14 @@ function _getAvailablePeriods(mysqli $conn, string $employeeId): void
 
     $periods = [];
     while ($row = $result->fetch_assoc()) {
+        $m = (int)$row['month'];
+        $y = (int)$row['year'];
         $periods[] = [
-            'id' => (int)$row['id'],
-            'period_name' => $row['period_name'],
-            'month' => (int)$row['month'],
-            'year' => (int)$row['year'],
-            'status' => $row['status'],
+            'id' => (int)("{$y}{$m}"),
+            'period_name' => _monthName($m) . ' ' . $y,
+            'month' => $m,
+            'year' => $y,
+            'status' => 'Processed',
         ];
     }
     $stmt->close();
@@ -83,23 +84,11 @@ function _getAvailablePeriods(mysqli $conn, string $employeeId): void
 
 function _getPayslipData(mysqli $conn, string $employeeId, int $month, int $year): void
 {
-    // Get payroll period
-    $ppStmt = $conn->prepare('
-        SELECT id, period_name, month, year, start_date, end_date
-        FROM payroll_periods
-        WHERE month = ? AND year = ? AND status NOT IN ("Draft")
-        LIMIT 1
-    ');
-    $ppStmt->bind_param('ii', $month, $year);
-    $ppStmt->execute();
-    $period = $ppStmt->get_result()->fetch_assoc();
-    $ppStmt->close();
-
-    if (!$period) {
-        jsonOutput(['success' => false, 'error' => 'No payroll found for ' . _monthName($month) . ' ' . $year], 404);
-    }
-
-    $periodId = (int)$period['id'];
+    // Build period info from month/year directly (no payroll_periods table dependency)
+    $periodName = _monthName($month) . ' ' . $year;
+    $daysInMonth = (int)cal_days_in_month(CAL_GREGORIAN, $month, $year);
+    $startDate = sprintf('%04d-%02d-01', $year, $month);
+    $endDate = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
 
     // Get employee info
     $empStmt = $conn->prepare('
@@ -124,17 +113,15 @@ function _getPayslipData(mysqli $conn, string $employeeId, int $month, int $year
         jsonOutput(['success' => false, 'error' => 'Employee not found'], 404);
     }
 
-    // Get payroll data
+    // Get payroll data directly by month/year
     $pStmt = $conn->prepare('
-        SELECT p.*,
-               pp.period_name, pp.start_date, pp.end_date
+        SELECT p.*
         FROM payroll p
-        JOIN payroll_periods pp ON pp.id = p.payroll_period_id
-        WHERE p.employee_id = ? AND p.payroll_period_id = ?
+        WHERE p.employee_id = ? AND p.month = ? AND p.year = ?
           AND p.status NOT IN ("Draft", "Cancelled")
         LIMIT 1
     ');
-    $pStmt->bind_param('si', $employeeId, $periodId);
+    $pStmt->bind_param('sii', $employeeId, $month, $year);
     $pStmt->execute();
     $payroll = $pStmt->get_result()->fetch_assoc();
     $pStmt->close();
@@ -145,20 +132,20 @@ function _getPayslipData(mysqli $conn, string $employeeId, int $month, int $year
 
     // Known mapped fields (earnings + deductions + totals + meta)
     $knownFields = [
-        'id', 'employee_id', 'payroll_period_id',
+        'id', 'employee_id', 'month', 'year',
         'total_days', 'paid_days', 'unpaid_days', 'overtime_hours',
         'basic_da', 'hra', 'washing_allowance', 'leave_encashment',
         'bonus_encashment', 'overtime_amount', 'extra_days_amount',
         'gross_earnings', 'gross_salary', 'ctc', 'net_pay', 'total_deductions',
         'pf_employee', 'esi_employee', 'professional_tax', 'lwf_employee',
-        'salary_advance', 'office_deduction', 'trust_deduction',
+        'loan_emi', 'salary_advance', 'office_deduction', 'trust_deduction',
         'payment_mode', 'payment_status', 'status',
-        'created_at', 'updated_at', 'period_name', 'start_date', 'end_date',
+        'created_at', 'updated_at',
         // Employer contributions — not shown on employee payslip
         'pf_employer', 'esi_employer', 'eps_employer', 'edlis_employer',
         'epf_admin_charges', 'total_employer_contribution',
         // Non-deduction fields that may be numeric
-        'unit_id', 'calculated_by',
+        'unit_id', 'calculated_by', 'client_id',
     ];
 
     // Dynamically detect any unmapped deduction columns
@@ -182,12 +169,12 @@ function _getPayslipData(mysqli $conn, string $employeeId, int $month, int $year
         'success' => true,
         'data' => [
             'period' => [
-                'id' => (int)$period['id'],
-                'period_name' => $period['period_name'],
-                'month' => (int)$period['month'],
-                'year' => (int)$period['year'],
-                'start_date' => $period['start_date'],
-                'end_date' => $period['end_date'],
+                'id' => (int)("{$year}{$month}"),
+                'period_name' => $periodName,
+                'month' => $month,
+                'year' => $year,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
             ],
             'employee' => [
                 'id' => (int)$employee['id'],
@@ -226,6 +213,7 @@ function _getPayslipData(mysqli $conn, string $employeeId, int $month, int $year
                 'salary_advance' => (float)$payroll['salary_advance'],
                 'office_deduction' => (float)$payroll['office_deduction'],
                 'trust_deduction' => (float)$payroll['trust_deduction'],
+                'loan_emi' => (float)($payroll['loan_emi'] ?? 0),
                 'total_deductions' => (float)$payroll['total_deductions'],
                 'net_pay' => (float)$payroll['net_pay'],
                 'gross_salary' => (float)$payroll['gross_salary'],

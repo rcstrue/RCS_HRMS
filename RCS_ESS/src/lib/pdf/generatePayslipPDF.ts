@@ -53,6 +53,7 @@ interface PayslipPayroll {
   professional_tax: number;
   lwf_employee: number;
   salary_advance: number;
+  loan_emi: number;
   office_deduction: number;
   trust_deduction: number;
   total_deductions: number;
@@ -148,6 +149,7 @@ function buildDeductionsRows(pr: PayslipPayroll): { label: string; value: number
     { label: 'Professional Tax', value: pr.professional_tax || 0, show: (pr.professional_tax || 0) > 0 },
     { label: 'Labour Welfare Fund', value: pr.lwf_employee || 0, show: (pr.lwf_employee || 0) > 0 },
     { label: 'Salary Advance', value: pr.salary_advance || 0, show: (pr.salary_advance || 0) > 0 },
+    { label: 'Loan EMI', value: pr.loan_emi || 0, show: (pr.loan_emi || 0) > 0 },
     { label: 'Office Deduction', value: pr.office_deduction || 0, show: (pr.office_deduction || 0) > 0 },
     { label: 'Trust Deduction', value: pr.trust_deduction || 0, show: (pr.trust_deduction || 0) > 0 },
     ...(pr.extra_deductions || []).map(d => ({ label: d.label, value: d.value, show: true })),
