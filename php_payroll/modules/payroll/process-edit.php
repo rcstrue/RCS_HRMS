@@ -245,7 +245,10 @@ if (isset($_GET['load']) && (int)$_GET['load'] === 1 && $unitId > 0) {
         [$unitId]
     );
 
-    $effDateStr = date('Y-m-d'); // Use CURDATE() to match process.php behavior
+    // Use last day of SELECTED month — not CURDATE() — so editing a past month
+    // loads the salary structure that was actually active during that month,
+    // not the latest one created for a future month.
+    $effDateStr = sprintf('%04d-%02d-%02d', $year, $month, cal_days_in_month(CAL_GREGORIAN, $month, $year));
 
     foreach ($employees as $emp) {
         $empId  = (int)$emp['id'];
