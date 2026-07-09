@@ -1,0 +1,674 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Muster Entry (Blank)
+     4→ * Generate blank muster roll for manual data entry (print and fill by hand)
+     5→ * Also supports pre-filled mode with attendance data
+     6→ */
+     7→
+     8→$pageTitle = 'Muster Entry';
+     9→
+    10→// Ensure daily_data column exists in attendance_summary
+    11→try {
+    12→    $db->query("SELECT daily_data FROM attendance_summary LIMIT 1");
+    13→} catch (Exception $e) {
+    14→    $db->exec("ALTER TABLE attendance_summary ADD COLUMN daily_data LONGTEXT DEFAULT NULL AFTER total_paid_days");
+    15→}
+    16→
+    17→// Get filter values
+    18→$currentMonth = prev_month_num();
+    19→$currentYear = date('Y');
+    20→$monthFilter = isset($_GET['month']) ? (int)$_GET['month'] : $currentMonth;
+    21→$yearFilter = isset($_GET['year']) ? (int)$_GET['year'] : $currentYear;
+    22→$clientFilter = (int)($_GET['client_id'] ?? 0);
+    23→$unitFilter = (int)($_GET['unit_id'] ?? 0);
+    24→$mode = sanitize($_GET['mode'] ?? 'blank'); // blank or filled
+    25→$filterPressed = isset($_GET['filter']) || $clientFilter > 0;
+    26→
+    27→// Get clients and units
+    28→$clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
+    29→$allUnits = $db->fetchAll("SELECT id, name, client_id FROM units WHERE is_active = 1 ORDER BY name");
+    30→$units = [];
+    31→if ($clientFilter) {
+    32→    foreach ($allUnits as $u) {
+    33→        if ($u['client_id'] == $clientFilter) {
+    34→            $units[] = $u;
+    35→        }
+    36→    }
+    37→}
+    38→
+    39→// Month info
+    40→$monthName = date('F', mktime(0, 0, 0, $monthFilter, 1, $yearFilter));
+    41→$daysInMonth = (int)cal_days_in_month(CAL_GREGORIAN, $monthFilter, $yearFilter);
+    42→$dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    43→
+    44→// Handle POST save muster data (when in filled mode with manual entry)
+    45→if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_muster'])) {
+    46→    $unitId = (int)($_POST['unit_id'] ?? 0);
+    47→    $month = (int)($_POST['month'] ?? $monthFilter);
+    48→    $year = (int)($_POST['year'] ?? $yearFilter);
+    49→    $employeeIds = $_POST['employee_id'] ?? [];
+    50→    $savedCount = 0;
+    51→
+    52→    try {
+    53→        $db->beginTransaction();
+    54→
+    55→        foreach ($employeeIds as $empId) {
+    56→            $empId = (int)$empId;
+    57→            $present = 0;
+    58→            $wo = 0;
+    59→            $extra = 0;
+    60→            $halfDay = 0;
+    61→            $absent = 0;
+    62→            $dailyData = [];
+    63→
+    64→            // Process each day
+    65→            for ($d = 1; $d <= $daysInMonth; $d++) {
+    66→                $dayVal = sanitize($_POST['day_' . $empId . '_' . $d] ?? '');
+    67→                
+    68→                // Day of week check
+    69→                $dow = (int)date('N', mktime(0, 0, 0, $month, $d, $year));
+    70→                $isSunday = ($dow === 7);
+    71→
+    72→                if (empty($dayVal)) {
+    73→                    $dailyData[$d] = $isSunday ? 'WO' : '';
+    74→                } else {
+    75→                    $dailyData[$d] = strtoupper($dayVal);
+    76→                    switch (strtoupper($dayVal)) {
+    77→                        case 'P': case 'PR': $present++; break;
+    78→                        case 'WO': $wo++; break;
+    79→                        case 'HD': $halfDay++; $present += 0.5; break;
+    80→                        case 'A': $absent++; break;
+    81→                        case 'EL': $extra++; break;
+    82→                        case 'H': $present++; break; // Holiday = Present
+    83→                    }
+    84→                }
+    85→            }
+    86→
+    87→            $totalPaidDays = $present + $wo + $extra;
+    88→
+    89→            // Save to attendance_summary
+    90→            $existing = $db->fetch(
+    91→                "SELECT id FROM attendance_summary WHERE employee_id = ? AND month = ? AND year = ?",
+    92→                [$empId, $month, $year]
+    93→            );
+    94→
+    95→            $dailyDataJson = json_encode($dailyData);
+    96→
+    97→            if ($existing) {
+    98→                $db->update('attendance_summary', [
+    99→                    'total_present' => $present,
+   100→                    'total_extra' => $extra,
+   101→                    'total_wo' => $wo,
+   102→                    'total_paid_days' => $totalPaidDays,
+   103→                    'source' => 'Muster Entry'
+   104→                ], 'id = :id', ['id' => $existing['id']]);
+   105→
+   106→                // Try to update daily_data if column exists
+   107→                try {
+   108→                    $db->query(
+   109→                        "UPDATE attendance_summary SET daily_data = ? WHERE id = ?",
+   110→                        [$dailyDataJson, $existing['id']]
+   111→                    );
+   112→                } catch (Exception $e) {
+   113→                    // Column might not exist
+   114→                }
+   115→            } else {
+   116→                $db->query(
+   117→                    "INSERT INTO attendance_summary 
+   118→                     (employee_id, unit_id, month, year, total_present, total_extra, overtime_hours, total_wo, total_paid_days, source)
+   119→                     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 'Muster Entry')",
+   120→                    [$empId, $unitId, $month, $year, $present, $extra, $wo, $totalPaidDays]
+   121→                );
+   122→
+   123→                // Try to add daily_data
+   124→                try {
+   125→                    $db->query(
+   126→                        "UPDATE attendance_summary SET daily_data = ? WHERE employee_id = ? AND month = ? AND year = ?",
+   127→                        [$dailyDataJson, $empId, $month, $year]
+   128→                    );
+   129→                } catch (Exception $e) {}
+   130→            }
+   131→
+   132→            $savedCount++;
+   133→        }
+   134→
+   135→        $db->commit();
+   136→        setFlash('success', "Muster data saved for {$savedCount} employees.");
+   137→        redirect('index.php?page=entry/muster-entry&month=' . $month . '&year=' . $year . 
+   138→                '&client_id=' . $clientFilter . '&unit_id=' . $unitFilter . '&mode=filled&filter=1');
+   139→    } catch (Exception $e) {
+   140→        $db->rollBack();
+   141→        setFlash('error', 'Error saving muster: ' . $e->getMessage());
+   142→    }
+   143→}
+   144→
+   145→// CSV Export
+   146→if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+   147→    header('Content-Type: text/csv');
+   148→    header('Content-Disposition: attachment; filename="muster_entry_' . $monthName . '_' . $yearFilter . '.csv"');
+   149→    header('Pragma: no-cache');
+   150→    header('Expires: 0');
+   151→
+   152→    $output = fopen('php://output', 'w');
+   153→    fputcsv($output, ['Muster Roll - ' . $monthName . ' ' . $yearFilter]);
+   154→    $header = ['Code', 'Name', 'Designation', 'Unit'];
+   155→    for ($d = 1; $d <= $daysInMonth; $d++) {
+   156→        $header[] = $d . ' (' . substr($dayNames[(int)date('N', mktime(0,0,0,$monthFilter,$d,$yearFilter)) - 1], 0, 2) . ')';
+   157→    }
+   158→    $header[] = 'Present';
+   159→    $header[] = 'WO';
+   160→    $header[] = 'Extra';
+   161→    $header[] = 'Total';
+   162→    fputcsv($output, $header);
+   163→
+   164→    // Get employee data for export
+   165→    if ($clientFilter) {
+   166→        $where = "e.status = 'approved'";
+   167→        $params = [];
+   168→        if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
+   169→        if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }
+   170→
+   171→        $data = $db->fetchAll(
+   172→            "SELECT e.id, e.employee_code, e.full_name, e.designation, u.name as unit_name,
+   173→                    ats.total_present, ats.total_wo, ats.total_extra, ats.total_paid_days,
+   174→                    ats.daily_data
+   175→             FROM employees e
+   176→             LEFT JOIN units u ON e.unit_id = u.id
+   177→             LEFT JOIN attendance_summary ats ON ats.employee_id = e.id 
+   178→                AND ats.month = ? AND ats.year = ?
+   179→             WHERE $where
+   180→             ORDER BY e.employee_code",
+   181→            array_merge([$monthFilter, $yearFilter], $params)
+   182→        );
+   183→
+   184→        foreach ($data as $row) {
+   185→            $line = [$row['employee_code'], $row['full_name'], $row['designation'], $row['unit_name']];
+   186→            $dailyData = json_decode($row['daily_data'] ?? '{}', true);
+   187→            for ($d = 1; $d <= $daysInMonth; $d++) {
+   188→                $dow = (int)date('N', mktime(0,0,0,$monthFilter,$d,$yearFilter));
+   189→                $val = $dailyData[$d] ?? '';
+   190→                if (empty($val) && $dow === 7) $val = 'WO';
+   191→                $line[] = $val;
+   192→            }
+   193→            $line[] = $row['total_present'] ?? 0;
+   194→            $line[] = $row['total_wo'] ?? 0;
+   195→            $line[] = $row['total_extra'] ?? 0;
+   196→            $line[] = $row['total_paid_days'] ?? 0;
+   197→            fputcsv($output, $line);
+   198→        }
+   199→    }
+   200→
+   201→    fclose($output);
+   202→    exit;
+   203→}
+   204→
+   205→// Get employees data
+   206→$employees = [];
+   207→if ($filterPressed && $clientFilter) {
+   208→    $where = "e.status = 'approved'";
+   209→    $params = [];
+   210→    if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
+   211→    if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }
+   212→
+   213→    $employees = $db->fetchAll(
+   214→        "SELECT e.id, e.employee_code, e.full_name, e.father_name, e.designation,
+   215→                u.name as unit_name, c.name as client_name,
+   216→                ats.total_present, ats.total_wo, ats.total_extra, ats.total_paid_days,
+   217→                ats.overtime_hours, ats.daily_data
+   218→         FROM employees e
+   219→         LEFT JOIN clients c ON e.client_id = c.id
+   220→         LEFT JOIN units u ON e.unit_id = u.id
+   221→         LEFT JOIN attendance_summary ats ON ats.employee_id = e.id 
+   222→            AND ats.month = ? AND ats.year = ?
+   223→         WHERE $where
+   224→         ORDER BY c.name, u.name, e.employee_code",
+   225→        array_merge([$monthFilter, $yearFilter], $params)
+   226→    );
+   227→
+   228→    // Parse daily_data for each employee
+   229→    foreach ($employees as &$emp) {
+   230→        $emp['parsed_daily'] = json_decode($emp['daily_data'] ?? '{}', true);
+   231→        if (!is_array($emp['parsed_daily'])) {
+   232→            $emp['parsed_daily'] = [];
+   233→        }
+   234→    }
+   235→    unset($emp);
+   236→}
+   237→
+   238→// Holiday lookup
+   239→$holidays = [];
+   240→try {
+   241→    $holidayRecords = $db->fetchAll(
+   242→        "SELECT holiday_date, holiday_name FROM holidays 
+   243→         WHERE YEAR(holiday_date) = ? AND MONTH(holiday_date) = ?",
+   244→        [$yearFilter, $monthFilter]
+   245→    );
+   246→    foreach ($holidayRecords as $h) {
+   247→        $day = (int)date('j', strtotime($h['holiday_date']));
+   248→        $holidays[$day] = $h['holiday_name'];
+   249→    }
+   250→} catch (Exception $e) {}
+   251→
+   252→// Month names
+   253→$months = [
+   254→    1 => 'January', 2 => 'February', 3 => 'March', 4 => 'April',
+   255→    5 => 'May', 6 => 'June', 7 => 'July', 8 => 'August',
+   256→    9 => 'September', 10 => 'October', 11 => 'November', 12 => 'December'
+   257→];
+   258→?>
+   259→
+   260→<div class="row">
+   261→    <div class="col-12">
+   262→        <!-- Header -->
+   263→        <div class="card mb-3">
+   264→            <div class="card-header d-flex justify-content-between align-items-center">
+   265→                <h5 class="card-title mb-0">
+   266→                    <i class="bi bi-calendar-check me-2"></i>Muster Entry — 
+   267→                    <span class="text-primary"><?php echo $monthName . ' ' . $yearFilter; ?></span>
+   268→                </h5>
+   269→                <div class="d-flex gap-1">
+   270→                    <?php if (!empty($employees)): ?>
+   271→                    <a href="index.php?page=entry/muster-entry&<?php echo http_build_query(array_merge($_GET, ['export' => 'csv'])); ?>" 
+   272→                       class="btn btn-outline-success btn-sm">
+   273→                        <i class="bi bi-download me-1"></i>CSV
+   274→                    </a>
+   275→                    <?php endif; ?>
+   276→                    <button class="btn btn-outline-info btn-sm" onclick="window.print()">
+   277→                        <i class="bi bi-printer me-1"></i>Print
+   278→                    </button>
+   279→                </div>
+   280→            </div>
+   281→            <div class="card-body">
+   282→                <!-- Filters -->
+   283→                <form method="GET" class="row g-2">
+   284→                    <input type="hidden" name="page" value="entry/muster-entry">
+   285→                    
+   286→                    <div class="col-md-2">
+   287→                        <label class="form-label small">Month</label>
+   288→                        <select class="form-select form-select-sm" name="month">
+   289→                            <?php foreach ($months as $num => $name): ?>
+   290→                            <option value="<?php echo $num; ?>" <?php echo $monthFilter == $num ? 'selected' : ''; ?>>
+   291→                                <?php echo $name; ?>
+   292→                            </option>
+   293→                            <?php endforeach; ?>
+   294→                        </select>
+   295→                    </div>
+   296→                    
+   297→                    <div class="col-md-2">
+   298→                        <label class="form-label small">Year</label>
+   299→                        <select class="form-select form-select-sm" name="year">
+   300→                            <?php for ($y = date('Y'); $y >= date('Y') - 3; $y--): ?>
+   301→                            <option value="<?php echo $y; ?>" <?php echo $yearFilter == $y ? 'selected' : ''; ?>>
+   302→                                <?php echo $y; ?>
+   303→                            </option>
+   304→                            <?php endfor; ?>
+   305→                        </select>
+   306→                    </div>
+   307→                    
+   308→                    <div class="col-md-2">
+   309→                        <label class="form-label small">Client <span class="text-danger">*</span></label>
+   310→                        <select class="form-select form-select-sm" name="client_id" id="clientSelect">
+   311→                            <option value="">Select Client</option>
+   312→                            <?php foreach ($clients as $c): ?>
+   313→                            <option value="<?php echo $c['id']; ?>" <?php echo $clientFilter == $c['id'] ? 'selected' : ''; ?>>
+   314→                                <?php echo sanitize($c['name']); ?>
+   315→                            </option>
+   316→                            <?php endforeach; ?>
+   317→                        </select>
+   318→                    </div>
+   319→                    
+   320→                    <div class="col-md-2">
+   321→                        <label class="form-label small">Unit</label>
+   322→                        <select class="form-select form-select-sm" name="unit_id" id="unitSelect">
+   323→                            <option value="">All Units</option>
+   324→                            <?php foreach ($units as $u): ?>
+   325→                            <option value="<?php echo $u['id']; ?>" <?php echo $unitFilter == $u['id'] ? 'selected' : ''; ?>>
+   326→                                <?php echo sanitize($u['name']); ?>
+   327→                            </option>
+   328→                            <?php endforeach; ?>
+   329→                        </select>
+   330→                    </div>
+   331→                    
+   332→                    <div class="col-md-2">
+   333→                        <label class="form-label small">Mode</label>
+   334→                        <select class="form-select form-select-sm" name="mode">
+   335→                            <option value="blank" <?php echo $mode === 'blank' ? 'selected' : ''; ?>>Blank (Print)</option>
+   336→                            <option value="filled" <?php echo $mode === 'filled' ? 'selected' : ''; ?>>Filled (Edit)</option>
+   337→                        </select>
+   338→                    </div>
+   339→                    
+   340→                    <div class="col-md-2 d-flex align-items-end gap-1">
+   341→                        <button type="submit" name="filter" value="1" class="btn btn-primary btn-sm flex-grow-1">
+   342→                            <i class="bi bi-search me-1"></i>Load
+   343→                        </button>
+   344→                        <a href="index.php?page=entry/muster-entry" class="btn btn-outline-secondary btn-sm">
+   345→                            <i class="bi bi-x-lg"></i>
+   346→                        </a>
+   347→                    </div>
+   348→                </form>
+   349→                
+   350→                <!-- Legend -->
+   351→                <div class="mt-2 d-flex flex-wrap gap-2 small">
+   352→                    <span class="badge bg-success">P = Present</span>
+   353→                    <span class="badge bg-secondary">A = Absent</span>
+   354→                    <span class="badge bg-warning text-dark">HD = Half Day</span>
+   355→                    <span class="badge bg-info">WO = Weekly Off</span>
+   356→                    <span class="badge bg-danger">H = Holiday</span>
+   357→                    <span class="badge bg-primary">EL = Extra</span>
+   358→                </div>
+   359→            </div>
+   360→        </div>
+   361→        
+   362→        <?php if (!$filterPressed || !$clientFilter): ?>
+   363→        <div class="card">
+   364→            <div class="card-body text-center py-5 text-muted">
+   365→                <i class="bi bi-calendar-range fs-1"></i>
+   366→                <p class="mt-3">Select a <strong>Client</strong> and click <strong>Load</strong> to generate muster roll.</p>
+   367→                <small>Use <strong>Blank</strong> mode to print a blank muster, or <strong>Filled</strong> mode to edit attendance data.</small>
+   368→            </div>
+   369→        </div>
+   370→        
+   371→        <?php elseif (empty($employees)): ?>
+   372→        <div class="card">
+   373→            <div class="card-body text-center py-5 text-muted">
+   374→                <i class="bi bi-people fs-1"></i>
+   375→                <p class="mt-3">No approved employees found for selected filters.</p>
+   376→            </div>
+   377→        </div>
+   378→        
+   379→        <?php else: ?>
+   380→        <!-- Muster Roll -->
+   381→        <?php if ($mode === 'filled'): ?>
+   382→        <form method="POST" id="musterForm">
+   383→            <input type="hidden" name="month" value="<?php echo $monthFilter; ?>">
+   384→            <input type="hidden" name="year" value="<?php echo $yearFilter; ?>">
+   385→            <input type="hidden" name="unit_id" value="<?php echo $unitFilter; ?>">
+   386→        <?php endif; ?>
+   387→        
+   388→        <div class="card">
+   389→            <div class="card-header d-flex justify-content-between align-items-center py-2">
+   390→                <div>
+   391→                    <span class="badge bg-primary"><?php echo count($employees); ?> Employees</span>
+   392→                    <span class="badge bg-dark"><?php echo $daysInMonth; ?> Days</span>
+   393→                    <span class="badge bg-<?php echo $mode === 'blank' ? 'secondary' : 'success'; ?>">
+   394→                        <?php echo $mode === 'blank' ? 'Blank' : 'Editable'; ?>
+   395→                    </span>
+   396→                </div>
+   397→                <?php if ($mode === 'filled'): ?>
+   398→                <button type="submit" name="save_muster" class="btn btn-success btn-sm"
+   399→                        onclick="return confirm('Save muster data for all employees?')">
+   400→                    <i class="bi bi-floppy me-1"></i>Save Muster
+   401→                </button>
+   402→                <?php endif; ?>
+   403→            </div>
+   404→            <div class="card-body p-0">
+   405→                <div class="table-responsive">
+   406→                    <table class="table table-bordered mb-0" style="font-size:0.7rem;" id="musterTable">
+   407→                        <thead class="table-dark">
+   408→                            <tr>
+   409→                                <th rowspan="2" style="width:25px;">#</th>
+   410→                                <th rowspan="2" style="width:55px;">Code</th>
+   411→                                <th rowspan="2" style="min-width:120px;">Employee Name</th>
+   412→                                <th rowspan="2" style="min-width:70px;">Designation</th>
+   413→                                <?php for ($d = 1; $d <= $daysInMonth; $d++): 
+   414→                                    $dow = (int)date('N', mktime(0, 0, 0, $monthFilter, $d, $yearFilter));
+   415→                                    $isSunday = ($dow === 7);
+   416→                                    $isHoliday = isset($holidays[$d]);
+   417→                                    $bgStyle = '';
+   418→                                    if ($isSunday) $bgStyle = 'background:#dc3545;';
+   419→                                    elseif ($isHoliday) $bgStyle = 'background:#0d6efd;';
+   420→                                ?>
+   421→                                <th class="text-center" style="min-width:22px;<?php echo $bgStyle; ?>" 
+   422→                                    title="<?php echo date('l j M Y', mktime(0, 0, 0, $monthFilter, $d, $yearFilter)); 
+   423→                                    echo $isHoliday ? ' - ' . $holidays[$d] : ''; ?>">
+   424→                                    <?php echo $d; ?>
+   425→                                </th>
+   426→                                <?php endfor; ?>
+   427→                                <th rowspan="2" class="text-center" style="background:#198754;min-width:28px;">P</th>
+   428→                                <th rowspan="2" class="text-center" style="background:#fd7e14;min-width:24px;">WO</th>
+   429→                                <th rowspan="2" class="text-center" style="background:#0dcaf0;min-width:24px;">Ex</th>
+   430→                                <th rowspan="2" class="text-center" style="background:#6f42c1;min-width:28px;">PD</th>
+   431→                            </tr>
+   432→                            <tr>
+   433→                                <?php for ($d = 1; $d <= $daysInMonth; $d++): 
+   434→                                    $dow = (int)date('N', mktime(0, 0, 0, $monthFilter, $d, $yearFilter));
+   435→                                    $isSunday = ($dow === 7);
+   436→                                    $bgStyle = $isSunday ? 'background:#b52a37;' : '';
+   437→                                ?>
+   438→                                <th class="text-center" style="font-size:0.55rem;<?php echo $bgStyle; ?>">
+   439→                                    <?php echo substr($dayNames[$dow - 1], 0, 2); ?>
+   440→                                </th>
+   441→                                <?php endfor; ?>
+   442→                            </tr>
+   443→                        </thead>
+   444→                        <tbody>
+   445→                            <?php 
+   446→                            $empCount = 0;
+   447→                            foreach ($employees as $idx => $emp):
+   448→                                $empCount++;
+   449→                                $dailyData = $emp['parsed_daily'];
+   450→                            ?>
+   451→                            <tr style="height:28px;">
+   452→                                <td class="text-center text-muted"><?php echo $idx + 1; ?></td>
+   453→                                <td>
+   454→                                    <?php if ($mode === 'filled'): ?>
+   455→                                    <input type="hidden" name="employee_id[]" value="<?php echo $emp['id']; ?>">
+   456→                                    <?php endif; ?>
+   457→                                    <code><?php echo sanitize($emp['employee_code']); ?></code>
+   458→                                </td>
+   459→                                <td class="text-truncate" style="max-width:140px;" title="<?php echo htmlspecialchars($emp['full_name']); ?>">
+   460→                                    <?php echo sanitize($emp['full_name']); ?>
+   461→                                </td>
+   462→                                <td class="text-muted text-truncate" style="max-width:80px;" title="<?php echo htmlspecialchars($emp['designation'] ?? ''); ?>">
+   463→                                    <?php echo sanitize($emp['designation'] ?? ''); ?>
+   464→                                </td>
+   465→                                <?php 
+   466→                                $rowPresent = 0; $rowWO = 0; $rowExtra = 0;
+   467→                                for ($d = 1; $d <= $daysInMonth; $d++):
+   468→                                    $dow = (int)date('N', mktime(0, 0, 0, $monthFilter, $d, $yearFilter));
+   469→                                    $isSunday = ($dow === 7);
+   470→                                    $isHoliday = isset($holidays[$d]);
+   471→                                    
+   472→                                    // Get existing value or default
+   473→                                    $val = $dailyData[$d] ?? '';
+   474→                                    if (empty($val)) {
+   475→                                        if ($isSunday) $val = 'WO';
+   476→                                        elseif ($isHoliday) $val = 'H';
+   477→                                    }
+   478→                                    
+   479→                                    // Count for totals
+   480→                                    switch (strtoupper($val)) {
+   481→                                        case 'P': case 'PR': case 'H': $rowPresent++; break;
+   482→                                        case 'WO': $rowWO++; break;
+   483→                                        case 'EL': $rowExtra++; break;
+   484→                                        case 'HD': $rowPresent += 0.5; break;
+   485→                                    }
+   486→                                    
+   487→                                    // Cell background
+   488→                                    $cellBg = '';
+   489→                                    switch (strtoupper($val)) {
+   490→                                        case 'P': case 'PR': $cellBg = 'background:#c8e6c9;'; break;
+   491→                                        case 'WO': $cellBg = 'background:#fff3cd;'; break;
+   492→                                        case 'A': $cellBg = 'background:#f8d7da;'; break;
+   493→                                        case 'HD': $cellBg = 'background:#d1ecf1;'; break;
+   494→                                        case 'EL': $cellBg = 'background:#d1c4e9;'; break;
+   495→                                        case 'H': $cellBg = 'background:#bbdefb;'; break;
+   496→                                        default: 
+   497→                                            if ($isSunday) $cellBg = 'background:#ffebee;';
+   498→                                            elseif ($isHoliday) $cellBg = 'background:#e3f2fd;';
+   499→                                    }
+   500→                                ?>
+   501→                                <td class="text-center muster-cell" style="<?php echo $cellBg; ?>">
+   502→                                    <?php if ($mode === 'filled'): ?>
+   503→                                    <select name="day_<?php echo $emp['id']; ?>_<?php echo $d; ?>" 
+   504→                                            class="form-select form-select-sm py-0 px-0 muster-select"
+   505→                                            data-emp-id="<?php echo $emp['id']; ?>" data-day="<?php echo $d; ?>"
+   506→                                            style="font-size:0.6rem;border:none;<?php echo $isSunday ? 'color:#dc3545;' : ''; ?>">
+   507→                                        <option value="">-</option>
+   508→                                        <option value="P" <?php echo strtoupper($val) === 'P' || strtoupper($val) === 'PR' ? 'selected' : ''; ?>>P</option>
+   509→                                        <option value="A" <?php echo strtoupper($val) === 'A' ? 'selected' : ''; ?>>A</option>
+   510→                                        <option value="HD" <?php echo strtoupper($val) === 'HD' ? 'selected' : ''; ?>>HD</option>
+   511→                                        <option value="WO" <?php echo strtoupper($val) === 'WO' ? 'selected' : ''; ?>>WO</option>
+   512→                                        <option value="H" <?php echo strtoupper($val) === 'H' ? 'selected' : ''; ?>>H</option>
+   513→                                        <option value="EL" <?php echo strtoupper($val) === 'EL' ? 'selected' : ''; ?>>EL</option>
+   514→                                    </select>
+   515→                                    <?php else: ?>
+   516→                                    <?php echo $val; ?>
+   517→                                    <?php endif; ?>
+   518→                                </td>
+   519→                                <?php endfor; ?>
+   520→                                
+   521→                                <?php $totalPD = $rowPresent + $rowWO + $rowExtra; ?>
+   522→                                <td class="text-center fw-bold" style="background:#e8f5e9;">
+   523→                                    <?php echo $rowPresent; ?>
+   524→                                </td>
+   525→                                <td class="text-center" style="background:#fff8e1;">
+   526→                                    <?php echo $rowWO; ?>
+   527→                                </td>
+   528→                                <td class="text-center" style="background:#e1f5fe;">
+   529→                                    <?php echo $rowExtra; ?>
+   530→                                </td>
+   531→                                <td class="text-center fw-bold" style="background:#f3e5f5;">
+   532→                                    <?php echo $totalPD; ?>
+   533→                                </td>
+   534→                            </tr>
+   535→                            <?php endforeach; ?>
+   536→                        </tbody>
+   537→                    </table>
+   538→                </div>
+   539→            </div>
+   540→            
+   541→            <?php if ($mode === 'filled'): ?>
+   542→            <div class="card-footer">
+   543→                <div class="d-flex justify-content-between align-items-center">
+   544→                    <small class="text-muted">
+   545→                        <i class="bi bi-info-circle me-1"></i>
+   546→                        Select attendance status for each day. Sundays (red) and Holidays (blue) are pre-marked.
+   547→                        Changes will be saved to attendance_summary.
+   548→                    </small>
+   549→                    <button type="submit" name="save_muster" class="btn btn-success btn-sm"
+   550→                            onclick="return confirm('Save muster data for all <?php echo count($employees); ?> employees?')">
+   551→                        <i class="bi bi-floppy me-1"></i>Save Muster Data
+   552→                    </button>
+   553→                </div>
+   554→            </div>
+   555→            <?php endif; ?>
+   556→        </div>
+   557→        
+   558→        <?php if ($mode === 'filled'): ?>
+   559→        </form>
+   560→        <?php endif; ?>
+   561→        <?php endif; ?>
+   562→    </div>
+   563→</div>
+   564→
+   565→<style>
+   566→@media print {
+   567→    .btn, form, .card-header, .card-footer { display: none !important; }
+   568→    body { font-size: 8pt; }
+   569→    .table td, .table th { padding: 1px 2px !important; }
+   570→    .table { font-size: 6.5pt; }
+   571→    .muster-select { 
+   572→        appearance: none !important; 
+   573→        -webkit-appearance: none !important;
+   574→        border: none !important;
+   575→        background: transparent !important;
+   576→        padding: 0 !important;
+   577→    }
+   578→}
+   579→
+   580→/* Custom scrollbar for mustering */
+   581→.table-responsive {
+   582→    scrollbar-width: thin;
+   583→}
+   584→
+   585→.muster-select:focus {
+   586→    box-shadow: 0 0 0 1px rgba(13, 110, 253, 0.5) !important;
+   587→}
+   588→
+   589→/* Color coding for select options */
+   590→.muster-select option[value="P"] { background: #c8e6c9; }
+   591→.muster-select option[value="A"] { background: #f8d7da; }
+   592→.muster-select option[value="HD"] { background: #d1ecf1; }
+   593→.muster-select option[value="WO"] { background: #fff3cd; }
+   594→.muster-select option[value="H"] { background: #bbdefb; }
+   595→.muster-select option[value="EL"] { background: #d1c4e9; }
+   596→</style>
+   597→
+   598→<script>
+   599→// Load units dynamically
+   600→document.getElementById('clientSelect')?.addEventListener('change', function() {
+   601→    const clientId = this.value;
+   602→    const unitSelect = document.getElementById('unitSelect');
+   603→    unitSelect.innerHTML = '<option value="">Loading...</option>';
+   604→    
+   605→    if (!clientId) {
+   606→        unitSelect.innerHTML = '<option value="">All Units</option>';
+   607→        return;
+   608→    }
+   609→    
+   610→    fetch('index.php?page=api/units&client_id=' + clientId)
+   611→        .then(r => r.json())
+   612→        .then(data => {
+   613→            unitSelect.innerHTML = '<option value="">All Units</option>';
+   614→            if (data.units) {
+   615→                data.units.forEach(u => {
+   616→                    const opt = document.createElement('option');
+   617→                    opt.value = u.id;
+   618→                    opt.textContent = u.name;
+   619→                    unitSelect.appendChild(opt);
+   620→                });
+   621→            }
+   622→        })
+   623→        .catch(() => { unitSelect.innerHTML = '<option value="">All Units</option>'; });
+   624→});
+   625→
+   626→// Color-code cells when selects change
+   627→document.querySelectorAll('.muster-select').forEach(select => {
+   628→    select.addEventListener('change', function() {
+   629→        const cell = this.closest('td');
+   630→        cell.style.background = '';
+   631→        
+   632→        switch (this.value) {
+   633→            case 'P': cell.style.background = '#c8e6c9'; break;
+   634→            case 'A': cell.style.background = '#f8d7da'; break;
+   635→            case 'HD': cell.style.background = '#d1ecf1'; break;
+   636→            case 'WO': cell.style.background = '#fff3cd'; break;
+   637→            case 'H': cell.style.background = '#bbdefb'; break;
+   638→            case 'EL': cell.style.background = '#d1c4e9'; break;
+   639→            default: cell.style.background = '';
+   640→        }
+   641→    });
+   642→});
+   643→
+   644→// Quick-fill keyboard shortcuts
+   645→document.getElementById('musterTable')?.addEventListener('keydown', function(e) {
+   646→    if (!e.target.classList.contains('muster-select')) return;
+   647→    
+   648→    const select = e.target;
+   649→    
+   650→    switch (e.key) {
+   651→        case 'p': select.value = 'P'; select.dispatchEvent(new Event('change')); break;
+   652→        case 'a': select.value = 'A'; select.dispatchEvent(new Event('change')); break;
+   653→        case 'h': select.value = 'HD'; select.dispatchEvent(new Event('change')); break;
+   654→        case 'w': select.value = 'WO'; select.dispatchEvent(new Event('change')); break;
+   655→        case 'l': select.value = 'H'; select.dispatchEvent(new Event('change')); break;
+   656→        case 'e': select.value = 'EL'; select.dispatchEvent(new Event('change')); break;
+   657→        case 'ArrowRight':
+   658→        case 'Tab':
+   659→            e.preventDefault();
+   660→            const allSelects = Array.from(document.querySelectorAll('.muster-select'));
+   661→            const idx = allSelects.indexOf(select);
+   662→            if (idx < allSelects.length - 1) allSelects[idx + 1].focus();
+   663→            break;
+   664→        case 'ArrowDown':
+   665→            e.preventDefault();
+   666→            const allSelectsDown = Array.from(document.querySelectorAll('.muster-select'));
+   667→            const idxD = allSelectsDown.indexOf(select);
+   668→            const daysInMonth = <?php echo $daysInMonth; ?>;
+   669→            if (idxD + daysInMonth < allSelectsDown.length) allSelectsDown[idxD + daysInMonth].focus();
+   670→            break;
+   671→    }
+   672→});
+   673→</script>
+   674→

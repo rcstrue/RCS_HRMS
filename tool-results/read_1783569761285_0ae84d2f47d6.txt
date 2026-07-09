@@ -1,0 +1,590 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Loan Statement / View
+     4→ */
+     5→
+     6→$loanId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+     7→
+     8→if (!$loanId) {
+     9→    setFlash('error', 'Invalid loan ID.');
+    10→    redirect('index.php?page=loan/list');
+    11→}
+    12→
+    13→$loanClass = new Loan();
+    14→$loan = $loanClass->getById($loanId);
+    15→
+    16→if (!$loan) {
+    17→    setFlash('error', 'Loan not found.');
+    18→    redirect('index.php?page=loan/list');
+    19→}
+    20→
+    21→$pageTitle = 'Loan Statement - ' . sanitize($loan['full_name']);
+    22→
+    23→// Handle form submissions
+    24→if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    25→    $action = $_POST['action'] ?? '';
+    26→
+    27→    // Record manual EMI payment
+    28→    if ($action === 'record_payment') {
+    29→        $month = (int)($_POST['month'] ?? 0);
+    30→        $year = (int)($_POST['year'] ?? 0);
+    31→        if ($month < 1 || $month > 12 || $year < 2020) {
+    32→            setFlash('error', 'Invalid month/year.');
+    33→        } else {
+    34→            $result = $loanClass->recordEmi($loanId, $month, $year, false);
+    35→            setFlash($result['success'] ? 'success' : 'error', $result['message']);
+    36→        }
+    37→        redirect("index.php?page=loan/view&id={$loanId}");
+    38→    }
+    39→
+    40→    // Settle loan
+    41→    if ($action === 'settle_loan') {
+    42→        $result = $loanClass->settleLoan($loanId);
+    43→        setFlash($result['success'] ? 'success' : 'error', $result['message']);
+    44→        redirect("index.php?page=loan/view&id={$loanId}");
+    45→    }
+    46→
+    47→    // Add amount to loan
+    48→    if ($action === 'add_amount') {
+    49→        $addAmount = (float)($_POST['add_amount'] ?? 0);
+    50→        if ($addAmount <= 0) {
+    51→            setFlash('error', 'Please enter a valid amount to add.');
+    52→        } else {
+    53→            $result = $loanClass->addAmount($loanId, $addAmount);
+    54→            setFlash($result['success'] ? 'success' : 'error', $result['message']);
+    55→        }
+    56→        redirect("index.php?page=loan/view&id={$loanId}");
+    57→    }
+    58→}
+    59→
+    60→// Refresh loan data after any action
+    61→$loan = $loanClass->getById($loanId);
+    62→
+    63→// Get EMI log
+    64→$emiLog = $loanClass->getEmiLog($loanId);
+    65→
+    66→// Build EMI schedule (projected + actual)
+    67→$emiSchedule = [];
+    68→$currentMonth = prev_month_num();
+    69→$currentYear = date('Y');
+    70→
+    71→$monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    72→               'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    73→$monthNamesFull = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+    74→                   'July', 'August', 'September', 'October', 'November', 'December'];
+    75→
+    76→// Create a map of paid EMIs
+    77→$paidEmis = [];
+    78→foreach ($emiLog as $log) {
+    79→    $key = $log['year'] . '-' . str_pad($log['month'], 2, '0', STR_PAD_LEFT);
+    80→    $paidEmis[$key] = $log;
+    81→}
+    82→
+    83→// Generate schedule for the full tenure
+    84→$startMonth = (int)$loan['start_month'];
+    85→$startYear = (int)$loan['start_year'];
+    86→$tenure = (int)$loan['tenure_months'];
+    87→
+    88→$runningBalance = (float)$loan['total_repayable'];
+    89→$emiAmount = (float)$loan['emi_amount'];
+    90→
+    91→for ($i = 0; $i < $tenure; $i++) {
+    92→    $schedMonth = $startMonth + $i;
+    93→    $schedYear = $startYear;
+    94→    while ($schedMonth > 12) {
+    95→        $schedMonth -= 12;
+    96→        $schedYear++;
+    97→    }
+    98→
+    99→    $key = $schedYear . '-' . str_pad($schedMonth, 2, '0', STR_PAD_LEFT);
+   100→
+   101→    if (isset($paidEmis[$key])) {
+   102→        $log = $paidEmis[$key];
+   103→        $emiSchedule[] = [
+   104→            'month' => $schedMonth,
+   105→            'year' => $schedYear,
+   106→            'emi' => $log['emi_amount'],
+   107→            'principal' => $log['principal_component'],
+   108→            'interest' => $log['interest_component'],
+   109→            'balance' => $log['balance_after'],
+   110→            'status' => 'Paid',
+   111→            'paid_via_payroll' => $log['deducted_via_payroll'],
+   112→            'paid_date' => $log['created_at']
+   113→        ];
+   114→        $runningBalance = (float)$log['balance_after'];
+   115→    } else {
+   116→        // Determine status
+   117→        if ($schedYear < $currentYear || ($schedYear == $currentYear && $schedMonth < $currentMonth)) {
+   118→            $status = 'Pending';
+   119→        } elseif ($schedYear == $currentYear && $schedMonth == $currentMonth) {
+   120→            $status = 'Current';
+   121→        } else {
+   122→            $status = 'Future';
+   123→        }
+   124→
+   125→        // Skip future months if loan is closed
+   126→        if ($loan['status'] !== 'Active' && $status === 'Future') {
+   127→            break;
+   128→        }
+   129→
+   130→        // Calculate principal/interest for display
+   131→        if ($loan['interest_rate'] > 0 && $runningBalance > 0) {
+   132→            $monthlyRate = (float)$loan['interest_rate'] / 12 / 100;
+   133→            $interestComp = round($runningBalance * $monthlyRate, 2);
+   134→            $principalComp = round($emiAmount - $interestComp, 2);
+   135→        } else {
+   136→            $interestComp = 0;
+   137→            $principalComp = $emiAmount;
+   138→        }
+   139→
+   140→        // Adjust last EMI
+   141→        if ($emiAmount > $runningBalance && $runningBalance > 0) {
+   142→            $emiAmount = $runningBalance;
+   143→            $principalComp = $emiAmount;
+   144→        }
+   145→
+   146→        $emiSchedule[] = [
+   147→            'month' => $schedMonth,
+   148→            'year' => $schedYear,
+   149→            'emi' => $status === 'Future' ? $emiAmount : 0,
+   150→            'principal' => $principalComp,
+   151→            'interest' => $interestComp,
+   152→            'balance' => max(0, $runningBalance - ($status !== 'Future' ? 0 : $emiAmount)),
+   153→            'status' => $status,
+   154→            'paid_via_payroll' => false,
+   155→            'paid_date' => null
+   156→        ];
+   157→
+   158→        if ($runningBalance > 0) {
+   159→            $runningBalance = max(0, $runningBalance - $emiAmount);
+   160→        }
+   161→    }
+   162→
+   163→    if ($runningBalance <= 0 && $loan['status'] !== 'Active') {
+   164→        break;
+   165→    }
+   166→}
+   167→
+   168→// Progress calculation
+   169→$totalPaid = 0;
+   170→$totalInterestPaid = 0;
+   171→$totalPrincipalPaid = 0;
+   172→foreach ($emiLog as $log) {
+   173→    $totalPaid += (float)$log['emi_amount'];
+   174→    $totalInterestPaid += (float)$log['interest_component'];
+   175→    $totalPrincipalPaid += (float)$log['principal_component'];
+   176→}
+   177→$progressPercent = $loan['total_repayable'] > 0
+   178→    ? min(100, round(($totalPaid / (float)$loan['total_repayable']) * 100, 1))
+   179→    : 100;
+   180→
+   181→$statusClass = [
+   182→    'Active' => 'success',
+   183→    'Closed' => 'secondary',
+   184→    'Settled' => 'info',
+   185→    'Written Off' => 'warning'
+   186→];
+   187→$badgeClass = $statusClass[$loan['status']] ?? 'secondary';
+   188→?>
+   189→
+   190→<!-- Print Styles -->
+   191→<?php
+   192→$extraCSS = <<<'CSS'
+   193→<style media="print">
+   194→    @media print {
+   195→        .no-print { display: none !important; }
+   196→        .card { border: 1px solid #ddd !important; box-shadow: none !important; }
+   197→        .table { font-size: 11px !important; }
+   198→        body { background: white !important; }
+   199→        .print-only { display: block !important; }
+   200→        .breadcrumb, .topbar { display: none !important; }
+   201→        #sidebar, .sidebar-overlay { display: none !important; }
+   202→        .main-content { margin-left: 0 !important; }
+   203→    }
+   204→    .print-only { display: none; }
+   205→</style>
+   206→CSS;
+   207→?>
+   208→
+   209→<!-- Back Button & Actions -->
+   210→<div class="d-flex justify-content-between align-items-center mb-4 no-print">
+   211→    <a href="index.php?page=loan/list" class="btn btn-outline-secondary">
+   212→        <i class="bi bi-arrow-left me-1"></i>Back to Loans
+   213→    </a>
+   214→    <div class="d-flex gap-2">
+   215→        <button type="button" class="btn btn-outline-primary" onclick="window.print()">
+   216→            <i class="bi bi-printer me-1"></i>Download Statement
+   217→        </button>
+   218→        <?php if ($loan['status'] === 'Active'): ?>
+   219→        <button type="button" class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#addAmountModal">
+   220→            <i class="bi bi-plus-circle me-1"></i>Add Amount
+   221→        </button>
+   222→        <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#settleModal">
+   223→            <i class="bi bi-check-circle me-1"></i>Settle Loan
+   224→        </button>
+   225→        <?php endif; ?>
+   226→    </div>
+   227→</div>
+   228→
+   229→<!-- Print Header -->
+   230→<div class="print-only text-center mb-4">
+   231→    <h4>RCS TRUE FACILITIES PVT LTD</h4>
+   232→    <h5>Employee Loan Statement</h5>
+   233→</div>
+   234→
+   235→<!-- Loan Details Card -->
+   236→<div class="card border-0 shadow-sm mb-4">
+   237→    <div class="card-header bg-primary text-white">
+   238→        <div class="d-flex justify-content-between align-items-center">
+   239→            <h5 class="card-title mb-0"><i class="bi bi-person-badge me-2"></i>Loan Details</h5>
+   240→            <span class="badge bg-light text-dark fs-6">Loan #<?php echo $loan['id']; ?></span>
+   241→        </div>
+   242→    </div>
+   243→    <div class="card-body">
+   244→        <div class="row g-3">
+   245→            <!-- Employee Info -->
+   246→            <div class="col-md-6">
+   247→                <h6 class="text-muted small fw-bold text-uppercase mb-3">Employee Information</h6>
+   248→                <table class="table table-sm table-borderless mb-0">
+   249→                    <tr>
+   250→                        <td class="text-muted" style="width:140px;">Employee</td>
+   251→                        <td class="fw-bold"><?php echo sanitize($loan['full_name']); ?></td>
+   252→                    </tr>
+   253→                    <tr>
+   254→                        <td class="text-muted">Emp Code</td>
+   255→                        <td><code><?php echo sanitize($loan['employee_code']); ?></code></td>
+   256→                    </tr>
+   257→                    <tr>
+   258→                        <td class="text-muted">Designation</td>
+   259→                        <td><?php echo sanitize($loan['designation'] ?? '-'); ?></td>
+   260→                    </tr>
+   261→                    <tr>
+   262→                        <td class="text-muted">Unit</td>
+   263→                        <td><?php echo sanitize($loan['unit_name'] ?? '-'); ?></td>
+   264→                    </tr>
+   265→                    <tr>
+   266→                        <td class="text-muted">Client</td>
+   267→                        <td><?php echo sanitize($loan['client_name'] ?? '-'); ?></td>
+   268→                    </tr>
+   269→                </table>
+   270→            </div>
+   271→            <!-- Loan Info -->
+   272→            <div class="col-md-6">
+   273→                <h6 class="text-muted small fw-bold text-uppercase mb-3">Loan Information</h6>
+   274→                <table class="table table-sm table-borderless mb-0">
+   275→                    <tr>
+   276→                        <td class="text-muted" style="width:140px;">Loan Type</td>
+   277→                        <td><span class="badge bg-light text-dark border"><?php echo sanitize($loan['loan_type']); ?></span></td>
+   278→                    </tr>
+   279→                    <tr>
+   280→                        <td class="text-muted">Amount</td>
+   281→                        <td class="fw-bold"><?php echo formatCurrency($loan['amount']); ?></td>
+   282→                    </tr>
+   283→                    <tr>
+   284→                        <td class="text-muted">Interest Rate</td>
+   285→                        <td><?php echo $loan['interest_rate'] > 0 ? $loan['interest_rate'] . '% p.a.' : 'No Interest'; ?></td>
+   286→                    </tr>
+   287→                    <tr>
+   288→                        <td class="text-muted">Tenure</td>
+   289→                        <td><?php echo $loan['tenure_months']; ?> Months</td>
+   290→                    </tr>
+   291→                    <tr>
+   292→                        <td class="text-muted">Monthly EMI</td>
+   293→                        <td class="fw-bold text-primary fs-5"><?php echo formatCurrency($loan['emi_amount']); ?></td>
+   294→                    </tr>
+   295→                </table>
+   296→            </div>
+   297→        </div>
+   298→
+   299→        <!-- Financial Summary Row -->
+   300→        <hr class="my-3">
+   301→        <div class="row g-3">
+   302→            <div class="col-md-2">
+   303→                <div class="text-center p-2 bg-light rounded">
+   304→                    <small class="text-muted d-block">Total Interest</small>
+   305→                    <div class="fw-bold text-warning"><?php echo formatCurrency($loan['total_interest']); ?></div>
+   306→                </div>
+   307→            </div>
+   308→            <div class="col-md-2">
+   309→                <div class="text-center p-2 bg-light rounded">
+   310→                    <small class="text-muted d-block">Total Repayable</small>
+   311→                    <div class="fw-bold"><?php echo formatCurrency($loan['total_repayable']); ?></div>
+   312→                </div>
+   313→            </div>
+   314→            <div class="col-md-2">
+   315→                <div class="text-center p-2 bg-light rounded">
+   316→                    <small class="text-muted d-block">Total Paid</small>
+   317→                    <div class="fw-bold text-success"><?php echo formatCurrency($totalPaid); ?></div>
+   318→                </div>
+   319→            </div>
+   320→            <div class="col-md-2">
+   321→                <div class="text-center p-2 bg-light rounded">
+   322→                    <small class="text-muted d-block">Balance</small>
+   323→                    <div class="fw-bold text-danger fs-5"><?php echo formatCurrency($loan['balance_amount']); ?></div>
+   324→                </div>
+   325→            </div>
+   326→            <div class="col-md-2">
+   327→                <div class="text-center p-2 bg-light rounded">
+   328→                    <small class="text-muted d-block">EMI Paid</small>
+   329→                    <div class="fw-bold"><?php echo $loan['emi_deducted']; ?> / <?php echo $loan['tenure_months']; ?></div>
+   330→                </div>
+   331→            </div>
+   332→            <div class="col-md-2">
+   333→                <div class="text-center p-2 bg-light rounded">
+   334→                    <small class="text-muted d-block">Status</small>
+   335→                    <span class="badge bg-<?php echo $badgeClass; ?> fs-6"><?php echo $loan['status']; ?></span>
+   336→                </div>
+   337→            </div>
+   338→        </div>
+   339→
+   340→        <!-- Progress Bar -->
+   341→        <div class="mt-3">
+   342→            <div class="d-flex justify-content-between align-items-center mb-1">
+   343→                <small class="text-muted">Repayment Progress</small>
+   344→                <small class="fw-bold"><?php echo $progressPercent; ?>%</small>
+   345→            </div>
+   346→            <div class="progress" style="height: 10px;">
+   347→                <div class="progress-bar bg-success" style="width: <?php echo $progressPercent; ?>%;">
+   348→                </div>
+   349→            </div>
+   350→        </div>
+   351→
+   352→        <?php if ($loan['remarks']): ?>
+   353→        <div class="mt-3">
+   354→            <small class="text-muted">Remarks:</small>
+   355→            <span class="ms-2"><?php echo sanitize($loan['remarks']); ?></span>
+   356→        </div>
+   357→        <?php endif; ?>
+   358→    </div>
+   359→</div>
+   360→
+   361→<!-- EMI Schedule -->
+   362→<div class="card border-0 shadow-sm mb-4">
+   363→    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+   364→        <h5 class="card-title mb-0"><i class="bi bi-table me-2"></i>EMI Schedule</h5>
+   365→        <div class="no-print">
+   366→            <span class="badge bg-success me-1"><?php echo count($emiLog); ?> Paid</span>
+   367→            <span class="badge bg-danger"><?php echo ($loan['tenure_months'] - count($emiLog)); ?> Remaining</span>
+   368→        </div>
+   369→    </div>
+   370→    <div class="card-body p-0">
+   371→        <div class="table-responsive">
+   372→            <table class="table table-hover align-middle mb-0" style="font-size: 13px;">
+   373→                <thead class="table-light">
+   374→                    <tr>
+   375→                        <th class="text-center">#</th>
+   376→                        <th>Month/Year</th>
+   377→                        <th class="text-end">EMI</th>
+   378→                        <th class="text-end">Principal</th>
+   379→                        <th class="text-end">Interest</th>
+   380→                        <th class="text-end">Balance After</th>
+   381→                        <th class="text-center">Status</th>
+   382→                        <?php if ($loan['status'] === 'Active'): ?>
+   383→                        <th class="text-center no-print">Action</th>
+   384→                        <?php endif; ?>
+   385→                    </tr>
+   386→                </thead>
+   387→                <tbody>
+   388→                    <?php
+   389→                    $emptyColspan = $loan['status'] === 'Active' ? 8 : 7;
+   390→                    if (empty($emiSchedule)): ?>
+   391→                    <tr>
+   392→                        <td colspan="<?php echo $emptyColspan; ?>" class="text-center py-4 text-muted">No schedule data available.</td>
+   393→                    </tr>
+   394→                    <?php else: ?>
+   395→                    <?php $sr = 1;
+   396→                    foreach ($emiSchedule as $sched): ?>
+   397→                    <tr class="<?php
+   398→                        if ($sched['status'] === 'Paid') echo 'table-success';
+   399→                        elseif ($sched['status'] === 'Pending') echo 'table-danger';
+   400→                        elseif ($sched['status'] === 'Current') echo 'table-info';
+   401→                    ?>">
+   402→                        <td class="text-center"><?php echo $sr++; ?></td>
+   403→                        <td>
+   404→                            <?php echo $monthNames[$sched['month']] . ' ' . $sched['year']; ?>
+   405→                            <?php if ($sched['paid_date']): ?>
+   406→                            <br><small class="text-muted"><?php echo date('d-m-Y', strtotime($sched['paid_date'])); ?></small>
+   407→                            <?php endif; ?>
+   408→                        </td>
+   409→                        <td class="text-end fw-bold"><?php echo formatCurrency($sched['emi']); ?></td>
+   410→                        <td class="text-end"><?php echo formatCurrency($sched['principal']); ?></td>
+   411→                        <td class="text-end text-warning"><?php echo formatCurrency($sched['interest']); ?></td>
+   412→                        <td class="text-end fw-bold"><?php echo formatCurrency($sched['balance']); ?></td>
+   413→                        <td class="text-center">
+   414→                            <?php
+   415→                            $schedStatusClass = [
+   416→                                'Paid' => 'success',
+   417→                                'Pending' => 'danger',
+   418→                                'Current' => 'info',
+   419→                                'Future' => 'secondary'
+   420→                            ];
+   421→                            $scls = $schedStatusClass[$sched['status']] ?? 'secondary';
+   422→                            ?>
+   423→                            <span class="badge bg-<?php echo $scls; ?>">
+   424→                                <?php
+   425→                                if ($sched['status'] === 'Paid') {
+   426→                                    echo $sched['paid_via_payroll'] ? '<i class="bi bi-check-circle"></i> Paid' : '<i class="bi bi-hand-thumbs-up"></i> Manual';
+   427→                                } else {
+   428→                                    echo $sched['status'];
+   429→                                }
+   430→                                ?>
+   431→                            </span>
+   432→                        </td>
+   433→                        <?php if ($loan['status'] === 'Active'): ?>
+   434→                        <td class="text-center no-print">
+   435→                            <?php if (in_array($sched['status'], ['Pending', 'Current'])): ?>
+   436→                            <form method="POST" style="display:inline;">
+   437→                                <input type="hidden" name="action" value="record_payment">
+   438→                                <input type="hidden" name="month" value="<?php echo $sched['month']; ?>">
+   439→                                <input type="hidden" name="year" value="<?php echo $sched['year']; ?>">
+   440→                                <button type="submit" class="btn btn-success btn-sm" title="Record EMI for <?php echo $monthNames[$sched['month']] . ' ' . $sched['year']; ?>"
+   441→                                        onclick="return confirm('Record EMI of <?php echo formatCurrency($loan['emi_amount']); ?> for <?php echo $monthNames[$sched['month']] . ' ' . $sched['year']; ?>?')">
+   442→                                    <i class="bi bi-cash-coin me-1"></i>Record
+   443→                                </button>
+   444→                            </form>
+   445→                            <?php elseif ($sched['status'] === 'Paid'): ?>
+   446→                            <span class="text-success" title="Paid on <?php echo $sched['paid_date'] ? date('d-m-Y', strtotime($sched['paid_date'])) : 'N/A'; ?>">
+   447→                                <i class="bi bi-check-circle-fill"></i>
+   448→                            </span>
+   449→                            <?php endif; ?>
+   450→                        </td>
+   451→                        <?php endif; ?>
+   452→                    </tr>
+   453→                    <?php endforeach; ?>
+   454→                    <?php endif; ?>
+   455→                </tbody>
+   456→                <?php if (!empty($emiSchedule)): ?>
+   457→                <tfoot class="table-dark">
+   458→                    <tr class="fw-bold">
+   459→                        <td colspan="2">TOTAL</td>
+   460→                        <?php if ($loan['status'] === 'Active'): ?><td></td><?php endif; ?>
+   461→                        <td class="text-end"><?php echo formatCurrency($totalPaid); ?></td>
+   462→                        <td class="text-end"><?php echo formatCurrency($totalPrincipalPaid); ?></td>
+   463→                        <td class="text-end"><?php echo formatCurrency($totalInterestPaid); ?></td>
+   464→                        <td class="text-end"><?php echo formatCurrency($loan['balance_amount']); ?></td>
+   465→                        <td></td>
+   466→                        <?php if ($loan['status'] === 'Active'): ?><td></td><?php endif; ?>
+   467→                    </tr>
+   468→                </tfoot>
+   469→                <?php endif; ?>
+   470→            </table>
+   471→        </div>
+   472→    </div>
+   473→</div>
+   474→
+   475→<!-- Record Payment Modal -->
+   476→<?php if ($loan['status'] === 'Active'): ?>
+   477→<div class="modal fade" id="recordPaymentModal" tabindex="-1">
+   478→    <div class="modal-dialog modal-sm">
+   479→        <div class="modal-content">
+   480→            <form method="POST">
+   481→                <input type="hidden" name="action" value="record_payment">
+   482→                <div class="modal-header bg-success text-white">
+   483→                    <h5 class="modal-title"><i class="bi bi-cash-coin me-2"></i>Record Payment</h5>
+   484→                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+   485→                </div>
+   486→                <div class="modal-body">
+   487→                    <div class="mb-3">
+   488→                        <label class="form-label fw-semibold">Month</label>
+   489→                        <select class="form-select" name="month" required>
+   490→                            <?php for ($m = 1; $m <= 12; $m++): ?>
+   491→                            <option value="<?php echo $m; ?>" <?php echo $m == $currentMonth ? 'selected' : ''; ?>>
+   492→                                <?php echo $monthNamesFull[$m]; ?>
+   493→                            </option>
+   494→                            <?php endfor; ?>
+   495→                        </select>
+   496→                    </div>
+   497→                    <div class="mb-3">
+   498→                        <label class="form-label fw-semibold">Year</label>
+   499→                        <select class="form-select" name="year" required>
+   500→                            <?php for ($y = $currentYear; $y >= $startYear; $y--): ?>
+   501→                            <option value="<?php echo $y; ?>" <?php echo $y == $currentYear ? 'selected' : ''; ?>>
+   502→                                <?php echo $y; ?>
+   503→                            </option>
+   504→                            <?php endfor; ?>
+   505→                        </select>
+   506→                    </div>
+   507→                    <div class="alert alert-info py-2 mb-0">
+   508→                        <small>EMI Amount: <strong><?php echo formatCurrency($loan['emi_amount']); ?></strong></small>
+   509→                    </div>
+   510→                </div>
+   511→                <div class="modal-footer">
+   512→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   513→                    <button type="submit" class="btn btn-success">
+   514→                        <i class="bi bi-check-lg me-1"></i>Record
+   515→                    </button>
+   516→                </div>
+   517→            </form>
+   518→        </div>
+   519→    </div>
+   520→</div>
+   521→
+   522→<!-- Settle Loan Modal -->
+   523→<div class="modal fade" id="settleModal" tabindex="-1">
+   524→    <div class="modal-dialog modal-sm">
+   525→        <div class="modal-content">
+   526→            <form method="POST">
+   527→                <input type="hidden" name="action" value="settle_loan">
+   528→                <div class="modal-header bg-warning">
+   529→                    <h5 class="modal-title"><i class="bi bi-check-circle me-2"></i>Settle Loan</h5>
+   530→                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+   531→                </div>
+   532→                <div class="modal-body">
+   533→                    <p>Are you sure you want to settle this loan?</p>
+   534→                    <div class="alert alert-warning py-2 mb-0">
+   535→                        <small>Outstanding Balance: <strong class="text-danger"><?php echo formatCurrency($loan['balance_amount']); ?></strong></small><br>
+   536→                        <small class="text-muted">The loan will be marked as Settled and closed.</small>
+   537→                    </div>
+   538→                </div>
+   539→                <div class="modal-footer">
+   540→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   541→                    <button type="submit" class="btn btn-warning">
+   542→                        <i class="bi bi-check-lg me-1"></i>Settle Loan
+   543→                    </button>
+   544→                </div>
+   545→            </form>
+   546→        </div>
+   547→    </div>
+   548→</div>
+   549→
+   550→<!-- Add Amount Modal -->
+   551→<div class="modal fade" id="addAmountModal" tabindex="-1">
+   552→    <div class="modal-dialog modal-sm">
+   553→        <div class="modal-content">
+   554→            <form method="POST">
+   555→                <input type="hidden" name="action" value="add_amount">
+   556→                <div class="modal-header bg-primary text-white">
+   557→                    <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Add Amount</h5>
+   558→                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+   559→                </div>
+   560→                <div class="modal-body">
+   561→                    <p>Increase the outstanding loan balance.</p>
+   562→                    <div class="mb-3">
+   563→                        <label class="form-label fw-semibold">Amount (₹)</label>
+   564→                        <input type="number" class="form-control" name="add_amount"
+   565→                               min="1" step="0.01" placeholder="Enter amount" required>
+   566→                    </div>
+   567→                    <div class="alert alert-info py-2 mb-0">
+   568→                        <small>Current Balance: <strong><?php echo formatCurrency($loan['balance_amount']); ?></strong></small>
+   569→                    </div>
+   570→                </div>
+   571→                <div class="modal-footer">
+   572→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   573→                    <button type="submit" class="btn btn-primary">
+   574→                        <i class="bi bi-plus-lg me-1"></i>Add Amount
+   575→                    </button>
+   576→                </div>
+   577→            </form>
+   578→        </div>
+   579→    </div>
+   580→</div>
+   581→
+   582→<!-- Floating Record Payment Button -->
+   583→<div class="position-fixed bottom-0 end-0 p-4 no-print" style="z-index: 1040;">
+   584→    <button type="button" class="btn btn-success btn-lg rounded-circle shadow" data-bs-toggle="modal" data-bs-target="#recordPaymentModal"
+   585→            title="Record Payment" style="width: 60px; height: 60px;">
+   586→        <i class="bi bi-cash-coin fs-4"></i>
+   587→    </button>
+   588→</div>
+   589→<?php endif; ?>
+   590→

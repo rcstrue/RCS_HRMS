@@ -1,0 +1,585 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Full & Final Settlement
+     4→ * Calculate all dues when employee leaves
+     5→ * Includes: Salary, Gratuity, Leave Encashment, PF withdrawal, Deductions
+     6→ */
+     7→
+     8→$pageTitle = 'Full & Final Settlement';
+     9→
+    10→$tablesExist = true;
+    11→$settlements = [];
+    12→$resigningEmployees = [];
+    13→
+    14→// Check if required tables exist, auto-create if missing
+    15→try {
+    16→    $tablesExist = $db->tableExists('employee_settlements');
+    17→    if (!$tablesExist) {
+    18→        $db->exec("CREATE TABLE IF NOT EXISTS employee_settlements (
+    19→            id INT AUTO_INCREMENT PRIMARY KEY,
+    20→            employee_id INT(10) UNSIGNED NOT NULL,
+    21→            last_working_day DATE NOT NULL,
+    22→            leaving_reason VARCHAR(50) NOT NULL DEFAULT 'Resignation',
+    23→            service_years DECIMAL(6,2) DEFAULT 0,
+    24→            salary_days INT DEFAULT 0,
+    25→            salary_amount DECIMAL(12,2) DEFAULT 0,
+    26→            leave_encashment_days DECIMAL(6,2) DEFAULT 0,
+    27→            leave_encashment_amount DECIMAL(12,2) DEFAULT 0,
+    28→            gratuity_years INT DEFAULT 0,
+    29→            gratuity_amount DECIMAL(12,2) DEFAULT 0,
+    30→            bonus_amount DECIMAL(12,2) DEFAULT 0,
+    31→            notice_shortfall INT DEFAULT 0,
+    32→            notice_recovery DECIMAL(12,2) DEFAULT 0,
+    33→            advance_recovery DECIMAL(12,2) DEFAULT 0,
+    34→            total_earnings DECIMAL(12,2) DEFAULT 0,
+    35→            total_deductions DECIMAL(12,2) DEFAULT 0,
+    36→            net_payable DECIMAL(12,2) DEFAULT 0,
+    37→            status ENUM('pending','approved','paid','on_hold','rejected') DEFAULT 'pending',
+    38→            payment_date DATE NULL,
+    39→            payment_mode VARCHAR(50) NULL,
+    40→            payment_reference VARCHAR(100) NULL,
+    41→            created_by INT NULL,
+    42→            approved_by INT NULL,
+    43→            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    44→            approved_at TIMESTAMP NULL,
+    45→            INDEX idx_employee (employee_id),
+    46→            INDEX idx_status (status)
+    47→        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    48→        $tablesExist = true;
+    49→    }
+    50→} catch (Exception $e) {
+    51→    $tablesExist = false;
+    52→}
+    53→
+    54→// Handle new settlement calculation
+    55→if ($tablesExist && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    56→    
+    57→    if ($_POST['action'] === 'calculate') {
+    58→        $employeeId = sanitize($_POST['employee_id']);
+    59→        $lastWorkingDay = sanitize($_POST['last_working_day']);
+    60→        $leavingReason = sanitize($_POST['leaving_reason']);
+    61→        $noticePeriodServed = (int)($_POST['notice_period_served'] ?? 0);
+    62→        
+    63→        // Get employee details
+    64→        $emp = $db->fetch(
+    65→            "SELECT e.*, ess.basic_da, ess.gross_salary, ess.pf_applicable, ess.esi_applicable, ess.bonus_applicable,
+    66→                    c.name as client_name
+    67→             FROM employees e
+    68→             LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
+    69→                AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+    70→             LEFT JOIN clients c ON e.client_id = c.id
+    71→             WHERE e.id = :id OR e.employee_code = :code",
+    72→            ['id' => $employeeId, 'code' => $employeeId]
+    73→        );
+    74→        
+    75→        if (!$emp) {
+    76→            setFlash('error', 'Employee not found');
+    77→            redirect('index.php?page=settlement/list');
+    78→        }
+    79→        
+    80→        // Calculate F&F components
+    81→        $lwd = new DateTime($lastWorkingDay);
+    82→        $doj = new DateTime($emp['date_of_joining']);
+    83→        $serviceYears = $doj->diff($lwd)->y + ($doj->diff($lwd)->m / 12);
+    84→        $serviceMonths = ($doj->diff($lwd)->y * 12) + $doj->diff($lwd)->m;
+    85→        
+    86→        $basic = floatval($emp['basic_da'] ?? $emp['basic_salary'] ?? 0);
+    87→        $gross = floatval($emp['gross_salary'] ?? $basic * 1.4);
+    88→        
+    89→        // 1. Salary for days worked in last month
+    90→        $lastMonth = $lwd->format('n');
+    91→        $lastYear = $lwd->format('Y');
+    92→        $daysInMonth = $lwd->format('t');
+    93→        $daysWorked = $lwd->format('j');
+    94→        
+    95→        $salaryDays = $daysWorked;
+    96→        $salaryPayable = ($gross / $daysInMonth) * $daysWorked;
+    97→        
+    98→        // 2. Leave Encashment
+    99→        $earnedLeaveBalance = 0;
+   100→        try {
+   101→            $leaveBalance = $db->fetch(
+   102→                "SELECT balance FROM employee_leave_balance 
+   103→                 WHERE employee_id = :id AND year = :year AND leave_type_id = 
+   104→                    (SELECT id FROM leave_types WHERE leave_code = 'EL' LIMIT 1)",
+   105→                ['id' => $emp['id'], 'year' => $lastYear]
+   106→            );
+   107→            $earnedLeaveBalance = floatval($leaveBalance['balance'] ?? 0);
+   108→        } catch (Exception $e) {
+   109→            // leave_balance table may not exist
+   110→            $earnedLeaveBalance = 0;
+   111→        }
+   112→        $leaveEncashment = ($basic / 26) * $earnedLeaveBalance;
+   113→        
+   114→        // 3. Gratuity (if eligible - 5+ years)
+   115→        $gratuity = 0;
+   116→        if ($serviceYears >= 5 && ($emp['gratuity_applicable'] ?? false)) {
+   117→            $gratuity = ($basic * 15 * floor($serviceYears)) / 26;
+   118→            $gratuity = min($gratuity, 2000000);
+   119→        }
+   120→        
+   121→        // 4. Bonus (if applicable)
+   122→        $bonusPayable = 0;
+   123→        if (($emp['bonus_applicable'] ?? false) && $basic <= 21000) {
+   124→            $bonusPayable = min($basic, 7000) * (8.33 / 100) * $serviceMonths;
+   125→        }
+   126→        
+   127→        // 5. Notice Period Recovery / Pay
+   128→        $noticePeriod = intval($emp['notice_period'] ?? 30);
+   129→        $noticeShortfall = max(0, $noticePeriod - $noticePeriodServed);
+   130→        $noticeRecovery = ($gross / 30) * $noticeShortfall;
+   131→        
+   132→        // 6. Advance/Pending Loan Recovery
+   133→        $pendingAdvance = 0;
+   134→        try {
+   135→            $pendingAdvance = $db->fetchColumn(
+   136→                "SELECT SUM(amount - recovered) FROM employee_advance 
+   137→                 WHERE employee_id = :id AND status = 'approved' AND recovered < amount",
+   138→                ['id' => $emp['id']]
+   139→            ) ?: 0;
+   140→        } catch (Exception $e) {
+   141→            // employee_advance table may not exist
+   142→        }
+   143→        
+   144→        // 7. Other Dues
+   145→        $otherDues = 0;
+   146→        $otherRecoveries = 0;
+   147→        
+   148→        // Calculate totals
+   149→        $totalEarnings = $salaryPayable + $leaveEncashment + $gratuity + $bonusPayable + $otherDues;
+   150→        $totalDeductions = $noticeRecovery + $pendingAdvance + $otherRecoveries;
+   151→        $netPayable = $totalEarnings - $totalDeductions;
+   152→        
+   153→        // PF Withdrawal Info
+   154→        $pfWithdrawal = [
+   155→            'uan' => $emp['uan_number'],
+   156→            'pf_applicable' => $emp['pf_applicable'] ?? false,
+   157→            'can_withdraw' => true,
+   158→            'note' => $serviceYears >= 5 ? 'Can withdraw full PF + EPS' : 'Can withdraw PF only (EPS requires 10 years service)'
+   159→        ];
+   160→        
+   161→        // Save settlement to database
+   162→        $settlementData = [
+   163→            'employee_id' => $emp['id'],
+   164→            'last_working_day' => $lastWorkingDay,
+   165→            'leaving_reason' => $leavingReason,
+   166→            'service_years' => round($serviceYears, 2),
+   167→            'salary_days' => $daysWorked,
+   168→            'salary_amount' => $salaryPayable,
+   169→            'leave_encashment_days' => $earnedLeaveBalance,
+   170→            'leave_encashment_amount' => $leaveEncashment,
+   171→            'gratuity_years' => floor($serviceYears),
+   172→            'gratuity_amount' => $gratuity,
+   173→            'bonus_amount' => $bonusPayable,
+   174→            'notice_shortfall' => $noticeShortfall,
+   175→            'notice_recovery' => $noticeRecovery,
+   176→            'advance_recovery' => $pendingAdvance,
+   177→            'total_earnings' => $totalEarnings,
+   178→            'total_deductions' => $totalDeductions,
+   179→            'net_payable' => $netPayable,
+   180→            'status' => 'pending',
+   181→            'created_by' => $_SESSION['user_id'],
+   182→            'created_at' => date('Y-m-d H:i:s')
+   183→        ];
+   184→        
+   185→        try {
+   186→            $settlementId = $db->insert('employee_settlements', $settlementData);
+   187→            
+   188→            // Update employee status
+   189→            $db->update('employees', [
+   190→                'status' => 'inactive',
+   191→                'date_of_leaving' => $lastWorkingDay,
+   192→                'updated_at' => date('Y-m-d H:i:s')
+   193→            ], 'id = :id', ['id' => $emp['id']]);
+   194→            
+   195→            setFlash('success', 'F&F Settlement calculated successfully. Settlement ID: ' . $settlementId);
+   196→            redirect('index.php?page=settlement/view&id=' . $settlementId);
+   197→        } catch (Exception $e) {
+   198→            setFlash('error', 'Error saving settlement: ' . $e->getMessage());
+   199→        }
+   200→    }
+   201→    
+   202→    if ($_POST['action'] === 'approve' && isset($_POST['settlement_id'])) {
+   203→        $settlementId = (int)$_POST['settlement_id'];
+   204→        $paymentDate = sanitize($_POST['payment_date']);
+   205→        $paymentMode = sanitize($_POST['payment_mode']);
+   206→        $paymentRef = sanitize($_POST['payment_reference'] ?? '');
+   207→        
+   208→        $db->update('employee_settlements', [
+   209→            'status' => 'paid',
+   210→            'payment_date' => $paymentDate,
+   211→            'payment_mode' => $paymentMode,
+   212→            'payment_reference' => $paymentRef,
+   213→            'approved_by' => $_SESSION['user_id'],
+   214→            'approved_at' => date('Y-m-d H:i:s')
+   215→        ], 'id = :id', ['id' => $settlementId]);
+   216→        
+   217→        setFlash('success', 'Settlement marked as paid');
+   218→        redirect('index.php?page=settlement/list');
+   219→    }
+   220→}
+   221→
+   222→// Get employees who are leaving or have left
+   223→// employees.status enum: 'approved','pending_hr_verification','inactive','terminated','removed'
+   224→if ($tablesExist) {
+   225→    try {
+   226→        $resigningEmployees = $db->fetchAll(
+   227→            "SELECT e.id, e.employee_code, e.full_name, e.date_of_joining, e.date_of_leaving,
+   228→                    c.name as client_name,
+   229→                    ess.gross_salary,
+   230→                    (SELECT COUNT(*) FROM employee_settlements WHERE employee_id = e.id) as has_settlement
+   231→             FROM employees e
+   232→             LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
+   233→                AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+   234→             LEFT JOIN clients c ON e.client_id = c.id
+   235→             WHERE e.status IN ('inactive', 'terminated', 'removed')
+   236→                OR (e.date_of_leaving IS NOT NULL AND e.date_of_leaving <= CURDATE())
+   237→             ORDER BY e.date_of_leaving DESC"
+   238→        );
+   239→    } catch (Exception $e) {
+   240→        $resigningEmployees = [];
+   241→    }
+   242→
+   243→    // Get existing settlements
+   244→    try {
+   245→        $settlements = $db->fetchAll(
+   246→            "SELECT s.*, e.employee_code, e.full_name, 
+   247→                    c.name as client_name
+   248→             FROM employee_settlements s
+   249→             JOIN employees e ON s.employee_id = e.id
+   250→             LEFT JOIN clients c ON e.client_id = c.id
+   251→             ORDER BY s.created_at DESC"
+   252→        );
+   253→    } catch (Exception $e) {
+   254→        $settlements = [];
+   255→    }
+   256→}
+   257→
+   258→?>
+   259→
+   260→<div class="page-header">
+   261→    <div class="row align-items-center">
+   262→        <div class="col">
+   263→            <h1 class="page-title">
+   264→                <i class="bi bi-cash-coin me-2"></i>Full & Final Settlement
+   265→            </h1>
+   266→            <p class="text-muted">Calculate and process employee exit settlements</p>
+   267→        </div>
+   268→        <?php if ($tablesExist): ?>
+   269→        <div class="col-auto">
+   270→            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newSettlementModal">
+   271→                <i class="bi bi-plus-lg me-1"></i>New Settlement
+   272→            </button>
+   273→        </div>
+   274→        <?php endif; ?>
+   275→    </div>
+   276→</div>
+   277→
+   278→<?php if (!$tablesExist): ?>
+   279→<div class="alert alert-warning">
+   280→    <i class="bi bi-exclamation-triangle me-2"></i>
+   281→    <strong>Settlement Module Not Configured</strong><br>
+   282→    The required database table (<code>employee_settlements</code>) has not been created yet.
+   283→    Please run the settlement migration SQL to set up this module.
+   284→</div>
+   285→<?php else: ?>
+   286→
+   287→<!-- Summary Cards -->
+   288→<div class="row g-4 mb-4">
+   289→    <div class="col-md-3">
+   290→        <div class="card bg-warning text-dark">
+   291→            <div class="card-body">
+   292→                <div class="d-flex justify-content-between align-items-center">
+   293→                    <div>
+   294→                        <div class="text-black-50 small">Pending Settlements</div>
+   295→                        <div class="h3 mb-0">
+   296→                            <?php 
+   297→                            echo count(array_filter($settlements, fn($s) => $s['status'] == 'pending'));
+   298→                            ?>
+   299→                        </div>
+   300→                    </div>
+   301→                    <i class="bi bi-hourglass-split fs-1 opacity-50"></i>
+   302→                </div>
+   303→            </div>
+   304→        </div>
+   305→    
+   306→    <div class="col-md-3">
+   307→        <div class="card bg-success text-white">
+   308→            <div class="card-body">
+   309→                <div class="d-flex justify-content-between align-items-center">
+   310→                    <div>
+   311→                        <div class="text-white-50 small">Paid Settlements</div>
+   312→                        <div class="h3 mb-0">
+   313→                            <?php 
+   314→                            echo count(array_filter($settlements, fn($s) => $s['status'] == 'paid'));
+   315→                            ?>
+   316→                        </div>
+   317→                    </div>
+   318→                    <i class="bi bi-check-circle fs-1 opacity-50"></i>
+   319→                </div>
+   320→            </div>
+   321→        </div>
+   322→    
+   323→    <div class="col-md-3">
+   324→        <div class="card bg-danger text-white">
+   325→            <div class="card-body">
+   326→                <div class="d-flex justify-content-between align-items-center">
+   327→                    <div>
+   328→                        <div class="text-white-50 small">Ex-Employees Pending</div>
+   329→                        <div class="h3 mb-0"><?php echo count($resigningEmployees); ?></div>
+   330→                    </div>
+   331→                    <i class="bi bi-person-x fs-1 opacity-50"></i>
+   332→                </div>
+   333→            </div>
+   334→        </div>
+   335→    
+   336→    <div class="col-md-3">
+   337→        <div class="card bg-primary text-white">
+   338→            <div class="card-body">
+   339→                <div class="d-flex justify-content-between align-items-center">
+   340→                    <div>
+   341→                        <div class="text-white-50 small">Total Settlements</div>
+   342→                        <div class="h3 mb-0"><?php echo number_format(count($settlements)); ?></div>
+   343→                    </div>
+   344→                    <i class="bi bi-receipt fs-1 opacity-50"></i>
+   345→                </div>
+   346→            </div>
+   347→        </div>
+   348→</div>
+   349→
+   350→<!-- Settlements Table -->
+   351→<div class="row">
+   352→    <div class="col-12">
+   353→        <div class="card">
+   354→            <div class="card-header">
+   355→                <h5 class="card-title mb-0"><i class="bi bi-table me-2"></i>Settlement Records</h5>
+   356→            </div>
+   357→            <div class="card-body p-0">
+   358→                <div class="table-responsive">
+   359→                    <table class="table table-hover mb-0" id="settlementTable">
+   360→                        <thead class="table-light">
+   361→                            <tr>
+   362→                                <th>Ref #</th>
+   363→                                <th>Employee</th>
+   364→                                <th>Client</th>
+   365→                                <th>Last Working Day</th>
+   366→                                <th>Service (Yrs)</th>
+   367→                                <th class="text-end">Total Earnings</th>
+   368→                                <th class="text-end">Deductions</th>
+   369→                                <th class="text-end">Net Payable</th>
+   370→                                <th>Status</th>
+   371→                                <th>Actions</th>
+   372→                            </tr>
+   373→                        </thead>
+   374→                        <tbody>
+   375→                            <?php if (empty($settlements)): ?>
+   376→                            <tr>
+   377→                                <td colspan="10" class="text-center py-4 text-muted">
+   378→                                    No settlements found. Click "New Settlement" to calculate F&F.
+   379→                                </td>
+   380→                            </tr>
+   381→                            <?php else: ?>
+   382→                            <?php foreach ($settlements as $s): ?>
+   383→                            <tr>
+   384→                                <td><code>FNF-<?php echo str_pad($s['id'], 5, '0', STR_PAD_LEFT); ?></code></td>
+   385→                                <td>
+   386→                                    <div><?php echo sanitize($s['full_name']); ?></div>
+   387→                                    <small class="text-muted"><?php echo sanitize($s['employee_code']); ?></small>
+   388→                                </td>
+   389→                                <td><?php echo sanitize($s['client_name'] ?? '-'); ?></td>
+   390→                                <td><?php echo formatDate($s['last_working_day']); ?></td>
+   391→                                <td><?php echo number_format($s['service_years'], 1); ?></td>
+   392→                                <td class="text-end"><?php echo formatCurrency($s['total_earnings']); ?></td>
+   393→                                <td class="text-end text-danger"><?php echo formatCurrency($s['total_deductions']); ?></td>
+   394→                                <td class="text-end"><strong><?php echo formatCurrency($s['net_payable']); ?></strong></td>
+   395→                                <td>
+   396→                                    <?php
+   397→                                    $statusColors = [
+   398→                                        'pending' => 'warning',
+   399→                                        'approved' => 'info',
+   400→                                        'paid' => 'success',
+   401→                                        'on_hold' => 'danger'
+   402→                                    ];
+   403→                                    ?>
+   404→                                    <span class="badge bg-<?php echo $statusColors[$s['status']] ?? 'secondary'; ?>">
+   405→                                        <?php echo ucfirst($s['status']); ?>
+   406→                                    </span>
+   407→                                </td>
+   408→                                <td>
+   409→                                    <a href="index.php?page=settlement/view&id=<?php echo $s['id']; ?>" 
+   410→                                       class="btn btn-sm btn-outline-primary" title="View Details">
+   411→                                        <i class="bi bi-eye"></i>
+   412→                                    </a>
+   413→                                    <?php if ($s['status'] == 'pending'): ?>
+   414→                                    <button type="button" class="btn btn-sm btn-outline-success" 
+   415→                                            onclick="approveSettlement(<?php echo htmlspecialchars(json_encode($s)); ?>)" title="Mark as Paid">
+   416→                                        <i class="bi bi-check-lg"></i>
+   417→                                    </button>
+   418→                                    <?php endif; ?>
+   419→                                </td>
+   420→                            </tr>
+   421→                            <?php endforeach; ?>
+   422→                            <?php endif; ?>
+   423→                        </tbody>
+   424→                    </table>
+   425→                </div>
+   426→            </div>
+   427→        </div>
+   428→    </div>
+   429→</div>
+   430→
+   431→<!-- New Settlement Modal -->
+   432→<div class="modal fade" id="newSettlementModal" tabindex="-1">
+   433→    <div class="modal-dialog modal-lg">
+   434→        <div class="modal-content">
+   435→            <form method="POST">
+   436→                <input type="hidden" name="action" value="calculate">
+   437→                <div class="modal-header">
+   438→                    <h5 class="modal-title"><i class="bi bi-calculator me-2"></i>New F&F Settlement</h5>
+   439→                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+   440→                </div>
+   441→                <div class="modal-body">
+   442→                    <div class="row g-3">
+   443→                        <div class="col-md-6">
+   444→                            <label class="form-label required">Employee</label>
+   445→                            <select class="form-select select2" name="employee_id" required>
+   446→                                <option value="">Select Employee</option>
+   447→                                <?php foreach ($resigningEmployees as $e): ?>
+   448→                                <option value="<?php echo $e['id']; ?>">
+   449→                                    <?php echo sanitize($e['employee_code'] . ' - ' . $e['full_name']); ?>
+   450→                                </option>
+   451→                                <?php endforeach; ?>
+   452→                            </select>
+   453→                            <div class="form-text">Or search any active employee</div>
+   454→                        </div>
+   455→                        
+   456→                        <div class="col-md-6">
+   457→                            <label class="form-label required">Last Working Day</label>
+   458→                            <input type="date" class="form-control" name="last_working_day" required>
+   459→                        </div>
+   460→                        
+   461→                        <div class="col-md-6">
+   462→                            <label class="form-label required">Reason for Leaving</label>
+   463→                            <select class="form-select" name="leaving_reason" required>
+   464→                                <option value="Resignation">Resignation</option>
+   465→                                <option value="Termination">Termination</option>
+   466→                                <option value="Retirement">Retirement</option>
+   467→                                <option value="Contract End">Contract End</option>
+   468→                                <option value="Absconding">Absconding</option>
+   469→                                <option value="Death">Death</option>
+   470→                            </select>
+   471→                        </div>
+   472→                        
+   473→                        <div class="col-md-6">
+   474→                            <label class="form-label">Notice Period Served (Days)</label>
+   475→                            <input type="number" class="form-control" name="notice_period_served" value="30" min="0">
+   476→                        </div>
+   477→                    </div>
+   478→                    
+   479→                    <div class="alert alert-info mt-3">
+   480→                        <i class="bi bi-info-circle me-2"></i>
+   481→                        <strong>F&F will calculate:</strong>
+   482→                        <ul class="mb-0 mt-2">
+   483→                            <li>Salary for days worked in last month</li>
+   484→                            <li>Leave encashment (earned leave balance)</li>
+   485→                            <li>Gratuity (if eligible - 5+ years service)</li>
+   486→                            <li>Bonus (if applicable)</li>
+   487→                            <li>Notice period recovery</li>
+   488→                            <li>Advance/loan recovery</li>
+   489→                        </ul>
+   490→                    </div>
+   491→                </div>
+   492→                <div class="modal-footer">
+   493→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   494→                    <button type="submit" class="btn btn-primary">
+   495→                        <i class="bi bi-calculator me-1"></i>Calculate F&F
+   496→                    </button>
+   497→                </div>
+   498→            </form>
+   499→        </div>
+   500→    </div>
+   501→</div>
+   502→
+   503→<!-- Approve Settlement Modal -->
+   504→<div class="modal fade" id="approveSettlementModal" tabindex="-1">
+   505→    <div class="modal-dialog">
+   506→        <div class="modal-content">
+   507→            <form method="POST">
+   508→                <input type="hidden" name="action" value="approve">
+   509→                <input type="hidden" name="settlement_id" id="approve_settlement_id">
+   510→                <div class="modal-header">
+   511→                    <h5 class="modal-title"><i class="bi bi-check-circle me-2"></i>Mark as Paid</h5>
+   512→                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+   513→                </div>
+   514→                <div class="modal-body">
+   515→                    <div class="mb-3">
+   516→                        <label class="form-label">Net Payable Amount</label>
+   517→                        <input type="text" class="form-control" id="approve_net_payable" readonly>
+   518→                    </div>
+   519→                    <div class="mb-3">
+   520→                        <label class="form-label required">Payment Date</label>
+   521→                        <input type="date" class="form-control" name="payment_date" value="<?php echo date('Y-m-d'); ?>" required>
+   522→                    </div>
+   523→                    <div class="mb-3">
+   524→                        <label class="form-label required">Payment Mode</label>
+   525→                        <select class="form-select" name="payment_mode" required>
+   526→                            <option value="Bank Transfer">Bank Transfer</option>
+   527→                            <option value="Cheque">Cheque</option>
+   528→                            <option value="Cash">Cash</option>
+   529→                        </select>
+   530→                    </div>
+   531→                    <div class="mb-3">
+   532→                        <label class="form-label">Payment Reference</label>
+   533→                        <input type="text" class="form-control" name="payment_reference" placeholder="UTR/Cheque No.">
+   534→                    </div>
+   535→                </div>
+   536→                <div class="modal-footer">
+   537→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   538→                    <button type="submit" class="btn btn-success">
+   539→                        <i class="bi bi-check-lg me-1"></i>Confirm Payment
+   540→                    </button>
+   541→                </div>
+   542→            </form>
+   543→        </div>
+   544→    </div>
+   545→</div>
+   546→
+   547→<script>
+   548→function approveSettlement(data) {
+   549→    $('#approve_settlement_id').val(data.id);
+   550→    $('#approve_net_payable').val(formatCurrency(data.net_payable));
+   551→    new bootstrap.Modal('#approveSettlementModal').show();
+   552→}
+   553→
+   554→function formatCurrency(amount) {
+   555→    return '₹' + parseFloat(amount).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+   556→}
+   557→
+   558→$(document).ready(function() {
+   559→    $('#settlementTable').DataTable({
+   560→        responsive: true,
+   561→        pageLength: 25,
+   562→        order: [[3, 'desc']]
+   563→    });
+   564→    
+   565→    // Initialize select2 for employee search
+   566→    $('.select2').select2({
+   567→        theme: 'bootstrap-5',
+   568→        placeholder: 'Search employee...',
+   569→        ajax: {
+   570→            url: 'index.php?page=api/employees',
+   571→            dataType: 'json',
+   572→            delay: 250,
+   573→            data: function(params) {
+   574→                return { search: params.term };
+   575→            },
+   576→            processResults: function(data) {
+   577→                return { results: data };
+   578→            }
+   579→        }
+   580→    });
+   581→});
+   582→</script>
+   583→
+   584→<?php endif; // end tablesExist check ?>
+   585→
