@@ -1,0 +1,603 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Payroll Save Row API
+     4→ * Version: 1.0.0
+     5→ *
+     6→ * AJAX endpoint for saving a single employee's payroll row.
+     7→ * Route: index.php?page=api/payroll-save-row
+     8→ *
+     9→ * Receives JSON POST with:
+    10→ *   - employee_id (int, employees.id)
+    11→ *   - employee_code (string, employees.employee_code)
+    12→ *   - month, year, unit_id
+    13→ *   - pf_applicable, esi_applicable, pt_applicable, lwf_applicable (bool)
+    14→ *   - wage_details { basic_da, hra, leave_encashment, bonus_encashment, washing_allowance, gross_salary }
+    15→ *   - attendance { total_present, total_wo, total_extra, overtime_hours, total_paid_days }
+    16→ *   - advances { advance, office_deduction }
+    17→ *   - payroll { all calculated values }
+    18→ *
+    19→ * Handles:
+    20→ *   1. Upsert attendance_summary (employee_id = employees.id)
+    21→ *   2. Upsert employee_salary_structures (effective_from = YYYY-MM-01)
+    22→ *   3. Upsert employee_advances (employee_id = employees.id)
+    23→ *   4. Upsert payroll (employee_id = employee_code string)
+    24→ */
+    25→
+    26→header('Content-Type: application/json');
+    27→
+    28→// ── Authentication check ────────────────────────────────────────
+    29→if (!isset($_SESSION['user_id'])) {
+    30→    http_response_code(401);
+    31→    echo json_encode(['success' => false, 'message' => 'Not authenticated']);
+    32→    exit;
+    33→}
+    34→
+    35→// Role check — payroll row save is admin/HR/manager only
+    36→$roleCode = $_SESSION['role_code'] ?? '';
+    37→if (!in_array($roleCode, ['admin', 'hr_executive', 'hr', 'manager'])) {
+    38→    http_response_code(403);
+    39→    echo json_encode(['success' => false, 'message' => 'Access denied. Insufficient permissions for payroll save.']);
+    40→    exit;
+    41→}
+    42→
+    43→// ── Only POST ───────────────────────────────────────────────────
+    44→if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    45→    http_response_code(405);
+    46→    echo json_encode(['success' => false, 'message' => 'Method not allowed']);
+    47→    exit;
+    48→}
+    49→
+    50→// ── Parse JSON input ────────────────────────────────────────────
+    51→$rawInput = file_get_contents('php://input');
+    52→$data = json_decode($rawInput, true);
+    53→
+    54→if (json_last_error() !== JSON_ERROR_NONE) {
+    55→    echo json_encode(['success' => false, 'message' => 'Invalid JSON: ' . json_last_error_msg()]);
+    56→    exit;
+    57→}
+    58→
+    59→// ── Validate required fields ────────────────────────────────────
+    60→$employeeId   = (int)($data['employee_id'] ?? 0);
+    61→$employeeCode = trim($data['employee_code'] ?? '');
+    62→$month        = (int)($data['month'] ?? 0);
+    63→$year         = (int)($data['year'] ?? 0);
+    64→$unitId       = (int)($data['unit_id'] ?? 0);
+    65→if ($employeeId <= 0 || empty($employeeCode) || $month < 1 || $month > 12 || $year < 2020) {
+    66→    echo json_encode(['success' => false, 'message' => 'Missing required fields (employee_id, employee_code, month, year)']);
+    67→    exit;
+    68→}
+    69→
+    70→$wageDetails = $data['wage_details'] ?? [];
+    71→$attendance  = $data['attendance'] ?? [];
+    72→$advances    = $data['advances'] ?? [];
+    73→$payroll     = $data['payroll'] ?? [];
+    74→
+    75→// ── Server-side attendance validation (Audit Issue #5) ──
+    76→$attPresent  = (float)($attendance['total_present'] ?? 0);
+    77→$attWO       = (float)($attendance['total_wo'] ?? 0);
+    78→$attExtra    = (float)($attendance['total_extra'] ?? 0);
+    79→$attOtHours  = (float)($attendance['overtime_hours'] ?? 0);
+    80→$attPaidDays = (float)($attendance['total_paid_days'] ?? 0);
+    81→
+    82→$validationErrors = [];
+    83→if ($attPresent < 0) $validationErrors[] = 'Present days cannot be negative';
+    84→if ($attWO < 0)      $validationErrors[] = 'Weekly off days cannot be negative';
+    85→if ($attExtra < 0)   $validationErrors[] = 'Extra days cannot be negative';
+    86→if ($attOtHours < 0) $validationErrors[] = 'OT hours cannot be negative';
+    87→
+    88→// Get total_days for validation from unit_salary_formulas (same logic as process-edit.php)
+    89→$calDays = cal_days_in_month(CAL_GREGORIAN, $month, $year);
+    90→$vTotalDays = $calDays;
+    91→if ($unitId > 0) {
+    92→    $vUnitFormula = $db->fetch(
+    93→        "SELECT * FROM unit_salary_formulas WHERE unit_id = ? AND is_active = 1 ORDER BY effective_from DESC LIMIT 1",
+    94→        [$unitId]
+    95→    );
+    96→    if ($vUnitFormula) {
+    97→        $vPayDaysType = $vUnitFormula['pay_days_type'] ?? 'actual';
+    98→        switch ($vPayDaysType) {
+    99→            case 'fixed_30': $vTotalDays = 30; break;
+   100→            case 'previous_month':
+   101→                $pm = $month - 1; $py = $year;
+   102→                if ($pm < 1) { $pm = 12; $py--; }
+   103→                $vTotalDays = (int)cal_days_in_month(CAL_GREGORIAN, $pm, $py);
+   104→                break;
+   105→            case 'calendar_minus_sundays':
+   106→                $s = 0;
+   107→                for ($d = 1; $d <= $calDays; $d++) {
+   108→                    if ((int)date('N', strtotime("$year-$month-$d")) === 7) $s++;
+   109→                }
+   110→                $vTotalDays = $calDays - $s;
+   111→                break;
+   112→            default: $vTotalDays = $calDays; break;
+   113→        }
+   114→    }
+   115→}
+   116→$computedPaidDays = $attPresent + $attWO + $attExtra;
+   117→if ($computedPaidDays > $vTotalDays) {
+   118→    $validationErrors[] = "Paid days ($computedPaidDays) cannot exceed total days ($vTotalDays)";
+   119→}
+   120→// OT monthly limit: ot_hours_per_day × total_days from unit config
+   121→// (overtime_hours is a MONTHLY total, not per-day)
+   122→$otMonthlyCap = 0;
+   123→if ($unitId > 0) {
+   124→    $unitFormula = $db->fetch(
+   125→        "SELECT ot_hours_per_day FROM unit_salary_formulas
+   126→         WHERE unit_id = ? AND is_active = 1
+   127→         ORDER BY effective_from DESC LIMIT 1",
+   128→        [$unitId]
+   129→    );
+   130→    if ($unitFormula) {
+   131→        $otHrsPerDay = (float)($unitFormula['ot_hours_per_day'] ?? 8);
+   132→        $otMonthlyCap = round($otHrsPerDay * $vTotalDays);
+   133→    }
+   134→}
+   135→// Only warn if OT exceeds monthly cap (not a hard block — allow override)
+   136→$otWarning = '';
+   137→if ($otMonthlyCap > 0 && $attOtHours > $otMonthlyCap) {
+   138→    $otWarning = "OT hours ($attOtHours) exceeds monthly cap ($otMonthlyCap) — saved with override. ";
+   139→}
+   140→
+   141→if (!empty($validationErrors)) {
+   142→    echo json_encode([
+   143→        'success' => false,
+   144→        'message' => 'Validation: ' . implode('; ', $validationErrors)
+   145→    ]);
+   146→    exit;
+   147→}
+   148→
+   149→try {
+   150→    $db->exec("START TRANSACTION");
+   151→
+   152→    // Ensure loan_emi column exists in payroll table
+   153→    try {
+   154→        $db->query("SELECT loan_emi FROM payroll LIMIT 1");
+   155→    } catch (Exception $colEx) {
+   156→        $db->exec("ALTER TABLE payroll ADD COLUMN loan_emi DECIMAL(10,2) DEFAULT 0.00 AFTER salary_advance");
+   157→    }
+   158→
+   159→    // Ensure month/year columns exist in payroll table (period-free schema)
+   160→    try {
+   161→        $db->query("SELECT month FROM payroll LIMIT 1");
+   162→    } catch (Exception $colEx) {
+   163→        $db->exec("ALTER TABLE payroll ADD COLUMN month INT NOT NULL DEFAULT 0 AFTER payroll_period_id");
+   164→        $db->exec("ALTER TABLE payroll ADD COLUMN year INT NOT NULL DEFAULT 0 AFTER month");
+   165→        $db->exec("ALTER TABLE payroll ADD INDEX idx_month_year (month, year)");
+   166→        // Migrate existing data from payroll_periods
+   167→        try {
+   168→            $db->exec("UPDATE payroll p INNER JOIN payroll_periods pp ON p.payroll_period_id = pp.id SET p.month = pp.month, p.year = pp.year WHERE p.month = 0");
+   169→        } catch (Exception $e) {}
+   170→    }
+   171→
+   172→    // ═══════════════════════════════════════════════════════════════
+   173→    // 1. ATTENDANCE_SUMMARY — Upsert on employee_id + month + year
+   174→    // ═══════════════════════════════════════════════════════════════
+   175→    $existingAtt = $db->fetch(
+   176→        "SELECT id FROM attendance_summary WHERE employee_id = ? AND month = ? AND year = ?",
+   177→        [$employeeId, $month, $year]
+   178→    );
+   179→
+   180→    $attData = [
+   181→        'employee_id'    => $employeeId,
+   182→        'month'          => $month,
+   183→        'year'           => $year,
+   184→        'total_present'  => (float)($attendance['total_present'] ?? 0),
+   185→        'total_wo'       => (float)($attendance['total_wo'] ?? 0),
+   186→        'total_extra'    => (float)($attendance['total_extra'] ?? 0),
+   187→        'overtime_hours' => (float)($attendance['overtime_hours'] ?? 0),
+   188→        'total_paid_days'=> (float)($attendance['total_paid_days'] ?? 0),
+   189→        'updated_at'     => date('Y-m-d H:i:s'),
+   190→    ];
+   191→
+   192→    if ($existingAtt) {
+   193→        $db->update('attendance_summary', $attData, 'id = :id', ['id' => $existingAtt['id']]);
+   194→    } else {
+   195→        $attData['created_at'] = date('Y-m-d H:i:s');
+   196→        $db->insert('attendance_summary', $attData);
+   197→    }
+   198→
+   199→    // ═══════════════════════════════════════════════════════════════
+   200→    // 2. EMPLOYEE_SALARY_STRUCTURES — Upsert for this month
+   201→    // ═══════════════════════════════════════════════════════════════
+   202→    $effFrom = sprintf('%04d-%02d-01', $year, $month);
+   203→
+   204→    $existingSal = $db->fetch(
+   205→        "SELECT id FROM employee_salary_structures 
+   206→         WHERE employee_id = ? AND effective_from = ?",
+   207→        [$employeeId, $effFrom]
+   208→    );
+   209→
+   210→    $grossSalary = (float)($wageDetails['gross_salary'] ?? 0);
+   211→    if ($grossSalary == 0) {
+   212→        $grossSalary = (float)($wageDetails['basic_da'] ?? 0)
+   213→                     + (float)($wageDetails['hra'] ?? 0)
+   214→                     + (float)($wageDetails['leave_encashment'] ?? 0)
+   215→                     + (float)($wageDetails['bonus_encashment'] ?? 0)
+   216→                     + (float)($wageDetails['washing_allowance'] ?? 0);
+   217→    }
+   218→
+   219→    $pfApplicable  = !empty($data['pf_applicable']) ? 1 : 0;
+   220→    $esiApplicable = !empty($data['esi_applicable']) ? 1 : 0;
+   221→    $ptApplicable  = !empty($data['pt_applicable']) ? 1 : 0;
+   222→    $lwfApplicable = !empty($data['lwf_applicable']) ? 1 : 0;
+   223→
+   224→    $salData = [
+   225→        'employee_id'       => $employeeId,
+   226→        'effective_from'    => $effFrom,
+   227→        'effective_to'      => null,  // Current (no end date)
+   228→        'basic_da'          => (float)($wageDetails['basic_da'] ?? 0),
+   229→        'hra'               => (float)($wageDetails['hra'] ?? 0),
+   230→        'leave_encashment'  => (float)($wageDetails['leave_encashment'] ?? 0),
+   231→        'bonus_encashment'  => (float)($wageDetails['bonus_encashment'] ?? 0),
+   232→        'washing_allowance' => (float)($wageDetails['washing_allowance'] ?? 0),
+   233→        'gross_salary'      => $grossSalary,
+   234→        'pf_applicable'     => $pfApplicable,
+   235→        'esi_applicable'    => $esiApplicable,
+   236→        'pt_applicable'     => $ptApplicable,
+   237→        'lwf_applicable'    => $lwfApplicable,
+   238→        'overtime_applicable'=> 1,
+   239→        'updated_at'        => date('Y-m-d H:i:s'),
+   240→    ];
+   241→
+   242→    if ($existingSal) {
+   243→        $db->update('employee_salary_structures', $salData, 'id = :id', ['id' => $existingSal['id']]);
+   244→    } else {
+   245→        $salData['created_at'] = date('Y-m-d H:i:s');
+   246→        $db->insert('employee_salary_structures', $salData);
+   247→    }
+   248→
+   249→    // Close any previous salary structure that was open-ended
+   250→    // (effective_to IS NULL and effective_from < current effFrom)
+   251→    $db->query(
+   252→        "UPDATE employee_salary_structures 
+   253→         SET effective_to = DATE_SUB(?, INTERVAL 1 DAY), updated_at = NOW() 
+   254→         WHERE employee_id = ? AND effective_from < ? AND effective_to IS NULL AND id != ?",
+   255→        [$effFrom, $employeeId, $effFrom, $existingSal ? $existingSal['id'] : 0]
+   256→    );
+   257→
+   258→    // ═══════════════════════════════════════════════════════════════
+   259→    // 3. EMPLOYEE_ADVANCES — Upsert on employee_id + month + year
+   260→    // ═══════════════════════════════════════════════════════════════
+   261→    $existingAdv = $db->fetch(
+   262→        "SELECT id FROM employee_advances WHERE employee_id = ? AND month = ? AND year = ?",
+   263→        [$employeeId, $month, $year]
+   264→    );
+   265→
+   266→    $totalAdvance = (float)($advances['advance'] ?? 0);
+   267→    $officeDeduction = (float)($advances['office_deduction'] ?? 0);
+   268→
+   269→    $advData = [
+   270→        'employee_id'    => $employeeId,
+   271→        'month'          => $month,
+   272→        'year'           => $year,
+   273→        'adv1'           => $totalAdvance,   // Total advance stored in adv1
+   274→        'adv2'           => 0,
+   275→        'office_advance' => $officeDeduction, // Office deduction stored in office_advance
+   276→        'dress_advance'  => 0,
+   277→        'updated_at'     => date('Y-m-d H:i:s'),
+   278→    ];
+   279→
+   280→    // Fix: exclude office_deduction from advance total to avoid double-counting
+   281→    // process.php queries advance separately from office_deduction.
+   282→    // We store them in separate columns so total_advance = adv1 only (no office_advance in it).
+   283→
+   284→    if ($existingAdv) {
+   285→        $db->update('employee_advances', $advData, 'id = :id', ['id' => $existingAdv['id']]);
+   286→    } else {
+   287→        $advData['created_at'] = date('Y-m-d H:i:s');
+   288→        $db->insert('employee_advances', $advData);
+   289→    }
+   290→
+   291→    // ═══════════════════════════════════════════════════════════════
+   292→    // 4. PAYROLL — Upsert on employee_id(=code) + month + year
+   293→    // ═══════════════════════════════════════════════════════════════
+   294→    $existingPay = null;
+   295→    // Try direct month/year lookup first (new schema)
+   296→    try {
+   297→        $existingPay = $db->fetch(
+   298→            "SELECT id FROM payroll WHERE employee_id = ? AND month = ? AND year = ?",
+   299→            [$employeeCode, $month, $year]
+   300→        );
+   301→    } catch (Exception $e) {}
+   302→    if (empty($existingPay) && $payrollPeriodId > 0) {
+   303→        // Fallback: via payroll_period_id for old data
+   304→        try {
+   305→            $existingPay = $db->fetch(
+   306→                "SELECT id FROM payroll WHERE employee_id = ? AND payroll_period_id = ?",
+   307→                [$employeeCode, $payrollPeriodId]
+   308→            );
+   309→        } catch (Exception $e) {}
+   310→    }
+   311→
+   312→    $totalDays = (int)($payroll['total_days'] ?? 0) ?: cal_days_in_month(CAL_GREGORIAN, $month, $year);
+   313→
+   314→    // Read PF/ESI rates from DB (for employer contribution calculation if not sent from JS)
+   315→    $pfEmployerShare = 3.67; $pfEmployerEps = 8.33; $pfEmployerEdlis = 0.50; $pfEpfAdmin = 0.50; $esiEmployerShare = 3.25;
+   316→    try {
+   317→        $pfRate = $db->fetch("SELECT * FROM pf_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1");
+   318→        if ($pfRate) {
+   319→            $pfEmployerShare = (float)$pfRate['employer_share_pf'];
+   320→            $pfEmployerEps  = (float)$pfRate['employer_share_eps'];
+   321→            $pfEmployerEdlis = (float)$pfRate['employer_share_edlis'];
+   322→            $pfEpfAdmin     = (float)$pfRate['epf_admin_charges'];
+   323→        }
+   324→    } catch (Exception $e) {}
+   325→    try {
+   326→        $esiRate = $db->fetch("SELECT * FROM esi_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1");
+   327→        if ($esiRate) {
+   328→            $esiEmployerShare = (float)$esiRate['employer_share'];
+   329→        }
+   330→    } catch (Exception $e) {}
+   331→
+   332→    // CTC: gross + employer contributions (matching class.payroll.php)
+   333→    $ctcFromPayload = round2($payroll['ctc'] ?? 0);
+   334→    if ($ctcFromPayload > 0) {
+   335→        $ctc = $ctcFromPayload;
+   336→    } else {
+   337→        // Fallback: calculate from saved values
+   338→        $grossSalary = round2($payroll['gross_salary'] ?? 0);
+   339→        $pfEmployeeVal = round2($payroll['pf_employee'] ?? 0);
+   340→        $esiEmployeeVal = round2($payroll['esi_employee'] ?? 0);
+   341→        $pfBase = min($pfEmployeeVal, round2($payroll['basic_da'] ?? 0));
+   342→        $employerContrib = round2($pfBase * ($pfEmployerShare + $pfEmployerEps + $pfEmployerEdlis + $pfEpfAdmin) / 100);
+   343→        $ctc = round2($grossSalary + $employerContrib);
+   344→    }
+   345→
+   346→    // Round all monetary values to 2 decimal places
+   347→    // NOTE: gross_earnings from JS already INCLUDES overtime_amount — do NOT add it again
+   348→    $calcGross  = round2($payroll['gross_earnings'] ?? 0);
+   349→    $calcDed    = round2($payroll['total_deductions'] ?? 0);
+   350→    $calcNetPay = round($calcGross - $calcDed); // Round to nearest ₹.00
+   351→
+   352→    $payData = [
+   353→        'employee_id'      => $employeeCode,
+   354→        'unit_id'          => $unitId,
+   355→        'month'            => $month,
+   356→        'year'             => $year,
+   357→        'basic_da'         => round2($payroll['basic_da'] ?? 0),
+   358→        'hra'              => round2($payroll['hra'] ?? 0),
+   359→        'leave_encashment' => round2($payroll['leave_encashment'] ?? 0),
+   360→        'bonus_encashment' => round2($payroll['bonus_encashment'] ?? 0),
+   361→        'washing_allowance'=> round2($payroll['washing_allowance'] ?? 0),
+   362→        'overtime_amount'  => round2($payroll['overtime_amount'] ?? 0),
+   363→        'overtime_hours'   => round2($payroll['overtime_hours'] ?? 0),
+   364→        'gross_earnings'   => $calcGross,
+   365→        'gross_salary'     => round2($payroll['gross_salary'] ?? 0),
+   366→        'pf_employee'      => round2($payroll['pf_employee'] ?? 0),
+   367→        'esi_employee'     => round2($payroll['esi_employee'] ?? 0),
+   368→        'professional_tax' => round2($payroll['professional_tax'] ?? 0),
+   369→        'lwf_employee'     => round2($payroll['lwf_employee'] ?? 0),
+   370→        'salary_advance'   => round2($payroll['salary_advance'] ?? 0),
+   371→        'office_deduction' => round2($payroll['office_deduction'] ?? 0),
+   372→        'total_deductions' => $calcDed,
+   373→        'net_pay'          => $calcNetPay,
+   374→        'paid_days'        => (int)($payroll['paid_days'] ?? 0),
+   375→        'total_days'       => $totalDays,
+   376→        'ctc'              => $ctc,
+   377→        'status'           => 'Processed',
+   378→        'salary_hold'      => 0,
+   379→        'payroll_dirty'    => 0,
+   380→        'last_calculated_at' => date('Y-m-d H:i:s'),
+   381→        'calculated_by'    => (int)($_SESSION['user_id'] ?? 0) ?: null,
+   382→        'updated_at'       => date('Y-m-d H:i:s'),
+   383→    ];
+   384→
+   385→    // Employer contribution columns (matching process.php)
+   386→    $payData['pf_employer']            = round2($payroll['pf_employer'] ?? 0);
+   387→    $payData['eps_employer']           = round2($payroll['eps_employer'] ?? 0);
+   388→    $payData['edlis_employer']         = round2($payroll['edlis_employer'] ?? 0);
+   389→    $payData['epf_admin_charges']      = round2($payroll['epf_admin_charges'] ?? 0);
+   390→    $payData['esi_employer']           = round2($payroll['esi_employer'] ?? 0);
+   391→    $payData['total_employer_contribution'] = round2($payroll['total_employer_contribution'] ?? 0);
+   392→
+   393→    // Include loan_emi from the grid input
+   394→    $payData['loan_emi'] = round2($advances['loan_emi'] ?? 0);
+   395→
+   396→    if ($existingPay) {
+   397→        $db->update('payroll', $payData, 'id = :id', ['id' => $existingPay['id']]);
+   398→    } else {
+   399→        $payData['created_at'] = date('Y-m-d H:i:s');
+   400→        $db->insert('payroll', $payData);
+   401→    }
+   402→
+   403→    // ── Update employee statutory flags in salary structure ──────
+   404→    try {
+   405→        $db->update('employee_salary_structures', [
+   406→            'pf_applicable'  => $pfApplicable,
+   407→            'esi_applicable' => $esiApplicable,
+   408→            'pt_applicable'  => $ptApplicable,
+   409→            'lwf_applicable' => $lwfApplicable,
+   410→        ], 'employee_id = :eid AND effective_to IS NULL', ['eid' => $employeeId]);
+   411→    } catch (Exception $e) {
+   412→        // Column may not exist — ignore
+   413→    }
+   414→
+   415→    // ═══════════════════════════════════════════════════════════════
+   416→    // 5. LOAN EMI LOG & BALANCE UPDATE
+   417→    // (Payroll record already saved with loan_emi from grid — don't double-count)
+   418→    // Only update loan_emi_log and employee_loans balance.
+   419→    // ═══════════════════════════════════════════════════════════════
+   420→    $loanDeductionTotal = 0;
+   421→    try {
+   422→        // Ensure loan tables exist
+   423→        $db->exec("CREATE TABLE IF NOT EXISTS `employee_loans` (
+   424→            `id` int(11) NOT NULL AUTO_INCREMENT,
+   425→            `employee_id` int(11) NOT NULL,
+   426→            `unit_id` int(11) DEFAULT NULL,
+   427→            `loan_type` varchar(50) DEFAULT 'Personal',
+   428→            `amount` decimal(12,2) NOT NULL,
+   429→            `interest_rate` decimal(5,2) DEFAULT 0.00,
+   430→            `tenure_months` int(11) NOT NULL,
+   431→            `emi_amount` decimal(12,2) NOT NULL,
+   432→            `total_interest` decimal(12,2) DEFAULT 0.00,
+   433→            `total_repayable` decimal(12,2) NOT NULL,
+   434→            `balance_amount` decimal(12,2) NOT NULL,
+   435→            `emi_deducted` int(11) DEFAULT 0,
+   436→            `start_month` int(2) NOT NULL,
+   437→            `start_year` int(4) NOT NULL,
+   438→            `status` enum('Active','Closed','Settled','Written Off') DEFAULT 'Active',
+   439→            `remarks` text DEFAULT NULL,
+   440→            `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+   441→            `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   442→            PRIMARY KEY (`id`),
+   443→            KEY `idx_employee` (`employee_id`),
+   444→            KEY `idx_status` (`status`)
+   445→        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+   446→
+   447→        $db->exec("CREATE TABLE IF NOT EXISTS `loan_emi_log` (
+   448→            `id` int(11) NOT NULL AUTO_INCREMENT,
+   449→            `loan_id` int(11) NOT NULL,
+   450→            `employee_id` int(11) NOT NULL,
+   451→            `month` int(2) NOT NULL,
+   452→            `year` int(4) NOT NULL,
+   453→            `emi_amount` decimal(12,2) NOT NULL,
+   454→            `principal_component` decimal(12,2) DEFAULT 0.00,
+   455→            `interest_component` decimal(12,2) DEFAULT 0.00,
+   456→            `balance_after` decimal(12,2) NOT NULL,
+   457→            `payroll_id` int(11) DEFAULT NULL,
+   458→            `deducted_via_payroll` tinyint(1) DEFAULT 1,
+   459→            `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+   460→            PRIMARY KEY (`id`),
+   461→            UNIQUE KEY `uniq_loan_month_year` (`loan_id`, `month`, `year`),
+   462→            KEY `idx_employee_month` (`employee_id`, `month`, `year`)
+   463→        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+   464→
+   465→        // Only proceed if the grid had a loan_emi value > 0
+   466→        $gridLoanEmi = (float)($advances['loan_emi'] ?? 0);
+   467→        if ($gridLoanEmi <= 0) {
+   468→            // No EMI to process — but clean up any stale emi_log entries
+   469→            // (from previous failed saves that partially committed)
+   470→            try {
+   471→                $db->query("DELETE FROM loan_emi_log WHERE employee_id = ? AND month = ? AND year = ? AND loan_id IN (SELECT id FROM employee_loans WHERE employee_id = ?)",
+   472→                    [$employeeId, $month, $year, $employeeId]);
+   473→            } catch (Exception $e) {}
+   474→            goto loan_done;
+   475→        }
+   476→
+   477→        // Get active loans for this employee that have started by this month
+   478→        $empLoans = $db->fetchAll(
+   479→            "SELECT * FROM employee_loans
+   480→             WHERE employee_id = ? AND status = 'Active'
+   481→             AND balance_amount > 0
+   482→             AND (start_year < ? OR (start_year = ? AND start_month <= ?))",
+   483→            [$employeeId, $year, $year, $month]
+   484→        );
+   485→
+   486→        foreach ($empLoans as $empLoan) {
+   487→            // Check if EMI already deducted for this month
+   488→            $alreadyDeducted = $db->fetch(
+   489→                "SELECT id FROM loan_emi_log WHERE loan_id = ? AND month = ? AND year = ?",
+   490→                [$empLoan['id'], $month, $year]
+   491→            );
+   492→
+   493→            if ($alreadyDeducted) {
+   494→                continue;
+   495→            }
+   496→
+   497→            $emiAmount = (float)$empLoan['emi_amount'];
+   498→            $balanceAmount = (float)$empLoan['balance_amount'];
+   499→
+   500→            // Calculate interest/principal split
+   501→            if ((float)$empLoan['interest_rate'] > 0) {
+   502→                $monthlyRate = (float)$empLoan['interest_rate'] / 12 / 100;
+   503→                $interestComponent = round($balanceAmount * $monthlyRate, 2);
+   504→                $principalComponent = round($emiAmount - $interestComponent, 2);
+   505→            } else {
+   506→                $interestComponent = 0;
+   507→                $principalComponent = $emiAmount;
+   508→            }
+   509→
+   510→            // Handle last EMI: adjust to remaining balance
+   511→            if ($emiAmount > $balanceAmount) {
+   512→                $emiAmount = $balanceAmount;
+   513→                $principalComponent = $emiAmount - $interestComponent;
+   514→                if ($principalComponent < 0) {
+   515→                    $interestComponent = $emiAmount;
+   516→                    $principalComponent = 0;
+   517→                }
+   518→            }
+   519→
+   520→            $newBalance = round($balanceAmount - $emiAmount, 2);
+   521→            if ($newBalance < 0) $newBalance = 0;
+   522→
+   523→            // Record EMI log (linked to payroll row — Audit Issue #7)
+   524→            $db->insert('loan_emi_log', [
+   525→                'loan_id' => $empLoan['id'],
+   526→                'employee_id' => $employeeId,
+   527→                'month' => $month,
+   528→                'year' => $year,
+   529→                'emi_amount' => $emiAmount,
+   530→                'principal_component' => $principalComponent,
+   531→                'interest_component' => $interestComponent,
+   532→                'balance_after' => $newBalance,
+   533→                'deducted_via_payroll' => 1
+   534→            ]);
+   535→
+   536→            // Try to link to payroll row by month/year
+   537→            try {
+   538→                $linkedPayrollId = null;
+   539→                $pRow = $db->fetch(
+   540→                    "SELECT id FROM payroll WHERE employee_id = ? AND month = ? AND year = ?",
+   541→                    [$employeeCode, $month, $year]
+   542→                );
+   543→                $linkedPayrollId = $pRow ? (int)$pRow['id'] : null;
+   544→                if ($linkedPayrollId) {
+   545→                    $db->query(
+   546→                        "UPDATE loan_emi_log SET payroll_id = ? WHERE loan_id = ? AND month = ? AND year = ?",
+   547→                        [$linkedPayrollId, $empLoan['id'], $month, $year]
+   548→                    );
+   549→                }
+   550→            } catch (Exception $e) {}
+   551→
+   552→            // Update loan balance and status
+   553→            $newStatus = ($newBalance <= 0) ? 'Closed' : 'Active';
+   554→            $db->update('employee_loans', [
+   555→                'balance_amount' => $newBalance,
+   556→                'emi_deducted' => (int)$empLoan['emi_deducted'] + 1,
+   557→                'status' => $newStatus
+   558→            ], 'id = :id', ['id' => $empLoan['id']]);
+   559→
+   560→            $loanDeductionTotal += $emiAmount;
+   561→        }
+   562→
+   563→        // NOTE: We do NOT update the payroll record here.
+   564→        // The loan_emi was already included in the grid input and saved in step 4.
+   565→        // Updating again would double-count the deduction.
+   566→
+   567→    } catch (Exception $loanEx) {
+   568→        // Log but don't fail payroll save if loan deduction fails
+   569→        error_log('Loan EMI auto-deduction failed: ' . $loanEx->getMessage());
+   570→    }
+   571→    loan_done:
+   572→
+   573→    $db->exec("COMMIT");
+   574→
+   575→    echo json_encode([
+   576→        'success' => true,
+   577→        'message' => $otWarning . 'Payroll saved for ' . $employeeCode . ($loanDeductionTotal > 0 ? ' (Loan EMI ₹' . number_format($loanDeductionTotal, 2) . ' auto-deducted)' : ''),
+   578→        'employee_code' => $employeeCode,
+   579→        'net_pay' => $payData['net_pay'],
+   580→        'gross_salary' => $payData['gross_salary'],
+   581→        'loan_deduction' => $loanDeductionTotal,
+   582→    ]);
+   583→
+   584→} catch (Exception $e) {
+   585→    // Rollback on error
+   586→    try { $db->exec("ROLLBACK"); } catch (Exception $re) {}
+   587→
+   588→    error_log("Payroll Save Row Error [{$employeeCode}]: " . $e->getMessage());
+   589→
+   590→    echo json_encode([
+   591→        'success' => false,
+   592→        'message' => 'Error saving payroll: ' . $e->getMessage(),
+   593→        'employee_code' => $employeeCode,
+   594→    ]);
+   595→}
+   596→
+   597→/**
+   598→ * Helper: round to 2 decimal places
+   599→ */
+   600→function round2($val) {
+   601→    return round((float)$val, 2);
+   602→}
+   603→
