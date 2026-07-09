@@ -173,7 +173,7 @@ try {
         'employee_id' => $employeeId,
         'role'        => $role,
         'full_name'   => $employee['full_name'],
-    ), JWT_EXPIRY);
+    ), 86400); // 24 hours
 
     _clearFailedLogins($conn, $rateId);
 

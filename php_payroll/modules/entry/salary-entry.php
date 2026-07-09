@@ -31,6 +31,8 @@ if ($clientFilter) {
 // Handle POST save
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_salary'])) {
     $employeeIds = $_POST['employee_id'] ?? [];
+    // Deduplicate: same employee may appear multiple times
+    $employeeIds = array_unique(array_map('intval', $employeeIds));
     $savedCount = 0;
     $errors = [];
 
@@ -81,6 +83,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_salary'])) {
                     'bonus_applicable' => $bonusApplicable,
                     'gratuity_applicable' => $gratuityApplicable
                 ], 'id = :id', ['id' => $existing['id']]);
+
+                // Also delete any duplicate active structures for this employee
+                $db->query(
+                    "DELETE FROM employee_salary_structures WHERE employee_id = ? AND effective_to IS NULL AND id != ?",
+                    [$empId, $existing['id']]
+                );
             } else {
                 // Close any previous structures
                 $prevStructures = $db->fetchAll(
@@ -134,7 +142,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     header('Pragma: no-cache');
     header('Expires: 0');
 
-    $where = "e.status = 'approved'";
+    $where = "e.status IN ('approved', 'active')";
     $params = [];
     if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
     if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }
@@ -151,8 +159,15 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
          FROM employees e
          LEFT JOIN clients c ON e.client_id = c.id
          LEFT JOIN units u ON e.unit_id = u.id
-         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
-            AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+         LEFT JOIN (SELECT employee_id, MAX(id) AS id,
+                    MAX(basic_da) AS basic_da, MAX(hra) AS hra,
+                    MAX(leave_encashment) AS leave_encashment, MAX(bonus_encashment) AS bonus_encashment,
+                    MAX(washing_allowance) AS washing_allowance, MAX(gross_salary) AS gross_salary,
+                    MAX(pf_applicable) AS pf_applicable, MAX(esi_applicable) AS esi_applicable,
+                    MAX(pt_applicable) AS pt_applicable, MAX(lwf_applicable) AS lwf_applicable
+                    FROM employee_salary_structures
+                    WHERE effective_to IS NULL OR effective_to >= CURDATE()
+                    GROUP BY employee_id) ess ON e.id = ess.employee_id
          WHERE $where
          ORDER BY c.name, u.name, e.employee_code",
         $params
@@ -183,7 +198,7 @@ $employees = [];
 $summaryData = ['total_employees' => 0, 'total_gross' => 0, 'avg_gross' => 0];
 
 if ($filterPressed && $clientFilter) {
-    $where = "e.status = 'approved'";
+    $where = "e.status IN ('approved', 'active')";
     $params = [];
     if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
     if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }
@@ -209,8 +224,18 @@ if ($filterPressed && $clientFilter) {
          FROM employees e
          LEFT JOIN clients c ON e.client_id = c.id
          LEFT JOIN units u ON e.unit_id = u.id
-         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
-            AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+         LEFT JOIN (SELECT employee_id, MAX(id) AS id,
+                    MAX(basic_da) AS basic_da, MAX(hra) AS hra,
+                    MAX(leave_encashment) AS leave_encashment, MAX(bonus_encashment) AS bonus_encashment,
+                    MAX(washing_allowance) AS washing_allowance, MAX(gross_salary) AS gross_salary,
+                    MAX(pf_applicable) AS pf_applicable, MAX(esi_applicable) AS esi_applicable,
+                    MAX(pt_applicable) AS pt_applicable, MAX(lwf_applicable) AS lwf_applicable,
+                    MAX(overtime_applicable) AS overtime_applicable, MAX(bonus_applicable) AS bonus_applicable,
+                    MAX(gratuity_applicable) AS gratuity_applicable,
+                    MAX(effective_from) AS effective_from, MAX(effective_to) AS effective_to
+                    FROM employee_salary_structures
+                    WHERE effective_to IS NULL OR effective_to >= CURDATE()
+                    GROUP BY employee_id) ess ON e.id = ess.employee_id
          WHERE $where
          ORDER BY c.name, u.name, e.employee_code",
         $params
@@ -363,9 +388,12 @@ $months = [
                 </div>
             </div>
         </div>
-        
+
+        <!-- Jspreadsheet data is initialized in footer $extraJS block (after CDN loads) -->
+
         <!-- Salary Entry Form -->
         <form method="POST" id="salaryForm">
+            <div id="hiddenFields" style="display:none;"></div>
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h6 class="mb-0">
@@ -381,149 +409,10 @@ $months = [
                     </div>
                 </div>
                 <div class="card-body p-0">
-                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                        <table class="table table-sm table-bordered table-hover mb-0" style="font-size: 0.82rem;">
-                            <thead class="table-dark sticky-top">
-                                <tr>
-                                    <th rowspan="2" class="text-center" style="width:35px;">#</th>
-                                    <th rowspan="2" style="width:70px;">Code</th>
-                                    <th rowspan="2">Employee Name</th>
-                                    <th rowspan="2">Designation</th>
-                                    <th rowspan="2">Unit</th>
-                                    <th colspan="5" class="text-center" style="background:#1a7431;">Earnings (₹)</th>
-                                    <th rowspan="2" class="text-end" style="border-left:2px solid #6c757d;background:#2b8a3e;">
-                                        <strong>Gross</strong>
-                                    </th>
-                                    <th colspan="4" class="text-center" style="background:#c92a2a;">Applicable</th>
-                                    <th colspan="3" class="text-center" style="background:#5c3d8f;">Other Applicable</th>
-                                </tr>
-                                <tr>
-                                    <th class="text-end" style="background:#2b8a3e;">Basic+DA</th>
-                                    <th class="text-end" style="background:#2b8a3e;">HRA</th>
-                                    <th class="text-end" style="background:#2b8a3e;">L.Enc</th>
-                                    <th class="text-end" style="background:#2b8a3e;">B.Enc</th>
-                                    <th class="text-end" style="background:#2b8a3e;">Wash</th>
-                                    <th class="text-center" style="background:#a71d2a;">PF</th>
-                                    <th class="text-center" style="background:#a71d2a;">ESI</th>
-                                    <th class="text-center" style="background:#a71d2a;">PT</th>
-                                    <th class="text-center" style="background:#a71d2a;">LWF</th>
-                                    <th class="text-center" style="background:#6741d9;">OT</th>
-                                    <th class="text-center" style="background:#6741d9;">Bonus</th>
-                                    <th class="text-center" style="background:#6741d9;">Gratuity</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($employees as $idx => $emp): ?>
-                                <tr>
-                                    <td class="text-center text-muted"><?php echo $idx + 1; ?></td>
-                                    <td>
-                                        <input type="hidden" name="employee_id[]" value="<?php echo $emp['id']; ?>">
-                                        <code><?php echo sanitize($emp['employee_code']); ?></code>
-                                    </td>
-                                    <td>
-                                        <strong><?php echo sanitize($emp['full_name']); ?></strong>
-                                        <?php if ($emp['salary_id']): ?>
-                                        <i class="bi bi-check-circle-fill text-success" title="Salary structure exists"></i>
-                                        <?php else: ?>
-                                        <i class="bi bi-exclamation-circle text-warning" title="No salary structure"></i>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="text-muted"><?php echo sanitize($emp['designation']); ?></td>
-                                    <td class="text-muted small"><?php echo sanitize($emp['unit_name']); ?></td>
-                                    
-                                    <!-- Earnings Inputs -->
-                                    <td>
-                                        <input type="number" name="basic_da[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['basic_da']; ?>" 
-                                               class="form-control form-control-sm text-end salary-input" 
-                                               data-emp-id="<?php echo $emp['id']; ?>" data-field="basic_da"
-                                               min="0" step="1" style="width:90px;">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="hra[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['hra']; ?>" 
-                                               class="form-control form-control-sm text-end salary-input" 
-                                               data-emp-id="<?php echo $emp['id']; ?>" data-field="hra"
-                                               min="0" step="1" style="width:80px;">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="leave_encashment[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['leave_encashment']; ?>" 
-                                               class="form-control form-control-sm text-end salary-input" 
-                                               data-emp-id="<?php echo $emp['id']; ?>" data-field="leave_encashment"
-                                               min="0" step="1" style="width:80px;">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="bonus_encashment[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['bonus_encashment']; ?>" 
-                                               class="form-control form-control-sm text-end salary-input" 
-                                               data-emp-id="<?php echo $emp['id']; ?>" data-field="bonus_encashment"
-                                               min="0" step="1" style="width:80px;">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="washing_allowance[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['washing_allowance']; ?>" 
-                                               class="form-control form-control-sm text-end salary-input" 
-                                               data-emp-id="<?php echo $emp['id']; ?>" data-field="washing_allowance"
-                                               min="0" step="1" style="width:80px;">
-                                    </td>
-                                    
-                                    <!-- Gross (auto-calculated) -->
-                                    <td class="text-end fw-bold" style="border-left:2px solid #dee2e6; background:#f8f9fa;">
-                                        <span id="gross_<?php echo $emp['id']; ?>">
-                                            <?php echo formatCurrency($emp['gross_salary']); ?>
-                                        </span>
-                                    </td>
-                                    
-                                    <!-- Checkboxes -->
-                                    <td class="text-center">
-                                        <input type="checkbox" name="pf_applicable[<?php echo $emp['id']; ?>]" 
-                                               value="1" <?php echo $emp['pf_applicable'] ? 'checked' : ''; ?>>
-                                    </td>
-                                    <td class="text-center">
-                                        <input type="checkbox" name="esi_applicable[<?php echo $emp['id']; ?>]" 
-                                               value="1" <?php echo $emp['esi_applicable'] ? 'checked' : ''; ?>>
-                                    </td>
-                                    <td class="text-center">
-                                        <input type="checkbox" name="pt_applicable[<?php echo $emp['id']; ?>]" 
-                                               value="1" <?php echo $emp['pt_applicable'] ? 'checked' : ''; ?>>
-                                    </td>
-                                    <td class="text-center">
-                                        <input type="checkbox" name="lwf_applicable[<?php echo $emp['id']; ?>]" 
-                                               value="1" <?php echo $emp['lwf_applicable'] ? 'checked' : ''; ?>>
-                                    </td>
-                                    <td class="text-center">
-                                        <input type="checkbox" name="overtime_applicable[<?php echo $emp['id']; ?>]" 
-                                               value="1" <?php echo $emp['overtime_applicable'] ? 'checked' : ''; ?>>
-                                    </td>
-                                    <td class="text-center">
-                                        <input type="checkbox" name="bonus_applicable[<?php echo $emp['id']; ?>]" 
-                                               value="1" <?php echo $emp['bonus_applicable'] ? 'checked' : ''; ?>>
-                                    </td>
-                                    <td class="text-center">
-                                        <input type="checkbox" name="gratuity_applicable[<?php echo $emp['id']; ?>]" 
-                                               value="1" <?php echo $emp['gratuity_applicable'] ? 'checked' : ''; ?>>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                            <tfoot class="table-light">
-                                <tr class="fw-bold">
-                                    <td colspan="5" class="text-end">
-                                        <span class="text-primary">TOTAL (<?php echo count($employees); ?> Employees)</span>
-                                    </td>
-                                    <td class="text-end" id="total_basic_da">0</td>
-                                    <td class="text-end" id="total_hra">0</td>
-                                    <td class="text-end" id="total_leave_enc">0</td>
-                                    <td class="text-end" id="total_bonus_enc">0</td>
-                                    <td class="text-end" id="total_washing">0</td>
-                                    <td class="text-end" style="border-left:2px solid #dee2e6;" id="total_gross_col">
-                                        0
-                                    </td>
-                                    <td colspan="7"></td>
-                                </tr>
-                            </tfoot>
-                        </table>
+                    <div id="salary-spreadsheet"></div>
+                    <!-- Totals bar -->
+                    <div id="totalsBar" class="d-flex align-items-center small fw-bold px-2 py-1 border-top"
+                         style="background:#f8f9fa; font-size:0.82rem; min-height:30px;">
                     </div>
                 </div>
                 <div class="card-footer">
@@ -531,8 +420,6 @@ $months = [
                         <small class="text-muted">
                             <i class="bi bi-info-circle me-1"></i>
                             Gross is auto-calculated as Basic+DA + HRA + Leave Enc + Bonus Enc + Washing.
-                            <span class="badge bg-success"><i class="bi bi-check-circle-fill"></i></span> = Has salary structure &nbsp;
-                            <span class="badge bg-warning"><i class="bi bi-exclamation-circle"></i></span> = No structure yet
                         </small>
                         <button type="submit" name="save_salary" class="btn btn-success"
                                 onclick="return confirm('Save salary changes for all listed employees?')">
@@ -547,15 +434,127 @@ $months = [
 </div>
 
 <style>
+/* Jspreadsheet overrides for tighter fit */
+#salary-spreadsheet .jss_container {
+    width: 100% !important;
+}
+#salary-spreadsheet table {
+    font-size: 0.82rem;
+}
+#salary-spreadsheet thead td {
+    font-weight: 600;
+    background: #343a40 !important;
+    color: #fff !important;
+    padding: 4px 6px !important;
+    text-align: center;
+    white-space: nowrap;
+}
+#salary-spreadsheet thead td:nth-child(6),
+#salary-spreadsheet thead td:nth-child(7),
+#salary-spreadsheet thead td:nth-child(8),
+#salary-spreadsheet thead td:nth-child(9),
+#salary-spreadsheet thead td:nth-child(10) {
+    background: #1a7431 !important;
+}
+#salary-spreadsheet thead td:nth-child(11) {
+    background: #2b8a3e !important;
+    border-left: 2px solid #6c757d !important;
+}
+#salary-spreadsheet thead td:nth-child(12),
+#salary-spreadsheet thead td:nth-child(13),
+#salary-spreadsheet thead td:nth-child(14),
+#salary-spreadsheet thead td:nth-child(15) {
+    background: #c92a2a !important;
+}
+#salary-spreadsheet thead td:nth-child(16),
+#salary-spreadsheet thead td:nth-child(17),
+#salary-spreadsheet thead td:nth-child(18) {
+    background: #5c3d8f !important;
+}
+#salary-spreadsheet tbody td {
+    padding: 2px 4px !important;
+}
+#salary-spreadsheet tbody td:nth-child(11) {
+    background: #f8f9fa !important;
+    font-weight: 700 !important;
+    border-left: 2px solid #dee2e6 !important;
+    text-align: right !important;
+}
+/* Center numeric earnings columns */
+#salary-spreadsheet tbody td:nth-child(6),
+#salary-spreadsheet tbody td:nth-child(7),
+#salary-spreadsheet tbody td:nth-child(8),
+#salary-spreadsheet tbody td:nth-child(9),
+#salary-spreadsheet tbody td:nth-child(10) {
+    text-align: right !important;
+}
+/* Center checkbox columns */
+#salary-spreadsheet tbody td:nth-child(12),
+#salary-spreadsheet tbody td:nth-child(13),
+#salary-spreadsheet tbody td:nth-child(14),
+#salary-spreadsheet tbody td:nth-child(15),
+#salary-spreadsheet tbody td:nth-child(16),
+#salary-spreadsheet tbody td:nth-child(17),
+#salary-spreadsheet tbody td:nth-child(18) {
+    text-align: center !important;
+}
+/* Totals bar styling */
+#totalsBar .t-label {
+    color: #0d6efd;
+    flex-shrink: 0;
+    margin-right: auto;
+}
+#totalsBar .t-val {
+    text-align: right;
+    padding: 0 6px;
+    flex-shrink: 0;
+}
+
 @media print {
-    .btn, form { display: none !important; }
-    .table td input { border: none !important; background: transparent !important; }
+    .btn, form#filterForm { display: none !important; }
+    .jss_container { overflow: visible !important; }
     body { font-size: 8pt; }
+    #salary-spreadsheet .jss_container { box-shadow: none !important; }
 }
 </style>
 
+<?php
+ob_start();
+?>
 <script>
-// Load units dynamically
+// ── Employee IDs and Jspreadsheet data (populated by PHP) ──
+var employeeIds = [<?php echo implode(',', array_map(function($e) { return (int)$e['id']; }, $employees)); ?>];
+var jssData = [
+<?php
+$firstRow = true;
+foreach ($employees as $idx => $emp):
+    if (!$firstRow) echo ",\n";
+    $firstRow = false;
+?>
+    [
+        '<?php echo $idx + 1; ?>',
+        '<?php echo addslashes($emp['employee_code']); ?>',
+        '<?php echo addslashes($emp['full_name']); ?>',
+        '<?php echo addslashes($emp['designation'] ?? ''); ?>',
+        '<?php echo addslashes($emp['unit_name'] ?? ''); ?>',
+        <?php echo floatval($emp['basic_da']); ?>,
+        <?php echo floatval($emp['hra']); ?>,
+        <?php echo floatval($emp['leave_encashment']); ?>,
+        <?php echo floatval($emp['bonus_encashment']); ?>,
+        <?php echo floatval($emp['washing_allowance']); ?>,
+        <?php echo floatval($emp['gross_salary']); ?>,
+        <?php echo $emp['pf_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['esi_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['pt_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['lwf_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['overtime_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['bonus_applicable'] ? 1 : 0; ?>,
+        <?php echo $emp['gratuity_applicable'] ? 1 : 0; ?>
+    ]
+<?php endforeach; ?>
+];
+
+// Load units dynamically (kept from original)
 document.getElementById('clientSelect')?.addEventListener('change', function() {
     const clientId = this.value;
     const unitSelect = document.getElementById('unitSelect');
@@ -584,58 +583,132 @@ document.getElementById('clientSelect')?.addEventListener('change', function() {
         });
 });
 
-// Auto-calculate gross and totals
-document.querySelectorAll('.salary-input').forEach(input => {
-    input.addEventListener('input', calculateRowGross);
-});
+// Initialize Jspreadsheet if data exists
+if (typeof jssData !== 'undefined' && jssData.length > 0) {
+    var jssInstance = jspreadsheet(document.getElementById('salary-spreadsheet'), {
+        data: jssData,
+        columns: [
+            { type: 'text', title: '#',          width: 36,  readOnly: true },
+            { type: 'text', title: 'Code',       width: 75,  readOnly: true },
+            { type: 'text', title: 'Name',       width: 150, readOnly: true },
+            { type: 'text', title: 'Desig',      width: 100, readOnly: true },
+            { type: 'text', title: 'Unit',       width: 100, readOnly: true },
+            { type: 'numeric', title: 'Basic+DA', width: 90,  readOnly: false, decimal: 2 },
+            { type: 'numeric', title: 'HRA',      width: 80,  readOnly: false, decimal: 2 },
+            { type: 'numeric', title: 'L.Enc',    width: 75,  readOnly: false, decimal: 2 },
+            { type: 'numeric', title: 'B.Enc',    width: 75,  readOnly: false, decimal: 2 },
+            { type: 'numeric', title: 'Wash',     width: 75,  readOnly: false, decimal: 2 },
+            { type: 'numeric', title: 'Gross',    width: 100, readOnly: true,  decimal: 2 },
+            { type: 'checkbox', title: 'PF',      width: 40,  readOnly: false },
+            { type: 'checkbox', title: 'ESI',     width: 40,  readOnly: false },
+            { type: 'checkbox', title: 'PT',      width: 40,  readOnly: false },
+            { type: 'checkbox', title: 'LWF',     width: 40,  readOnly: false },
+            { type: 'checkbox', title: 'OT',      width: 40,  readOnly: false },
+            { type: 'checkbox', title: 'Bonus',   width: 50,  readOnly: false },
+            { type: 'checkbox', title: 'Gratuity',width: 55,  readOnly: false }
+        ],
+        tableOverflow: true,
+        tableHeight: '600px',
+        columnResize: true,
+        allowExport: false,
+        onchange: function(el, cell, col, row, value, oldValue) {
+            // Auto-calculate Gross (col 10) when any earning col (5-9) changes
+            // NOTE: In jspreadsheet-ce 4.9.2, 1st arg is the DOM element, not the instance
+            if (col >= 5 && col <= 9) {
+                var basicDa  = parseFloat(jssInstance.getValueFromCoords(5, row)) || 0;
+                var hra      = parseFloat(jssInstance.getValueFromCoords(6, row)) || 0;
+                var leaveEnc = parseFloat(jssInstance.getValueFromCoords(7, row)) || 0;
+                var bonusEnc = parseFloat(jssInstance.getValueFromCoords(8, row)) || 0;
+                var washing  = parseFloat(jssInstance.getValueFromCoords(9, row)) || 0;
+                var gross    = basicDa + hra + leaveEnc + bonusEnc + washing;
+                jssInstance.setValueFromCoords(10, row, gross);
+            }
+            updateTotals();
+        },
+        oneditionend: function(el, cell, col, row, value) {
+            // Also recalculate when edition ends (ensures correct value after blur)
+            if (col >= 5 && col <= 9) {
+                var basicDa  = parseFloat(jssInstance.getValueFromCoords(5, row)) || 0;
+                var hra      = parseFloat(jssInstance.getValueFromCoords(6, row)) || 0;
+                var leaveEnc = parseFloat(jssInstance.getValueFromCoords(7, row)) || 0;
+                var bonusEnc = parseFloat(jssInstance.getValueFromCoords(8, row)) || 0;
+                var washing  = parseFloat(jssInstance.getValueFromCoords(9, row)) || 0;
+                var gross    = basicDa + hra + leaveEnc + bonusEnc + washing;
+                jssInstance.setValueFromCoords(10, row, gross);
+            }
+            updateTotals();
+        }
+    });
 
-function calculateRowGross(e) {
-    const empId = e?.target?.dataset?.empId;
-    if (empId) {
-        const form = document.getElementById('salaryForm');
-        const basic = parseFloat(form.querySelector(`[name="basic_da[${empId}]"]`)?.value) || 0;
-        const hra = parseFloat(form.querySelector(`[name="hra[${empId}]"]`)?.value) || 0;
-        const leaveEnc = parseFloat(form.querySelector(`[name="leave_encashment[${empId}]"]`)?.value) || 0;
-        const bonusEnc = parseFloat(form.querySelector(`[name="bonus_encashment[${empId}]"]`)?.value) || 0;
-        const washing = parseFloat(form.querySelector(`[name="washing_allowance[${empId}]"]`)?.value) || 0;
-        const gross = basic + hra + leaveEnc + bonusEnc + washing;
-        
-        const grossEl = document.getElementById('gross_' + empId);
-        if (grossEl) grossEl.textContent = '₹' + gross.toLocaleString('en-IN');
+    // Format helper
+    function fmtINR(v) {
+        return '\u20B9' + Number(v).toLocaleString('en-IN');
     }
-    calculateTotals();
-}
 
-function calculateTotals() {
-    let totalBasic = 0, totalHra = 0, totalLeaveEnc = 0, totalBonusEnc = 0, totalWashing = 0, totalGross = 0;
-    
-    document.querySelectorAll('[name^="basic_da["]').forEach(input => {
-        totalBasic += parseFloat(input.value) || 0;
-    });
-    document.querySelectorAll('[name^="hra["]').forEach(input => {
-        totalHra += parseFloat(input.value) || 0;
-    });
-    document.querySelectorAll('[name^="leave_encashment["]').forEach(input => {
-        totalLeaveEnc += parseFloat(input.value) || 0;
-    });
-    document.querySelectorAll('[name^="bonus_encashment["]').forEach(input => {
-        totalBonusEnc += parseFloat(input.value) || 0;
-    });
-    document.querySelectorAll('[name^="washing_allowance["]').forEach(input => {
-        totalWashing += parseFloat(input.value) || 0;
-    });
-    
-    totalGross = totalBasic + totalHra + totalLeaveEnc + totalBonusEnc + totalWashing;
-    
-    const fmt = (v) => '₹' + v.toLocaleString('en-IN');
-    document.getElementById('total_basic_da').textContent = fmt(totalBasic);
-    document.getElementById('total_hra').textContent = fmt(totalHra);
-    document.getElementById('total_leave_enc').textContent = fmt(totalLeaveEnc);
-    document.getElementById('total_bonus_enc').textContent = fmt(totalBonusEnc);
-    document.getElementById('total_washing').textContent = fmt(totalWashing);
-    document.getElementById('total_gross_col').textContent = fmt(totalGross);
-}
+    // Update totals bar below spreadsheet
+    function updateTotals() {
+        var data = jssInstance.getData();
+        var tB = 0, tH = 0, tLE = 0, tBE = 0, tW = 0, tG = 0;
+        for (var i = 0; i < data.length; i++) {
+            tB  += parseFloat(data[i][5]) || 0;
+            tH  += parseFloat(data[i][6]) || 0;
+            tLE += parseFloat(data[i][7]) || 0;
+            tBE += parseFloat(data[i][8]) || 0;
+            tW  += parseFloat(data[i][9]) || 0;
+            tG  += parseFloat(data[i][10]) || 0;
+        }
+        var bar = document.getElementById('totalsBar');
+        bar.innerHTML =
+            '<span class="t-label">TOTAL (' + data.length + ' Employees)</span>' +
+            '<span class="t-val">' + fmtINR(tB) + '</span>' +
+            '<span class="t-val">' + fmtINR(tH) + '</span>' +
+            '<span class="t-val">' + fmtINR(tLE) + '</span>' +
+            '<span class="t-val">' + fmtINR(tBE) + '</span>' +
+            '<span class="t-val">' + fmtINR(tW) + '</span>' +
+            '<span class="t-val" style="border-left:2px solid #dee2e6;padding-left:8px;font-weight:700;">' + fmtINR(tG) + '</span>';
+    }
+    // Initial totals
+    updateTotals();
 
-// Initialize totals on load
-document.addEventListener('DOMContentLoaded', calculateTotals);
+    // Helper to add hidden field
+    function addHiddenField(name, value) {
+        var inp = document.createElement('input');
+        inp.type = 'hidden';
+        inp.name = name;
+        inp.value = value;
+        document.getElementById('hiddenFields').appendChild(inp);
+    }
+
+    // Intercept form submit — collect jspreadsheet data into hidden fields
+    document.getElementById('salaryForm').addEventListener('submit', function(e) {
+        var container = document.getElementById('hiddenFields');
+        container.innerHTML = '';
+
+        var data = jssInstance.getData();
+
+        for (var i = 0; i < data.length; i++) {
+            var empId = employeeIds[i];
+
+            addHiddenField('employee_id[]', empId);
+            addHiddenField('basic_da[' + empId + ']', data[i][5] || 0);
+            addHiddenField('hra[' + empId + ']', data[i][6] || 0);
+            addHiddenField('leave_encashment[' + empId + ']', data[i][7] || 0);
+            addHiddenField('bonus_encashment[' + empId + ']', data[i][8] || 0);
+            addHiddenField('washing_allowance[' + empId + ']', data[i][9] || 0);
+
+            // Checkboxes: only send when checked (mimics HTML checkbox behaviour for PHP isset check)
+            if (data[i][11] == 1 || data[i][11] === true) addHiddenField('pf_applicable[' + empId + ']', 1);
+            if (data[i][12] == 1 || data[i][12] === true) addHiddenField('esi_applicable[' + empId + ']', 1);
+            if (data[i][13] == 1 || data[i][13] === true) addHiddenField('pt_applicable[' + empId + ']', 1);
+            if (data[i][14] == 1 || data[i][14] === true) addHiddenField('lwf_applicable[' + empId + ']', 1);
+            if (data[i][15] == 1 || data[i][15] === true) addHiddenField('overtime_applicable[' + empId + ']', 1);
+            if (data[i][16] == 1 || data[i][16] === true) addHiddenField('bonus_applicable[' + empId + ']', 1);
+            if (data[i][17] == 1 || data[i][17] === true) addHiddenField('gratuity_applicable[' + empId + ']', 1);
+        }
+        // Allow the form to submit normally with hidden fields
+    });
+}
 </script>
+<?php
+$extraJS = ob_get_clean();
+?>

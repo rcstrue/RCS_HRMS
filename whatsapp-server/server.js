@@ -1,895 +1,826 @@
 /**
- * RCS HRMS — WhatsApp Bot Server
- * Baileys-based REST API for sending WhatsApp messages
- *
- * Run: pm2 start ecosystem.config.js
- * Docs: See README.md
+ * RCS HRMS WhatsApp Bot Server v2.0
+ * Comprehensive API for all WhatsApp messaging needs
  *
  * Endpoints:
- *   GET  /                    — Service info + connection status
- *   GET  /status              — Connection status (for HRMS)
- *   GET  /qr                  — Get QR code for pairing (base64 image)
- *   POST /send                — Send single text message
- *   POST /send-bulk           — Send bulk text messages (queued, 3s delay)
- *   POST /send-image          — Send image with optional caption
- *   POST /send-document       — Send PDF/document file
- *   POST /send-payslip        — Send salary credit notification (text template)
- *   POST /send-letter         — Send letter (appointment/relieving/service cert etc.)
- *   POST /send-otp            — Send OTP for ESS forgot password
- *   POST /send-notification   — Generic auto-notification with template support
- *   GET  /queue               — View current queue status
- *   POST /queue/retry         — Retry all failed messages in queue
- *   GET  /logs                — Get recent message logs (last 100)
+ *   GET  /                       — Health check
+ *   GET  /status                 — Bot connection status
+ *   POST /send                   — Single text message
+ *   POST /send-bulk              — Bulk text messages (queued with delay)
+ *   POST /send-image             — Image with optional caption
+ *   POST /send-document          — PDF/document file
+ *   POST /send-payslip           — Salary credit notification + optional PDF
+ *   POST /send-letter            — Letter (appointment/relieving etc.)
+ *   POST /send-otp               — OTP for ESS forgot password
+ *   POST /send-notification      — Auto-notification with templates
+ *   POST /send-reminder          — General reminder/announcement
+ *
+ * Auth: X-API-Key header
+ * Uses: whatsapp-web.js (baileys-based)
  */
 
 const express = require('express');
 const cors = require('cors');
-const { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
-const path = require('path');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const fs = require('fs');
-const http = require('http');
+const path = require('path');
 const https = require('https');
+const http = require('http');
+const crypto = require('crypto');
+const qrcode = require('qrcode-terminal');
 
-// ═══════════════════════════════════════════════════════
-//  CONFIG
-// ═══════════════════════════════════════════════════════
-const CONFIG = {
-    port: process.env.PORT || 3000,
-    apiKey: process.env.API_KEY || 'rcs-hrms-secret-key-2026',
-    sessionDir: path.join(__dirname, 'session'),
-    logsDir: path.join(__dirname, 'logs'),
-    uploadsDir: path.join(__dirname, 'uploads'),
-    queueDelay: 3000,           // 3 seconds between bulk messages
-    maxRetries: 2,
-    corsOrigin: 'https://join.rcsfacility.com',
-};
+// ═══════════════════════════════════════════════════════════
+//  CONFIGURATION
+// ═══════════════════════════════════════════════════════════
 
-// Ensure directories exist
-[CONFIG.sessionDir, CONFIG.logsDir, CONFIG.uploadsDir].forEach(dir => {
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
+const PORT = process.env.PORT || 3000;
+const API_KEY = process.env.API_KEY || 'rcs-hrms-secret-key-2026';
+const BULK_DELAY_MS = process.env.BULK_DELAY_MS || 3000; // 3 seconds between bulk messages
+const MAX_FILE_SIZE_MB = 20; // Max file download size
+const LOG_DIR = path.join(__dirname, 'logs');
 
-// ═══════════════════════════════════════════════════════
-//  APP SETUP
-// ═══════════════════════════════════════════════════════
+// Ensure log directory exists
+if (!fs.existsSync(LOG_DIR)) {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  LOGGING
+// ═══════════════════════════════════════════════════════════
+
+const LOG_FILE = path.join(LOG_DIR, `bot-${new Date().toISOString().slice(0, 10)}.log`);
+
+function log(level, msg, meta = null) {
+    const ts = new Date().toISOString();
+    const line = meta
+        ? `${ts} [${level}] ${msg} ${JSON.stringify(meta)}`
+        : `${ts} [${level}] ${msg}`;
+    console.log(line);
+    try {
+        fs.appendFileSync(LOG_FILE, line + '\n');
+    } catch (e) { /* ignore log write errors */ }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EXPRESS SETUP
+// ═══════════════════════════════════════════════════════════
+
 const app = express();
-app.use(express.json({ limit: '10mb' }));
-app.use(cors({ origin: CONFIG.corsOrigin, credentials: true }));
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
 
-// ═══════════════════════════════════════════════════════
-//  STATE
-// ═══════════════════════════════════════════════════════
-let sock = null;
-let isConnected = false;
-let qrCode = null;
-let phoneInfo = null;
-let totalMessagesSent = 0;
-
-// Message queue
-const messageQueue = [];
-let isProcessingQueue = false;
-
-// In-memory log (last 500 messages)
-const messageLog = [];
-const MAX_LOG = 500;
-
-// ═══════════════════════════════════════════════════════
-//  API KEY MIDDLEWARE
-// ═══════════════════════════════════════════════════════
-function verifyKey(req, res, next) {
+// ─── API Key Middleware ────────────────────────────────────
+function apiKeyAuth(req, res, next) {
     const key = req.headers['x-api-key'];
-    if (!key || key !== CONFIG.apiKey) {
-        return res.status(401).json({ success: false, error: 'Invalid API key' });
+    if (!key || key !== API_KEY) {
+        log('WARN', 'Unauthorized API call', { ip: req.ip, path: req.path });
+        return res.status(401).json({ success: false, error: 'Invalid or missing API key' });
     }
     next();
 }
 
-// ═══════════════════════════════════════════════════════
-//  LOGGING
-// ═══════════════════════════════════════════════════════
-function logMessage(entry) {
-    entry.timestamp = new Date().toISOString();
-    entry.id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-    messageLog.unshift(entry);
-    if (messageLog.length > MAX_LOG) messageLog.pop();
-    return entry;
+// Apply auth to all POST routes
+app.post('*', apiKeyAuth);
+
+// ═══════════════════════════════════════════════════════════
+//  WHATSAPP CLIENT
+// ═══════════════════════════════════════════════════════════
+
+const client = new Client({
+    authStrategy: new LocalAuth({
+        dataPath: path.join(__dirname, '.wwebjs_auth'),
+    }),
+    puppeteer: {
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--window-size=1280,720'
+        ]
+    },
+    // Retry settings
+    qrTimeoutMs: 60000,
+    timeoutMs: 60000,
+});
+
+let botReady = false;
+let botPhoneNumber = '';
+
+// ─── WhatsApp Events ──────────────────────────────────────
+
+client.on('qr', (qr) => {
+    log('INFO', 'QR Code received — scan with WhatsApp to connect');
+    qrcode.generate(qr, { small: true });
+});
+
+client.on('ready', () => {
+    botReady = true;
+    client.info().then(info => {
+        botPhoneNumber = info.wid?.user || info.me?.id?.user || '';
+        log('INFO', 'WhatsApp bot is READY', { phone: botPhoneNumber, name: info.pushname || 'N/A' });
+    }).catch(() => {
+        log('INFO', 'WhatsApp bot is READY (could not fetch phone number)');
+    });
+});
+
+client.on('disconnected', (reason) => {
+    botReady = false;
+    botPhoneNumber = '';
+    log('WARN', 'WhatsApp bot disconnected', { reason });
+});
+
+client.on('auth_failure', (msg) => {
+    log('ERROR', 'Authentication failure', { msg });
+});
+
+client.on('message', (msg) => {
+    // Log received messages for debugging
+    if (msg.from !== 'status@broadcast') {
+        log('DEBUG', 'Message received', { from: msg.from, hasMedia: msg.hasMedia });
+    }
+});
+
+// ─── Initialize ───────────────────────────────────────────
+client.initialize().catch(err => {
+    log('ERROR', 'Failed to initialize WhatsApp client', { error: err.message });
+});
+
+// ═══════════════════════════════════════════════════════════
+//  HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Format phone number to WhatsApp JID format.
+ * Accepts: 919876543210, 9876543210, +919876543210
+ * Returns: 919876543210@s.whatsapp.net
+ */
+function formatPhoneNumber(number) {
+    let num = String(number).replace(/[^0-9]/g, '');
+    if (num.length === 10 && num.startsWith('9')) {
+        num = '91' + num;
+    } else if (num.length === 10) {
+        num = '91' + num;
+    } else if (num.length > 12 && num.startsWith('91')) {
+        num = num.substring(0, 12);
+    }
+    if (num.length < 12) return null;
+    return num + '@c.us';
 }
 
-// ═══════════════════════════════════════════════════════
-//  HELPER: Download file from URL to buffer
-// ═══════════════════════════════════════════════════════
-async function downloadFile(url) {
+/**
+ * Send a text message via WhatsApp
+ */
+async function sendTextMessage(chatId, text) {
+    if (!botReady) throw new Error('WhatsApp bot is not connected');
+    const result = await client.sendMessage(chatId, text);
+    return result;
+}
+
+/**
+ * Download a file from URL to a temp file
+ */
+function downloadFile(url, timeoutMs = 30000) {
     return new Promise((resolve, reject) => {
-        const mod = url.startsWith('https') ? https : http;
-        mod.get(url, { timeout: 30000 }, (res) => {
+        const parsedUrl = new URL(url);
+        const protocol = parsedUrl.protocol === 'https:' ? https : http;
+        let fileSize = 0;
+
+        const req = protocol.get(url, { timeout: timeoutMs }, (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                return downloadFile(res.headers.location).then(resolve).catch(reject);
+                return downloadFile(res.headers.location, timeoutMs).then(resolve).catch(reject);
             }
             if (res.statusCode !== 200) {
-                return reject(new Error(`HTTP ${res.statusCode} downloading ${url}`));
+                reject(new Error(`HTTP ${res.statusCode} when downloading file`));
+                return;
             }
+
             const chunks = [];
-            res.on('data', chunk => chunks.push(chunk));
+            res.on('data', (chunk) => {
+                fileSize += chunk.length;
+                if (fileSize > MAX_FILE_SIZE_MB * 1024 * 1024) {
+                    req.destroy(new Error(`File too large (>${MAX_FILE_SIZE_MB}MB)`));
+                    return;
+                }
+                chunks.push(chunk);
+            });
             res.on('end', () => {
                 const buffer = Buffer.concat(chunks);
-                const ext = path.extname(new URL(url).pathname).split('?')[0] || '.bin';
-                const mimeMap = {
-                    '.pdf': 'application/pdf',
-                    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                    '.png': 'image/png', '.gif': 'image/gif',
-                    '.webp': 'image/webp', '.doc': 'application/msword',
-                    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                };
-                resolve({
-                    buffer,
-                    mimetype: mimeMap[ext.toLowerCase()] || 'application/octet-stream',
-                    filename: path.basename(new URL(url).pathname).split('?')[0] || 'file' + ext,
-                });
+                const ext = path.extname(parsedUrl.pathname) || '.bin';
+                const tmpPath = path.join(LOG_DIR, `media_${Date.now()}${ext}`);
+                fs.writeFileSync(tmpPath, buffer);
+                resolve({ filePath: tmpPath, mimeType: res.headers['content-type'] || 'application/octet-stream' });
             });
             res.on('error', reject);
-        }).on('error', reject);
-    });
-}
-
-// ═══════════════════════════════════════════════════════
-//  HELPER: Send text message via Baileys
-// ═══════════════════════════════════════════════════════
-async function sendTextMessage(number, message) {
-    if (!sock || !isConnected) {
-        throw new Error('WhatsApp not connected');
-    }
-
-    const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-    const result = await sock.sendMessage(jid, { text: message });
-    totalMessagesSent++;
-
-    return {
-        success: true,
-        messageId: result?.key?.id || null,
-        message: 'Message Sent',
-    };
-}
-
-// ═══════════════════════════════════════════════════════
-//  HELPER: Send image message via Baileys
-// ═══════════════════════════════════════════════════════
-async function sendImageMessage(number, imageUrl, caption = '') {
-    if (!sock || !isConnected) {
-        throw new Error('WhatsApp not connected');
-    }
-
-    const { buffer, mimetype, filename } = await downloadFile(imageUrl);
-    const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-
-    const result = await sock.sendMessage(jid, {
-        image: buffer,
-        caption: caption || undefined,
-        mimetype,
-        fileName: filename,
-    });
-    totalMessagesSent++;
-
-    return {
-        success: true,
-        messageId: result?.key?.id || null,
-        message: 'Image Sent',
-    };
-}
-
-// ═══════════════════════════════════════════════════════
-//  HELPER: Send document via Baileys
-// ═══════════════════════════════════════════════════════
-async function sendDocumentMessage(number, fileUrl, filename, caption = '') {
-    if (!sock || !isConnected) {
-        throw new Error('WhatsApp not connected');
-    }
-
-    const { buffer, mimetype } = await downloadFile(fileUrl);
-    const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-
-    const result = await sock.sendMessage(jid, {
-        document: buffer,
-        caption: caption || undefined,
-        mimetype,
-        fileName: filename || 'document.pdf',
-    });
-    totalMessagesSent++;
-
-    return {
-        success: true,
-        messageId: result?.key?.id || null,
-        message: 'Document Sent',
-    };
-}
-
-// ═══════════════════════════════════════════════════════
-//  MESSAGE QUEUE SYSTEM
-// ═══════════════════════════════════════════════════════
-function addToQueue(items) {
-    // items: [{number, message, type, imageUrl?, filename?, caption?}]
-    items.forEach(item => {
-        messageQueue.push({
-            ...item,
-            retries: 0,
-            status: 'pending',   // pending | sent | failed
-            error: null,
-            messageId: null,
-            addedAt: new Date().toISOString(),
         });
+
+        req.on('timeout', () => {
+            req.destroy(new Error('Download timeout'));
+        });
+        req.on('error', reject);
     });
-    processQueue();
-    return messageQueue.length;
 }
 
-async function processQueue() {
-    if (isProcessingQueue) return;
-    isProcessingQueue = true;
-
-    while (messageQueue.length > 0) {
-        const item = messageQueue[0];
-
-        if (item.status === 'pending') {
-            try {
-                let result;
-                switch (item.type || 'text') {
-                    case 'image':
-                        result = await sendImageMessage(item.number, item.imageUrl, item.caption);
-                        break;
-                    case 'document':
-                        result = await sendDocumentMessage(item.number, item.fileUrl, item.filename, item.caption);
-                        break;
-                    default:
-                        result = await sendTextMessage(item.number, item.message);
-                }
-
-                item.status = 'sent';
-                item.messageId = result.messageId;
-                item.sentAt = new Date().toISOString();
-                logMessage({
-                    type: item.type,
-                    number: item.number,
-                    message: item.message || item.caption || item.filename,
-                    status: 'sent',
-                    messageId: result.messageId,
-                });
-            } catch (err) {
-                item.retries++;
-                item.error = err.message;
-
-                if (item.retries >= CONFIG.maxRetries) {
-                    item.status = 'failed';
-                    logMessage({
-                        type: item.type,
-                        number: item.number,
-                        message: item.message || item.caption || item.filename,
-                        status: 'failed',
-                        error: err.message,
-                    });
-                } else {
-                    // Will retry on next loop
-                    item.status = 'pending';
-                    logMessage({
-                        type: item.type,
-                        number: item.number,
-                        message: item.message || item.caption || item.filename,
-                        status: 'retrying',
-                        error: err.message,
-                        retry: item.retries,
-                    });
-                }
-            }
+/**
+ * Cleanup temp file after sending
+ */
+function cleanupFile(filePath) {
+    try {
+        if (filePath && fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
         }
-
-        // Remove completed/failed items from front of queue
-        if (item.status === 'sent' || item.status === 'failed') {
-            messageQueue.shift();
-        }
-
-        // Delay between messages to avoid WhatsApp spam detection
-        if (messageQueue.length > 0 && messageQueue[0].status === 'pending') {
-            await new Promise(r => setTimeout(r, CONFIG.queueDelay));
-        }
-    }
-
-    isProcessingQueue = false;
-}
-
-// ═══════════════════════════════════════════════════════
-//  TEMPLATE BUILDERS
-// ═══════════════════════════════════════════════════════
-
-/**
- * Build OTP message for ESS forgot password
- */
-function buildOtpMessage(otp, name = '') {
-    let msg = `🔐 *VERIFICATION CODE*\n\n`;
-    if (name) msg += `Hello *${name}*,\n\n`;
-    msg += `Your verification code is: *${otp}*\n\n`;
-    msg += `This code is valid for 10 minutes.\n`;
-    msg += `Do not share this code with anyone.\n\n`;
-    msg += `_RCS TRUE FACILITIES PVT LTD_`;
-    return msg;
+    } catch (e) { /* ignore cleanup errors */ }
 }
 
 /**
- * Build salary credit notification
+ * Sleep for given milliseconds
  */
-function buildSalaryMessage(data) {
-    const { name, employeeCode, monthYear, grossEarnings, totalDeductions, netPay } = data;
-    let msg = `💰 *SALARY CREDITED*\n\n`;
-    msg += `Dear *${name}* (${employeeCode}),\n\n`;
-    msg += `Your salary for *${monthYear}* has been credited to your bank account.\n\n`;
-    msg += `📋 *Payslip Details:*\n`;
-    msg += `Gross: *Rs. ${Number(grossEarnings || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}*\n`;
-    msg += `Deductions: *Rs. ${Number(totalDeductions || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}*\n`;
-    msg += `*Net Pay: Rs. ${Number(netPay || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}*\n\n`;
-    msg += `Login to HRMS portal for detailed payslip.\n\n`;
-    msg += `_RCS TRUE FACILITIES PVT LTD_`;
-    return msg;
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * Build welcome message for new employee
- */
-function buildWelcomeMessage(data) {
-    const { name, employeeCode, designation, unit, client, dateOfJoining } = data;
-    let msg = `🎉 *WELCOME TO RCS TRUE FACILITIES!*\n\n`;
-    msg += `Dear *${name}*,\n\n`;
-    msg += `Welcome aboard! We are excited to have you as part of the RCS family.\n\n`;
-    msg += `📋 *Your Details:*\n`;
-    if (employeeCode) msg += `Employee Code: *${employeeCode}*\n`;
-    if (designation) msg += `Designation: *${designation}*\n`;
-    if (unit) msg += `Unit: *${unit}*\n`;
-    if (client) msg += `Client: *${client}*\n`;
-    if (dateOfJoining) msg += `Date of Joining: *${dateOfJoining}*\n`;
-    msg += `\nPlease download the ESS app and login with your employee code.\n\n`;
-    msg += `_RCS TRUE FACILITIES PVT LTD_`;
-    return msg;
-}
-
-/**
- * Build leave status notification
- */
-function buildLeaveMessage(data) {
-    const { name, leaveType, fromDate, toDate, status, reason, manager } = data;
-    const statusEmoji = (status || '').toLowerCase() === 'approved' ? '✅' : '❌';
-    let msg = `${statusEmoji} *LEAVE ${status?.toUpperCase()}*\n\n`;
-    msg += `Dear *${name}*,\n\n`;
-    msg += `Your ${leaveType} leave application has been *${status}*\n\n`;
-    msg += `📅 *Leave Details:*\n`;
-    msg += `Type: ${leaveType}\n`;
-    msg += `From: ${fromDate}\n`;
-    msg += `To: ${toDate}\n`;
-    if (reason) msg += `Reason: ${reason}\n`;
-    if (manager) msg += `Approved by: ${manager}\n`;
-    msg += `\n_RCS TRUE FACILITIES PVT LTD_`;
-    return msg;
-}
-
-/**
- * Build birthday/anniversary greeting
- */
-function buildGreetingMessage(data) {
-    const { name, type, unit } = data;
-    if (type === 'anniversary') {
-        let msg = `🎊 *HAPPY WORK ANNIVERSARY!* 🎊\n\n`;
-        msg += `Dear *${name}*,\n\n`;
-        msg += `Congratulations on your work anniversary! Thank you for your dedication and contribution to RCS True Facilities.\n\n`;
-        if (unit) msg += `Team: *${unit}*\n\n`;
-        msg += `We look forward to many more years together!\n\n`;
-        msg += `_RCS TRUE FACILITIES PVT LTD_`;
-        return msg;
-    }
-    // Birthday
-    let msg = `🎂 *HAPPY BIRTHDAY!* 🎂\n\n`;
-    msg += `Dear *${name}*,\n\n`;
-    msg += `Wishing you a very Happy Birthday! May this year bring you happiness, success, and good health.\n\n`;
-    if (unit) msg += `Team: *${unit}*\n\n`;
-    msg += `_RCS TRUE FACILITIES PVT LTD_`;
-    return msg;
-}
-
-/**
- * Build generic notification
- */
-function buildGenericNotification(data) {
-    const { title, body, footer } = data;
-    let msg = `📢 *${title || 'NOTIFICATION'}*\n\n`;
-    msg += `${body || ''}\n\n`;
-    if (footer) msg += `${footer}\n\n`;
-    msg += `_RCS TRUE FACILITIES PVT LTD_`;
-    return msg;
-}
-
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 //  ROUTES
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 
-// ─── GET / — Service info ─────────────────────────────
-app.get("/", (req, res) => {
+// ─── GET / — Health Check ─────────────────────────────────
+
+app.get('/', (req, res) => {
+    res.json({
+        service: 'RCS HRMS WhatsApp Bot',
+        version: '2.0.0',
+        status: botReady ? 'online' : 'offline',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+    });
+});
+
+// ─── GET /status — Bot Status ─────────────────────────────
+
+app.get('/status', (req, res) => {
     res.json({
         success: true,
-        service: "RCS HRMS WhatsApp API",
-        connected: isConnected,
-        version: "2.0",
-        queueLength: messageQueue.length,
-        messagesSent: totalMessagesSent,
+        data: {
+            connected: botReady,
+            phone: botPhoneNumber,
+            uptime: Math.floor(process.uptime()),
+            timestamp: new Date().toISOString()
+        }
     });
 });
 
-// ─── GET /status — Connection status (used by HRMS) ───
-app.get("/status", (req, res) => {
-    res.json({
-        connected: isConnected,
-        phone: phoneInfo?.id?.replace(/:@s\.whatsapp\.net$/, '') || null,
-        name: phoneInfo?.pushName || null,
-        queueLength: messageQueue.length,
-        messagesSent: totalMessagesSent,
-    });
-});
+// ─── POST /send — Single Text Message ─────────────────────
 
-// ─── GET /qr — Get QR code for pairing ────────────────
-app.get("/qr", (req, res) => {
-    if (isConnected) {
-        return res.json({ connected: true, message: 'Already connected' });
-    }
-    if (qrCode) {
-        res.type('png');
-        res.send(Buffer.from(qrCode, 'base64'));
-    } else {
-        res.json({ connected: false, message: 'QR not yet generated, please wait...' });
-    }
-});
-
-// ─── POST /send — Send single text message ─────────────
-app.post("/send", verifyKey, async (req, res) => {
+app.post('/send', async (req, res) => {
     try {
         const { number, message } = req.body;
 
         if (!number || !message) {
-            return res.status(400).json({ success: false, error: 'number and message are required' });
+            return res.status(400).json({ success: false, error: 'Missing required fields: number, message' });
         }
 
-        if (!isConnected) {
-            return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+        const chatId = formatPhoneNumber(number);
+        if (!chatId) {
+            return res.status(400).json({ success: false, error: 'Invalid phone number' });
         }
 
-        const result = await sendTextMessage(number, message);
-        logMessage({ type: 'text', number, message, status: 'sent', messageId: result.messageId });
-        res.json(result);
-
-    } catch (err) {
-        logMessage({ type: 'text', number: req.body.number, message: req.body.message, status: 'failed', error: err.message });
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-// ─── POST /send-bulk — Send bulk text messages ────────
-app.post("/send-bulk", verifyKey, async (req, res) => {
-    try {
-        const { messages } = req.body;  // [{number, message}] or [{to, message}]
-
-        if (!messages || !Array.isArray(messages) || messages.length === 0) {
-            return res.status(400).json({ success: false, error: 'messages array is required' });
-        }
-
-        if (!isConnected) {
-            return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
-        }
-
-        // Normalize: accept both {number, message} and {to, message}
-        const queueItems = messages.map(m => ({
-            number: m.number || m.to,
-            message: m.message,
-            type: 'text',
-        }));
-
-        const queueLen = addToQueue(queueItems);
+        log('INFO', 'Sending text message', { to: number });
+        const result = await sendTextMessage(chatId, message);
 
         res.json({
             success: true,
-            message: `${queueItems.length} messages queued`,
-            data: {
-                queued: queueItems.length,
-                sent: 0,
-                failed: 0,
-                queueLength: queueLen,
-            }
+            message: 'Message sent successfully',
+            messageId: result.id?.id || result.id?._serialized || null
         });
-
     } catch (err) {
+        log('ERROR', 'Failed to send text message', { error: err.message });
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// ─── POST /send-image — Send image with caption ───────
-app.post("/send-image", verifyKey, async (req, res) => {
+// ─── POST /send-bulk — Bulk Text Messages ─────────────────
+
+app.post('/send-bulk', async (req, res) => {
+    try {
+        const { messages } = req.body;
+
+        if (!Array.isArray(messages) || messages.length === 0) {
+            return res.status(400).json({ success: false, error: 'messages must be a non-empty array' });
+        }
+
+        if (messages.length > 500) {
+            return res.status(400).json({ success: false, error: 'Maximum 500 messages per batch' });
+        }
+
+        log('INFO', `Bulk send started: ${messages.length} messages`);
+
+        // Process asynchronously — return 202 immediately
+        const batchId = crypto.randomBytes(8).toString('hex');
+
+        // Start processing in background
+        (async () => {
+            let sent = 0, failed = 0;
+
+            for (const msg of messages) {
+                // Support both 'to' (from whatsapp-salary.php) and 'number' (from includes/whatsapp.php)
+                const phone = msg.number || msg.to;
+                const text = msg.message;
+                if (!phone || !text) { failed++; continue; }
+
+                const chatId = formatPhoneNumber(phone);
+                if (!chatId) { failed++; continue; }
+
+                try {
+                    await sendTextMessage(chatId, text);
+                    sent++;
+                    log('DEBUG', `Bulk: sent to ${phone} (${sent}/${messages.length})`);
+                } catch (err) {
+                    failed++;
+                    log('WARN', `Bulk: failed to send to ${phone}`, { error: err.message });
+                }
+
+                // Delay between messages to avoid rate limiting
+                if (sent + failed < messages.length) {
+                    await sleep(BULK_DELAY_MS);
+                }
+            }
+
+            log('INFO', `Bulk send completed`, { batchId, total: messages.length, sent, failed });
+        })();
+
+        res.json({
+            success: true,
+            message: `${messages.length} messages queued for delivery`,
+            data: {
+                batchId,
+                queued: messages.length,
+                sent: 0,
+                failed: 0
+            }
+        });
+    } catch (err) {
+        log('ERROR', 'Bulk send error', { error: err.message });
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ─── POST /send-image — Image with Caption ────────────────
+
+app.post('/send-image', async (req, res) => {
     try {
         const { number, image, caption } = req.body;
 
         if (!number || !image) {
-            return res.status(400).json({ success: false, error: 'number and image URL are required' });
+            return res.status(400).json({ success: false, error: 'Missing required fields: number, image' });
         }
 
-        if (!isConnected) {
-            return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+        const chatId = formatPhoneNumber(number);
+        if (!chatId) {
+            return res.status(400).json({ success: false, error: 'Invalid phone number' });
         }
 
-        const result = await sendImageMessage(number, image, caption || '');
-        logMessage({ type: 'image', number, message: caption || image, status: 'sent', messageId: result.messageId });
-        res.json(result);
+        log('INFO', 'Sending image', { to: number, hasCaption: !!caption });
 
+        const media = await MessageMedia.fromUrl(image, { unsafeMime: true });
+
+        const options = caption ? { caption } : {};
+        const result = await client.sendMessage(chatId, media, options);
+
+        res.json({
+            success: true,
+            message: 'Image sent successfully',
+            messageId: result.id?.id || result.id?._serialized || null
+        });
     } catch (err) {
-        logMessage({ type: 'image', number: req.body.number, message: req.body.caption || req.body.image, status: 'failed', error: err.message });
+        log('ERROR', 'Failed to send image', { error: err.message });
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// ─── POST /send-document — Send PDF/document ──────────
-app.post("/send-document", verifyKey, async (req, res) => {
+// ─── POST /send-document — PDF/Document File ──────────────
+
+app.post('/send-document', async (req, res) => {
     try {
         const { number, file, filename, caption } = req.body;
 
         if (!number || !file) {
-            return res.status(400).json({ success: false, error: 'number and file URL are required' });
+            return res.status(400).json({ success: false, error: 'Missing required fields: number, file' });
         }
 
-        if (!isConnected) {
-            return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+        const chatId = formatPhoneNumber(number);
+        if (!chatId) {
+            return res.status(400).json({ success: false, error: 'Invalid phone number' });
         }
 
-        const result = await sendDocumentMessage(number, file, filename || 'document.pdf', caption || '');
-        logMessage({ type: 'document', number, message: caption || filename || file, status: 'sent', messageId: result.messageId });
-        res.json(result);
+        log('INFO', 'Sending document', { to: number, filename });
 
+        const media = await MessageMedia.fromUrl(file, { unsafeMime: true, filename: filename || 'document.pdf' });
+
+        const options = caption ? { caption } : {};
+        const result = await client.sendMessage(chatId, media, {
+            ...options,
+            sendMediaAsDocument: true
+        });
+
+        res.json({
+            success: true,
+            message: 'Document sent successfully',
+            messageId: result.id?.id || result.id?._serialized || null
+        });
     } catch (err) {
-        logMessage({ type: 'document', number: req.body.number, message: req.body.filename || req.body.file, status: 'failed', error: err.message });
+        log('ERROR', 'Failed to send document', { error: err.message });
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// ─── POST /send-payslip — Send salary credit notification ──
-app.post("/send-payslip", verifyKey, async (req, res) => {
+// ─── POST /send-payslip — Salary Credit Notification ──────
+
+app.post('/send-payslip', async (req, res) => {
     try {
-        const { number, ...data } = req.body;  // name, employeeCode, monthYear, grossEarnings, totalDeductions, netPay
+        const {
+            number,
+            name,
+            employeeCode,
+            monthYear,
+            grossEarnings,
+            totalDeductions,
+            netPay,
+            payslipUrl
+        } = req.body;
 
         if (!number) {
-            return res.status(400).json({ success: false, error: 'number is required' });
+            return res.status(400).json({ success: false, error: 'Missing required field: number' });
         }
 
-        // If data has required fields, build template. Otherwise use raw message.
-        const message = data.name
-            ? buildSalaryMessage(data)
-            : req.body.message;
-
-        if (!message) {
-            return res.status(400).json({ success: false, error: 'message or salary data fields are required' });
+        const chatId = formatPhoneNumber(number);
+        if (!chatId) {
+            return res.status(400).json({ success: false, error: 'Invalid phone number' });
         }
 
-        if (!isConnected) {
-            return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+        // Build formatted salary credit message
+        const empName = name || 'Employee';
+        const period = monthYear || 'Current Month';
+        const gross = grossEarnings ? Number(grossEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0.00';
+        const deductions = totalDeductions ? Number(totalDeductions).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0.00';
+        const net = netPay ? Number(netPay).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0.00';
+
+        let message = `*SALARY CREDITED*\n\n` +
+            `Dear *${empName}*,\n\n` +
+            `Your salary for *${period}* has been credited to your bank account.\n\n` +
+            `*Payslip Details:*\n` +
+            `Gross: *Rs. ${gross}*\n` +
+            `Deductions: *Rs. ${deductions}*\n` +
+            `*Net Pay: Rs. ${net}*\n\n` +
+            `Login to HRMS portal for detailed payslip.\n\n` +
+            `_RCS TRUE FACILITIES PVT LTD_`;
+
+        log('INFO', 'Sending payslip notification', { to: number, period, hasPdf: !!payslipUrl });
+
+        // Send text message
+        const result = await client.sendMessage(chatId, message);
+
+        // Optionally send payslip PDF
+        let documentSent = false;
+        if (payslipUrl) {
+            try {
+                const media = await MessageMedia.fromUrl(payslipUrl, {
+                    unsafeMime: true,
+                    filename: `Payslip_${employeeCode || 'employee'}_${period.replace(/\s+/g, '_')}.pdf`
+                });
+                await client.sendMessage(chatId, media, {
+                    caption: `Payslip for ${period}`,
+                    sendMediaAsDocument: true
+                });
+                documentSent = true;
+                log('INFO', 'Payslip PDF sent', { to: number });
+            } catch (pdfErr) {
+                log('WARN', 'Failed to send payslip PDF', { error: pdfErr.message });
+                // Don't fail the whole request — text was already sent
+            }
         }
-
-        const result = await sendTextMessage(number, message);
-
-        // If payslipUrl provided, also send the PDF
-        let documentResult = null;
-        if (req.body.payslipUrl) {
-            documentResult = await sendDocumentMessage(
-                number,
-                req.body.payslipUrl,
-                `Payslip_${data.employeeCode || 'Employee'}_${data.monthYear || ''}.pdf`,
-                `Salary Slip - ${data.monthYear || ''}`
-            );
-        }
-
-        logMessage({ type: 'payslip', number, message: `Salary credit - ${data.monthYear || ''}`, status: 'sent', messageId: result.messageId });
 
         res.json({
             success: true,
             message: 'Payslip notification sent',
-            messageId: result.messageId,
-            documentSent: !!documentResult,
+            messageId: result.id?.id || result.id?._serialized || null,
+            documentSent
         });
-
     } catch (err) {
-        logMessage({ type: 'payslip', number: req.body.number, status: 'failed', error: err.message });
+        log('ERROR', 'Failed to send payslip', { error: err.message });
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// ─── POST /send-letter — Send appointment/relieving/service cert etc. ──
-app.post("/send-letter", verifyKey, async (req, res) => {
+// ─── POST /send-letter — Letter (Appointment/Relieving etc.) ─
+
+app.post('/send-letter', async (req, res) => {
     try {
-        const { number, fileUrl, filename, caption, message } = req.body;
+        const { number, fileUrl, filename, caption } = req.body;
 
         if (!number) {
-            return res.status(400).json({ success: false, error: 'number is required' });
+            return res.status(400).json({ success: false, error: 'Missing required field: number' });
         }
 
-        if (!fileUrl && !message) {
-            return res.status(400).json({ success: false, error: 'fileUrl or message is required' });
+        const chatId = formatPhoneNumber(number);
+        if (!chatId) {
+            return res.status(400).json({ success: false, error: 'Invalid phone number' });
         }
 
-        if (!isConnected) {
-            return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
-        }
+        const letterCaption = caption || filename || 'Document from RCS HRMS';
 
-        let result;
-
-        // If fileUrl provided, send as document
+        // If file URL provided, send as document
         if (fileUrl) {
-            result = await sendDocumentMessage(number, fileUrl, filename || 'letter.pdf', caption || message || '');
-            logMessage({ type: 'letter', number, message: caption || filename, status: 'sent', messageId: result.messageId });
-        } else {
-            // Text-only letter/notification
-            result = await sendTextMessage(number, message);
-            logMessage({ type: 'letter', number, message, status: 'sent', messageId: result.messageId });
+            log('INFO', 'Sending letter with document', { to: number, filename });
+
+            const media = await MessageMedia.fromUrl(fileUrl, {
+                unsafeMime: true,
+                filename: filename || 'letter.pdf'
+            });
+
+            const result = await client.sendMessage(chatId, media, {
+                caption: letterCaption,
+                sendMediaAsDocument: true
+            });
+
+            return res.json({
+                success: true,
+                message: 'Letter sent successfully',
+                messageId: result.id?.id || result.id?._serialized || null
+            });
         }
+
+        // No file URL — send as text message
+        log('INFO', 'Sending letter as text', { to: number });
+        const result = await client.sendMessage(chatId, letterCaption);
 
         res.json({
             success: true,
-            message: 'Letter sent',
-            messageId: result.messageId,
+            message: 'Letter sent successfully',
+            messageId: result.id?.id || result.id?._serialized || null
         });
-
     } catch (err) {
-        logMessage({ type: 'letter', number: req.body.number, status: 'failed', error: err.message });
+        log('ERROR', 'Failed to send letter', { error: err.message });
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// ─── POST /send-otp — Send OTP for ESS forgot password ──
-app.post("/send-otp", verifyKey, async (req, res) => {
+// ─── POST /send-otp — OTP for ESS Forgot Password ─────────
+
+app.post('/send-otp', async (req, res) => {
     try {
         const { number, otp, name } = req.body;
 
         if (!number || !otp) {
-            return res.status(400).json({ success: false, error: 'number and otp are required' });
+            return res.status(400).json({ success: false, error: 'Missing required fields: number, otp' });
         }
 
-        if (!isConnected) {
-            return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+        const chatId = formatPhoneNumber(number);
+        if (!chatId) {
+            return res.status(400).json({ success: false, error: 'Invalid phone number' });
         }
 
-        const message = buildOtpMessage(otp, name);
-        const result = await sendTextMessage(number, message);
-        logMessage({ type: 'otp', number, message: `OTP sent to ${number}`, status: 'sent', messageId: result.messageId });
+        const empName = name || 'User';
+
+        const message = `*OTP VERIFICATION*\n\n` +
+            `Dear *${empName}*,\n\n` +
+            `Your OTP for HRMS ESS login is:\n\n` +
+            `*${otp}*\n\n` +
+            `This OTP is valid for *5 minutes*. Do not share it with anyone.\n\n` +
+            `If you did not request this, please ignore this message.\n\n` +
+            `_RCS TRUE FACILITIES PVT LTD_`;
+
+        log('INFO', 'Sending OTP', { to: number, name: empName });
+
+        const result = await client.sendMessage(chatId, message);
 
         res.json({
             success: true,
-            message: 'OTP sent',
-            messageId: result.messageId,
+            message: 'OTP sent successfully',
+            messageId: result.id?.id || result.id?._serialized || null
         });
-
     } catch (err) {
-        logMessage({ type: 'otp', number: req.body.number, status: 'failed', error: err.message });
+        log('ERROR', 'Failed to send OTP', { error: err.message });
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// ─── POST /send-notification — Generic auto-notification ──
-// Supports templates: welcome, leave, birthday, anniversary, generic
-app.post("/send-notification", verifyKey, async (req, res) => {
+// ─── POST /send-notification — Templated Auto-Notification ─
+
+const NOTIFICATION_TEMPLATES = {
+    welcome: (data) => {
+        const name = data.name || 'Team Member';
+        const designation = data.designation || '';
+        const unit = data.unit || '';
+        const date = data.joiningDate || '';
+        return `*WELCOME TO RCS!*\n\n` +
+            `Dear *${name}*,\n\n` +
+            `Welcome to the RCS Family! We are delighted to have you on board.\n\n` +
+            (designation ? `*Designation:* ${designation}\n` : '') +
+            (unit ? `*Unit:* ${unit}\n` : '') +
+            (date ? `*Date of Joining:* ${date}\n` : '') +
+            `\nYour HRMS account has been set up. Please login to the ESS portal to access your details.\n\n` +
+            `For any assistance, contact your HR department.\n\n` +
+            `_RCS TRUE FACILITIES PVT LTD_`;
+    },
+
+    leave: (data) => {
+        const name = data.name || 'Employee';
+        const type = data.leaveType || 'Leave';
+        const from = data.fromDate || '';
+        const to = data.toDate || '';
+        const status = data.status || 'submitted';
+        const days = data.days || '';
+        const reason = data.reason || '';
+        return `*LEAVE UPDATE*\n\n` +
+            `Dear *${name}*,\n\n` +
+            `Your ${type} application has been *${status.toUpperCase()}*.\n\n` +
+            `*Details:*\n` +
+            `Type: ${type}\n` +
+            (from ? `From: ${from}\n` : '') +
+            (to ? `To: ${to}\n` : '') +
+            (days ? `Days: ${days}\n` : '') +
+            (reason ? `Reason: ${reason}\n` : '') +
+            `\n_Login to ESS portal for more details._\n\n` +
+            `_RCS TRUE FACILITIES PVT LTD_`;
+    },
+
+    birthday: (data) => {
+        const name = data.name || 'Team Member';
+        return `*HAPPY BIRTHDAY!* \n\n` +
+            `Dear *${name}*,\n\n` +
+            `Wishing you a very Happy Birthday! \n\n` +
+            `May this year bring you joy, success, and good health.\n\n` +
+            `The entire RCS Family celebrates with you!\n\n` +
+            `_RCS TRUE FACILITIES PVT LTD_`;
+    },
+
+    anniversary: (data) => {
+        const name = data.name || 'Team Member';
+        const years = data.years || '';
+        return `*WORK ANNIVERSARY!* \n\n` +
+            `Dear *${name}*,\n\n` +
+            `Congratulations on completing ${years ? `*${years} years*` : 'another year'} with RCS!\n\n` +
+            `Thank you for your dedication and valuable contributions to the team.\n\n` +
+            `We look forward to many more years together.\n\n` +
+            `_RCS TRUE FACILITIES PVT LTD_`;
+    },
+
+    salary: (data) => {
+        // Simple salary template (use /send-payslip for detailed payslips)
+        const name = data.name || 'Employee';
+        const month = data.monthYear || '';
+        const netPay = data.netPay ? Number(data.netPay).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '';
+        return `*SALARY CREDITED*\n\n` +
+            `Dear *${name}*,\n\n` +
+            (month ? `Your salary for *${month}* has been credited.\n\n` : '') +
+            (netPay ? `*Net Pay: Rs. ${netPay}*\n\n` : '') +
+            `Login to HRMS portal for detailed payslip.\n\n` +
+            `_RCS TRUE FACILITIES PVT LTD_`;
+    },
+
+    generic: (data) => {
+        const title = data.title || 'Notification';
+        const body = data.body || data.message || '';
+        const name = data.name || '';
+        return `*${title.toUpperCase()}*\n\n` +
+            (name ? `Dear *${name}*,\n\n` : '') +
+            `${body}\n\n` +
+            `_RCS TRUE FACILITIES PVT LTD_`;
+    }
+};
+
+app.post('/send-notification', async (req, res) => {
     try {
-        const { number, template, data, message } = req.body;
+        const { number, template, data = {} } = req.body;
 
-        if (!number) {
-            return res.status(400).json({ success: false, error: 'number is required' });
+        if (!number || !template) {
+            return res.status(400).json({ success: false, error: 'Missing required fields: number, template' });
         }
 
-        if (!template && !message && !data) {
-            return res.status(400).json({ success: false, error: 'template, data, or message is required' });
+        const chatId = formatPhoneNumber(number);
+        if (!chatId) {
+            return res.status(400).json({ success: false, error: 'Invalid phone number' });
         }
 
-        if (!isConnected) {
-            return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+        // Get template function
+        const templateFn = NOTIFICATION_TEMPLATES[template];
+        if (!templateFn) {
+            return res.status(400).json({
+                success: false,
+                error: `Unknown template: ${template}. Available: ${Object.keys(NOTIFICATION_TEMPLATES).join(', ')}`
+            });
         }
 
-        let textMessage;
-        const d = data || {};
+        const message = templateFn(data);
 
-        switch (template) {
-            case 'welcome':
-                textMessage = buildWelcomeMessage(d);
-                break;
-            case 'leave':
-                textMessage = buildLeaveMessage(d);
-                break;
-            case 'birthday':
-                textMessage = buildGreetingMessage({ ...d, type: 'birthday' });
-                break;
-            case 'anniversary':
-                textMessage = buildGreetingMessage({ ...d, type: 'anniversary' });
-                break;
-            case 'salary':
-                textMessage = buildSalaryMessage(d);
-                break;
-            case 'generic':
-            default:
-                textMessage = message || buildGenericNotification(d);
-                break;
-        }
+        log('INFO', 'Sending notification', { to: number, template });
 
-        // Also send document if provided (e.g., appointment letter PDF)
-        let documentResult = null;
-        if (d.fileUrl) {
-            documentResult = await sendDocumentMessage(number, d.fileUrl, d.filename, d.caption);
-        }
-
-        const result = await sendTextMessage(number, textMessage);
-        logMessage({ type: 'notification', number, template, status: 'sent', messageId: result.messageId });
+        const result = await client.sendMessage(chatId, message);
 
         res.json({
             success: true,
-            message: 'Notification sent',
-            messageId: result.messageId,
-            documentSent: !!documentResult,
+            message: 'Notification sent successfully',
+            messageId: result.id?.id || result.id?._serialized || null
         });
-
     } catch (err) {
-        logMessage({ type: 'notification', number: req.body.number, template: req.body.template, status: 'failed', error: err.message });
+        log('ERROR', 'Failed to send notification', { error: err.message });
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// ─── GET /queue — View queue status ───────────────────
-app.get("/queue", verifyKey, (req, res) => {
-    res.json({
-        success: true,
-        processing: isProcessingQueue,
-        pending: messageQueue.filter(m => m.status === 'pending').length,
-        total: messageQueue.length,
-        items: messageQueue.slice(0, 50).map(m => ({
-            number: m.number,
-            status: m.status,
-            retries: m.retries,
-            error: m.error,
-        })),
+// ─── POST /send-reminder — General Reminder/Announcement ──
+
+app.post('/send-reminder', async (req, res) => {
+    try {
+        const { number, title, message: body, priority } = req.body;
+
+        if (!number || !body) {
+            return res.status(400).json({ success: false, error: 'Missing required fields: number, message' });
+        }
+
+        const chatId = formatPhoneNumber(number);
+        if (!chatId) {
+            return res.status(400).json({ success: false, error: 'Invalid phone number' });
+        }
+
+        const priorityIcon = priority === 'urgent' ? '\u26A0\uFE0F' : '\uD83D\uDCF2';
+        const titleLine = title ? `*${title.toUpperCase()}*\n\n` : '';
+
+        const message = `${priorityIcon} ${titleLine}` +
+            `${body}\n\n` +
+            `_RCS TRUE FACILITIES PVT LTD_`;
+
+        log('INFO', 'Sending reminder', { to: number, title, priority });
+
+        const result = await client.sendMessage(chatId, message);
+
+        res.json({
+            success: true,
+            message: 'Reminder sent successfully',
+            messageId: result.id?.id || result.id?._serialized || null
+        });
+    } catch (err) {
+        log('ERROR', 'Failed to send reminder', { error: err.message });
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  ERROR HANDLING
+// ═══════════════════════════════════════════════════════════
+
+// 404 for unknown routes
+app.use((req, res) => {
+    res.status(404).json({
+        success: false,
+        error: `Route ${req.method} ${req.path} not found`,
+        availableEndpoints: [
+            'GET  /',
+            'GET  /status',
+            'POST /send',
+            'POST /send-bulk',
+            'POST /send-image',
+            'POST /send-document',
+            'POST /send-payslip',
+            'POST /send-letter',
+            'POST /send-otp',
+            'POST /send-notification',
+            'POST /send-reminder'
+        ]
     });
 });
 
-// ─── POST /queue/retry — Retry all failed messages ────
-app.post("/queue/retry", verifyKey, (req, res) => {
-    let retried = 0;
-    messageQueue.forEach(m => {
-        if (m.status === 'failed' && m.retries < CONFIG.maxRetries) {
-            m.status = 'pending';
-            m.error = null;
-            retried++;
-        }
-    });
-    if (retried > 0) processQueue();
-    res.json({ success: true, message: `${retried} messages queued for retry` });
+// Global error handler
+app.use((err, req, res, next) => {
+    log('ERROR', 'Unhandled error', { error: err.message, stack: err.stack });
+    res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
-// ─── GET /logs — Get recent message logs ──────────────
-app.get("/logs", verifyKey, (req, res) => {
-    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-    const type = req.query.type || '';
-    const status = req.query.status || '';
-
-    let logs = [...messageLog];
-
-    if (type) logs = logs.filter(l => l.type === type);
-    if (status) logs = logs.filter(l => l.status === status);
-
-    res.json({
-        success: true,
-        total: logs.length,
-        logs: logs.slice(0, limit),
-    });
-});
-
-// ═══════════════════════════════════════════════════════
-//  WHATSAPP CONNECTION (BAILEYS)
-// ═══════════════════════════════════════════════════════
-async function connectWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState(CONFIG.sessionDir);
-    const { version } = await fetchLatestBaileysVersion();
-
-    sock = makeWASocket({
-        version,
-        auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, undefined, { level: 'silent', child: 'silent' }) },
-        printQRInTerminal: true,
-        logger: { level: 'silent', child: 'silent' },
-        shouldIgnoreJid: jid => jid === 'status@broadcast',
-    });
-
-    // Backward compatibility: if makeCacheableSignalKeyStore is not available
-    // Baileys version < 6.7 uses a simpler auth object
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-
-        if (qr) {
-            qrCode = qr;
-            console.log('📱 QR Code received — scan with WhatsApp mobile');
-        }
-
-        if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            isConnected = false;
-            qrCode = null;
-            phoneInfo = null;
-
-            console.log(`❌ Connection closed (code: ${statusCode})`);
-
-            if (statusCode !== DisconnectReason.loggedOut) {
-                // Reconnect after 5 seconds (not logged out, just disconnected)
-                console.log('🔄 Reconnecting in 5 seconds...');
-                setTimeout(() => connectWhatsApp(), 5000);
-            } else {
-                console.log('⛔ Logged out — delete session folder and restart');
-            }
-        }
-
-        if (connection === 'open') {
-            isConnected = true;
-            qrCode = null;
-            phoneInfo = sock.user;
-            console.log('✅ WhatsApp Connected!');
-            console.log(`📱 Phone: ${sock.user?.id}`);
-            console.log(`👤 Name: ${sock.user?.pushName}`);
-
-            // Process any pending queue items
-            if (messageQueue.length > 0) {
-                console.log(`📤 Processing ${messageQueue.length} queued messages...`);
-                processQueue();
-            }
-        }
-    });
-
-    // Handle incoming messages (optional — log only, no reply)
-    sock.ev.on('messages.upsert', async ({ messages }) => {
-        for (const msg of messages) {
-            if (msg.key.fromMe) continue;
-            // Just log incoming, don't process
-            console.log(`📥 Message from ${msg.key.remoteJid}`);
-        }
-    });
-
-    // Suppress session errors
-    sock.ev.on('messages.update', () => {});
-}
-
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 //  START SERVER
-// ═══════════════════════════════════════════════════════
-async function start() {
-    console.log('🚀 RCS HRMS WhatsApp Bot Server v2.0');
-    console.log(`📡 Port: ${CONFIG.port}`);
-    console.log(`📁 Session: ${CONFIG.sessionDir}`);
+// ═══════════════════════════════════════════════════════════
 
-    // Connect to WhatsApp
-    connectWhatsApp().catch(err => {
-        console.error('Failed to start WhatsApp connection:', err.message);
-        // Retry after 10 seconds
-        setTimeout(() => connectWhatsApp(), 10000);
-    });
-
-    // Start Express
-    app.listen(CONFIG.port, () => {
-        console.log(`🌐 API Server running on port ${CONFIG.port}`);
-    });
-}
-
-start();
+app.listen(PORT, '127.0.0.1', () => {
+    log('INFO', `RCS HRMS WhatsApp Bot Server v2.0 started`, { port: PORT });
+    log('INFO', `API Key: ${API_KEY.substring(0, 10)}...`);
+    log('INFO', `Auth directory: ${path.join(__dirname, '.wwebjs_auth')}`);
+    log('INFO', 'Waiting for WhatsApp connection...');
+});
 
 // Graceful shutdown
-process.on('SIGINT', () => {
-    console.log('\n🛑 Shutting down...');
-    if (sock) sock.end(new Error('Server shutdown'));
+process.on('SIGINT', async () => {
+    log('INFO', 'Shutting down...');
+    try {
+        await client.destroy();
+    } catch (e) { /* ignore */ }
     process.exit(0);
 });
 
-process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception:', err.message);
-});
-
-process.on('unhandledRejection', (err) => {
-    console.error('Unhandled Rejection:', err?.message || err);
+process.on('SIGTERM', async () => {
+    log('INFO', 'Received SIGTERM, shutting down...');
+    try {
+        await client.destroy();
+    } catch (e) { /* ignore */ }
+    process.exit(0);
 });

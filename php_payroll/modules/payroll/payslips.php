@@ -1,35 +1,16 @@
 <?php
 /**
  * RCS HRMS Pro - Payslips Page
- * Updated for new database schema
+ * Updated: Replaced period_id with month/year filters
  */
 
 $pageTitle = 'Payslips';
 
 // Get filters from GET
-$periodId = $_GET['period_id'] ?? null;
+$month = isset($_GET['month']) ? (int)$_GET['month'] : (int)prev_month_num();
+$year = isset($_GET['year']) ? (int)$_GET['year'] : (int)prev_month_year();
 $clientId = $_GET['client_id'] ?? null;
 $unitId = $_GET['unit_id'] ?? null;
-
-// Get periods — order newest first
-$periods = $payroll->getPeriods();
-
-// If no period selected, default to previous month
-if (!$periodId && !empty($periods)) {
-    // Find the period matching previous month/year
-    $prevMonth = (int)date('n', strtotime('first day of previous month'));
-    $prevYear = (int)date('Y', strtotime('first day of previous month'));
-    foreach ($periods as $p) {
-        if ((int)$p['month'] == $prevMonth && (int)$p['year'] == $prevYear) {
-            $periodId = $p['id'];
-            break;
-        }
-    }
-    // Fallback: just use the first (newest) period
-    if (!$periodId && !empty($periods)) {
-        $periodId = $periods[0]['id'];
-    }
-}
 
 // Get active clients that have units
 $clients = $db->query("
@@ -49,24 +30,43 @@ if ($clientId) {
     $units = $db->query("SELECT id, name, client_id FROM units WHERE is_active = 1 ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 }
 
-$payslips = [];
-$selectedPeriod = null;
+// Get distinct month/year combos from payroll table for the dropdown
+$availablePeriods = $db->query(
+    "SELECT DISTINCT month, year FROM payroll ORDER BY year DESC, month DESC"
+)->fetchAll(PDO::FETCH_ASSOC);
 
-if ($periodId) {
-    $stmt = $db->prepare("SELECT * FROM payroll_periods WHERE id = ?");
-    $stmt->execute([(int)$periodId]);
-    $selectedPeriod = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    $filters = [];
+// Build payslip query
+$payslips = [];
+if ($month && $year) {
+    $where = "p.month = :month AND p.year = :year";
+    $params = [':month' => $month, ':year' => $year];
+
     if ($unitId) {
-        $filters['unit_id'] = $unitId;
+        $where .= " AND p.unit_id = :unit_id";
+        $params[':unit_id'] = $unitId;
     }
     if ($clientId) {
-        $filters['client_id'] = $clientId;
+        $where .= " AND e.client_id = :client_id";
+        $params[':client_id'] = $clientId;
     }
-    
-    $payslips = $payroll->getPayrollReport((int)$periodId, $filters);
+
+    $sql = "SELECT p.*, e.full_name, e.employee_code, e.designation,
+            c.name as client_name, u.name as unit_name,
+            e.bank_name, e.account_number, e.ifsc_code
+            FROM payroll p
+            JOIN employees e ON p.employee_id = e.employee_code
+            LEFT JOIN clients c ON e.client_id = c.id
+            LEFT JOIN units u ON e.unit_id = u.id
+            WHERE {$where}
+            ORDER BY client_name, unit_name, e.full_name";
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $payslips = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
+
+$monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+               'July', 'August', 'September', 'October', 'November', 'December'];
 ?>
 
 <div class="row">
@@ -88,7 +88,29 @@ if ($periodId) {
                 <form method="GET" id="payslipFilterForm" class="row g-3 align-items-end">
                     <input type="hidden" name="page" value="payroll/payslips">
                     
-                    <div class="col-md-3">
+                    <div class="col-md-2">
+                        <label class="form-label small fw-semibold">Month</label>
+                        <select class="form-select" name="month">
+                            <?php for ($m = 1; $m <= 12; $m++): ?>
+                            <option value="<?php echo $m; ?>" <?php echo $month == $m ? 'selected' : ''; ?>>
+                                <?php echo $monthNames[$m]; ?>
+                            </option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-2">
+                        <label class="form-label small fw-semibold">Year</label>
+                        <select class="form-select" name="year">
+                            <?php for ($y = date('Y'); $y >= date('Y') - 3; $y--): ?>
+                            <option value="<?php echo $y; ?>" <?php echo $year == $y ? 'selected' : ''; ?>>
+                                <?php echo $y; ?>
+                            </option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-2">
                         <label class="form-label small fw-semibold">Client</label>
                         <select class="form-select" name="client_id" id="clientSelect">
                             <option value="">All Clients</option>
@@ -100,7 +122,7 @@ if ($periodId) {
                         </select>
                     </div>
                     
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="form-label small fw-semibold">Unit</label>
                         <select class="form-select" name="unit_id" id="unitSelect">
                             <option value="">All Units</option>
@@ -112,43 +134,34 @@ if ($periodId) {
                         </select>
                     </div>
                     
-                    <div class="col-md-3">
-                        <label class="form-label small fw-semibold">Period</label>
-                        <select class="form-select" name="period_id" id="periodSelect">
-                            <option value="">Select Period</option>
-                            <?php foreach ($periods as $p): ?>
-                            <option value="<?php echo $p['id']; ?>" <?php echo $periodId == $p['id'] ? 'selected' : ''; ?>>
-                                <?php echo sanitize($p['period_name']); ?> (<?php echo sanitize($p['status']); ?>)
-                            </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <button type="submit" class="btn btn-primary w-100">
-                            <i class="bi bi-search me-1"></i>View Payslips
+                            <i class="bi bi-search me-1"></i>View
                         </button>
                     </div>
+                    
+                    <?php if ($month && $year): ?>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <a href="index.php?page=payroll/print_payslips&month=<?php echo $month; ?>&year=<?php echo $year; ?><?php echo $clientId ? '&client_id='.$clientId : ''; ?><?php echo $unitId ? '&unit_id='.$unitId : ''; ?>"
+                           class="btn btn-outline-success w-100" target="_blank">
+                            <i class="bi bi-printer me-1"></i>Print All
+                        </a>
+                    </div>
+                    <?php endif; ?>
                 </form>
             </div>
             
             <!-- Payslip List -->
             <div class="card-body">
-                <?php if (!$selectedPeriod): ?>
+                <?php if (empty($payslips)): ?>
                 <div class="text-center py-5 text-muted">
                     <i class="bi bi-file-text fs-1"></i>
-                    <h5 class="mt-3">Select a Payroll Period</h5>
-                    <p>Choose a processed period to view payslips</p>
-                </div>
-                <?php elseif (empty($payslips)): ?>
-                <div class="text-center py-5 text-muted">
-                    <i class="bi bi-exclamation-circle fs-1"></i>
                     <h5 class="mt-3">No Payslips Found</h5>
-                    <p>No payslips available for the selected criteria</p>
+                    <p>No payslips available for <?php echo $monthNames[$month] . ' ' . $year; ?></p>
                 </div>
                 <?php else: ?>
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="text-muted small"><strong><?php echo count($payslips); ?></strong> payslips found</span>
+                    <span class="text-muted small"><strong><?php echo count($payslips); ?></strong> payslips for <strong><?php echo $monthNames[$month] . ' ' . $year; ?></strong></span>
                     <span class="text-muted small">
                         <?php if ($clientId): ?>
                         Client: <strong><?php echo sanitize($clients[array_search($clientId, array_column($clients, 'id'))]['name'] ?? ''); ?></strong>
@@ -184,7 +197,7 @@ if ($periodId) {
                                     <input type="checkbox" class="form-check-input payslip-check" 
                                            value="<?php echo $p['id']; ?>" checked>
                                 </td>
-                                <td><code><?php echo sanitize($p['employee_id']); ?></code></td>
+                                <td><code><?php echo sanitize($p['employee_code'] ?? $p['employee_id']); ?></code></td>
                                 <td><?php echo sanitize($p['full_name'] ?? '-'); ?></td>
                                 <td>
                                     <small><?php echo sanitize($p['client_name'] ?? '-'); ?> / <?php echo sanitize($p['unit_name'] ?? '-'); ?></small>
@@ -243,16 +256,10 @@ function loadUnits(clientId, keepSelected) {
 document.addEventListener('DOMContentLoaded', function() {
     var clientSelect = document.getElementById('clientSelect');
     
-    // On page load, if client is pre-selected, filter units immediately
     if (clientSelect && clientSelect.value) {
         loadUnits(clientSelect.value, true);
     }
 
-    <?php if ($periodId && empty($_GET['period_id'])): ?>
-    document.getElementById('payslipFilterForm').submit();
-    <?php endif; ?>
-
-    // Cascade on change
     if (clientSelect) {
         clientSelect.addEventListener('change', function() {
             loadUnits(this.value, false);

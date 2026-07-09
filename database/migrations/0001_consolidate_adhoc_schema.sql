@@ -144,19 +144,9 @@ CREATE TABLE IF NOT EXISTS `expense_settlements` (
 ALTER TABLE `manager_advance_allocations` ADD COLUMN `month` int(2) DEFAULT NULL AFTER `amount`;
 ALTER TABLE `manager_advance_allocations` ADD COLUMN `year` int(4) DEFAULT NULL AFTER `month`;
 ALTER TABLE `manager_advance_allocations` ADD COLUMN `alloc_date` date DEFAULT NULL AFTER `year`;
-ALTER TABLE `manager_advance_allocations` ADD COLUMN `carry_forward_amount` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `year`;
+ALTER TABLE `manager_advance_allocations` ADD COLUMN `carry_forward_amount` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `alloc_date`;
 ALTER TABLE `manager_advance_allocations` ADD COLUMN `carry_forward_from_month` int(2) DEFAULT NULL AFTER `carry_forward_amount`;
 ALTER TABLE `manager_advance_allocations` ADD COLUMN `carry_forward_from_year` int(4) DEFAULT NULL AFTER `carry_forward_from_month`;
 
-ALTER TABLE `ess_expenses` ADD COLUMN `category` enum('advance','expense','employee_advance') NOT NULL DEFAULT 'expense' AFTER `employee_id`;
-ALTER TABLE `ess_expenses` ADD COLUMN `manager_id` varchar(50) DEFAULT NULL AFTER `category`;
-ALTER TABLE `ess_expenses` ADD COLUMN `emp_name` varchar(255) DEFAULT NULL;
-ALTER TABLE `ess_expenses` ADD COLUMN `emp_code` varchar(50) DEFAULT NULL;
-ALTER TABLE `ess_expenses` ADD COLUMN `unit_id` int(11) DEFAULT NULL;
-ALTER TABLE `ess_expenses` ADD COLUMN `month` int(2) DEFAULT NULL;
-ALTER TABLE `ess_expenses` ADD COLUMN `year` int(4) DEFAULT NULL;
-ALTER TABLE `ess_expenses` ADD COLUMN `bill_type` varchar(20) DEFAULT NULL;
-ALTER TABLE `ess_expenses` ADD COLUMN `rejected_by` varchar(50) DEFAULT NULL;
-ALTER TABLE `ess_expenses` ADD COLUMN `edited_by` varchar(50) DEFAULT NULL;
-ALTER TABLE `ess_expenses` ADD COLUMN `edited_at` datetime DEFAULT NULL;
-ALTER TABLE `ess_expenses` ADD COLUMN `settlement_id` int(11) DEFAULT NULL;
+-- NOTE: ess_expenses column additions already exist at the top of this file (lines 10-21).
+-- The duplicate ALTER TABLE block has been removed to prevent "Duplicate column" errors.

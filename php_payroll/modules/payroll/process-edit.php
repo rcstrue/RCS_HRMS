@@ -30,8 +30,6 @@ if (isset($_GET['client_id'])) $clientId = (int)$_GET['client_id'];
 if (isset($_GET['unit_id']))   $unitId   = (int)$_GET['unit_id'];
 if (isset($_GET['month']))     $month    = (int)$_GET['month'];
 if (isset($_GET['year']))      $year     = (int)$_GET['year'];
-$payrollPeriodId = (int)($_GET['period_id'] ?? 0);
-
 // Save back to session for persistence
 $_SESSION['filter_client_id'] = $clientId;
 $_SESSION['filter_unit_id']   = $unitId;
@@ -83,26 +81,7 @@ $unitOtCalcType = $unitFormula['ot_calculation_type'] ?? 'double_pay';
 $unitOtCalcOn   = $unitFormula['ot_calculation_on'] ?? 'basic_da';
 $unitOtHrsPerDay = (float)($unitFormula['ot_hours_per_day'] ?? 8);
 
-// ── Look up payroll period (for period_id + pay_days) ──────────
-$periodPayDays = 0;
-if ($payrollPeriodId > 0) {
-    $periodInfo = $db->fetch("SELECT pay_days FROM payroll_periods WHERE id = ?", [$payrollPeriodId]);
-    if ($periodInfo) $periodPayDays = (int)$periodInfo['pay_days'];
-} elseif ($unitId > 0) {
-    // Fallback: look up period by month/year
-    $periodInfo = $db->fetch(
-        "SELECT id, pay_days FROM payroll_periods WHERE month = ? AND year = ? ORDER BY id DESC LIMIT 1",
-        [$month, $year]
-    );
-    if ($periodInfo) {
-        $payrollPeriodId = (int)$periodInfo['id'];
-        $periodPayDays = (int)$periodInfo['pay_days'];
-    }
-}
-// For 'actual' type, prefer payroll_periods.pay_days over calendar days
-if ($payDaysType === 'actual' && $periodPayDays > 0) {
-    $totalDays = $periodPayDays;
-}
+// ── Pay days calculation is handled above via unit_salary_formulas ──
 
 // ── Fetch PF/ESI rates from DB (match process.php class.payroll.php) ──
 $pfEmployeeShare = 12.00;
@@ -213,15 +192,63 @@ $loaded = false;
 
 if (isset($_GET['load']) && (int)$_GET['load'] === 1 && $unitId > 0) {
     $loaded = true;
+
+    // Ensure loan tables exist before querying them in the loop
+    try {
+        $db->exec("CREATE TABLE IF NOT EXISTS `employee_loans` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `employee_id` int(11) NOT NULL,
+            `unit_id` int(11) DEFAULT NULL,
+            `loan_type` varchar(50) DEFAULT 'Personal',
+            `amount` decimal(12,2) NOT NULL,
+            `interest_rate` decimal(5,2) DEFAULT 0.00,
+            `tenure_months` int(11) NOT NULL,
+            `emi_amount` decimal(12,2) NOT NULL,
+            `total_interest` decimal(12,2) DEFAULT 0.00,
+            `total_repayable` decimal(12,2) NOT NULL,
+            `balance_amount` decimal(12,2) NOT NULL,
+            `emi_deducted` int(11) DEFAULT 0,
+            `start_month` int(2) NOT NULL,
+            `start_year` int(4) NOT NULL,
+            `status` enum('Active','Closed','Settled','Written Off') DEFAULT 'Active',
+            `remarks` text DEFAULT NULL,
+            `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_employee` (`employee_id`),
+            KEY `idx_unit` (`unit_id`),
+            KEY `idx_status` (`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $db->exec("CREATE TABLE IF NOT EXISTS `loan_emi_log` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `loan_id` int(11) NOT NULL,
+            `employee_id` int(11) NOT NULL,
+            `month` int(2) NOT NULL,
+            `year` int(4) NOT NULL,
+            `emi_amount` decimal(12,2) NOT NULL,
+            `principal_component` decimal(12,2) DEFAULT 0.00,
+            `interest_component` decimal(12,2) DEFAULT 0.00,
+            `balance_after` decimal(12,2) NOT NULL,
+            `deducted_via_payroll` tinyint(1) DEFAULT 1,
+            `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uniq_loan_month_year` (`loan_id`, `month`, `year`),
+            KEY `idx_employee_month` (`employee_id`, `month`, `year`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (Exception $e) {}
+
     $employees = $db->fetchAll(
         "SELECT id, employee_code, full_name, designation
          FROM employees
-         WHERE unit_id = ? AND status = 'approved'
+         WHERE unit_id = ? AND status IN ('approved', 'active')
          ORDER BY employee_code",
         [$unitId]
     );
 
-    $effDateStr = date('Y-m-d'); // Use CURDATE() to match process.php behavior
+    // Use last day of SELECTED month — not CURDATE() — so editing a past month
+    // loads the salary structure that was actually active during that month,
+    // not the latest one created for a future month.
+    $effDateStr = sprintf('%04d-%02d-%02d', $year, $month, cal_days_in_month(CAL_GREGORIAN, $month, $year));
 
     foreach ($employees as $emp) {
         $empId  = (int)$emp['id'];
@@ -264,26 +291,15 @@ if (isset($_GET['load']) && (int)$_GET['load'] === 1 && $unitId > 0) {
             $adv = [];
         }
 
-        // Existing payroll record (if already processed) — prefer period_id lookup
+        // Existing payroll record (if already saved for this month/year)
         $existing = [];
         try {
-            if ($payrollPeriodId > 0) {
-                $existing = $db->fetch(
-                    "SELECT * FROM payroll
-                     WHERE employee_id = ? AND payroll_period_id = ?",
-                    [$empCode, $payrollPeriodId]
-                );
-            }
-            if (empty($existing)) {
-                // Fallback: join via payroll_periods to find by month/year
-                $existing = $db->fetch(
-                    "SELECT p.* FROM payroll p
-                     JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-                     WHERE p.employee_id = ? AND pp.month = ? AND pp.year = ?
-                     ORDER BY p.id DESC LIMIT 1",
-                    [$empCode, $month, $year]
-                );
-            }
+            // Try direct month/year lookup first (new schema)
+            $existing = $db->fetch(
+                "SELECT * FROM payroll
+                 WHERE employee_id = ? AND month = ? AND year = ?",
+                [$empCode, $month, $year]
+            );
         } catch (Exception $e) {
             $existing = [];
         }
@@ -291,7 +307,7 @@ if (isset($_GET['load']) && (int)$_GET['load'] === 1 && $unitId > 0) {
         // Active loan EMI for this employee (with balance > 0, not already deducted this month)
         $loanEmi = 0;
         try {
-            // Sum EMI from ALL active loans (match process.php logic)
+            // Sum EMI from ALL active loans
             $loans = $db->fetchAll(
                 "SELECT el.emi_amount, el.id as loan_id
                  FROM employee_loans el
@@ -414,6 +430,15 @@ $monthLabel = $monthNames[$month] ?? '';
     outline: none;
     border-color: #0d6efd;
     box-shadow: 0 0 0 2px rgba(13,110,253,0.15);
+}
+/* Hide number input spinners */
+.payroll-input::-webkit-outer-spin-button,
+.payroll-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.payroll-input[type=number] {
+    -moz-appearance: textfield;
 }
 .payroll-input.att-input { background: #e3f2fd; }
 .payroll-input.adv-input { background: #fce4ec; }
@@ -677,7 +702,7 @@ $monthLabel = $monthNames[$month] ?? '';
             $existing = $ed['existing'];
             // Prefer saved loan_emi from existing payroll record, fall back to calculated
             $savedLoanEmi = floatval($existing['loan_emi'] ?? 0);
-            $loanEmiDisplay = $savedLoanEmi > 0 ? $savedLoanEmi : $loanEmi;
+            $loanEmiDisplay = $savedLoanEmi > 0 ? $savedLoanEmi : floatval($ed['loan_emi']);
 
             $empId      = (int)$emp['id'];
             $empCode    = $emp['employee_code'];
@@ -774,7 +799,7 @@ $monthLabel = $monthNames[$month] ?? '';
                 data-ot-multiplier="<?= $otMultiplier ?>"
                 data-ot-hrs-per-day="<?= $otHrsPerDay ?>"
                 data-existing-gross="<?= $existingGross ?>"
-                data-loan-emi="<?= $loanEmi ?>"
+                data-loan-emi="<?= floatval($ed['loan_emi']) ?>"
                 data-original-wages="<?= htmlspecialchars(json_encode([
                     'basic_da' => $wBasicDa, 'hra' => $wHra,
                     'leave_encashment' => $wLeaveEnc, 'bonus_encashment' => $wBonusEnc,
@@ -796,36 +821,36 @@ $monthLabel = $monthNames[$month] ?? '';
 
                 <!-- ── ATTENDANCE (editable) ─────────────────── -->
                 <td class="text-center col-att" data-col-group="att">
-                    <input type="number" class="payroll-input att-input att-field" name="att_present" value="<?= $attPresent ?>" min="0" max="31" step="0.5">
+                    <input type="number" class="payroll-input att-input att-field" name="att_present" value="<?= $attPresent > 0 ? $attPresent : '' ?>" min="0" max="31" step="0.5">
                 </td>
                 <td class="text-center col-att" data-col-group="att">
-                    <input type="number" class="payroll-input att-input att-field" name="att_wo" value="<?= $attWO ?>" min="0" max="31" step="0.5">
+                    <input type="number" class="payroll-input att-input att-field" name="att_wo" value="<?= $attWO > 0 ? $attWO : '' ?>" min="0" max="31" step="0.5">
                 </td>
                 <td class="text-center col-att" data-col-group="att">
-                    <input type="number" class="payroll-input att-input att-field" name="att_extra" value="<?= $attExtra ?>" min="0" max="31" step="0.5">
+                    <input type="number" class="payroll-input att-input att-field" name="att_extra" value="<?= $attExtra > 0 ? $attExtra : '' ?>" min="0" max="31" step="0.5">
                 </td>
                 <td class="text-center col-att" data-col-group="att">
-                    <input type="number" class="payroll-input att-input att-field" name="ot_hours" value="<?= $attOtHours ?>" min="0" max="200" step="0.5">
+                    <input type="number" class="payroll-input att-input att-field" name="ot_hours" value="<?= $attOtHours > 0 ? $attOtHours : '' ?>" min="0" max="200" step="0.5">
                 </td>
 
                 <!-- ── WAGE DETAILS (editable, monthly amounts) ── -->
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_basic_da" value="<?= $wBasicDa ?>" min="0" step="1">
+                    <input type="number" class="payroll-input wage-field" name="w_basic_da" value="<?= $wBasicDa > 0 ? $wBasicDa : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_hra" value="<?= $wHra ?>" min="0" step="1">
+                    <input type="number" class="payroll-input wage-field" name="w_hra" value="<?= $wHra > 0 ? $wHra : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_leave_enc" value="<?= $wLeaveEnc ?>" min="0" step="1">
+                    <input type="number" class="payroll-input wage-field" name="w_leave_enc" value="<?= $wLeaveEnc > 0 ? $wLeaveEnc : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_bonus_enc" value="<?= $wBonusEnc ?>" min="0" step="1">
+                    <input type="number" class="payroll-input wage-field" name="w_bonus_enc" value="<?= $wBonusEnc > 0 ? $wBonusEnc : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_wash" value="<?= $wWash ?>" min="0" step="1">
+                    <input type="number" class="payroll-input wage-field" name="w_wash" value="<?= $wWash > 0 ? $wWash : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-wage" data-col-group="wage">
-                    <input type="number" class="payroll-input wage-field" name="w_ot_rate" value="<?= $wOtRate ?>" min="0" step="0.01">
+                    <input type="number" class="payroll-input wage-field" name="w_ot_rate" value="<?= $wOtRate > 0 ? $wOtRate : '' ?>" min="0" step="0.01">
                 </td>
 
                 <!-- ── EARNINGS (auto-calculated, readonly) ───── -->
@@ -845,13 +870,13 @@ $monthLabel = $monthNames[$month] ?? '';
                 <td class="text-end col-ded calc-val ded-pt" data-col-group="ded">--</td>
                 <td class="text-end col-ded calc-val ded-lwf" data-col-group="ded">--</td>
                 <td class="text-end col-ded" data-col-group="ded">
-                    <input type="number" class="payroll-input adv-input ded-field" name="advance" value="<?= $totalAdvance ?>" min="0" step="1">
+                    <input type="number" class="payroll-input adv-input ded-field" name="advance" value="<?= $totalAdvance > 0 ? $totalAdvance : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-ded" data-col-group="ded" style="background:#f3e5f5;">
                     <input type="number" class="payroll-input ded-field" name="loan_emi" value="<?= $loanEmiDisplay > 0 ? $loanEmiDisplay : '' ?>" min="0" step="1" placeholder="0">
                 </td>
                 <td class="text-end col-ded" data-col-group="ded">
-                    <input type="number" class="payroll-input adv-input ded-field" name="office_ded" value="<?= $officeDeduction ?>" min="0" step="1">
+                    <input type="number" class="payroll-input adv-input ded-field" name="office_ded" value="<?= $officeDeduction > 0 ? $officeDeduction : '' ?>" min="0" step="1">
                 </td>
                 <td class="text-end col-ded col-gross fw-bold calc-val total-deductions" data-col-group="ded" style="border-left:2px solid #666;">--</td>
 
@@ -1073,7 +1098,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const MONTH = <?= $month ?>;
     const YEAR  = <?= $year ?>;
     const UNIT_ID = <?= $unitId ?>;
-    const PERIOD_ID = <?= $payrollPeriodId ?>;
     const SAVE_URL = 'index.php?page=api/payroll-save-row';
 
     // PT slabs from database (for unit's state)
@@ -1546,7 +1570,6 @@ document.addEventListener('DOMContentLoaded', function() {
             month: MONTH,
             year: YEAR,
             unit_id: UNIT_ID,
-            payroll_period_id: PERIOD_ID,
             pf_applicable: $tr.data('pf') === 1,
             esi_applicable: $tr.data('esi') === 1,
             pt_applicable: $tr.data('pt') === 1,

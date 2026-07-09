@@ -188,3 +188,51 @@ define('SQL_WHERE_ID', 'id = :id');
 define('SQL_GET_UNIT_NAME', 'SELECT name FROM units WHERE id = :id');
 define('SQL_GET_PAYROLL_PERIOD', 'SELECT id FROM payroll_periods WHERE month = :month AND year = :year');
 define('SQL_ORDER_BY_NAME', ' ORDER BY c.name, e.full_name');
+
+// ============================================
+// Payroll Period Status Constants
+// ============================================
+// Pipeline: Draft → Processed → Approved → Paid → Frozen/Locked
+// Frozen and Locked both mean "no edits allowed"
+define('PAYROLL_STATUS_DRAFT', 'Draft');
+define('PAYROLL_STATUS_PROCESSED', 'Processed');
+define('PAYROLL_STATUS_APPROVED', 'Approved');
+define('PAYROLL_STATUS_PAID', 'Paid');
+define('PAYROLL_STATUS_FROZEN', 'Frozen');
+define('PAYROLL_STATUS_LOCKED', 'Locked');
+
+/**
+ * Ordered pipeline stages for UI display.
+ * Maps internal status to display label + order index.
+ */
+define('PAYROLL_PIPELINE', serialize([
+    ['status' => 'Draft',      'label' => 'Attendance Pending', 'icon' => 'bi-calendar',       'color' => '#6b7280'],
+    ['status' => 'Processed',  'label' => 'Generated',          'icon' => 'bi-cpu',            'color' => '#3b82f6'],
+    ['status' => 'Approved',   'label' => 'Approved',           'icon' => 'bi-check-circle',   'color' => '#10b981'],
+    ['status' => 'Paid',       'label' => 'Salary Paid',        'icon' => 'bi-cash-coin',      'color' => '#f59e0b'],
+    ['status' => 'Frozen',     'label' => 'Finalized',          'icon' => 'bi-lock-fill',      'color' => '#ef4444'],
+    ['status' => 'Locked',     'label' => 'Finalized',          'icon' => 'bi-lock-fill',      'color' => '#ef4444'],
+]));
+
+/**
+ * Check if a payroll status prevents modifications.
+ * @param string $status The payroll period status
+ * @return bool True if no edits are allowed
+ */
+function isPayrollLocked(string $status): bool {
+    return in_array($status, [PAYROLL_STATUS_FROZEN, PAYROLL_STATUS_LOCKED]);
+}
+
+/**
+ * Get the pipeline step index (0-based) for a given status.
+ * Returns -1 if status is unknown.
+ * @param string $status
+ * @return int
+ */
+function getPayrollPipelineStep(string $status): int {
+    $pipeline = unserialize(PAYROLL_PIPELINE);
+    foreach ($pipeline as $i => $step) {
+        if ($step['status'] === $status) return $i;
+    }
+    return -1;
+}

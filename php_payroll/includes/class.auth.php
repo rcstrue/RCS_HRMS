@@ -345,11 +345,10 @@ class Auth {
             ]],
             
             'advance' => ['label' => 'Advance', 'icon' => 'bi-wallet2', 'parent' => null, 'order' => 5, 'submenus' => [
-                'advance_add' => ['label' => 'Add Advance', 'url' => 'advance/add'],
+                'advance_add' => ['label' => 'Add Attendance', 'url' => 'attendance/add'],
             ]],
             
             'payroll' => ['label' => 'Payroll', 'icon' => 'bi-cash-stack', 'parent' => null, 'order' => 6, 'submenus' => [
-                'payroll_process' => ['label' => 'Process Payroll', 'url' => 'payroll/process'],
                 'payroll_view' => ['label' => 'View Payroll', 'url' => 'payroll/view'],
                 'payroll_salary_revision' => ['label' => 'Salary Revision', 'url' => 'payroll/salary-revision'],
                 'payroll_payslips' => ['label' => 'Payslips', 'url' => 'payroll/payslips'],

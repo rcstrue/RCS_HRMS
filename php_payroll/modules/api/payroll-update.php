@@ -1,16 +1,15 @@
 <?php
 /**
  * RCS HRMS Pro - Payroll Update API
- * Version: 4.1.0 - Hybrid Payroll System
+ * Version: 4.2.0 - Fixed basic_da column and DB-based PT
  * AJAX endpoint for inline salary updates
  * 
  * Salary Structure:
- * - Basic+DA (Combined)
+ * - Basic+DA (Combined column: basic_da)
  * - HRA
  * - Leave Encashment
  * - Bonus Encashment
  * - Washing Allowance
-
  */
 
 header('Content-Type: application/json');
@@ -54,7 +53,7 @@ if (!preg_match('/^[A-Za-z0-9_\-]+$/', $empCode)) {
     exit;
 }
 
-// Get salary components - Updated for new salary structure
+// Get salary components
 $basicDA = floatval($_POST['basic_da'] ?? 0);
 $hra = floatval($_POST['hra'] ?? 0);
 $leaveEncashment = floatval($_POST['leave_encashment'] ?? 0);
@@ -69,14 +68,43 @@ foreach ([$basicDA, $hra, $leaveEncashment, $bonusEncashment, $washing] as $val)
     }
 }
 
-
-// Calculate new values
+// Calculate new gross
 $newGross = $basicDA + $hra + $leaveEncashment + $bonusEncashment + $washing;
 
-// Calculate deductions
-$pfEmp = round(min($basicDA, 15000) * 0.12, 2);
-$esiEmp = ($newGross <= 21000) ? round($newGross * 0.0075, 2) : 0;
-$pt = 200; // Simplified PT - can be enhanced with state-wise calculation
+// ── Read statutory rates from DB (same as payroll-save-row.php and class.payroll.php) ──
+$pfWageCeiling = 15000;
+$esiWageCeiling = 21000;
+$pfEmployeeRate = 12.00;
+$esiEmployeeRate = 0.75;
+$ptAmount = 200; // Fallback default
+
+try {
+    $pfRate = $db->fetch("SELECT * FROM pf_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1");
+    if ($pfRate) {
+        $pfEmployeeRate = (float)($pfRate['employee_share'] ?? 12.00);
+        $pfWageCeiling = (float)($pfRate['wage_ceiling'] ?? 15000);
+    }
+} catch (Exception $e) {}
+
+try {
+    $esiRate = $db->fetch("SELECT * FROM esi_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1");
+    if ($esiRate) {
+        $esiEmployeeRate = (float)($esiRate['employee_share'] ?? 0.75);
+        $esiWageCeiling = (float)($esiRate['wage_ceiling'] ?? 21000);
+    }
+} catch (Exception $e) {}
+
+try {
+    $ptRate = $db->fetch("SELECT * FROM pt_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1");
+    if ($ptRate) {
+        $ptAmount = (float)($ptRate['monthly_amount'] ?? 200);
+    }
+} catch (Exception $e) {}
+
+// Calculate deductions using DB rates
+$pfEmp = round(min($basicDA, $pfWageCeiling) * $pfEmployeeRate / 100, 2);
+$esiEmp = ($newGross <= $esiWageCeiling) ? round($newGross * $esiEmployeeRate / 100, 2) : 0;
+$pt = $ptAmount;
 
 // Get existing deduction adjustments
 $existingPayroll = $db->fetch(
@@ -91,23 +119,21 @@ $totalDed = $pfEmp + $esiEmp + $pt + $salaryAdvance + $otherDeductions;
 $netPay = $newGross - $totalDed;
 
 try {
-    // Update payroll record with new salary structure
-    // Note: payroll table has 'basic' and 'da' as separate columns (not 'basic_da')
+    // Update payroll record — use basic_da as single column (matches payroll-save-row.php schema)
     $db->update('payroll', [
-        'basic' => $basicDA * 0.6,
-        'da' => $basicDA * 0.4,
-        'hra' => $hra,
+        'basic_da'         => $basicDA,
+        'hra'              => $hra,
         'leave_encashment' => $leaveEncashment,
         'bonus_encashment' => $bonusEncashment,
-        'washing_allowance' => $washing,
-        'gross_earnings' => $newGross,
-        'gross_salary' => $newGross,
-        'pf_employee' => $pfEmp,
-        'esi_employee' => $esiEmp,
+        'washing_allowance'=> $washing,
+        'gross_earnings'   => $newGross,
+        'gross_salary'     => $newGross,
+        'pf_employee'      => $pfEmp,
+        'esi_employee'     => $esiEmp,
         'professional_tax' => $pt,
         'total_deductions' => $totalDed,
-        'net_pay' => $netPay,
-        'updated_at' => date('Y-m-d H:i:s')
+        'net_pay'          => $netPay,
+        'updated_at'       => date('Y-m-d H:i:s')
     ], 'payroll_period_id = :pid AND employee_id = :emp', ['pid' => $periodId, 'emp' => $empCode]);
     
     echo json_encode([

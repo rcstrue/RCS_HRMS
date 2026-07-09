@@ -89,5 +89,18 @@
                 </div>
             </a>
         </div>
+        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
+            <a href="index.php?page=client/index" class="text-decoration-none">
+                <div class="card module-card h-100">
+                    <div class="card-body">
+                        <div class="mod-icon bg-cyan-soft"><i class="bi bi-building"></i></div>
+                        <div class="mod-title">Clients & Units</div>
+                        <div class="mod-desc">Manage clients and deployment units</div>
+                    </div>
+                    <i class="bi bi-arrow-right mod-arrow"></i>
+                </div>
+            </a>
+        </div>
+
     </div>
 </div>

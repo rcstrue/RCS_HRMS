@@ -170,13 +170,17 @@ $statusColors = [
     'approved' => 'success',
     'pending_hr_verification' => 'warning',
     'inactive' => 'secondary',
-    'terminated' => 'danger'
+    'terminated' => 'danger',
+    'removed' => 'danger',
+    'rejected' => 'danger'
 ];
 $statusLabels = [
     'approved' => 'Active',
     'pending_hr_verification' => 'Pending Verification',
     'inactive' => 'Inactive',
-    'terminated' => 'Terminated'
+    'terminated' => 'Terminated',
+    'removed' => 'Removed',
+    'rejected' => 'Rejected'
 ];
 ?>
 

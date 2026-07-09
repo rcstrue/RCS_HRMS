@@ -62,8 +62,6 @@ $employeeCode = trim($data['employee_code'] ?? '');
 $month        = (int)($data['month'] ?? 0);
 $year         = (int)($data['year'] ?? 0);
 $unitId       = (int)($data['unit_id'] ?? 0);
-$payrollPeriodId = (int)($data['payroll_period_id'] ?? 0);
-
 if ($employeeId <= 0 || empty($employeeCode) || $month < 1 || $month > 12 || $year < 2020) {
     echo json_encode(['success' => false, 'message' => 'Missing required fields (employee_id, employee_code, month, year)']);
     exit;
@@ -87,19 +85,57 @@ if ($attWO < 0)      $validationErrors[] = 'Weekly off days cannot be negative';
 if ($attExtra < 0)   $validationErrors[] = 'Extra days cannot be negative';
 if ($attOtHours < 0) $validationErrors[] = 'OT hours cannot be negative';
 
-// Get total_days for validation
+// Get total_days for validation from unit_salary_formulas (same logic as process-edit.php)
 $calDays = cal_days_in_month(CAL_GREGORIAN, $month, $year);
 $vTotalDays = $calDays;
-if ($payrollPeriodId > 0) {
-    $vPeriod = $db->fetch("SELECT pay_days FROM payroll_periods WHERE id = ?", [$payrollPeriodId]);
-    if ($vPeriod) $vTotalDays = (int)$vPeriod['pay_days'];
+if ($unitId > 0) {
+    $vUnitFormula = $db->fetch(
+        "SELECT * FROM unit_salary_formulas WHERE unit_id = ? AND is_active = 1 ORDER BY effective_from DESC LIMIT 1",
+        [$unitId]
+    );
+    if ($vUnitFormula) {
+        $vPayDaysType = $vUnitFormula['pay_days_type'] ?? 'actual';
+        switch ($vPayDaysType) {
+            case 'fixed_30': $vTotalDays = 30; break;
+            case 'previous_month':
+                $pm = $month - 1; $py = $year;
+                if ($pm < 1) { $pm = 12; $py--; }
+                $vTotalDays = (int)cal_days_in_month(CAL_GREGORIAN, $pm, $py);
+                break;
+            case 'calendar_minus_sundays':
+                $s = 0;
+                for ($d = 1; $d <= $calDays; $d++) {
+                    if ((int)date('N', strtotime("$year-$month-$d")) === 7) $s++;
+                }
+                $vTotalDays = $calDays - $s;
+                break;
+            default: $vTotalDays = $calDays; break;
+        }
+    }
 }
 $computedPaidDays = $attPresent + $attWO + $attExtra;
 if ($computedPaidDays > $vTotalDays) {
     $validationErrors[] = "Paid days ($computedPaidDays) cannot exceed total days ($vTotalDays)";
 }
-if ($attOtHours > 12) {
-    $validationErrors[] = "OT hours ($attOtHours) exceeds daily limit — verify if authorized";
+// OT monthly limit: ot_hours_per_day × total_days from unit config
+// (overtime_hours is a MONTHLY total, not per-day)
+$otMonthlyCap = 0;
+if ($unitId > 0) {
+    $unitFormula = $db->fetch(
+        "SELECT ot_hours_per_day FROM unit_salary_formulas
+         WHERE unit_id = ? AND is_active = 1
+         ORDER BY effective_from DESC LIMIT 1",
+        [$unitId]
+    );
+    if ($unitFormula) {
+        $otHrsPerDay = (float)($unitFormula['ot_hours_per_day'] ?? 8);
+        $otMonthlyCap = round($otHrsPerDay * $vTotalDays);
+    }
+}
+// Only warn if OT exceeds monthly cap (not a hard block — allow override)
+$otWarning = '';
+if ($otMonthlyCap > 0 && $attOtHours > $otMonthlyCap) {
+    $otWarning = "OT hours ($attOtHours) exceeds monthly cap ($otMonthlyCap) — saved with override. ";
 }
 
 if (!empty($validationErrors)) {
@@ -110,15 +146,48 @@ if (!empty($validationErrors)) {
     exit;
 }
 
+// ══ AUTO-MIGRATION: Must run OUTSIDE transaction (DDL causes implicit COMMIT in InnoDB) ══
+// Step 1: Detect which columns exist in payroll table
+$payrollColNames = [];
+try {
+    $colRows = $db->fetchAll("SHOW COLUMNS FROM payroll");
+    $payrollColNames = array_column($colRows, 'Field');
+} catch (Exception $e) {
+    error_log('Payroll column detection failed: ' . $e->getMessage());
+}
+$payrollColSet = array_flip($payrollColNames); // for O(1) lookup
+
+// Step 2: Add missing columns via ALTER TABLE
+if (!isset($payrollColSet['loan_emi'])) {
+    try {
+        $db->exec("ALTER TABLE payroll ADD COLUMN loan_emi DECIMAL(10,2) DEFAULT 0.00");
+        $payrollColSet['loan_emi'] = true;
+        error_log('Auto-migrate: Added loan_emi column to payroll table');
+    } catch (Exception $e) {
+        error_log('Auto-migrate loan_emi FAILED: ' . $e->getMessage());
+    }
+}
+$monthYearMissing = !isset($payrollColSet['month']) || !isset($payrollColSet['year']);
+if ($monthYearMissing) {
+    try {
+        if (!isset($payrollColSet['month'])) {
+            $db->exec("ALTER TABLE payroll ADD COLUMN month INT NOT NULL DEFAULT 0");
+            error_log('Auto-migrate: Added month column to payroll table');
+        }
+        if (!isset($payrollColSet['year'])) {
+            $db->exec("ALTER TABLE payroll ADD COLUMN year INT NOT NULL DEFAULT 0");
+            error_log('Auto-migrate: Added year column to payroll table');
+        }
+        $db->exec("ALTER TABLE payroll ADD INDEX idx_month_year (month, year)");
+        // Backfill no longer needed — payroll_period_id column removed
+        $monthYearMissing = false;
+    } catch (Exception $e) {
+        error_log('Auto-migrate month/year FAILED: ' . $e->getMessage());
+    }
+}
+
 try {
     $db->exec("START TRANSACTION");
-
-    // Ensure loan_emi column exists in payroll table
-    try {
-        $db->query("SELECT loan_emi FROM payroll LIMIT 1");
-    } catch (Exception $colEx) {
-        $db->exec("ALTER TABLE payroll ADD COLUMN loan_emi DECIMAL(10,2) DEFAULT 0.00 AFTER salary_advance");
-    }
 
     // ═══════════════════════════════════════════════════════════════
     // 1. ATTENDANCE_SUMMARY — Upsert on employee_id + month + year
@@ -240,32 +309,17 @@ try {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 4. PAYROLL — Upsert on employee_id(=code) + payroll_period_id (preferred) or month+year
+    // 4. PAYROLL — Upsert on employee_id(=code) + month + year
     // ═══════════════════════════════════════════════════════════════
     $existingPay = null;
-    if ($payrollPeriodId > 0) {
+    try {
         $existingPay = $db->fetch(
-            "SELECT id FROM payroll WHERE employee_id = ? AND payroll_period_id = ?",
-            [$employeeCode, $payrollPeriodId]
-        );
-    }
-    if (empty($existingPay)) {
-        // Fallback: join via payroll_periods to find by month/year
-        $existingPay = $db->fetch(
-            "SELECT p.id FROM payroll p
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-             WHERE p.employee_id = ? AND pp.month = ? AND pp.year = ?
-             ORDER BY p.id DESC LIMIT 1",
+            "SELECT id FROM payroll WHERE employee_id = ? AND month = ? AND year = ?",
             [$employeeCode, $month, $year]
         );
-    }
+    } catch (Exception $e) {}
 
     $totalDays = (int)($payroll['total_days'] ?? 0) ?: cal_days_in_month(CAL_GREGORIAN, $month, $year);
-    // Override total_days from payroll period if available
-    if ($payrollPeriodId > 0) {
-        $periodDays = $db->fetch("SELECT pay_days FROM payroll_periods WHERE id = ?", [$payrollPeriodId]);
-        if ($periodDays) $totalDays = (int)$periodDays['pay_days'];
-    }
 
     // Read PF/ESI rates from DB (for employer contribution calculation if not sent from JS)
     $pfEmployerShare = 3.67; $pfEmployerEps = 8.33; $pfEmployerEdlis = 0.50; $pfEpfAdmin = 0.50; $esiEmployerShare = 3.25;
@@ -308,7 +362,8 @@ try {
     $payData = [
         'employee_id'      => $employeeCode,
         'unit_id'          => $unitId,
-        'payroll_period_id'=> $payrollPeriodId ?: null,
+        'month'            => $month,
+        'year'             => $year,
         'basic_da'         => round2($payroll['basic_da'] ?? 0),
         'hra'              => round2($payroll['hra'] ?? 0),
         'leave_encashment' => round2($payroll['leave_encashment'] ?? 0),
@@ -348,11 +403,18 @@ try {
     // Include loan_emi from the grid input
     $payData['loan_emi'] = round2($advances['loan_emi'] ?? 0);
 
+    // Filter $payData to only include columns that actually exist in the payroll table
+    // This prevents SQL errors if auto-migration failed to add month/year
+    $safePayData = array_intersect_key($payData, $payrollColSet);
+    if (empty($safePayData)) {
+        throw new Exception('Payroll table column detection failed — cannot save');
+    }
+
     if ($existingPay) {
-        $db->update('payroll', $payData, 'id = :id', ['id' => $existingPay['id']]);
+        $db->update('payroll', $safePayData, 'id = :id', ['id' => $existingPay['id']]);
     } else {
-        $payData['created_at'] = date('Y-m-d H:i:s');
-        $db->insert('payroll', $payData);
+        $safePayData['created_at'] = date('Y-m-d H:i:s');
+        $db->insert('payroll', $safePayData);
     }
 
     // ── Update employee statutory flags in salary structure ──────
@@ -488,16 +550,14 @@ try {
                 'deducted_via_payroll' => 1
             ]);
 
-            // Try to link to payroll row (payroll.employee_id is employee_code string)
+            // Try to link to payroll row by month/year
             try {
                 $linkedPayrollId = null;
-                if ($payrollPeriodId > 0) {
-                    $pRow = $db->fetch(
-                        "SELECT id FROM payroll WHERE employee_id = ? AND payroll_period_id = ?",
-                        [$employeeCode, $payrollPeriodId]
-                    );
-                    $linkedPayrollId = $pRow ? (int)$pRow['id'] : null;
-                }
+                $pRow = $db->fetch(
+                    "SELECT id FROM payroll WHERE employee_id = ? AND month = ? AND year = ?",
+                    [$employeeCode, $month, $year]
+                );
+                $linkedPayrollId = $pRow ? (int)$pRow['id'] : null;
                 if ($linkedPayrollId) {
                     $db->query(
                         "UPDATE loan_emi_log SET payroll_id = ? WHERE loan_id = ? AND month = ? AND year = ?",
@@ -531,7 +591,7 @@ try {
 
     echo json_encode([
         'success' => true,
-        'message' => 'Payroll saved for ' . $employeeCode . ($loanDeductionTotal > 0 ? ' (Loan EMI ₹' . number_format($loanDeductionTotal, 2) . ' auto-deducted)' : ''),
+        'message' => $otWarning . 'Payroll saved for ' . $employeeCode . ($loanDeductionTotal > 0 ? ' (Loan EMI ₹' . number_format($loanDeductionTotal, 2) . ' auto-deducted)' : ''),
         'employee_code' => $employeeCode,
         'net_pay' => $payData['net_pay'],
         'gross_salary' => $payData['gross_salary'],

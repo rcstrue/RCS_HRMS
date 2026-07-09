@@ -36,7 +36,7 @@ $alterColumns = [
 
 foreach ($alterColumns as $colName => $alterSql) {
     try {
-        $checkCol = $db->fetch("SHOW COLUMNS FROM ess_expenses LIKE :col", ['col' => $colName]);
+        $checkCol = $db->fetch("SHOW COLUMNS FROM ess_expenses LIKE '{$colName}'");
         if (!$checkCol) {
             $db->query("ALTER TABLE ess_expenses {$alterSql}");
         }

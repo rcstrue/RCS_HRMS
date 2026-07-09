@@ -34,10 +34,11 @@ if (!$data) {
     die('Payslip not found');
 }
 
-// Get period info
-$period = $db->prepare("SELECT * FROM payroll_periods WHERE id = ?");
-$period->execute([$data['payroll_period_id'] ?? 0]);
-$periodData = $period->fetch(PDO::FETCH_ASSOC);
+// Get period display from month/year in payroll data
+$periodDisplay = '';
+if (!empty($data['month']) && !empty($data['year'])) {
+    $periodDisplay = date('F Y', mktime(0, 0, 0, $data['month'], 1, $data['year']));
+}
 
 // Number to words function (Indian numbering)
 function numberToWords($number) {
@@ -315,7 +316,7 @@ function numberToWords($number) {
             </div>
             <div class="payslip-period">
                 <div class="label">PAYSLIP FOR</div>
-                <div class="value"><?php echo sanitize($periodData['period_name'] ?? date('F Y')); ?></div>
+                <div class="value"><?php echo sanitize($periodDisplay ?: date('F Y')); ?></div>
             </div>
         </div>
 
@@ -502,7 +503,7 @@ function numberToWords($number) {
 
     <script>
         (function() {
-            var qrData = 'RCS TRUE FACILITIES PVT LTD\nPayroll ID: <?php echo (int)$payrollId; ?>\nEmp: <?php echo sanitize($data["employee_code"] ?? "-"); ?>\nPeriod: <?php echo sanitize($periodData["period_name"] ?? ""); ?>\nNet Pay: Rs. <?php echo number_format($data["net_pay"] ?? 0, 2); ?>';
+            var qrData = 'RCS TRUE FACILITIES PVT LTD\nPayroll ID: <?php echo (int)$payrollId; ?>\nEmp: <?php echo sanitize($data["employee_code"] ?? "-"); ?>\nPeriod: <?php echo sanitize($periodDisplay); ?>\nNet Pay: Rs. <?php echo number_format($data["net_pay"] ?? 0, 2); ?>';
             var el = document.getElementById('qrcode');
             if (el) {
                 // Use Google Charts QR API as fallback — always works, no JS library needed

@@ -1,7 +1,7 @@
 <?php
 /**
- * RCS HRMS Pro - Add Attendance (Manual Entry)
- * Manual attendance entry like Excel sheet
+ * RCS HRMS Pro - Add Attendance & Advances (Manual Entry)
+ * Combined attendance + advance entry like Excel sheet
  */
 
 $pageTitle = 'Add Attendance';
@@ -43,17 +43,43 @@ try {
         UNIQUE KEY `uniq_emp_unit_month_year` (`employee_id`, `unit_id`, `month`, `year`),
         KEY `idx_unit_month_year` (`unit_id`, `month`, `year`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-    
+
     // Add total_paid_days column if it doesn't exist (for existing databases)
     $checkCol = $db->fetch("SHOW COLUMNS FROM attendance_summary LIKE 'total_paid_days'");
     if (!$checkCol) {
         $db->exec("ALTER TABLE attendance_summary ADD COLUMN `total_paid_days` decimal(5,2) DEFAULT 0.00 AFTER `total_wo`");
     }
-    
-    // Fix old unique key if still exists as (employee_id, month, year) without unit_id
-    // This allows same employee to have attendance in different units per month
 } catch (Exception $e) {
     // Table creation/alter failed
+}
+
+// Ensure employee_advances table exists
+try {
+    $db->exec("CREATE TABLE IF NOT EXISTS `employee_advances` (
+        `id` int(11) NOT NULL AUTO_INCREMENT,
+        `employee_id` int(11) NOT NULL,
+        `unit_id` int(11) DEFAULT NULL,
+        `month` int(2) NOT NULL,
+        `year` int(4) NOT NULL,
+        `adv1` decimal(10,2) DEFAULT 0.00,
+        `adv2` decimal(10,2) DEFAULT 0.00,
+        `office_advance` decimal(10,2) DEFAULT 0.00,
+        `dress_advance` decimal(10,2) DEFAULT 0.00,
+        `remarks` text DEFAULT NULL,
+        `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+        `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `uniq_emp_month_year` (`employee_id`, `month`, `year`),
+        KEY `idx_unit_month_year` (`unit_id`, `month`, `year`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    // Fix employee_id column type if it was created as VARCHAR
+    $colInfo = $db->fetch("SHOW COLUMNS FROM employee_advances LIKE 'employee_id'");
+    if ($colInfo && strpos(strtoupper($colInfo['Type'] ?? ''), 'VARCHAR') !== false) {
+        $db->exec("ALTER TABLE employee_advances MODIFY COLUMN employee_id INT(11) NOT NULL");
+    }
+} catch (Exception $e) {
+    // Table creation failed
 }
 
 // Get units based on selected client
@@ -68,122 +94,139 @@ if ($selectedClient) {
     }
 }
 
-// Get employees and their attendance when unit is selected
+// Get employees with attendance and advances when unit is selected
 $employees = [];
 if ($selectedUnit && $_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['load'])) {
-    // Get employees for this unit
     $stmt = $db->prepare("
         SELECT e.id, e.employee_code, e.full_name, e.designation, e.worker_category,
-               ess.basic_da, ess.gross_salary
+               ess.basic_da, ess.gross_salary,
+               att.total_present, att.total_wo, att.total_extra, att.overtime_hours, att.total_paid_days
         FROM employees e
-        LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND ess.effective_to IS NULL
-        WHERE e.unit_id = ? AND e.status = 'approved'
+        LEFT JOIN (SELECT employee_id, MAX(basic_da) AS basic_da, MAX(gross_salary) AS gross_salary
+                    FROM employee_salary_structures WHERE effective_to IS NULL GROUP BY employee_id) ess
+            ON e.id = ess.employee_id
+        LEFT JOIN attendance_summary att ON e.id = att.employee_id AND att.month = ? AND att.year = ?
+        WHERE e.unit_id = ? AND e.status IN ('approved', 'active')
         ORDER BY e.employee_code
     ");
-    $stmt->execute([$selectedUnit]);
+    $stmt->execute([$selectedMonth, $selectedYear, $selectedUnit]);
     $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Get existing attendance summary if any
+
+    // Get existing advances
     foreach ($employees as &$emp) {
+        $emp['adv1'] = '';
+        $emp['adv2'] = '';
+        $emp['office_advance'] = '';
+        $emp['dress_advance'] = '';
         try {
             $stmt = $db->prepare("
-                SELECT total_present, total_extra, overtime_hours, total_wo
-                FROM attendance_summary
-                WHERE employee_id = ? AND month = ? AND year = ?
+                SELECT adv1, adv2, office_advance, dress_advance
+                FROM employee_advances
+                WHERE employee_id = ? AND unit_id = ? AND month = ? AND year = ?
             ");
-            $stmt->execute([$emp['id'], $selectedMonth, $selectedYear]);
+            $stmt->execute([$emp['id'], $selectedUnit, $selectedMonth, $selectedYear]);
             $existing = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($existing) {
-                $emp['total_present'] = $existing['total_present'];
-                $emp['total_extra'] = $existing['total_extra'];
-                $emp['overtime_hours'] = $existing['overtime_hours'];
-                $emp['total_wo'] = $existing['total_wo'];
-            } else {
-                $emp['total_present'] = '';
-                $emp['total_extra'] = '';
-                $emp['overtime_hours'] = '';
-                $emp['total_wo'] = '';
+                $emp['adv1'] = $existing['adv1'];
+                $emp['adv2'] = $existing['adv2'];
+                $emp['office_advance'] = $existing['office_advance'];
+                $emp['dress_advance'] = $existing['dress_advance'];
             }
-        } catch (Exception $e) {
-            $emp['total_present'] = '';
-            $emp['total_extra'] = '';
-            $emp['overtime_hours'] = '';
-            $emp['total_wo'] = '';
-        }
+        } catch (Exception $e) {}
     }
     unset($emp);
 }
 
-// Handle save
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_attendance'])) {
+// Handle save (attendance + advances in one transaction)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_advance'])) {
     $unitId = (int)$_POST['unit_id'];
     $month = (int)$_POST['month'];
     $year = (int)$_POST['year'];
     $employeeIds = $_POST['employee_id'] ?? [];
-    
+
     // Get client_id from unit
     $stmt = $db->prepare("SELECT client_id FROM units WHERE id = ?");
     $stmt->execute([$unitId]);
     $unitData = $stmt->fetch(PDO::FETCH_ASSOC);
     $clientId = $unitData ? $unitData['client_id'] : 0;
-    
+
     $savedCount = 0;
-    $errors = [];
-    
+
     try {
+        $db->exec("START TRANSACTION");
         foreach ($employeeIds as $empId) {
-            $totalPresent = isset($_POST['total_present'][$empId]) ? (float)$_POST['total_present'][$empId] : 0;
-            $totalExtra = isset($_POST['total_extra'][$empId]) ? (float)$_POST['total_extra'][$empId] : 0;
-            $otHours = isset($_POST['overtime_hours'][$empId]) ? (float)$_POST['overtime_hours'][$empId] : 0;
-            $totalWO = isset($_POST['total_wo'][$empId]) ? (int)$_POST['total_wo'][$empId] : 0;
-            
-            // Auto-calculate total_paid_days = present + WO + extra
-            $totalPaidDays = round($totalPresent + $totalWO + $totalExtra, 2);
-            
-            // Insert or update using ON DUPLICATE KEY
+            // ── Attendance ──
+            $attPresent = isset($_POST['att_present'][$empId]) ? (float)$_POST['att_present'][$empId] : 0;
+            $attWO      = isset($_POST['att_wo'][$empId]) ? (float)$_POST['att_wo'][$empId] : 0;
+            $attExtra   = isset($_POST['att_extra'][$empId]) ? (float)$_POST['att_extra'][$empId] : 0;
+            $otHours    = isset($_POST['ot_hours'][$empId]) ? (float)$_POST['ot_hours'][$empId] : 0;
+            $paidDays   = round($attPresent + $attWO + $attExtra, 1);
+
             $stmt = $db->prepare("
-                INSERT INTO attendance_summary 
-                (employee_id, unit_id, month, year, total_present, total_extra, overtime_hours, total_wo, total_paid_days, source)
+                INSERT INTO attendance_summary
+                (employee_id, unit_id, month, year, total_present, total_wo, total_extra, overtime_hours, total_paid_days, source)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Manual')
-                ON DUPLICATE KEY UPDATE 
+                ON DUPLICATE KEY UPDATE
                     total_present = VALUES(total_present),
+                    total_wo = VALUES(total_wo),
                     total_extra = VALUES(total_extra),
                     overtime_hours = VALUES(overtime_hours),
-                    total_wo = VALUES(total_wo),
                     total_paid_days = VALUES(total_paid_days),
                     source = 'Manual',
                     updated_at = CURRENT_TIMESTAMP
             ");
-            $stmt->execute([$empId, $unitId, $month, $year, $totalPresent, $totalExtra, $otHours, $totalWO, $totalPaidDays]);
+            $stmt->execute([$empId, $unitId, $month, $year, $attPresent, $attWO, $attExtra, $otHours, $paidDays]);
+
+            // ── Advances ──
+            $adv1 = isset($_POST['adv1'][$empId]) ? (float)$_POST['adv1'][$empId] : 0;
+            $adv2 = isset($_POST['adv2'][$empId]) ? (float)$_POST['adv2'][$empId] : 0;
+            $officeAdv = isset($_POST['office_advance'][$empId]) ? (float)$_POST['office_advance'][$empId] : 0;
+            $dressAdv = isset($_POST['dress_advance'][$empId]) ? (float)$_POST['dress_advance'][$empId] : 0;
+
+            if ($adv1 < 0 || $adv2 < 0 || $officeAdv < 0 || $dressAdv < 0) {
+                $db->exec("ROLLBACK");
+                setFlash('error', 'Advance amounts cannot be negative.');
+                redirect("index.php?page=attendance/add&client_id={$clientId}&unit_id={$unitId}&month={$month}&year={$year}&load=1");
+                exit;
+            }
+
+            $stmt = $db->prepare("
+                INSERT INTO employee_advances
+                (employee_id, unit_id, month, year, adv1, adv2, office_advance, dress_advance)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    adv1 = VALUES(adv1),
+                    adv2 = VALUES(adv2),
+                    office_advance = VALUES(office_advance),
+                    dress_advance = VALUES(dress_advance),
+                    updated_at = CURRENT_TIMESTAMP
+            ");
+            $stmt->execute([$empId, $unitId, $month, $year, $adv1, $adv2, $officeAdv, $dressAdv]);
             $savedCount++;
         }
-        
-        setFlash('success', "Attendance saved successfully! {$savedCount} employees updated.");
+        $db->exec("COMMIT");
 
-        // Redirect to same page with filters
-        // Note: Using redirect() helper instead of header() to handle "headers already sent" case
+        setFlash('success', "Attendance & advances saved! {$savedCount} employees updated.");
         redirect("index.php?page=attendance/add&client_id={$clientId}&unit_id={$unitId}&month={$month}&year={$year}&load=1");
-        
+
     } catch (Exception $e) {
-        setFlash('error', 'Error saving attendance: ' . $e->getMessage());
+        try { $db->exec("ROLLBACK"); } catch (Exception $re) {}
+        setFlash('error', 'Error saving: ' . $e->getMessage());
     }
 }
-
-// Days in selected month
-$daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
 ?>
 
 <div class="row">
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5 class="card-title mb-0"><i class="bi bi-table me-2"></i>Add Attendance (Manual Entry)</h5>
+                <h5 class="card-title mb-0"><i class="bi bi-table me-2"></i>Add Attendance</h5>
             </div>
             <div class="card-body">
                 <!-- Filters Form -->
                 <form method="GET" class="row g-3 mb-4" id="filterForm">
                     <input type="hidden" name="page" value="attendance/add">
-                    
+
                     <div class="col-md-3">
                         <label class="form-label">Client</label>
                         <select class="form-select" name="client_id" id="clientSelect" required>
@@ -195,7 +238,7 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    
+
                     <div class="col-md-3">
                         <label class="form-label">Unit</label>
                         <select class="form-select" name="unit_id" id="unitSelect" required>
@@ -207,7 +250,7 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    
+
                     <div class="col-md-2">
                         <label class="form-label">Month</label>
                         <select class="form-select" name="month">
@@ -218,11 +261,11 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
                             <?php endfor; ?>
                         </select>
                     </div>
-                    
+
                     <div class="col-md-2">
                         <label class="form-label">Year</label>
                         <select class="form-select" name="year">
-                            <?php 
+                            <?php
                             $currentYear = date('Y');
                             for ($y = $currentYear; $y >= $currentYear - 2; $y--):
                             ?>
@@ -232,7 +275,7 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
                             <?php endfor; ?>
                         </select>
                     </div>
-                    
+
                     <div class="col-md-2 d-flex align-items-end">
                         <button type="submit" name="load" value="1" class="btn btn-primary w-100">
                             <i class="bi bi-search me-1"></i>Load
@@ -244,15 +287,71 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
     </div>
 </div>
 
+<?php
+// ── Build jspreadsheet data & column config ──
+$jssData = [];
+$jssColumns = [
+    ['title' => '#',      'type' => 'text',    'width' => 36,  'readOnly' => true,  'align' => 'center'],
+    ['title' => 'Code',   'type' => 'text',    'width' => 75,  'readOnly' => true,  'align' => 'center'],
+    ['title' => 'Name',   'type' => 'text',    'width' => 150, 'readOnly' => true],
+    ['title' => 'Desig',  'type' => 'text',    'width' => 100, 'readOnly' => true],
+    ['title' => 'Cat',    'type' => 'text',    'width' => 55,  'readOnly' => true,  'align' => 'center'],
+    ['title' => 'Prs',    'type' => 'numeric', 'width' => 55,  'align' => 'center'],
+    ['title' => 'WO',     'type' => 'numeric', 'width' => 45,  'align' => 'center'],
+    ['title' => 'Ext',    'type' => 'numeric', 'width' => 50,  'align' => 'center'],
+    ['title' => 'OT',     'type' => 'numeric', 'width' => 50,  'align' => 'center'],
+    ['title' => 'Paid',   'type' => 'numeric', 'width' => 50,  'readOnly' => true,  'align' => 'center'],
+    ['title' => 'Adv 1',  'type' => 'numeric', 'width' => 80,  'align' => 'right'],
+    ['title' => 'Adv 2',  'type' => 'numeric', 'width' => 80,  'align' => 'right'],
+    ['title' => 'Office', 'type' => 'numeric', 'width' => 80,  'align' => 'right'],
+    ['title' => 'Dress',  'type' => 'numeric', 'width' => 80,  'align' => 'right'],
+    ['title' => 'Total',  'type' => 'numeric', 'width' => 75,  'readOnly' => true,  'align' => 'right'],
+];
+
+if (!empty($employees)) {
+    $sr = 1;
+    foreach ($employees as $emp) {
+        $prs = (float)($emp['total_present'] ?? 0);
+        $wo  = (float)($emp['total_wo'] ?? 0);
+        $ext = (float)($emp['total_extra'] ?? 0);
+        $ot  = (float)($emp['overtime_hours'] ?? 0);
+        $paid = round($prs + $wo + $ext, 1);
+
+        $a1 = ($emp['adv1'] !== '' && $emp['adv1'] !== null) ? (float)$emp['adv1'] : '';
+        $a2 = ($emp['adv2'] !== '' && $emp['adv2'] !== null) ? (float)$emp['adv2'] : '';
+        $ao = ($emp['office_advance'] !== '' && $emp['office_advance'] !== null) ? (float)$emp['office_advance'] : '';
+        $ad = ($emp['dress_advance'] !== '' && $emp['dress_advance'] !== null) ? (float)$emp['dress_advance'] : '';
+        $advTotal = (float)(($a1 ?: 0) + ($a2 ?: 0) + ($ao ?: 0) + ($ad ?: 0));
+
+        $jssData[] = [
+            $sr++,
+            $emp['employee_code'],
+            $emp['full_name'],
+            $emp['designation'],
+            $emp['worker_category'],
+            $prs != 0 ? $prs : '',
+            $wo  != 0 ? $wo  : '',
+            $ext != 0 ? $ext : '',
+            $ot  != 0 ? $ot  : '',
+            $paid ?: 0,
+            $a1,
+            $a2,
+            $ao,
+            $ad,
+            $advTotal,
+        ];
+    }
+}
+?>
+
 <?php if ($selectedUnit && isset($_GET['load'])): ?>
-<!-- Attendance Entry Grid -->
+<!-- Attendance & Advance Entry Grid -->
 <div class="row mt-3">
     <div class="col-12">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <div>
                     <span class="badge bg-info"><?php echo date('F Y', mktime(0, 0, 0, $selectedMonth, 1, $selectedYear)); ?></span>
-                    <span class="badge bg-secondary ms-2">Total Days: <?php echo $daysInMonth; ?></span>
                     <span class="badge bg-primary ms-2"><?php echo count($employees); ?> Employees</span>
                 </div>
                 <div>
@@ -268,97 +367,37 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
                     <p class="mt-2">No employees found for this unit.</p>
                 </div>
                 <?php else: ?>
-                <form method="POST" id="attendanceForm">
+                <form method="POST" id="advanceForm">
                     <input type="hidden" name="unit_id" value="<?php echo $selectedUnit; ?>">
                     <input type="hidden" name="month" value="<?php echo $selectedMonth; ?>">
                     <input type="hidden" name="year" value="<?php echo $selectedYear; ?>">
-                    
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-hover mb-0" style="font-size: 13px;">
-                            <thead class="table-dark">
-                                <tr>
-                                    <th style="width: 50px;">#</th>
-                                    <th style="width: 100px;">Emp Code</th>
-                                    <th style="width: 180px;">Employee Name</th>
-                                    <th style="width: 120px;">Designation</th>
-                                    <th style="width: 100px;">Category</th>
-                                    <th style="width: 90px;" class="text-center bg-success text-white">Present<br><small>(Days)</small></th>
-                                    <th style="width: 90px;" class="text-center bg-info text-white">Extra<br><small>(Days)</small></th>
-                                    <th style="width: 90px;" class="text-center bg-warning text-dark">OT Hours<br><small>(Hrs)</small></th>
-                                    <th style="width: 90px;" class="text-center bg-secondary text-white">WO<br><small>(Days)</small></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php 
-                                $sr = 1;
-                                foreach ($employees as $emp): 
-                                ?>
-                                    <tr>
-                                    <td class="text-center"><?php echo $sr++; ?></td>
-                                    <td>
-                                        <input type="hidden" name="employee_id[]" value="<?php echo $emp['id']; ?>">
-                                        <code><?php echo $emp['employee_code']; ?></code>
-                                    </td>
-                                    <td><?php echo sanitize($emp['full_name']); ?></td>
-                                    <td><?php echo sanitize($emp['designation']); ?></td>
-                                    <td><span class="badge bg-light text-dark"><?php echo sanitize($emp['worker_category']); ?></span></td>
-                                    <td>
-                                        <input type="number" name="total_present[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['total_present']; ?>" 
-                                               class="form-control form-control-sm text-center present-input" 
-                                               min="0" max="31" step="0.5" oninput="calculateTotals()">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="total_extra[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['total_extra']; ?>" 
-                                               class="form-control form-control-sm text-center extra-input" 
-                                               min="0" max="31" step="0.5" oninput="calculateTotals()">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="overtime_hours[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['overtime_hours']; ?>" 
-                                               class="form-control form-control-sm text-center ot-input" 
-                                               min="0" max="300" step="0.5" oninput="calculateTotals()">
-                                    </td>
-                                    <td>
-                                        <input type="number" name="total_wo[<?php echo $emp['id']; ?>]" 
-                                               value="<?php echo $emp['total_wo']; ?>" 
-                                               class="form-control form-control-sm text-center wo-input" 
-                                               min="0" max="8" oninput="calculateTotals()">
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                            <tfoot class="table-light">
-                                <tr class="fw-bold">
-                                    <td colspan="5" class="text-end">
-                                        <span class="text-primary">TOTAL (<?php echo count($employees); ?> Employees)</span>
-                                    </td>
-                                    <td class="text-center">
-                                        <span id="total_present_sum" class="badge bg-success fs-6">0</span>
-                                    </td>
-                                    <td class="text-center">
-                                        <span id="total_extra_sum" class="badge bg-info fs-6">0</span>
-                                    </td>
-                                    <td class="text-center">
-                                        <span id="total_ot_sum" class="badge bg-warning text-dark fs-6">0</span>
-                                    </td>
-                                    <td class="text-center">
-                                        <span id="total_wo_sum" class="badge bg-secondary fs-6">0</span>
-                                    </td>
-                                </tr>
-                            </tfoot>
-                        </table>
+                    <input type="hidden" name="save_advance" value="1">
+
+                    <div id="spreadsheet" style="width:100%;"></div>
+
+                    <!-- Totals bar -->
+                    <div id="totalsBar" style="display:flex; flex-wrap:wrap; gap:6px 14px; padding:6px 12px; background:#d9e2f3; font-size:12px; font-weight:600; border-top:2px solid #4472C4; align-items:center;">
+                        <span style="margin-right:auto; font-weight:700;">TOTAL</span>
+                        <span>Prs: <b id="tot-prs">0</b></span>
+                        <span>WO: <b id="tot-wo">0</b></span>
+                        <span>Ext: <b id="tot-ext">0</b></span>
+                        <span>OT: <b id="tot-ot">0</b></span>
+                        <span>Paid: <b id="tot-paid">0</b></span>
+                        <span style="border-left:2px solid #8faadc; padding-left:14px;">Adv1: <b id="tot-a1">0</b></span>
+                        <span>Adv2: <b id="tot-a2">0</b></span>
+                        <span>Office: <b id="tot-ao">0</b></span>
+                        <span>Dress: <b id="tot-ad">0</b></span>
+                        <span style="background:#548235; color:#fff; padding:2px 10px; border-radius:3px;">Grand Total: <b id="tot-gtotal">0</b></span>
                     </div>
-                    
+
                     <div class="card-footer">
                         <div class="d-flex justify-content-between align-items-center">
                             <div class="text-muted">
-                                <small><i class="bi bi-info-circle me-1"></i>Present: Total present days | Extra: Additional working days | OT: Overtime hours | WO: Weekly off days</small>
+                                <small><i class="bi bi-info-circle me-1"></i>Attendance (Present/WO/Extra/OT) + Advances saved together</small>
                             </div>
                             <div>
-                                <button type="submit" name="save_attendance" class="btn btn-success">
-                                    <i class="bi bi-check-lg me-1"></i>Save Attendance
+                                <button type="button" onclick="saveData()" class="btn btn-success">
+                                    <i class="bi bi-check-lg me-1"></i>Save Attendance & Advances
                                 </button>
                             </div>
                         </div>
@@ -372,69 +411,186 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
 <?php endif; ?>
 
 <?php
-$extraJS = <<<'JS'
+// ── Custom CSS for jspreadsheet ──
+$extraCSS = '<style>
+#spreadsheet .jss { font-size: 12px; }
+#spreadsheet .jss thead td,
+#spreadsheet .jss thead th {
+    padding: 4px 6px !important;
+    font-weight: 600;
+    font-size: 11px;
+    text-align: center;
+    white-space: nowrap;
+}
+#spreadsheet .jss tbody td {
+    padding: 0 4px !important;
+    height: 26px !important;
+}
+#spreadsheet .jss tbody td input {
+    font-size: 12px;
+    padding: 0 2px;
+    height: 24px;
+}
+/* Highlight read-only calculated columns */
+#spreadsheet .jss tbody td[data-x="9"] { background: #e2efda !important; font-weight: 600; }
+#spreadsheet .jss tbody td[data-x="14"] { background: #d9e2f3 !important; font-weight: 700; }
+/* Zebra striping */
+#spreadsheet .jss tbody tr:nth-child(even) td { background: #f2f7fb; }
+#spreadsheet .jss tbody tr:nth-child(even) td[data-x="9"] { background: #e2efda !important; }
+#spreadsheet .jss tbody tr:nth-child(even) td[data-x="14"] { background: #d9e2f3 !important; }
+#spreadsheet .jss tbody tr:hover td { background: #d9e8f7 !important; }
+#spreadsheet .jss tbody tr:hover td[data-x="9"] { background: #c5e0b4 !important; }
+#spreadsheet .jss tbody tr:hover td[data-x="14"] { background: #b4c7e7 !important; }
+</style>';
+
+// ── JavaScript ──
+ob_start();
+?>
 <script>
-// Load units when client changes
+// ── Client select: load units via AJAX ──
 document.getElementById('clientSelect').addEventListener('change', function() {
-    const clientId = this.value;
-    const unitSelect = document.getElementById('unitSelect');
-    
+    var clientId = this.value;
+    var unitSelect = document.getElementById('unitSelect');
+
     unitSelect.innerHTML = '<option value="">Loading...</option>';
-    
+
     if (!clientId) {
         unitSelect.innerHTML = '<option value="">Select Unit</option>';
         return;
     }
-    
+
     fetch('index.php?page=api/units&client_id=' + clientId)
-        .then(response => response.json())
-        .then(data => {
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
             unitSelect.innerHTML = '<option value="">Select Unit</option>';
             if (data.units) {
-                data.units.forEach(unit => {
-                    const option = document.createElement('option');
+                data.units.forEach(function(unit) {
+                    var option = document.createElement('option');
                     option.value = unit.id;
                     option.textContent = unit.name;
                     unitSelect.appendChild(option);
                 });
             }
         })
-        .catch(() => {
+        .catch(function() {
             unitSelect.innerHTML = '<option value="">Select Unit</option>';
         });
 });
 
-// Calculate totals dynamically
-function calculateTotals() {
-    let totalPresent = 0;
-    let totalExtra = 0;
-    let totalOT = 0;
-    let totalWO = 0;
-    
-    document.querySelectorAll('.present-input').forEach(input => {
-        totalPresent += parseFloat(input.value) || 0;
-    });
-    
-    document.querySelectorAll('.extra-input').forEach(input => {
-        totalExtra += parseFloat(input.value) || 0;
-    });
-    
-    document.querySelectorAll('.ot-input').forEach(input => {
-        totalOT += parseFloat(input.value) || 0;
-    });
-    
-    document.querySelectorAll('.wo-input').forEach(input => {
-        totalWO += parseFloat(input.value) || 0;
-    });
-    
-    document.getElementById('total_present_sum').textContent = totalPresent.toFixed(1);
-    document.getElementById('total_extra_sum').textContent = totalExtra.toFixed(1);
-    document.getElementById('total_ot_sum').textContent = totalOT.toFixed(1);
-    document.getElementById('total_wo_sum').textContent = totalWO.toFixed(0);
+<?php if (!empty($employees)): ?>
+// ── Jspreadsheet initialization ──
+var empIds = <?php echo json_encode(array_column($employees, 'id')); ?>;
+var jssData = <?php echo json_encode($jssData); ?>;
+var jssCols = <?php echo json_encode($jssColumns); ?>;
+
+var _recalc = false;
+
+var jss = jspreadsheet(document.getElementById('spreadsheet'), {
+    data: jssData,
+    columns: jssCols,
+    columnResize: true,
+    allowExport: true,
+    tableOverflow: true,
+    tableHeight: '70vh',
+    defaultColWidth: 80,
+    onchange: function(el, cell, x, y, value) {
+        // NOTE: In jspreadsheet-ce 4.9.2, 1st arg is the DOM element, not the instance
+        if (_recalc) return;
+        _recalc = true;
+
+        // Recalculate Paid (col 9) when Prs/WO/Ext (5/6/7) change
+        if (x === 5 || x === 6 || x === 7) {
+            var p = parseFloat(jss.getValueFromCoords(5, y)) || 0;
+            var w = parseFloat(jss.getValueFromCoords(6, y)) || 0;
+            var e = parseFloat(jss.getValueFromCoords(7, y)) || 0;
+            jss.setValueFromCoords(9, y, parseFloat((p + w + e).toFixed(1)));
+        }
+
+        // Recalculate Total (col 14) when any advance col (10-13) changes
+        if (x >= 10 && x <= 13) {
+            var v1 = parseFloat(jss.getValueFromCoords(10, y)) || 0;
+            var v2 = parseFloat(jss.getValueFromCoords(11, y)) || 0;
+            var v3 = parseFloat(jss.getValueFromCoords(12, y)) || 0;
+            var v4 = parseFloat(jss.getValueFromCoords(13, y)) || 0;
+            jss.setValueFromCoords(14, y, v1 + v2 + v3 + v4);
+        }
+
+        updateTotals();
+        _recalc = false;
+    }
+});
+
+// ── Update totals bar ──
+function fmtNum(v, decimals) {
+    if (decimals === undefined) decimals = 0;
+    var n = parseFloat(v) || 0;
+    return decimals > 0 ? n.toFixed(decimals).replace(/\.0$/, '') : n.toFixed(decimals);
 }
 
-// Calculate totals on page load
-document.addEventListener('DOMContentLoaded', calculateTotals);
+function updateTotals() {
+    var data = jss.getData();
+    var tP = 0, tW = 0, tE = 0, tOT = 0, tPaid = 0;
+    var tA1 = 0, tA2 = 0, tAO = 0, tAD = 0;
+
+    for (var i = 0; i < data.length; i++) {
+        tP   += parseFloat(data[i][5])  || 0;
+        tW   += parseFloat(data[i][6])  || 0;
+        tE   += parseFloat(data[i][7])  || 0;
+        tOT  += parseFloat(data[i][8])  || 0;
+        tPaid += parseFloat(data[i][9])  || 0;
+        tA1  += parseFloat(data[i][10]) || 0;
+        tA2  += parseFloat(data[i][11]) || 0;
+        tAO  += parseFloat(data[i][12]) || 0;
+        tAD  += parseFloat(data[i][13]) || 0;
+    }
+
+    document.getElementById('tot-prs').textContent  = fmtNum(tP, 1);
+    document.getElementById('tot-wo').textContent   = fmtNum(tW, 1);
+    document.getElementById('tot-ext').textContent  = fmtNum(tE, 1);
+    document.getElementById('tot-ot').textContent   = fmtNum(tOT, 1);
+    document.getElementById('tot-paid').textContent = fmtNum(tPaid, 1);
+    document.getElementById('tot-a1').textContent   = fmtNum(tA1);
+    document.getElementById('tot-a2').textContent   = fmtNum(tA2);
+    document.getElementById('tot-ao').textContent   = fmtNum(tAO);
+    document.getElementById('tot-ad').textContent   = fmtNum(tAD);
+    document.getElementById('tot-gtotal').textContent = fmtNum(tA1 + tA2 + tAO + tAD);
+}
+
+updateTotals();
+
+// ── Save: collect jss data and POST ──
+function addHiddenField(form, name, value) {
+    var input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = name;
+    input.value = value;
+    input.className = 'jss-dyn';
+    form.appendChild(input);
+}
+
+function saveData() {
+    var data = jss.getData();
+    var form = document.getElementById('advanceForm');
+
+    form.querySelectorAll('.jss-dyn').forEach(function(el) { el.remove(); });
+
+    for (var i = 0; i < data.length; i++) {
+        var eid = empIds[i];
+        addHiddenField(form, 'employee_id[]', eid);
+        addHiddenField(form, 'att_present[' + eid + ']',  parseFloat(data[i][5])  || 0);
+        addHiddenField(form, 'att_wo[' + eid + ']',       parseFloat(data[i][6])  || 0);
+        addHiddenField(form, 'att_extra[' + eid + ']',    parseFloat(data[i][7])  || 0);
+        addHiddenField(form, 'ot_hours[' + eid + ']',     parseFloat(data[i][8])  || 0);
+        addHiddenField(form, 'adv1[' + eid + ']',         parseFloat(data[i][10]) || 0);
+        addHiddenField(form, 'adv2[' + eid + ']',         parseFloat(data[i][11]) || 0);
+        addHiddenField(form, 'office_advance[' + eid + ']', parseFloat(data[i][12]) || 0);
+        addHiddenField(form, 'dress_advance[' + eid + ']',  parseFloat(data[i][13]) || 0);
+    }
+
+    form.submit();
+}
+<?php endif; ?>
 </script>
-JS;
+<?php
+$extraJS = ob_get_clean();
 ?>

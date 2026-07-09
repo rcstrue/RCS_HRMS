@@ -23,9 +23,10 @@ $payrollObj = new Payroll();
 
 // Get payroll IDs from URL
 $idsParam = $_GET['ids'] ?? '';
-$periodId = (int)($_GET['period_id'] ?? 0);
+$month = (int)($_GET['month'] ?? 0);
+$year  = (int)($_GET['year'] ?? 0);
 
-if (!$idsParam && !$periodId) {
+if (!$idsParam && !$month && !$year) {
     die('No payslips selected');
 }
 
@@ -36,11 +37,11 @@ if ($idsParam) {
     $ids = array_filter($ids); // Remove zeros
 }
 
-// If period_id is provided, get all payroll IDs for that period
-if ($periodId && empty($ids)) {
+// If month/year is provided (no specific IDs), get all payroll IDs for that month/year
+if ($month && $year && empty($ids)) {
     $payrollRecords = $db->fetchAll(
-        "SELECT id FROM payroll WHERE payroll_period_id = :period_id ORDER BY employee_id",
-        ['period_id' => $periodId]
+        "SELECT id FROM payroll WHERE month = :month AND year = :year ORDER BY employee_id",
+        ['month' => $month, 'year' => $year]
     );
     $ids = array_column($payrollRecords, 'id');
 }
@@ -49,13 +50,14 @@ if (empty($ids)) {
     die('No valid payslip IDs found');
 }
 
-// Get period info
+// Get month/year from first payslip for display
 $period = null;
-if ($periodId) {
-    $period = $db->fetch(
-        "SELECT * FROM payroll_periods WHERE id = :id",
-        ['id' => $periodId]
-    );
+if (!empty($payslips[0]['month']) && !empty($payslips[0]['year'])) {
+    $period = [
+        'month' => $payslips[0]['month'],
+        'year' => $payslips[0]['year'],
+        'period_name' => date('F Y', mktime(0, 0, 0, $payslips[0]['month'], 1, $payslips[0]['year']))
+    ];
 }
 
 // Get all payslips
@@ -78,12 +80,13 @@ if (empty($payslips)) {
     die('No payslips found');
 }
 
-// Get period from first payslip if not set
-if (!$period && !empty($payslips[0]['payroll_period_id'])) {
-    $period = $db->fetch(
-        "SELECT * FROM payroll_periods WHERE id = :id",
-        ['id' => $payslips[0]['payroll_period_id']]
-    );
+// Get period from first payslip if not set (use month/year directly)
+if (!$period && !empty($payslips[0]['month']) && !empty($payslips[0]['year'])) {
+    $period = [
+        'month' => $payslips[0]['month'],
+        'year' => $payslips[0]['year'],
+        'period_name' => date('F Y', mktime(0, 0, 0, $payslips[0]['month'], 1, $payslips[0]['year']))
+    ];
 }
 
 // Number to words function (Indian numbering)

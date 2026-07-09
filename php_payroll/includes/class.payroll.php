@@ -199,8 +199,8 @@ class Payroll {
     }
 
     // Get employee payroll
-    public function getEmployeePayroll($employeeCode, $periodId = null) {
-        if ($periodId) {
+    public function getEmployeePayroll($employeeCode, $periodId = null, $month = null, $year = null) {
+        if ($month && $year) {
             return $this->db->fetch(
                 "SELECT p.*, e.full_name, e.designation,
                         c.name as client_name, u.name as unit_name
@@ -208,18 +208,17 @@ class Payroll {
                  JOIN employees e ON p.employee_id = e.employee_code
                  LEFT JOIN clients c ON e.client_id = c.id
                  LEFT JOIN units u ON e.unit_id = u.id
-                 WHERE p.employee_id = :emp_code AND p.payroll_period_id = :period_id",
-                ['emp_code' => $employeeCode, 'period_id' => $periodId]
+                 WHERE p.employee_id = :emp_code AND p.month = :month AND p.year = :year",
+                ['emp_code' => $employeeCode, 'month' => $month, 'year' => $year]
             );
         }
 
         return $this->db->fetchAll(
-            "SELECT p.*, pp.period_name, pp.month, pp.year, e.full_name, e.designation
+            "SELECT p.*, e.full_name, e.designation
              FROM payroll p
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
              JOIN employees e ON p.employee_id = e.employee_code
              WHERE p.employee_id = :emp_code
-             ORDER BY pp.year DESC, pp.month DESC",
+             ORDER BY p.year DESC, p.month DESC",
             ['emp_code' => $employeeCode]
         );
     }
@@ -280,7 +279,7 @@ class Payroll {
                 LEFT JOIN unit_salary_formulas usf ON usf.unit_id = e.unit_id
                     AND usf.is_active = 1
                     AND (usf.effective_to IS NULL OR usf.effective_to >= CURDATE())
-                WHERE e.status = 'approved'";
+                WHERE e.status IN ('approved', 'active')";
 
         $params = [];
 
@@ -551,22 +550,22 @@ class Payroll {
                         }
                     }
 
-                    // Get advances for the period (EXCLUDE office_advance to avoid double-counting)
+                    // Get advances for the period (scoped to unit_id to avoid double-deduction)
                     $advance = $this->db->fetch(
                         "SELECT COALESCE(SUM(adv1 + adv2 + dress_advance), 0) as total_advance
                         FROM employee_advances
-                        WHERE employee_id = :emp_id AND month = :month AND year = :year",
-                        ['emp_id' => $emp['id'], 'month' => $period['month'], 'year' => $period['year']]
+                        WHERE employee_id = :emp_id AND unit_id = :unit_id AND month = :month AND year = :year",
+                        ['emp_id' => $emp['id'], 'unit_id' => $emp['unit_id'], 'month' => $period['month'], 'year' => $period['year']]
                     );
                     $salaryAdvance = $advance['total_advance'] ?? 0;
 
-                    // Get office deduction for the period (separate from advances)
+                    // Get office deduction for the period (scoped to unit_id)
                     $officeDeduction = 0;
                     $officeAdv = $this->db->fetch(
                         "SELECT COALESCE(office_advance, 0) as office_ded
                          FROM employee_advances
-                         WHERE employee_id = :emp_id AND month = :month AND year = :year",
-                        ['emp_id' => $emp['id'], 'month' => $period['month'], 'year' => $period['year']]
+                         WHERE employee_id = :emp_id AND unit_id = :unit_id AND month = :month AND year = :year",
+                        ['emp_id' => $emp['id'], 'unit_id' => $emp['unit_id'], 'month' => $period['month'], 'year' => $period['year']]
                     );
                     $officeDeduction = floatval($officeAdv['office_ded'] ?? 0);
 
@@ -1157,20 +1156,19 @@ class Payroll {
     /**
      * Get payslip data by period and employee code
      */
-    public function getPayslip($periodId, $employeeCode) {
+    public function getPayslip($month, $year, $employeeCode) {
         return $this->db->fetch(
-            "SELECT p.*, pp.period_name, pp.month, pp.year, pp.start_date, pp.end_date,
+            "SELECT p.*,
                     e.full_name, e.employee_code, e.designation, e.department,
                     c.name as client_name, u.name as unit_name, e.date_of_joining,
                     e.uan_number, e.esic_number, e.mobile_number,
                     e.bank_name, e.account_number, e.ifsc_code
              FROM payroll p
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
              JOIN employees e ON p.employee_id = e.employee_code
              LEFT JOIN clients c ON e.client_id = c.id
              LEFT JOIN units u ON e.unit_id = u.id
-             WHERE p.payroll_period_id = :period_id AND p.employee_id = :emp_code",
-            ['period_id' => $periodId, 'emp_code' => $employeeCode]
+             WHERE p.employee_id = :emp_code AND p.month = :month AND p.year = :year",
+            ['emp_code' => $employeeCode, 'month' => $month, 'year' => $year]
         );
     }
 
@@ -1179,13 +1177,12 @@ class Payroll {
      */
     public function getPayslipById($payrollId) {
         return $this->db->fetch(
-            "SELECT p.*, pp.period_name, pp.month, pp.year, pp.start_date, pp.end_date,
+            "SELECT p.*,
                     e.full_name, e.employee_code, e.designation, e.department,
                     c.name as client_name, u.name as unit_name, e.date_of_joining,
                     e.uan_number, e.esic_number, e.mobile_number,
                     e.bank_name, e.account_number, e.ifsc_code
              FROM payroll p
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
              JOIN employees e ON p.employee_id = e.employee_code
              LEFT JOIN clients c ON e.client_id = c.id
              LEFT JOIN units u ON e.unit_id = u.id
@@ -1465,30 +1462,28 @@ class Payroll {
             return null;
         }
 
-        // Get attendance summary
+        // Get attendance summary (from attendance_summary table)
         $payroll['attendance'] = $this->db->fetch(
             "SELECT
-                COUNT(*) as total_days,
-                SUM(CASE WHEN status = 'Present' THEN 1 ELSE 0 END) as present_days,
-                SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) as absent_days,
-                SUM(CASE WHEN status = 'Weekly Off' THEN 1 ELSE 0 END) as weekly_offs,
-                SUM(CASE WHEN status = 'Holiday' THEN 1 ELSE 0 END) as holidays,
-                SUM(CASE WHEN status IN ('Paid Leave', 'Sick Leave', 'Casual Leave') THEN 1 ELSE 0 END) as paid_leaves,
-                SUM(CASE WHEN status = 'Half Day' THEN 0.5 ELSE 0 END) as half_days
-            FROM attendance
-            WHERE employee_id = :emp_code
-            AND MONTH(attendance_date) = :month
-            AND YEAR(attendance_date) = :year",
+                total_present as present_days,
+                total_extra,
+                overtime_hours,
+                total_wo as weekly_offs,
+                total_paid_days
+            FROM attendance_summary
+            WHERE employee_id = (SELECT id FROM employees WHERE employee_code = :emp_code)
+            AND month = :month AND year = :year",
             ['emp_code' => $employeeCode, 'month' => $payroll['month'], 'year' => $payroll['year']]
         );
 
-        // Get advances
+        // Get advances (scoped to unit_id)
         $payroll['advances'] = $this->db->fetch(
             "SELECT adv1, adv2, office_advance, dress_advance, remarks
             FROM employee_advances
             WHERE employee_id = (SELECT id FROM employees WHERE employee_code = :emp_code)
+            AND unit_id = :unit_id
             AND month = :month AND year = :year",
-            ['emp_code' => $employeeCode, 'month' => $payroll['month'], 'year' => $payroll['year']]
+            ['emp_code' => $employeeCode, 'unit_id' => $payroll['unit_id'], 'month' => $payroll['month'], 'year' => $payroll['year']]
         );
 
         // Get salary structure

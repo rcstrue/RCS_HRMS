@@ -17,10 +17,7 @@ define('DB_NAME', 'your_db_name');
 // ─── Security Constants ──────────────────────────────────────────────────────
 define('API_KEY', 'your_api_key_here');
 define('JWT_SECRET', 'your_jwt_secret_here');
-define('JWT_EXPIRY', 3600); // 1 hour — shortened since token is stored in
-                             // localStorage (XSS-exfiltratable). Pair with
-                             // a refresh-token flow (item 3) so the user
-                             // experience doesn't degrade.
+define('JWT_EXPIRY', 86400); // 24 hours
 
 // ─── Timezone ─────────────────────────────────────────────────────────────────
 date_default_timezone_set('Asia/Kolkata');

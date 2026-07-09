@@ -11,16 +11,14 @@ $employeeCounts = $employee->getCounts();
 
 // Get payroll summary for current month
 $currentMonth = prev_month_num();
-$currentYear = date('Y');
-
-$stmt = $db->prepare("SELECT id FROM payroll_periods WHERE month = ? AND year = ?");
-$stmt->execute([$currentMonth, $currentYear]);
-$currentPeriod = $stmt->fetch(PDO::FETCH_ASSOC);
+$currentYear = prev_month_year();
 
 $payrollSummary = null;
-if ($currentPeriod) {
-    $payrollSummary = $payroll->getPayrollTotals($currentPeriod['id']);
-}
+try {
+    $countStmt = $db->prepare("SELECT COUNT(*) as emp_count, SUM(gross_earnings) as gross, SUM(total_deductions) as deductions, SUM(net_pay) as net, SUM(pf_employee) + SUM(pf_employer) as pf_total, SUM(esi_employee) + SUM(esi_employer) as esi_total FROM payroll WHERE month = ? AND year = ?");
+    $countStmt->execute([$currentMonth, $currentYear]);
+    $payrollSummary = $countStmt->fetch(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
 
 // Get compliance alerts
 $complianceAlerts = $compliance->checkDeadlineAlerts();
@@ -31,7 +29,7 @@ $stmt = $db->query("SELECT e.employee_code, e.full_name, e.designation, e.status
                     FROM employees e 
                     LEFT JOIN units u ON e.unit_id = u.id
                     LEFT JOIN clients c ON e.client_id = c.id
-                    WHERE e.status = 'approved'
+                    WHERE e.status IN ('approved', 'active')
                     ORDER BY e.created_at DESC LIMIT 5");
 $recentEmployees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -39,7 +37,7 @@ $recentEmployees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $stmt = $db->query("SELECT u.name as unit_name, COUNT(e.id) as count 
                     FROM employees e 
                     INNER JOIN units u ON e.unit_id = u.id
-                    WHERE e.status = 'approved'
+                    WHERE e.status IN ('approved', 'active')
                     GROUP BY u.id, u.name
                     ORDER BY count DESC
                     LIMIT 10");
@@ -52,7 +50,7 @@ $attendanceSummary = $attendance->getSummary($currentMonth, $currentYear);
 $stmt = $db->query("SELECT c.name as client_name, COUNT(e.id) as count 
                     FROM employees e 
                     INNER JOIN clients c ON e.client_id = c.id
-                    WHERE e.status = 'approved'
+                    WHERE e.status IN ('approved', 'active')
                     GROUP BY c.id, c.name
                     ORDER BY count DESC
                     LIMIT 5");
@@ -126,6 +124,14 @@ $complianceSummary = $compliance->getSummary();
             <div class="card-body px-4 pb-4">
                 <div class="row g-3">
                     <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 col-6">
+                        <a href="index.php?page=employee/list" class="text-decoration-none">
+                            <div class="quick-action-card" style="--qa-color: #0d9488; --qa-bg: #f0fdfa; --qa-hover: #ccfbf1;">
+                                <div class="qa-icon"><i class="bi bi-people-fill"></i></div>
+                                <div class="qa-label">Employee List</div>
+                            </div>
+                        </a>
+                    </div>
+                    <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 col-6">
                         <a href="index.php?page=employee/add" class="text-decoration-none">
                             <div class="quick-action-card" style="--qa-color: #2563eb; --qa-bg: #eff6ff; --qa-hover: #dbeafe;">
                                 <div class="qa-icon"><i class="bi bi-person-plus-fill"></i></div>
@@ -142,10 +148,10 @@ $complianceSummary = $compliance->getSummary();
                         </a>
                     </div>
                     <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 col-6">
-                        <a href="index.php?page=payroll/process" class="text-decoration-none">
+                        <a href="index.php?page=payroll/process-edit" class="text-decoration-none">
                             <div class="quick-action-card" style="--qa-color: #d97706; --qa-bg: #fffbeb; --qa-hover: #fef3c7;">
                                 <div class="qa-icon"><i class="bi bi-calculator-fill"></i></div>
-                                <div class="qa-label">Process Payroll</div>
+                                <div class="qa-label">Payroll Entry</div>
                             </div>
                         </a>
                     </div>
@@ -178,7 +184,51 @@ $complianceSummary = $compliance->getSummary();
         </div>
     </div>
     
-    <!-- Unit Distribution -->
+    <?php
+// Check if payroll exists for current month
+$displayPeriod = false;
+$displayPeriodName = date('F Y', mktime(0, 0, 0, $currentMonth, 1, $currentYear));
+
+try {
+    $payExists = $db->fetch("SELECT COUNT(*) as cnt FROM payroll WHERE month = ? AND year = ?", [$currentMonth, $currentYear]);
+    if ($payExists && $payExists['cnt'] > 0) {
+        $displayPeriod = true;
+    }
+} catch (Exception $e) {}
+?>
+
+<!-- Payroll Pipeline Widget -->
+<div class="col-12 mb-4">
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-transparent border-0 pt-4 pb-0 px-4">
+            <h5 class="card-title mb-0"><i class="bi bi-diagram-3 text-primary me-2"></i>Payroll</h5>
+        </div>
+        <div class="card-body px-4 pb-4">
+            <?php if ($displayPeriod): ?>
+            <div class="d-flex align-items-center mb-2">
+                <span class="text-muted me-2">Period:</span>
+                <strong><?php echo sanitize($displayPeriodName); ?></strong>
+                <span class="badge bg-success ms-2">Data Exists</span>
+            </div>
+            <div class="text-center mt-2">
+                <a href="index.php?page=payroll/process-edit&month=<?php echo $currentMonth; ?>&year=<?php echo $currentYear; ?>" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-arrow-right-circle me-1"></i>Open Payroll Entry
+                </a>
+            </div>
+            <?php else: ?>
+            <div class="text-center py-3 text-muted">
+                <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                No payroll data for this month.
+                <br><a href="index.php?page=payroll/process-edit" class="btn btn-sm btn-outline-primary mt-2">
+                    <i class="bi bi-plus-circle me-1"></i>Start Payroll Entry
+                </a>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<!-- Unit Distribution -->
     <div class="col-lg-6 mb-4">
         <div class="card">
             <div class="card-header">
@@ -392,7 +442,7 @@ $unitWiseCountJson = json_encode($unitWiseCount);
 
 $inlineJS = <<<'JS'
 // Unit Distribution Chart
-const unitWiseCount = UNIT_WISE_COUNT_DATA; // Replaced with actual data below
+const unitWiseCount = UNIT_WISE_COUNT_DATA;
 
 if (document.getElementById('unitChart') && typeof Chart !== 'undefined') {
     const unitCtx = document.getElementById('unitChart').getContext('2d');
@@ -421,6 +471,6 @@ if (document.getElementById('unitChart') && typeof Chart !== 'undefined') {
 }
 JS;
 
-// Now replace the placeholder with actual data
+// Now replace placeholders with actual data
 $inlineJS = str_replace('UNIT_WISE_COUNT_DATA', $unitWiseCountJson, $inlineJS);
 ?>
