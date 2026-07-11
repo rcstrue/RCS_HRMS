@@ -24,6 +24,7 @@ import {
   FileText,
   ClipboardCheck,
   TableProperties,
+  Award,
 } from 'lucide-react';
 
 export const APP_VERSION = '1.0.0'; // Must match php_payroll/config/config.php APP_VERSION
@@ -39,6 +40,7 @@ export const MORE_MENU_ITEMS = [
   { key: 'attendance', label: 'Attendance', icon: Clock, description: 'View attendance history' },
   { key: 'leaves', label: 'Leave', icon: CalendarDays, description: 'Apply & track leave requests' },
   { key: 'payslip', label: 'Payslip', icon: FileText, description: 'View & download payslips' },
+  { key: 'certificates', label: 'Certificates', icon: Award, description: 'Download your certificates' },
   { key: 'tasks', label: 'Tasks', icon: ClipboardList, description: 'Manage your task assignments' },
   { key: 'announcements', label: 'Notices', icon: Megaphone, description: 'Company announcements & updates' },
   { key: 'helpdesk', label: 'Help Desk', icon: CircleHelp, description: 'Submit support tickets' },

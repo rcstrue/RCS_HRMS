@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'sonner';
 import { uploadFile } from '@/lib/api/config';
 import { submitUnitVisit, fetchUnitVisits } from '@/lib/ess-api';
+import { compressImageHD } from '@/lib/image-compress';
 import type { UnitOption, ClientOption } from '@/lib/ess-types';
 
 import { Button } from '@/components/ui/button';
@@ -13,7 +14,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Loader2, Upload, X, CheckCircle2, MapPin, Camera,
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
+  DrawerClose,
+} from '@/components/ui/drawer';
+import {
+  Loader2, X, CheckCircle2, MapPin, Camera, ImagePlus,
 } from 'lucide-react';
 
 // ══════════════════════════════════════════════════════════════
@@ -66,7 +75,10 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const docInputRef = useRef<HTMLInputElement>(null);
+  // Drawer & file input refs
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   // Filter units when client changes (units are already filtered by access allocation)
   useEffect(() => {
@@ -103,23 +115,50 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
     });
   }, [unitId, visitMonth, visitYear, employeeId]);
 
-  // Document upload — image only
-  const handleDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // ── Image handling: compress → upload ──────────────────────
+  const processAndUpload = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       toast.error('Only image files are allowed (JPG, PNG, etc.)');
-      if (docInputRef.current) docInputRef.current.value = '';
       return;
     }
+
     setUploadingDoc(true);
-    const { url, error } = await uploadFile(file, 'unit-visits');
-    if (error) { toast.error(error); setUploadingDoc(false); return; }
-    setDocumentUrl(url || '');
-    const reader = new FileReader();
-    reader.onload = () => setDocPreview(reader.result as string);
-    reader.readAsDataURL(file);
-    setUploadingDoc(false);
+    try {
+      // WhatsApp HD-style compression (max 1600px, ≤ 1 MB JPEG)
+      const compressed = await compressImageHD(file);
+      const sizeKB = Math.round(compressed.size / 1024);
+      console.log(`[Checklist] Image compressed: ${(file.size / 1024).toFixed(0)}KB → ${sizeKB}KB`);
+
+      const { url, error } = await uploadFile(compressed, 'unit-visits');
+      if (error) { toast.error(error); return; }
+      setDocumentUrl(url || '');
+
+      // Show preview from the compressed blob
+      const reader = new FileReader();
+      reader.onload = () => setDocPreview(reader.result as string);
+      reader.readAsDataURL(compressed);
+    } catch (err) {
+      console.error('[Checklist] Upload error:', err);
+      toast.error('Failed to process image. Please try again.');
+    } finally {
+      setUploadingDoc(false);
+    }
+  };
+
+  // Camera file input (capture="environment" → rear camera on mobile)
+  const handleCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processAndUpload(file);
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+    setPickerOpen(false);
+  };
+
+  // Gallery file input (no capture attribute → shows gallery / file picker)
+  const handleGallerySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processAndUpload(file);
+    if (galleryInputRef.current) galleryInputRef.current.value = '';
+    setPickerOpen(false);
   };
 
   // Submit
@@ -149,10 +188,61 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
 
   return (
     <div className="space-y-4">
-      {/* Hidden file input — images only */}
-      <input ref={docInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleDocUpload} />
+      {/* ── Hidden file inputs ─────────────────────────────── */}
+      {/* Camera input — capture attr triggers camera directly on mobile */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleCameraCapture}
+      />
+      {/* Gallery input — NO capture attr, so mobile OS shows gallery/file picker */}
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+        className="hidden"
+        onChange={handleGallerySelect}
+      />
 
-      {/* Main Form Card */}
+      {/* ── Photo Picker Bottom Sheet ──────────────────────── */}
+      <Drawer open={pickerOpen} onOpenChange={setPickerOpen}>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Choose Photo</DrawerTitle>
+            <DrawerDescription>Select an option to attach a photo</DrawerDescription>
+          </DrawerHeader>
+          <div className="px-4 pb-6 flex flex-col gap-3">
+            <Button
+              variant="outline"
+              className="w-full h-14 justify-start gap-3 text-base"
+              onClick={() => cameraInputRef.current?.click()}
+              disabled={uploadingDoc}
+            >
+              <Camera className="w-5 h-5 text-emerald-600" />
+              Take Photo
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full h-14 justify-start gap-3 text-base"
+              onClick={() => galleryInputRef.current?.click()}
+              disabled={uploadingDoc}
+            >
+              <ImagePlus className="w-5 h-5 text-blue-600" />
+              Choose from Gallery
+            </Button>
+            <DrawerClose asChild>
+              <Button variant="ghost" className="w-full text-gray-500">
+                Cancel
+              </Button>
+            </DrawerClose>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* ── Main Form Card ─────────────────────────────────── */}
       <Card className="border-2 border-emerald-200">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
@@ -241,16 +331,19 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
               <Button
                 variant="outline"
                 className="w-full h-28 border-2 border-dashed border-gray-300 hover:border-emerald-400 hover:bg-emerald-50/50 flex-col gap-2"
-                onClick={() => docInputRef.current?.click()}
+                onClick={() => setPickerOpen(true)}
                 disabled={uploadingDoc}
               >
                 {uploadingDoc ? (
-                  <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                  <>
+                    <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                    <span className="text-sm text-gray-500">Processing image...</span>
+                  </>
                 ) : (
                   <>
                     <Camera className="w-7 h-7 text-gray-400" />
                     <span className="text-sm text-gray-500">Tap to take photo or upload image</span>
-                    <span className="text-[10px] text-gray-400">JPG, PNG, HEIC</span>
+                    <span className="text-[10px] text-gray-400">JPG, PNG, HEIC — compressed to HD quality</span>
                   </>
                 )}
               </Button>

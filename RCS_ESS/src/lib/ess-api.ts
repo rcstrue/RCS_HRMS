@@ -513,3 +513,108 @@ export async function transferEmployee(data: {
     body: JSON.stringify({ ...data, action: 'transfer' }),
   }));
 }
+
+// ===== Certificates =====
+
+export interface CertificateInfo {
+  type: string;
+  name: string;
+  description: string;
+  available: boolean;
+}
+
+export interface CertificateListResponse {
+  certificates: CertificateInfo[];
+  employee_status: string;
+}
+
+export interface CertificateData {
+  certificate_type: string;
+  certificate_number: string;
+  date_of_issue: string;
+  verification_code: string;
+  verify_url: string;
+  employee: {
+    employee_code: string;
+    full_name: string;
+    father_name: string;
+    gender: string;
+    designation: string;
+    department: string;
+    date_of_joining: string;
+    probation_period: number;
+    address: string;
+    district: string;
+    state: string;
+    pin_code: string;
+    uan_number: string;
+    esic_number: string;
+  };
+  salary: {
+    basic_da: number;
+    hra: number;
+    washing_allowance: number;
+    gross_salary: number;
+    pf_applicable: boolean;
+    esi_applicable: boolean;
+    pt_applicable: boolean;
+  } | null;
+  payroll: {
+    month: number;
+    year: number;
+    month_name: string;
+    total_days: number;
+    paid_days: number;
+    pf_employee: number;
+    esi_employee: number;
+    professional_tax: number;
+    total_deductions: number;
+    net_pay: number;
+    ctc: number;
+    gross_earnings: number;
+  } | null;
+  tenure: string;
+  company: {
+    name: string;
+    address: string;
+    city: string;
+    state: string;
+    pincode: string;
+    gst: string;
+    pan: string;
+    email: string;
+    phone: string;
+  };
+}
+
+export function fetchCertificateList() {
+  return unwrap(apiRequest<CertificateListResponse>('/ess/certificates'));
+}
+
+export function generateCertificate(type: string) {
+  return unwrap(apiRequest<CertificateData>('/ess/certificates', {
+    method: 'POST',
+    body: JSON.stringify({ type }),
+  }));
+}
+
+export interface VerifyCertificateResponse {
+  certificate_type: string;
+  certificate_number: string;
+  issued_at: string;
+  is_valid: boolean;
+  employee: {
+    employee_code: string;
+    full_name: string;
+    designation: string;
+    department: string;
+    client_name: string;
+    unit_name: string;
+    date_of_joining: string;
+    gender: string;
+  };
+}
+
+export function verifyCertificate(code: string) {
+  return apiRequest<VerifyCertificateResponse>(`/verify-certificate.php?cert=${encodeURIComponent(code)}`);
+}

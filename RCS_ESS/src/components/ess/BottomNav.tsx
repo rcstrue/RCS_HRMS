@@ -13,6 +13,7 @@ const MENU_COLORS: Record<string, { bg: string; icon: string; text: string; desc
   'attendance':       { bg: 'bg-blue-50',        icon: 'text-blue-600',    text: 'text-blue-900',    desc: 'text-blue-400' },
   'leaves':           { bg: 'bg-amber-50',       icon: 'text-amber-600',   text: 'text-amber-900',   desc: 'text-amber-400' },
   'payslip':          { bg: 'bg-emerald-50',     icon: 'text-emerald-600', text: 'text-emerald-900', desc: 'text-emerald-400' },
+  'certificates':     { bg: 'bg-purple-50',      icon: 'text-purple-600',  text: 'text-purple-900',  desc: 'text-purple-400' },
   'tasks':            { bg: 'bg-violet-50',      icon: 'text-violet-600',  text: 'text-violet-900',  desc: 'text-violet-400' },
   'announcements':    { bg: 'bg-rose-50',        icon: 'text-rose-600',    text: 'text-rose-900',    desc: 'text-rose-400' },
   'helpdesk':         { bg: 'bg-sky-50',         icon: 'text-sky-600',     text: 'text-sky-900',     desc: 'text-sky-400' },

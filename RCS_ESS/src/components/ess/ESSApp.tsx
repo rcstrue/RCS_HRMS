@@ -28,6 +28,7 @@ import ManpowerStatusPage from './ManpowerStatusPage';
 import SendNotificationPage from './SendNotificationPage';
 import TeamMonthlyPage from './TeamMonthlyPage';
 import PayslipPage from './PayslipPage';
+import CertificatesPage from './CertificatesPage';
 import { InstallBanner, PermissionDialog } from './InstallBanner';
 
 // Hook
@@ -423,6 +424,7 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
         {currentPage === 'attendance' && <AttendancePage employeeId={emp.id} employeeName={emp.full_name || 'Employee'} role={role} />}
         {currentPage === 'leaves' && <LeavesPage employeeId={emp.id} employeeName={emp.full_name || 'Employee'} role={role} canApprove={isApprover} onAddNotification={handleAddNotification} />}
         {currentPage === 'payslip' && <PayslipPage employeeId={emp.id} employeeName={emp.full_name || 'Employee'} />}
+        {currentPage === 'certificates' && <CertificatesPage employeeId={emp.id} employeeName={emp.full_name || 'Employee'} />}
         {currentPage === 'tasks' && <TasksPage employeeId={emp.id} employeeName={emp.full_name || 'Employee'} role={role} canApprove={isApprover} onAddNotification={handleAddNotification} />}
         {currentPage === 'announcements' && <AnnouncementsPage employeeId={emp.id} role={role} canPost={canPost} />}
         {currentPage === 'helpdesk' && <HelpdeskPage employeeId={emp.id} employeeName={emp.full_name || 'Employee'} onAddNotification={handleAddNotification} />}
