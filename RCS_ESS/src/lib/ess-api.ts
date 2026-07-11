@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api/config';
+const API_BASE_URL = 'https://join.rcsfacility.com';
 import type {
   LoginResponse, AttendanceRecord, AttendanceSummary,
   LeaveRequest, LeaveBalance, Task, Expense,
@@ -616,5 +617,23 @@ export interface VerifyCertificateResponse {
 }
 
 export function verifyCertificate(code: string) {
-  return apiRequest<VerifyCertificateResponse>(`/verify-certificate.php?cert=${encodeURIComponent(code)}`);
+  // Public endpoint — NO auth headers, NO service worker cache
+  // Direct fetch to bypass SW-cached 404 from before the file was deployed
+  const url = `${API_BASE_URL}/api/verify-certificate.php?cert=${encodeURIComponent(code)}&_t=${Date.now()}`;
+  return fetch(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+  }).then(async (resp) => {
+    const text = await resp.text();
+    if (!text.trim()) return { data: null, error: 'Empty response' };
+    try {
+      const json = JSON.parse(text);
+      if (!resp.ok) return { data: null, error: json?.error || json?.message || 'Verification failed' };
+      // Unwrap PHP envelope: { success, data }
+      return { data: (json?.success ? json.data : json) as VerifyCertificateResponse, error: null };
+    } catch {
+      return { data: null, error: 'Invalid response' };
+    }
+  }).catch(() => ({ data: null, error: 'Network error. Please check your connection.' }));
 }
