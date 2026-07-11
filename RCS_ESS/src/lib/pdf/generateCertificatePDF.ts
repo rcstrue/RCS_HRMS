@@ -15,7 +15,7 @@ const A4_H = 297;
 
 // Letterhead safe zones (from VLM analysis of 2481x3508 @300dpi image)
 // Header ends ~11mm from top, footer starts ~9mm from bottom
-const HEADER_SAFE_MM = 16;  // content starts below this
+const HEADER_SAFE_MM = 45;  // content starts below letterhead header
 const FOOTER_SAFE_MM = 14;  // content ends above this
 
 function fmtINR(n: number): string {
