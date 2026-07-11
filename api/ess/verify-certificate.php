@@ -18,8 +18,8 @@ if (empty($code)) {
     jsonError('Missing verification code', 400);
 }
 
-// Sanitize — allow hex chars (32 or 40 chars for md5/sha1)
-if (!preg_match('/^[a-f0-9]{32,40}$/', $code)) {
+// Sanitize — only allow hex chars
+if (!preg_match('/^[a-f0-9]{32}$/', $code)) {
     jsonError('Invalid verification code format', 400);
 }
 
