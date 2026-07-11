@@ -3,14 +3,23 @@ import type { CertificateData } from '@/lib/ess-api';
 
 // ══════════════════════════════════════════════════════════════
 // Certificate PDF Generator — A4 Portrait, browser print
-// Follows same pattern as generatePayslipPDF.ts
+// Uses full A4 letterhead background image
 // ══════════════════════════════════════════════════════════════
 
-const LOGO_URL = 'https://join.rcsfacility.com/assets/images/logo.png';
+const LETTERHEAD_URL = 'https://join.rcsfacility.com/letterhead-a4.jpg';
 const VERIFY_BASE = 'https://join.rcsfacility.com/#verify?cert=';
 
+// A4 dimensions in mm
+const A4_W = 210;
+const A4_H = 297;
+
+// Letterhead safe zones (from VLM analysis of 2481x3508 @300dpi image)
+// Header ends ~11mm from top, footer starts ~9mm from bottom
+const HEADER_SAFE_MM = 16;  // content starts below this
+const FOOTER_SAFE_MM = 14;  // content ends above this
+
 function fmtINR(n: number): string {
-  return '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return '\u20B9' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function formatDateDMY(dateStr: string): string {
@@ -19,62 +28,136 @@ function formatDateDMY(dateStr: string): string {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function getPronoun(gender: string): { he: string; He: string; his: string; His: string } {
+function getPronoun(gender: string): { he: string; He: string; his: string; His: string; him: string } {
   if (gender?.toLowerCase() === 'female') {
-    return { he: 'she', He: 'She', his: 'her', His: 'Her' };
+    return { he: 'she', He: 'She', his: 'her', His: 'Her', him: 'her' };
   }
-  return { he: 'he', He: 'He', his: 'his', His: 'His' };
+  return { he: 'he', He: 'He', his: 'his', His: 'His', him: 'him' };
 }
 
-// ── Shared letterhead HTML ────────────────────────────────────
+// ── Shared page wrapper with letterhead background ──────────
 
-function letterhead(c: CertificateData['company']): string {
-  const gstLine = c.gst ? `GST: ${c.gst} | PAN: ${c.pan}` : '';
-  const contactLine = [c.email, c.phone].filter(Boolean).join(' | ');
-  return `
-    <div style="text-align:center; border-bottom:3px double #000; padding-bottom:18px; margin-bottom:12px;">
-      <img src="${LOGO_URL}" alt="Logo" style="height:60px; margin-bottom:6px;" onerror="this.style.display='none'">
-      <h1 style="margin:0; font-size:22px; font-weight:700; letter-spacing:0.5px;">${c.name}</h1>
-      <p style="margin:2px 0 0; font-size:11px; color:#444;">${c.address}, ${c.city} - ${c.pincode}, ${c.state}</p>
-      ${gstLine ? `<p style="margin:2px 0 0; font-size:10px; color:#666;">${gstLine}</p>` : ''}
-      ${contactLine ? `<p style="margin:2px 0 0; font-size:10px; color:#666;">${contactLine}</p>` : ''}
-    </div>`;
+function pageWrap(title: string, bodyContent: string): string {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>${title}</title>
+  <style>
+    @page {
+      size: ${A4_W}mm ${A4_H}mm;
+      margin: 0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: ${A4_W}mm;
+      height: ${A4_H}mm;
+      overflow: hidden;
+    }
+    body {
+      position: relative;
+      font-family: 'Times New Roman', serif;
+      color: #222;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    /* Letterhead full-page background */
+    .letterhead-bg {
+      position: absolute;
+      top: 0; left: 0;
+      width: ${A4_W}mm;
+      height: ${A4_H}mm;
+      z-index: 0;
+    }
+    .letterhead-bg img {
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+      display: block;
+    }
+    /* Content area — sits above letterhead */
+    .content {
+      position: relative;
+      z-index: 1;
+      padding: ${HEADER_SAFE_MM}mm 18mm ${FOOTER_SAFE_MM}mm 18mm;
+      height: ${A4_H}mm;
+      display: flex;
+      flex-direction: column;
+    }
+    /* Typography */
+    .compact p { margin: 0 0 4px; line-height: 1.45; font-size: 11px; }
+    .compact p.gap { margin-bottom: 7px; }
+    .compact p.strong-gap { margin-bottom: 9px; }
+    table { border-collapse: collapse; }
+    td, th { border: 1px solid #999; padding: 3px 8px; font-size: 11px; }
+    th { background: #f5f5f5; font-weight: 600; }
+    .text-end { text-align: right; }
+    .label-cell { font-weight: 600; white-space: nowrap; }
+
+    /* Signature block */
+    .sig-block {
+      margin-top: auto;  /* push to bottom of content area */
+      text-align: right;
+      padding-right: 4mm;
+    }
+    .sig-block .sig-line {
+      display: inline-block;
+      min-width: 140px;
+      border-top: 1px solid #000;
+      text-align: center;
+      padding-top: 2px;
+      font-weight: 700;
+      font-size: 11px;
+    }
+    /* QR footer */
+    .qr-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      font-size: 8px;
+      color: #888;
+      margin-top: 6px;
+      padding-top: 4px;
+      border-top: 1px solid #ccc;
+    }
+    .qr-footer img { width: 52px; height: 52px; }
+    @media print {
+      html, body { overflow: visible; }
+      .content { height: auto; min-height: ${A4_H - HEADER_SAFE_MM - FOOTER_SAFE_MM}mm; }
+    }
+  </style>
+</head><body>
+  <div class="letterhead-bg"><img src="${LETTERHEAD_URL}" /></div>
+  <div class="content compact">
+    ${bodyContent}
+  </div>
+</body></html>`;
 }
+
+// ── Shared ref/date line ────────────────────────────────────
 
 function refAndDate(certNumber: string, date: string): string {
-  return `
-    <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-size:13px;">
-      <div><strong>Ref No:</strong> ${certNumber}</div>
-      <div><strong>Date:</strong> ${date}</div>
-    </div>`;
+  return `<div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:11px;">
+    <div><strong>Ref:</strong> ${certNumber}</div>
+    <div><strong>Date:</strong> ${date}</div>
+  </div>`;
 }
 
-function signatureBlock(companyName: string): string {
-  return `
-    <div style="margin-top:50px; text-align:right; padding-right:20px;">
-      <p style="margin:0;"><strong>For ${companyName}</strong></p>
-      <br><br>
-      <p style="margin:0; border-top:1px solid #000; display:inline-block; padding-top:2px; min-width:200px; text-align:center;">
-        <strong>Authorized Signatory</strong>
-      </p>
-    </div>`;
+// ── QR section ──────────────────────────────────────────────
+
+function qrSection(verifyUrl: string, certNumber: string, qrDataUrl: string): string {
+  return `<div class="qr-footer">
+    <div>
+      <strong style="color:#555;">Cert No:</strong> ${certNumber}<br>
+      Computer-generated document.
+    </div>
+    <div style="text-align:center;">
+      <img src="${qrDataUrl}" alt="Verify" />
+      <div style="margin-top:1px;">Scan to verify</div>
+    </div>
+  </div>`;
 }
 
-function qrSection(verifyUrl: string, certNumber: string): string {
-  return `
-    <div style="margin-top:30px; border-top:1px solid #ddd; padding-top:12px; display:flex; justify-content:space-between; align-items:flex-end; font-size:9px; color:#888;">
-      <div>
-        <strong style="color:#555;">Certificate No:</strong> ${certNumber}<br>
-        <span>This document is computer-generated and does not require a physical signature.</span>
-      </div>
-      <div style="text-align:center;">
-        <img src="{{QR_CODE}}" alt="Verify" style="width:72px; height:72px;" />
-        <p style="margin:2px 0 0;">Scan QR to verify online</p>
-      </div>
-    </div>`;
-}
-
-// ── Appointment Letter HTML ───────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// APPOINTMENT LETTER — compact 1-page
+// ══════════════════════════════════════════════════════════════
 
 function buildAppointmentHTML(d: CertificateData, qrDataUrl: string): string {
   const e = d.employee, c = d.company;
@@ -84,81 +167,55 @@ function buildAppointmentHTML(d: CertificateData, qrDataUrl: string): string {
   const hra = d.salary?.hra ?? 0;
   const gross = d.salary?.gross_salary ?? 0;
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <title>${e.full_name} - Appointment Letter</title>
-    <style>
-      @page { size:A4 portrait; margin:15mm; }
-      body { font-family:'Times New Roman',serif; font-size:13px; line-height:1.7; color:#222; }
-      table { border-collapse:collapse; width:55%; }
-      td,th { border:1px solid #999; padding:4px 10px; }
-      .text-end { text-align:right; }
-      @media print { body { margin:0; } }
-    </style>
-  </head><body>
-    ${letterhead(c)}
+  const body = `
     ${refAndDate(d.certificate_number, d.date_of_issue)}
 
-    <p style="margin:0 0 4px;"><strong>To,</strong></p>
-    <p style="margin:0;">${e.full_name}</p>
-    ${e.address ? `<p style="margin:0;">${e.address}</p>` : ''}
-    <p style="margin:0;">${[e.district, e.state, e.pin_code ? ` - ${e.pin_code}` : ''].filter(Boolean).join(', ')}</p>
+    <p><strong>To,</strong></p>
+    <p>${e.full_name}</p>
+    ${e.address ? `<p>${e.address}</p>` : ''}
+    <p>${[e.district, e.state, e.pin_code ? ` - ${e.pin_code}` : ''].filter(Boolean).join(', ')}</p>
 
-    <p style="margin:14px 0 4px;"><strong>Subject: Letter of Appointment</strong></p>
-    <p style="margin:4px 0 10px;">Dear ${firstName},</p>
+    <p class="gap"><strong>Subject: Letter of Appointment</strong></p>
+    <p class="gap">Dear ${firstName},</p>
 
-    <p style="margin:0 0 8px;">With reference to your application and subsequent interview, we are pleased to inform you that you have been selected for the post of <strong>${e.designation || 'Worker'}</strong>${e.department ? ` in the <strong>${e.department}</strong> department` : ''} in our organization. You are hereby appointed on the following terms and conditions:</p>
+    <p class="strong-gap">With reference to your application and subsequent interview, we are pleased to inform you that you have been selected for the post of <strong>${e.designation || 'Worker'}</strong>${e.department ? ` in the <strong>${e.department}</strong> department` : ''}. You are hereby appointed on the following terms and conditions:</p>
 
-    <p style="margin:10px 0 2px;"><strong>1. DATE OF JOINING:</strong></p>
-    <p style="margin:0 0 8px;">You will join your duties on <strong>${doj}</strong>.</p>
-
-    <p style="margin:10px 0 2px;"><strong>2. PROBATION PERIOD:</strong></p>
-    <p style="margin:0 0 8px;">You will be on probation for a period of <strong>${e.probation_period || 3} months</strong> from the date of joining. Your confirmation will be subject to satisfactory performance during the probation period.</p>
-
-    <p style="margin:10px 0 2px;"><strong>3. REMUNERATION:</strong></p>
-    <p style="margin:0 0 6px;">Your monthly remuneration will be as follows:</p>
-    <table style="margin-bottom:10px;">
+    <p><strong>1. DATE OF JOINING:</strong> ${doj}</p>
+    <p class="gap"><strong>2. PROBATION:</strong> ${e.probation_period || 3} months from date of joining, subject to satisfactory performance.</p>
+    <p><strong>3. REMUNERATION (Per Month):</strong></p>
+    <table style="width:55%; margin: 3px 0 6px;">
       <tr><td>Basic + DA</td><td class="text-end">${fmtINR(basicDa)}</td></tr>
       <tr><td>HRA</td><td class="text-end">${fmtINR(hra)}</td></tr>
       <tr><td><strong>Gross Salary</strong></td><td class="text-end"><strong>${fmtINR(gross)}</strong></td></tr>
     </table>
+    <p class="gap"><strong>4. STATUTORY BENEFITS:</strong>
+      ${d.salary?.pf_applicable ? 'PF Act, 1952 applicable. ' : ''}
+      ${d.salary?.esi_applicable ? 'ESI Act, 1948 applicable. ' : ''}
+      Other statutory benefits as per applicable laws.</p>
+    <p class="gap"><strong>5. WORKING HOURS:</strong> 8 hours/day with weekly off. Overtime as per applicable laws.</p>
+    <p class="gap"><strong>6. LEAVE:</strong> As per company policy (CL, SL, EL etc.) and applicable laws.</p>
+    <p class="gap"><strong>7. TERMINATION:</strong> One month's notice or salary in lieu from either side.</p>
+    <p class="gap"><strong>8. GENERAL:</strong> Governed by company rules and applicable laws of India.</p>
 
-    <p style="margin:10px 0 2px;"><strong>4. STATUTORY BENEFITS:</strong></p>
-    <p style="margin:0 0 8px;">
-      ${d.salary?.pf_applicable ? 'You will be covered under Employees\' Provident Fund and Misc. Provisions Act, 1952. ' : ''}
-      ${d.salary?.esi_applicable ? 'You will be covered under Employees\' State Insurance Act, 1948. ' : ''}
-      You will be entitled to other statutory benefits as per applicable laws.
-    </p>
+    <p class="strong-gap">We welcome you to the ${c.name} family and hope for a long and fruitful association. Please sign and return the duplicate copy as acceptance.</p>
 
-    <p style="margin:10px 0 2px;"><strong>5. WORKING HOURS:</strong></p>
-    <p style="margin:0 0 8px;">Your working hours will be 8 hours per day with a weekly off. Overtime will be paid as per applicable laws.</p>
+    <p>Yours faithfully,</p>
 
-    <p style="margin:10px 0 2px;"><strong>6. LEAVE:</strong></p>
-    <p style="margin:0 0 8px;">You will be entitled to leaves as per the company policy and applicable laws (Casual Leave, Sick Leave, Earned Leave, etc.).</p>
+    <div class="sig-block">
+      <div><strong>For ${c.name}</strong></div>
+      <br>
+      <div class="sig-line">Authorized Signatory</div>
+    </div>
 
-    <p style="margin:10px 0 2px;"><strong>7. TERMINATION:</strong></p>
-    <p style="margin:0 0 8px;">Your services can be terminated by giving one month's notice or salary in lieu thereof from either side.</p>
+    ${qrSection(d.verify_url, d.certificate_number, qrDataUrl)}
+  `;
 
-    <p style="margin:10px 0 2px;"><strong>8. GENERAL:</strong></p>
-    <p style="margin:0 0 10px;">You will be governed by the rules and regulations of the company and applicable laws of India.</p>
-
-    <p style="margin:0 0 6px;">We welcome you to ${c.name} family and hope for a long and fruitful association.</p>
-    <p style="margin:0;">Please sign and return the duplicate copy of this letter as a token of your acceptance of the above terms and conditions.</p>
-
-    <p style="margin:10px 0 0;">Yours faithfully,</p>
-    ${signatureBlock(c.name)}
-
-    <br><br>
-    <p style="margin:0;"><strong>I accept the above terms and conditions:</strong></p>
-    <br><br>
-    <p style="margin:0;">Signature: ________________________</p>
-    <p style="margin:0;">Name: ${e.full_name}</p>
-    <p style="margin:0;">Date: ________________________</p>
-
-    ${qrSection(d.verify_url, d.certificate_number).replace('{{QR_CODE}}', qrDataUrl)}
-  </body></html>`;
+  return pageWrap(`${e.full_name} - Appointment Letter`, body);
 }
 
-// ── Salary Certificate HTML ───────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// SALARY CERTIFICATE — compact 1-page
+// ══════════════════════════════════════════════════════════════
 
 function buildSalaryHTML(d: CertificateData, qrDataUrl: string): string {
   const e = d.employee, c = d.company, s = d.salary, p = d.payroll;
@@ -173,36 +230,22 @@ function buildSalaryHTML(d: CertificateData, qrDataUrl: string): string {
   const totalDed = p?.total_deductions ?? 0;
   const netPay = p?.net_pay ?? 0;
   const ctc = p?.ctc ?? gross * 12;
-  const ctcMonthly = p?.ctc ?? gross;
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <title>${e.full_name} - Salary Certificate</title>
-    <style>
-      @page { size:A4 portrait; margin:15mm; }
-      body { font-family:'Times New Roman',serif; font-size:13px; line-height:1.7; color:#222; }
-      table { border-collapse:collapse; width:100%; }
-      td,th { border:1px solid #999; padding:5px 10px; }
-      th { background:#f5f5f5; font-weight:600; }
-      .text-end { text-align:right; }
-      .label-cell { width:35%; font-weight:600; }
-      @media print { body { margin:0; } }
-    </style>
-  </head><body>
-    ${letterhead(c)}
+  const body = `
     ${refAndDate(d.certificate_number, d.date_of_issue)}
 
-    <h2 style="text-align:center; text-decoration:underline; margin:8px 0 16px; font-size:18px;">SALARY CERTIFICATE</h2>
+    <h2 style="text-align:center; text-decoration:underline; margin:0 0 10px; font-size:15px;">SALARY CERTIFICATE</h2>
 
-    <p style="margin:0 0 10px;">To Whom It May Concern,</p>
-    <p style="margin:0 0 12px;">This is to certify that <strong>${e.full_name}</strong>${e.father_name ? `, S/o <strong>${e.father_name}</strong>` : ''}, is employed with <strong>${c.name}</strong> as <strong>${e.designation || 'Worker'}</strong>.</p>
+    <p class="strong-gap">To Whom It May Concern,</p>
+    <p class="strong-gap">This is to certify that <strong>${e.full_name}</strong>${e.father_name ? `, S/o <strong>${e.father_name}</strong>` : ''}, is employed with <strong>${c.name}</strong> as <strong>${e.designation || 'Worker'}</strong>.</p>
 
-    <table style="margin-bottom:14px;">
+    <table style="width:100%; margin-bottom:8px;">
       <tr>
-        <td class="label-cell">Employee Code</td><td>${e.employee_code}</td>
-        <td class="label-cell">Date of Joining</td><td>${doj}</td>
+        <td class="label-cell" style="width:22%;">Emp Code</td><td style="width:28%;">${e.employee_code}</td>
+        <td class="label-cell" style="width:22%;">Date of Joining</td><td style="width:28%;">${doj}</td>
       </tr>
       <tr>
-        <td class="label-cell">Employee Name</td><td>${e.full_name}</td>
+        <td class="label-cell">Emp Name</td><td>${e.full_name}</td>
         <td class="label-cell">Father Name</td><td>${e.father_name || '-'}</td>
       </tr>
       <tr>
@@ -215,46 +258,54 @@ function buildSalaryHTML(d: CertificateData, qrDataUrl: string): string {
       </tr>
     </table>
 
-    <p style="margin:0 0 6px; font-weight:600;">The salary components are as follows:</p>
+    <p style="margin-bottom:5px; font-weight:600; font-size:11px;">Salary Components (Per Month):</p>
 
-    <table style="width:48%; display:inline-table; vertical-align:top; margin-bottom:12px;">
-      <tr><th colspan="2" style="background:#e8f5e9;">A. Earnings (Per Month)</th></tr>
+    <table style="width:48%; display:inline-table; vertical-align:top; margin-bottom:8px;">
+      <tr><th colspan="2" style="background:#e8f5e9; font-size:10px;">A. Earnings</th></tr>
       <tr><td>Basic + DA</td><td class="text-end">${fmtINR(basicDa)}</td></tr>
       <tr><td>HRA</td><td class="text-end">${fmtINR(hra)}</td></tr>
-      ${washing > 0 ? `<tr><td>Washing / Conveyance Allowance</td><td class="text-end">${fmtINR(washing)}</td></tr>` : ''}
-      <tr style="background:#e8f5e9;"><td><strong>Gross Salary</strong></td><td class="text-end"><strong>${fmtINR(gross)}</strong></td></tr>
+      ${washing > 0 ? `<tr><td style="font-size:10px;">Washing Allow.</td><td class="text-end">${fmtINR(washing)}</td></tr>` : ''}
+      <tr style="background:#e8f5e9;"><td><strong>Gross</strong></td><td class="text-end"><strong>${fmtINR(gross)}</strong></td></tr>
     </table>
 
-    <table style="width:48%; display:inline-table; vertical-align:top; margin-left:4%; margin-bottom:12px;">
-      <tr><th colspan="2" style="background:#ffebee;">B. Deductions (Per Month)</th></tr>
-      <tr><td>Provident Fund (PF)</td><td class="text-end">${fmtINR(pf)}</td></tr>
-      <tr><td>ESI (Employee Share)</td><td class="text-end">${fmtINR(esi)}</td></tr>
-      <tr><td>Professional Tax</td><td class="text-end">${fmtINR(pt)}</td></tr>
-      <tr style="background:#ffebee;"><td><strong>Total Deductions</strong></td><td class="text-end"><strong>${fmtINR(totalDed)}</strong></td></tr>
+    <table style="width:48%; display:inline-table; vertical-align:top; margin-left:4%; margin-bottom:8px;">
+      <tr><th colspan="2" style="background:#ffebee; font-size:10px;">B. Deductions</th></tr>
+      <tr><td>PF</td><td class="text-end">${fmtINR(pf)}</td></tr>
+      <tr><td>ESI</td><td class="text-end">${fmtINR(esi)}</td></tr>
+      <tr><td>Prof. Tax</td><td class="text-end">${fmtINR(pt)}</td></tr>
+      <tr style="background:#ffebee;"><td><strong>Total Ded.</strong></td><td class="text-end"><strong>${fmtINR(totalDed)}</strong></td></tr>
     </table>
 
-    <table style="margin-bottom:12px;">
-      <tr style="background:#e3f2fd;"><td style="width:50%; font-weight:600;">Net Salary (Take Home) Per Month</td><td class="text-end" style="font-size:16px; font-weight:700;">${fmtINR(netPay)}</td></tr>
-      <tr><td style="font-weight:600;">CTC (Cost to Company) Per Annum</td><td class="text-end" style="font-weight:700;">${fmtINR(ctc)}</td></tr>
+    <table style="margin-bottom:8px;">
+      <tr style="background:#e3f2fd;">
+        <td style="width:50%; font-weight:600;">Net Salary (Take Home)/Month</td>
+        <td class="text-end" style="font-size:14px; font-weight:700;">${fmtINR(netPay)}</td>
+      </tr>
+      <tr>
+        <td style="font-weight:600;">CTC (Per Annum)</td>
+        <td class="text-end" style="font-weight:700;">${fmtINR(ctc)}</td>
+      </tr>
     </table>
 
-    ${p ? `<p style="font-size:10px; color:#666; margin:0 0 10px;">(Above salary details are based on the payroll of ${p.month_name} ${p.year}. Paid Days: ${p.paid_days} / ${p.total_days})</p>` : ''}
+    ${p ? `<p style="font-size:9px; color:#666; margin-bottom:6px;">(Based on payroll of ${p.month_name} ${p.year}. Paid Days: ${p.paid_days} / ${p.total_days})</p>` : ''}
 
-    <p style="margin:10px 0 0;">This certificate is issued for the purpose as required.</p>
+    <p class="gap">This certificate is issued for the purpose as required.</p>
 
-    <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:40px;">
-      <div style="font-size:12px;"><strong>Date:</strong> ${d.date_of_issue}</div>
-      <div style="text-align:right;">
-        <p style="margin:0;"><strong>Authorized Signatory</strong></p>
-        <p style="margin:2px 0 0; font-size:10px; color:#666;">Company Seal</p>
-      </div>
+    <div class="sig-block">
+      <div style="font-size:11px;"><strong>Date:</strong> ${d.date_of_issue}</div>
+      <div style="margin-top:4px;"><strong>Authorized Signatory</strong></div>
+      <div style="font-size:9px; color:#666;">Company Seal</div>
     </div>
 
-    ${qrSection(d.verify_url, d.certificate_number).replace('{{QR_CODE}}', qrDataUrl)}
-  </body></html>`;
+    ${qrSection(d.verify_url, d.certificate_number, qrDataUrl)}
+  `;
+
+  return pageWrap(`${e.full_name} - Salary Certificate`, body);
 }
 
-// ── Experience Certificate HTML ───────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// EXPERIENCE CERTIFICATE — centered, elegant
+// ══════════════════════════════════════════════════════════════
 
 function buildExperienceHTML(d: CertificateData, qrDataUrl: string): string {
   const e = d.employee, c = d.company;
@@ -263,22 +314,14 @@ function buildExperienceHTML(d: CertificateData, qrDataUrl: string): string {
   const p = getPronoun(e.gender);
   const gross = d.salary?.gross_salary ?? 0;
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <title>${e.full_name} - Experience Certificate</title>
-    <style>
-      @page { size:A4 portrait; margin:15mm; }
-      body { font-family:'Times New Roman',serif; font-size:13px; line-height:1.8; color:#222; }
-      @media print { body { margin:0; } }
-    </style>
-  </head><body>
-    ${letterhead(c)}
+  const body = `
     ${refAndDate(d.certificate_number, d.date_of_issue)}
 
-    <h2 style="text-align:center; text-decoration:underline; margin:8px 0 16px; font-size:18px;">EXPERIENCE CERTIFICATE</h2>
+    <h2 style="text-align:center; text-decoration:underline; margin:10px 0 18px; font-size:16px;">EXPERIENCE CERTIFICATE</h2>
 
-    <p style="margin:0 0 12px;"><strong>To Whom It May Concern</strong></p>
+    <p style="text-align:center; margin-bottom:16px;"><strong>To Whom It May Concern</strong></p>
 
-    <p style="text-align:justify; margin:0 0 10px;">
+    <p style="text-align:justify; margin:0 0 12px; font-size:12px; line-height:1.65;">
       This is to certify that <strong>${e.full_name}</strong>${e.father_name ? `, S/o/D/o <strong>${e.father_name}</strong>` : ''},
       has been employed with <strong>${c.name}</strong>
       as <strong>${e.designation || 'Worker'}</strong>
@@ -286,24 +329,30 @@ function buildExperienceHTML(d: CertificateData, qrDataUrl: string): string {
       from <strong>${doj}</strong> to <strong>${today}</strong> (Till Date).
     </p>
 
-    <p style="text-align:justify; margin:0 0 10px;">
+    <p style="text-align:justify; margin:0 0 12px; font-size:12px; line-height:1.65;">
       During the tenure of <strong>${d.tenure}</strong>,
       ${p.he} has been sincere, hardworking, and diligent in ${p.his} work.
-      ${p.He} has displayed excellent professional conduct and interpersonal skills.
+      ${p.He} has displayed excellent professional conduct and interpersonal skills throughout ${p.his} employment.
     </p>
 
-    ${gross > 0 ? `<p style="text-align:justify; margin:0 0 10px;">
+    ${gross > 0 ? `<p style="text-align:justify; margin:0 0 12px; font-size:12px; line-height:1.65;">
       ${p.His} current gross salary is <strong>${fmtINR(gross)}</strong> per month.
     </p>` : ''}
 
-    <p style="text-align:justify; margin:0 0 10px;">
+    <p style="text-align:justify; margin:0 0 12px; font-size:12px; line-height:1.65;">
       We wish ${p.him} all the best for ${p.his} future endeavors.
     </p>
 
-    ${signatureBlock(c.name)}
+    <div class="sig-block">
+      <div><strong>For ${c.name}</strong></div>
+      <br>
+      <div class="sig-line">Authorized Signatory</div>
+    </div>
 
-    ${qrSection(d.verify_url, d.certificate_number).replace('{{QR_CODE}}', qrDataUrl)}
-  </body></html>`;
+    ${qrSection(d.verify_url, d.certificate_number, qrDataUrl)}
+  `;
+
+  return pageWrap(`${e.full_name} - Experience Certificate`, body);
 }
 
 // ── Public API ────────────────────────────────────────────────
@@ -324,6 +373,7 @@ export async function generateCertificatePDF(data: CertificateData): Promise<voi
     case 'appointment':
     default:
       htmlDoc = buildAppointmentHTML(data, qrDataUrl);
+      break;
   }
 
   // 3. Open print window
@@ -334,11 +384,16 @@ export async function generateCertificatePDF(data: CertificateData): Promise<voi
   printWindow.document.write(htmlDoc);
   printWindow.document.close();
 
-  // 4. Trigger print after content loads
+  // 4. Trigger print after content + letterhead image loads
   printWindow.onload = () => {
-    setTimeout(() => {
-      printWindow.print();
-    }, 400);
+    // Wait for letterhead background image to load
+    const bgImg = printWindow.document.querySelector('.letterhead-bg img') as HTMLImageElement;
+    if (bgImg && !bgImg.complete) {
+      bgImg.onload = () => setTimeout(() => printWindow.print(), 300);
+      bgImg.onerror = () => setTimeout(() => printWindow.print(), 300);
+    } else {
+      setTimeout(() => printWindow.print(), 500);
+    }
   };
 }
 
