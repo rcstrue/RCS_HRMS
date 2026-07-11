@@ -620,7 +620,7 @@ export function verifyCertificate(code: string) {
   // Public endpoint — NO auth token, but X-API-KEY is required by server .htaccess
   // Direct fetch with cache:'no-store' + timestamp to bypass service worker cache
   const API_KEY = (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY ?? '';
-  const url = `${API_BASE_URL}/api/verify-certificate.php?cert=${encodeURIComponent(code)}&_t=${Date.now()}`;
+  const url = `${API_BASE_URL}/api/ess/verify-certificate.php?cert=${encodeURIComponent(code)}&_t=${Date.now()}`;
   return fetch(url, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
