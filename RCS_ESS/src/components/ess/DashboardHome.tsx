@@ -24,6 +24,7 @@ import {
   MapPin,
   Loader2,
   TableProperties,
+  Award,
 } from 'lucide-react';
 
 // ══════════════════════════════════════════════════════════════
@@ -83,6 +84,7 @@ export default function DashboardHome({
     { key: 'leaves', label: 'Leave', icon: CalendarDays, color: 'text-amber-600', bg: 'bg-amber-50' },
     { key: 'expenses', label: 'Expenses', icon: Receipt, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { key: 'tasks', label: 'Tasks', icon: ClipboardList, color: 'text-violet-600', bg: 'bg-violet-50' },
+    { key: 'certificates', label: 'Certificates', icon: Award, color: 'text-purple-600', bg: 'bg-purple-50', isNew: true },
     { key: 'announcements', label: 'Notices', icon: Megaphone, color: 'text-rose-600', bg: 'bg-rose-50' },
     { key: 'helpdesk', label: 'Help Desk', icon: CircleHelp, color: 'text-sky-600', bg: 'bg-sky-50' },
     { key: 'attendance', label: 'History', icon: Clock, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -332,7 +334,7 @@ export default function DashboardHome({
               <div className={`flex items-center justify-center w-10 h-10 rounded-full ${action.bg}`}>
                 <action.icon className={`w-5 h-5 ${action.color}`} />
               </div>
-              <span className="text-xs font-medium text-gray-700">{action.label}</span>
+              <span className="text-xs font-medium text-gray-700 flex items-center gap-1">{action.label}{'isNew' in action && action.isNew && <span className="inline-block text-[9px] font-bold text-red-500 animate-pulse">NEW</span>}</span>
             </button>
           ))}
         </div>

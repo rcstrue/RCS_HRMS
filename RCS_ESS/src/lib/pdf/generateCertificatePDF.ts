@@ -6,7 +6,7 @@ import type { CertificateData } from '@/lib/ess-api';
 // Uses full A4 letterhead background image
 // ══════════════════════════════════════════════════════════════
 
-const LETTERHEAD_URL = 'https://join.rcsfacility.com/letterhead-a4.jpg';
+const LETTERHEAD_URL = 'https://join.rcsfacility.com/letterhead-a4.png';
 const VERIFY_BASE = 'https://join.rcsfacility.com/#verify?cert=';
 
 // A4 dimensions in mm
