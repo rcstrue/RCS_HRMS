@@ -1,0 +1,521 @@
+     1→<?php
+     2→/**
+     3→ * PF Form 10C - Pension Withdrawal
+     4→ * Shows employee's EPS balance for withdrawal with eligibility check
+     5→ * Framework: RCS HRMS Pro (index.php?page=module/file)
+     6→ */
+     7→
+     8→$pageTitle = 'PF Form 10C - Pension Withdrawal';
+     9→
+    10→// CSV Export
+    11→if (isset($_GET['export'])) {
+    12→    header('Content-Type: text/csv; charset=utf-8');
+    13→    header('Content-Disposition: attachment; filename="PF_Form_10C_List_' . date('dmY') . '.csv"');
+    14→    $output = fopen('php://output', 'w');
+    15→    fprintf($output, chr(0xEF) . chr(0xBB) . chr(0xBF));
+    16→
+    17→    fputcsv($output, ['PF Form 10C - Pension Withdrawal Eligible Employees']);
+    18→
+    19→    try {
+    20→        $employees = $db->fetchAll("SELECT e.id, e.employee_code, e.full_name, e.father_name,
+    21→                                           e.date_of_joining, e.date_of_leaving, e.dob, e.gender,
+    22→                                           e.uan_number, e.esic_number,
+    23→                                           ess.basic_da, ess.pf_applicable,
+    24→                                           c.name as client_name
+    25→                                    FROM employees e
+    26→                                    LEFT JOIN employee_salary_structures ess ON ess.employee_id = e.id
+    27→                                        AND ess.effective_to IS NULL
+    28→                                    LEFT JOIN clients c ON c.id = e.client_id
+    29→                                    WHERE e.status = 'inactive'
+    30→                                      AND e.date_of_leaving IS NOT NULL
+    31→                                      AND ess.pf_applicable = 1
+    32→                                    ORDER BY e.date_of_leaving DESC");
+    33→
+    34→        $headers = ['Sr No', 'Emp Code', 'Name', 'UAN', 'PF Acct No.', 'DOB', 'DOJ', 'DOL', 'Service (Months)', 'Pensionable Wages', 'Total EPS Contributions', 'Eligible for Withdrawal', 'Estimated Amount'];
+    35→        fputcsv($output, $headers);
+    36→
+    37→        $sr = 1;
+    38→        foreach ($employees as $emp) {
+    39→            $doj = $emp['date_of_joining'] ? new DateTime($emp['date_of_joining']) : null;
+    40→            $dol = $emp['date_of_leaving'] ? new DateTime($emp['date_of_leaving']) : null;
+    41→            $dob = $emp['dob'] ? new DateTime($emp['dob']) : null;
+    42→            $now = new DateTime();
+    43→
+    44→            $serviceMonths = 0;
+    45→            $age = 0;
+    46→            if ($doj && $dol) {
+    47→                $interval = $doj->diff($dol);
+    48→                $serviceMonths = $interval->y * 12 + $interval->m;
+    49→            }
+    50→            if ($dob) {
+    51→                $age = $dob->diff($now)->y;
+    52→            }
+    53→
+    54→            $eligible = $serviceMonths >= 6 && $age < 58;
+    55→            $pensionableWages = min($emp['basic_da'] ?? 0, 15000);
+    56→            $epsContributions = round($pensionableWages * 0.0833 * $serviceMonths, 2);
+    57→            $withdrawalAmt = $eligible ? $epsContributions : 0;
+    58→
+    59→            fputcsv($output, [
+    60→                $sr++,
+    61→                $emp['employee_code'],
+    62→                $emp['full_name'],
+    63→                $emp['uan_number'] ?? '',
+    64→                $emp['esic_number'] ?? '',
+    65→                formatDate($emp['dob']),
+    66→                formatDate($emp['date_of_joining']),
+    67→                formatDate($emp['date_of_leaving']),
+    68→                $serviceMonths,
+    69→                formatCurrency($pensionableWages),
+    70→                formatCurrency($epsContributions),
+    71→                $eligible ? 'Yes' : 'No',
+    72→                formatCurrency($withdrawalAmt)
+    73→            ]);
+    74→        }
+    75→    } catch (Exception $e) {
+    76→        fputcsv($output, ['Error', $e->getMessage()]);
+    77→    }
+    78→
+    79→    fclose($output);
+    80→    exit;
+    81→}
+    82→
+    83→// Mode
+    84→$mode = sanitize($_GET['mode'] ?? 'list');
+    85→$employeeId = sanitize($_GET['employee_id'] ?? '');
+    86→
+    87→// Fetch eligible employees
+    88→$employees = [];
+    89→try {
+    90→    $employees = $db->fetchAll("SELECT e.id, e.employee_code, e.full_name, e.father_name,
+    91→                                       e.date_of_joining, e.date_of_leaving, e.dob, e.gender,
+    92→                                       e.uan_number, e.esic_number, e.aadhaar_number,
+    93→                                       e.bank_name, e.account_number, e.ifsc_code,
+    94→                                       e.mobile_number, e.designation, e.department,
+    95→                                       ess.basic_da, ess.gross_salary, ess.pf_applicable,
+    96→                                       c.name as client_name, u.name as unit_name
+    97→                                FROM employees e
+    98→                                LEFT JOIN employee_salary_structures ess ON ess.employee_id = e.id
+    99→                                    AND ess.effective_to IS NULL
+   100→                                LEFT JOIN clients c ON c.id = e.client_id
+   101→                                LEFT JOIN units u ON u.id = e.unit_id
+   102→                                WHERE e.status = 'inactive'
+   103→                                  AND e.date_of_leaving IS NOT NULL
+   104→                                  AND ess.pf_applicable = 1
+   105→                                ORDER BY e.date_of_leaving DESC");
+   106→} catch (Exception $e) {
+   107→    $errorMsg = 'Error fetching employees: ' . $e->getMessage();
+   108→}
+   109→
+   110→// Fetch selected employee with details
+   111→$employee = null;
+   112→$payrollHistory = [];
+   113→$pensionDetails = null;
+   114→if (!empty($employeeId)) {
+   115→    try {
+   116→        $employee = $db->fetch("SELECT e.*, ess.basic_da, ess.gross_salary, ess.pf_applicable,
+   117→                                       c.name as client_name, u.name as unit_name
+   118→                                FROM employees e
+   119→                                LEFT JOIN employee_salary_structures ess ON ess.employee_id = e.id
+   120→                                    AND ess.effective_to IS NULL
+   121→                                LEFT JOIN clients c ON c.id = e.client_id
+   122→                                LEFT JOIN units u ON u.id = e.unit_id
+   123→                                WHERE e.id = :id", ['id' => $employeeId]);
+   124→
+   125→        if ($employee) {
+   126→            $mode = 'view';
+   127→
+   128→            $payrollHistory = $db->fetchAll(
+   129→                "SELECT p.basic_da, p.eps_employer, p.pf_employee, p.pf_employer,
+   130→                        p.paid_days, p.total_days,
+   131→                        pp.month, pp.year
+   132→                 FROM payroll p
+   133→                 JOIN payroll_periods pp ON pp.id = p.payroll_period_id
+   134→                 WHERE p.employee_id = :empCode
+   135→                 ORDER BY pp.year ASC, pp.month ASC",
+   136→                ['empCode' => $employee['employee_code']]);
+   137→
+   138→            $doj = $employee['date_of_joining'] ? new DateTime($employee['date_of_joining']) : null;
+   139→            $dol = $employee['date_of_leaving'] ? new DateTime($employee['date_of_leaving']) : null;
+   140→            $dob = $employee['dob'] ? new DateTime($employee['dob']) : null;
+   141→            $now = new DateTime();
+   142→
+   143→            $serviceMonths = 0;
+   144→            $age = 0;
+   145→            if ($doj && $dol) {
+   146→                $interval = $doj->diff($dol);
+   147→                $serviceMonths = $interval->y * 12 + $interval->m;
+   148→            }
+   149→            if ($dob) {
+   150→                $age = $dob->diff($now)->y;
+   151→            }
+   152→
+   153→            $pensionableWages = min($employee['basic_da'] ?? 0, 15000);
+   154→            $totalEps = 0;
+   155→            $totalEePf = 0;
+   156→            $totalErPf = 0;
+   157→            foreach ($payrollHistory as $ph) {
+   158→                $totalEps += $ph['eps_employer'] ?? 0;
+   159→                $totalEePf += $ph['pf_employee'] ?? 0;
+   160→                $totalErPf += $ph['pf_employer'] ?? 0;
+   161→            }
+   162→
+   163→            $eligible = $serviceMonths >= 6 && $age < 58;
+   164→            $withdrawalAmt = $eligible ? $totalEps : 0;
+   165→
+   166→            // Table factor based on service years
+   167→            $serviceYears = $serviceMonths / 12;
+   168→            $tableFactor = min($serviceYears, 2); // Simplified calculation
+   169→
+   170→            $pensionDetails = [
+   171→                'service_months' => $serviceMonths,
+   172→                'service_years' => round($serviceYears, 1),
+   173→                'age' => $age,
+   174→                'eligible' => $eligible,
+   175→                'ineligible_reason' => $serviceMonths < 6 ? 'Service less than 6 months' : ($age >= 58 ? 'Age 58 or above (eligible for pension)' : ''),
+   176→                'pensionable_wages' => $pensionableWages,
+   177→                'total_eps' => $totalEps,
+   178→                'total_ee_pf' => $totalEePf,
+   179→                'total_er_pf' => $totalErPf,
+   180→                'withdrawal_amount' => $withdrawalAmt,
+   181→                'total_contributions' => count($payrollHistory),
+   182→            ];
+   183→        }
+   184→    } catch (Exception $e) {
+   185→        $errorMsg = 'Error: ' . $e->getMessage();
+   186→    }
+   187→}
+   188→?>
+   189→
+   190→<style>
+   191→@media print {
+   192→    .btn, form, .no-print { display: none !important; }
+   193→    .card { border: none !important; box-shadow: none !important; }
+   194→    body { font-size: 12px; }
+   195→}
+   196→.form10c-header {
+   197→    background: linear-gradient(135deg, #e65100 0%, #f57c00 100%);
+   198→    color: white;
+   199→    padding: 20px;
+   200→    border-radius: 8px;
+   201→    margin-bottom: 20px;
+   202→}
+   203→.form10c-container { max-width: 900px; margin: 0 auto; }
+   204→.form10c-section {
+   205→    border: 2px solid #e65100;
+   206→    border-radius: 8px;
+   207→    padding: 20px;
+   208→    margin-bottom: 16px;
+   209→    page-break-inside: avoid;
+   210→}
+   211→.form10c-section-header {
+   212→    background: #e65100;
+   213→    color: white;
+   214→    margin: -20px -20px 15px -20px;
+   215→    padding: 10px 20px;
+   216→    border-radius: 6px 6px 0 0;
+   217→}
+   218→</style>
+   219→
+   220→<div class="container-fluid">
+   221→    <div class="form10c-header no-print">
+   222→        <div class="d-flex justify-content-between align-items-center">
+   223→            <div>
+   224→                <h4 class="mb-1"><i class="bi bi-file-earmark-text-fill me-2"></i><?= htmlspecialchars($pageTitle) ?></h4>
+   225→                <p class="mb-0 opacity-75">Pension Withdrawal — Employees' Pension Scheme 1995</p>
+   226→            </div>
+   227→            <span class="badge bg-light text-dark fs-6"><?= date('d/m/Y') ?></span>
+   228→        </div>
+   229→    </div>
+   230→
+   231→    <?php if ($mode === 'view' && $employee && $pensionDetails): ?>
+   232→    <!-- Print Header -->
+   233→    <div class="d-none d-print-block mb-2">
+   234→        <h4 class="text-center fw-bold mb-0">FORM 10C</h4>
+   235→        <p class="text-center mb-0"><strong>[See Paragraph 16]</strong></p>
+   236→        <p class="text-center mb-0 small">Application for withdrawal benefit / scheme certificate under Employees' Pension Scheme 1995</p>
+   237→        <hr>
+   238→    </div>
+   239→
+   240→    <div class="form10c-container">
+   241→        <!-- Employee Details -->
+   242→        <div class="form10c-section">
+   243→            <div class="form10c-section-header">
+   244→                <h6 class="mb-0"><i class="bi bi-person me-2"></i>Employee Details</h6>
+   245→            </div>
+   246→            <div class="row">
+   247→                <div class="col-md-6">
+   248→                    <table class="table table-sm table-borderless mb-0">
+   249→                        <tr><td class="text-muted" style="width:180px">Name</td><td class="fw-bold"><?= htmlspecialchars($employee['full_name']) ?></td></tr>
+   250→                        <tr><td class="text-muted">Father's / Husband's Name</td><td><?= htmlspecialchars($employee['father_name']) ?></td></tr>
+   251→                        <tr><td class="text-muted">Date of Birth</td><td><?= formatDate($employee['dob']) ?></td></tr>
+   252→                        <tr><td class="text-muted">Gender</td><td><?= $employee['gender'] === 'M' ? 'Male' : 'Female' ?></td></tr>
+   253→                    </table>
+   254→                </div>
+   255→                <div class="col-md-6">
+   256→                    <table class="table table-sm table-borderless mb-0">
+   257→                        <tr><td class="text-muted" style="width:180px">Employee Code</td><td><?= htmlspecialchars($employee['employee_code']) ?></td></tr>
+   258→                        <tr><td class="text-muted">UAN</td><td><?= htmlspecialchars($employee['uan_number'] ?? '—') ?></td></tr>
+   259→                        <tr><td class="text-muted">PF Account No.</td><td><?= htmlspecialchars($employee['esic_number'] ?? '—') ?></td></tr>
+   260→                        <tr><td class="text-muted">Aadhaar (last 4)</td><td><?= $employee['aadhaar_number'] ? 'XXXX' . substr($employee['aadhaar_number'], -4) : '—' ?></td></tr>
+   261→                    </table>
+   262→                </div>
+   263→            </div>
+   264→        </div>
+   265→
+   266→        <!-- Service Details -->
+   267→        <div class="form10c-section">
+   268→            <div class="form10c-section-header">
+   269→                <h6 class="mb-0"><i class="bi bi-briefcase me-2"></i>Service & Eligibility</h6>
+   270→            </div>
+   271→            <div class="row g-3 mb-3">
+   272→                <div class="col-md-3 text-center">
+   273→                    <div class="card p-3">
+   274→                        <div class="text-muted small">Service Period</div>
+   275→                        <div class="fs-5 fw-bold"><?= $pensionDetails['service_years'] ?> Years</div>
+   276→                        <div class="text-muted small"><?= $pensionDetails['service_months'] ?> Months</div>
+   277→                    </div>
+   278→                </div>
+   279→                <div class="col-md-3 text-center">
+   280→                    <div class="card p-3">
+   281→                        <div class="text-muted small">Current Age</div>
+   282→                        <div class="fs-5 fw-bold"><?= $pensionDetails['age'] ?> Years</div>
+   283→                    </div>
+   284→                </div>
+   285→                <div class="col-md-3 text-center">
+   286→                    <div class="card p-3">
+   287→                        <div class="text-muted small">Pensionable Wages</div>
+   288→                        <div class="fs-5 fw-bold"><?= formatCurrency($pensionDetails['pensionable_wages']) ?></div>
+   289→                    </div>
+   290→                </div>
+   291→                <div class="col-md-3 text-center">
+   292→                    <div class="card p-3 <?= $pensionDetails['eligible'] ? 'bg-success text-white' : 'bg-danger text-white' ?>">
+   293→                        <div class="small">Eligibility</div>
+   294→                        <div class="fs-5 fw-bold"><?= $pensionDetails['eligible'] ? 'ELIGIBLE' : 'NOT ELIGIBLE' ?></div>
+   295→                    </div>
+   296→                </div>
+   297→            </div>
+   298→            <?php if (!$pensionDetails['eligible']): ?>
+   299→                <div class="alert alert-warning">
+   300→                    <i class="bi bi-exclamation-triangle me-2"></i><strong>Reason:</strong> <?= htmlspecialchars($pensionDetails['ineligible_reason']) ?>
+   301→                </div>
+   302→            <?php endif; ?>
+   303→
+   304→            <div class="row">
+   305→                <div class="col-md-6">
+   306→                    <table class="table table-sm table-borderless mb-0">
+   307→                        <tr><td class="text-muted">Date of Joining</td><td><?= formatDate($employee['date_of_joining']) ?></td></tr>
+   308→                        <tr><td class="text-muted">Date of Leaving</td><td><?= formatDate($employee['date_of_leaving']) ?></td></tr>
+   309→                    </table>
+   310→                </div>
+   311→                <div class="col-md-6">
+   312→                    <table class="table table-sm table-borderless mb-0">
+   313→                        <tr><td class="text-muted">Designation</td><td><?= htmlspecialchars($employee['designation'] ?? '—') ?></td></tr>
+   314→                        <tr><td class="text-muted">Client / Unit</td><td><?= htmlspecialchars(($employee['client_name'] ?? '') . ' / ' . ($employee['unit_name'] ?? '')) ?></td></tr>
+   315→                    </table>
+   316→                </div>
+   317→            </div>
+   318→        </div>
+   319→
+   320→        <!-- EPS Balance Details -->
+   321→        <div class="form10c-section">
+   322→            <div class="form10c-section-header">
+   323→                <h6 class="mb-0"><i class="bi bi-calculator me-2"></i>EPS Contribution & Withdrawal Details</h6>
+   324→            </div>
+   325→            <div class="table-responsive">
+   326→                <table class="table table-bordered mb-3">
+   327→                    <thead class="table-dark">
+   328→                        <tr><th>Component</th><th class="text-end">Amount (₹)</th></tr>
+   329→                    </thead>
+   330→                    <tbody>
+   331→                        <tr><td>Total EPS Contributions (8.33% of wages)</td><td class="text-end"><?= formatCurrency($pensionDetails['total_eps']) ?></td></tr>
+   332→                        <tr><td>Pensionable Wages (Monthly, capped at ₹15,000)</td><td class="text-end"><?= formatCurrency($pensionDetails['pensionable_wages']) ?></td></tr>
+   333→                        <tr><td>Total Contribution Periods</td><td class="text-end"><?= $pensionDetails['total_contributions'] ?> months</td></tr>
+   334→                    </tbody>
+   335→                </table>
+   336→            </div>
+   337→
+   338→            <?php if ($pensionDetails['eligible']): ?>
+   339→            <div class="alert alert-success">
+   340→                <h6 class="mb-2"><i class="bi bi-check-circle me-2"></i>Withdrawal Amount</h6>
+   341→                <div class="fs-4 fw-bold text-success">₹ <?= number_format($pensionDetails['withdrawal_amount'], 2) ?></div>
+   342→                <p class="small text-muted mb-0 mt-1">* This is the total EPS contributions available for withdrawal.</p>
+   343→                <p class="small text-muted mb-0">** Actual withdrawal amount may vary based on EPFO calculation and Table D factors.</p>
+   344→            </div>
+   345→            <?php endif; ?>
+   346→        </div>
+   347→
+   348→        <!-- EPS Payroll History -->
+   349→        <?php if (!empty($payrollHistory)): ?>
+   350→        <div class="form10c-section">
+   351→            <div class="form10c-section-header">
+   352→                <h6 class="mb-0"><i class="bi bi-list-ul me-2"></i>EPS Contribution History</h6>
+   353→            </div>
+   354→            <div class="table-responsive">
+   355→                <table class="table table-sm table-bordered table-hover mb-0">
+   356→                    <thead class="table-light">
+   357→                        <tr>
+   358→                            <th>Month/Year</th>
+   359→                            <th class="text-end">Wages</th>
+   360→                            <th class="text-end">EPF (EE)</th>
+   361→                            <th class="text-end">EPF (ER)</th>
+   362→                            <th class="text-end fw-bold">EPS (8.33%)</th>
+   363→                        </tr>
+   364→                    </thead>
+   365→                    <tbody>
+   366→                        <?php foreach ($payrollHistory as $ph): ?>
+   367→                            <tr>
+   368→                                <td><?= str_pad($ph['month'], 2, '0', STR_PAD_LEFT) ?>/<?= $ph['year'] ?></td>
+   369→                                <td class="text-end"><?= formatCurrency($ph['basic_da'] ?? 0) ?></td>
+   370→                                <td class="text-end"><?= formatCurrency($ph['pf_employee'] ?? 0) ?></td>
+   371→                                <td class="text-end"><?= formatCurrency($ph['pf_employer'] ?? 0) ?></td>
+   372→                                <td class="text-end fw-bold"><?= formatCurrency($ph['eps_employer'] ?? 0) ?></td>
+   373→                            </tr>
+   374→                        <?php endforeach; ?>
+   375→                    </tbody>
+   376→                    <tfoot class="table-dark">
+   377→                        <tr>
+   378→                            <td colspan="4" class="text-end fw-bold">Total EPS Contributions</td>
+   379→                            <td class="text-end fw-bold"><?= formatCurrency($pensionDetails['total_eps']) ?></td>
+   380→                        </tr>
+   381→                    </tfoot>
+   382→                </table>
+   383→            </div>
+   384→        </div>
+   385→        <?php endif; ?>
+   386→
+   387→        <!-- Bank Details -->
+   388→        <div class="form10c-section">
+   389→            <div class="form10c-section-header">
+   390→                <h6 class="mb-0"><i class="bi bi-bank me-2"></i>Bank Details for Refund</h6>
+   391→            </div>
+   392→            <div class="row">
+   393→                <div class="col-md-4"><strong>Bank:</strong> <?= htmlspecialchars($employee['bank_name'] ?? '—') ?></div>
+   394→                <div class="col-md-4"><strong>A/C:</strong> <?= $employee['account_number'] ? 'XXXX' . substr($employee['account_number'], -4) : '—' ?></div>
+   395→                <div class="col-md-4"><strong>IFSC:</strong> <?= htmlspecialchars($employee['ifsc_code'] ?? '—') ?></div>
+   396→            </div>
+   397→        </div>
+   398→
+   399→        <!-- Declaration -->
+   400→        <div class="form10c-section">
+   401→            <div class="form10c-section-header">
+   402→                <h6 class="mb-0"><i class="bi bi-pencil-square me-2"></i>Declaration</h6>
+   403→            </div>
+   404→            <p class="mb-3">
+   405→                I, <strong><?= htmlspecialchars($employee['full_name']) ?></strong>, hereby apply for withdrawal of pension fund contribution
+   406→                accumulated under the Employees' Pension Scheme, 1995. I certify that I have not attained the age of 58 years
+   407→                and I am not entitled to any monthly pension.
+   408→            </p>
+   409→            <div class="row">
+   410→                <div class="col-6">
+   411→                    <p class="mb-0 fw-bold">Signature of Employee</p>
+   412→                    <div style="height:40px;border-bottom:1px solid #333;"></div>
+   413→                    <p class="mb-0 small">Name: <?= htmlspecialchars($employee['full_name']) ?></p>
+   414→                    <p class="mb-0 small">Date: ________________</p>
+   415→                </div>
+   416→                <div class="col-6 text-end">
+   417→                    <p class="mb-0 fw-bold">Employer's Attestation</p>
+   418→                    <div style="height:40px;border-bottom:1px solid #333;"></div>
+   419→                    <p class="mb-0 small">Name: ________________</p>
+   420→                    <p class="mb-0 small">Date: ________________</p>
+   421→                    <p class="mb-0 small">Seal: ________________</p>
+   422→                </div>
+   423→            </div>
+   424→        </div>
+   425→
+   426→        <div class="text-center no-print mt-3 mb-4">
+   427→            <a href="?page=report/pf/form-10c" class="btn btn-outline-secondary me-2"><i class="bi bi-arrow-left me-1"></i>Back to List</a>
+   428→            <button onclick="window.print()" class="btn btn-primary"><i class="bi bi-printer me-2"></i>Print Form 10C</button>
+   429→        </div>
+   430→    </div>
+   431→
+   432→    <?php else: ?>
+   433→    <!-- Employee List -->
+   434→    <div class="card mb-4">
+   435→        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+   436→            <h6 class="mb-0"><i class="bi bi-people me-2"></i>Employees Eligible for Pension Withdrawal (Form 10C)</h6>
+   437→            <div class="no-print">
+   438→                <a href="?page=report/pf/form-10c&export=1" class="btn btn-sm btn-light"><i class="bi bi-download me-1"></i>CSV</a>
+   439→                <button onclick="window.print()" class="btn btn-sm btn-outline-light"><i class="bi bi-printer"></i></button>
+   440→            </div>
+   441→        </div>
+   442→        <div class="card-body p-0">
+   443→            <div class="table-responsive">
+   444→                <table class="table table-sm table-bordered table-hover mb-0">
+   445→                    <thead class="table-light">
+   446→                        <tr>
+   447→                            <th class="text-center" style="width:40px">Sr</th>
+   448→                            <th style="width:80px">Emp Code</th>
+   449→                            <th>Name</th>
+   450→                            <th>UAN</th>
+   451→                            <th>DOB</th>
+   452→                            <th>DOJ</th>
+   453→                            <th>DOL</th>
+   454→                            <th class="text-center">Service</th>
+   455→                            <th class="text-center">Age</th>
+   456→                            <th class="text-center">Eligible?</th>
+   457→                            <th class="text-center no-print" style="width:100px">Action</th>
+   458→                        </tr>
+   459→                    </thead>
+   460→                    <tbody>
+   461→                        <?php if (empty($employees)): ?>
+   462→                            <tr>
+   463→                                <td colspan="11" class="text-center text-muted py-4">
+   464→                                    <i class="bi bi-inbox fs-3 d-block mb-2"></i>No employees found.
+   465→                                </td>
+   466→                            </tr>
+   467→                        <?php else: ?>
+   468→                            <?php $sr = 1; foreach ($employees as $emp):
+   469→                                $doj = $emp['date_of_joining'] ? new DateTime($emp['date_of_joining']) : null;
+   470→                                $dol = $emp['date_of_leaving'] ? new DateTime($emp['date_of_leaving']) : null;
+   471→                                $dob = $emp['dob'] ? new DateTime($emp['dob']) : null;
+   472→                                $now = new DateTime();
+   473→
+   474→                                $serviceMonths = 0;
+   475→                                $age = 0;
+   476→                                if ($doj && $dol) {
+   477→                                    $interval = $doj->diff($dol);
+   478→                                    $serviceMonths = $interval->y * 12 + $interval->m;
+   479→                                }
+   480→                                if ($dob) {
+   481→                                    $age = $dob->diff($now)->y;
+   482→                                }
+   483→                                $eligible = $serviceMonths >= 6 && $age < 58;
+   484→                            ?>
+   485→                                <tr class="<?= $eligible ? '' : 'table-secondary' ?>">
+   486→                                    <td class="text-center"><?= $sr++ ?></td>
+   487→                                    <td><?= htmlspecialchars($emp['employee_code']) ?></td>
+   488→                                    <td><strong><?= htmlspecialchars($emp['full_name']) ?></strong></td>
+   489→                                    <td><?= htmlspecialchars($emp['uan_number'] ?? '—') ?></td>
+   490→                                    <td><?= formatDate($emp['dob']) ?></td>
+   491→                                    <td><?= formatDate($emp['date_of_joining']) ?></td>
+   492→                                    <td><?= formatDate($emp['date_of_leaving']) ?></td>
+   493→                                    <td class="text-center"><?= round($serviceMonths / 12, 1) ?>Y (<?= $serviceMonths ?>M)</td>
+   494→                                    <td class="text-center"><?= $age ?></td>
+   495→                                    <td class="text-center">
+   496→                                        <?php if ($eligible): ?>
+   497→                                            <span class="badge bg-success">Yes</span>
+   498→                                        <?php else: ?>
+   499→                                            <span class="badge bg-danger">No</span>
+   500→                                        <?php endif; ?>
+   501→                                    </td>
+   502→                                    <td class="text-center no-print">
+   503→                                        <a href="?page=report/pf/form-10c&employee_id=<?= $emp['id'] ?>&mode=view" class="btn btn-sm btn-outline-primary">
+   504→                                            <i class="bi bi-eye me-1"></i>View
+   505→                                        </a>
+   506→                                    </td>
+   507→                                </tr>
+   508→                            <?php endforeach; ?>
+   509→                        <?php endif; ?>
+   510→                    </tbody>
+   511→                </table>
+   512→            </div>
+   513→        </div>
+   514→    </div>
+   515→    <?php endif; ?>
+   516→
+   517→    <?php if (!empty($errorMsg)): ?>
+   518→        <div class="alert alert-danger no-print"><i class="bi bi-exclamation-triangle me-2"></i><?= htmlspecialchars($errorMsg) ?></div>
+   519→    <?php endif; ?>
+   520→</div>
+   521→
