@@ -173,7 +173,7 @@ try {
         'employee_id' => $employeeId,
         'role'        => $role,
         'full_name'   => $employee['full_name'],
-    ), 86400); // 24 hours
+    ), 345600); // 4 days
 
     _clearFailedLogins($conn, $rateId);
 

@@ -58,7 +58,7 @@ if (!defined('SESSION_NAME')) {
     define('SESSION_NAME', 'rcs_hrms_session');
 }
 if (!defined('SESSION_LIFETIME')) {
-    define('SESSION_LIFETIME', 86400); // 24 hours
+    define('SESSION_LIFETIME', 345600); // 4 days
 }
 
 // Pagination
@@ -174,8 +174,8 @@ if (session_status() === PHP_SESSION_NONE) {
     session_name(SESSION_NAME);
     session_start();
 
-    // Idle session timeout — 24 hours of inactivity logs the user out
-    $idleLimit = 86400;
+    // Idle session timeout — 4 days of inactivity logs the user out
+    $idleLimit = 345600;
     if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $idleLimit) {
         session_unset();
         session_destroy();

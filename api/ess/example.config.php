@@ -17,7 +17,7 @@ define('DB_NAME', 'your_db_name');
 // ─── Security Constants ──────────────────────────────────────────────────────
 define('API_KEY', 'your_api_key_here');
 define('JWT_SECRET', 'your_jwt_secret_here');
-define('JWT_EXPIRY', 86400); // 24 hours
+define('JWT_EXPIRY', 345600); // 4 days
 
 // ─── Timezone ─────────────────────────────────────────────────────────────────
 date_default_timezone_set('Asia/Kolkata');
@@ -105,7 +105,7 @@ class SimpleJWT
     /**
      * Encode payload into JWT token
      */
-    public static function encode(array $payload, int $expirySeconds = 86400): string
+    public static function encode(array $payload, int $expirySeconds = 345600): string
     {
         $now = time();
         $payload['iat'] = $now;

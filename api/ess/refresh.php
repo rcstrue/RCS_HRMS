@@ -15,7 +15,7 @@ require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
 
 // How long past expiry we still allow a refresh (grace period)
-define('REFRESH_WINDOW_SECONDS', 300); // 5 minutes
+define('REFRESH_WINDOW_SECONDS', 86400); // 24 hours grace (token valid 4 days, refresh window extends 1 more day)
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     jsonOutput(['success' => false, 'error' => 'Method not allowed. Use POST.'], 405);
