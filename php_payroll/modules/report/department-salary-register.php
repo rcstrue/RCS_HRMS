@@ -18,7 +18,7 @@ try {
 }
 
 // Build query
-$where = "pp.month = :month AND pp.year = :year AND e.status = 1";
+$where = "pp.month = :month AND pp.year = :year AND e.status = 'approved'";
 $params = [':month' => $month, ':year' => $year];
 
 if ($clientFilter) {

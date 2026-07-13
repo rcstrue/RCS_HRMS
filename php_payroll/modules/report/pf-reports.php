@@ -25,7 +25,7 @@ $accountRegister = [];
 if ($tab === 'account_register') {
     $accountRegister = $db->fetchAll(
         "SELECT e.employee_code, e.full_name, e.father_name, e.gender, e.date_of_joining,
-                e.date_of_leaving, e.uan_number, e.pf_number,
+                e.date_of_leaving, e.uan_number,
                 ess.basic_da as monthly_wages,
                 p.basic_da as epf_wages,
                 p.pf_employee as ee_pf, p.pf_employer as er_pf,
@@ -46,7 +46,7 @@ if ($tab === 'account_register') {
 $pfSummary = [];
 if ($tab === 'summary') {
     $pfSummary = $db->fetchAll(
-        "SELECT e.employee_code, e.full_name, e.uan_number, e.pf_number,
+        "SELECT e.employee_code, e.full_name, e.uan_number,
                 e.date_of_joining, e.gender,
                 p.basic_da, p.pf_employee, p.pf_employer, p.eps_employer,
                 p.gross_salary, c.name as client_name

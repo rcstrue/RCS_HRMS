@@ -34,7 +34,7 @@ if ($clientFilter) {
 }
 
 // Build query for bonus-eligible employees
-$where = "e.status = 1";
+$where = "e.status = 'approved'";
 $params = [];
 
 if ($clientFilter) {

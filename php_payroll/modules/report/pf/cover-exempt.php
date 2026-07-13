@@ -122,10 +122,10 @@ $unitId = sanitize($_GET['unit_id'] ?? '');
 
 // Fetch clients and units
 try {
-    $clients = $db->fetchAll("SELECT id, name FROM clients WHERE status = 1 ORDER BY name");
+    $clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
     $units = [];
     if (!empty($clientId)) {
-        $units = $db->fetchAll("SELECT id, name FROM units WHERE client_id = :clientId AND status = 1 ORDER BY name", ['clientId' => $clientId]);
+        $units = $db->fetchAll("SELECT id, name FROM units WHERE client_id = :clientId AND is_active = 1 ORDER BY name", ['clientId' => $clientId]);
     }
 } catch (Exception $e) {
     $clients = [];

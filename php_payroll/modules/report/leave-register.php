@@ -32,7 +32,7 @@ if ($clientFilter) {
 }
 
 // Get active employees
-$where = "e.status = 1";
+$where = "e.status = 'approved'";
 $params = [];
 
 if ($clientFilter) {

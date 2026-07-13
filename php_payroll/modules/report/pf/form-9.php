@@ -97,7 +97,7 @@ try {
 
 // Fetch clients
 try {
-    $clients = $db->fetchAll("SELECT id, name FROM clients WHERE status = 1 ORDER BY name");
+    $clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
 } catch (Exception $e) {
     $clients = [];
 }

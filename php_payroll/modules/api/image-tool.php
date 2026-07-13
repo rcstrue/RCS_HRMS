@@ -5,6 +5,13 @@
  * This runs BEFORE header.php (via api/ route in index.php)
  */
 
+// C5 FIX: Require authenticated session (admin/HR only)
+if (empty($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['ok' => false, 'msg' => 'Authentication required']);
+    exit;
+}
+
 $baseDir = dirname(APP_ROOT) . '/uploads';
 $maxSizeKB = 500;
 $maxSizeBytes = $maxSizeKB * 1024;

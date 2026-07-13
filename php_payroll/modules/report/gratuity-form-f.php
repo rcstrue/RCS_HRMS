@@ -30,7 +30,7 @@ if ($clientFilter) {
 }
 
 // Build query - active employees who have completed 5+ years or are eligible
-$where = "e.status = 1";
+$where = "e.status = 'approved'";
 $params = [];
 
 if ($clientFilter) {
