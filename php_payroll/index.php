@@ -399,6 +399,18 @@ if ($page === 'employee/id-card' && $isLoggedIn && (isset($_GET['generate']) || 
     exit;
 }
 
+// API routes: include directly without HTML wrapper, require login
+if ($isLoggedIn && strpos($page, 'api/') === 0) {
+    $apiPath = getSafeModulePath($page);
+    if ($apiPath !== null) {
+        include $apiPath;
+    } else {
+        http_response_code(404);
+        echo json_encode(['error' => 'API endpoint not found']);
+    }
+    exit;
+}
+
 // Route to appropriate page
 if (!$isLoggedIn) {
     $allowedPages = ['auth/login', 'auth/forgot-password', 'auth/reset-password'];

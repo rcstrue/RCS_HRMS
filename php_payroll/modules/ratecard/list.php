@@ -173,19 +173,21 @@ $clients = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY
 </div>
 
 <?php
-$extraJS = <<<'JS'
+$hasData = !empty($ratecards) ? 'true' : 'false';
+$extraJS = <<<JS
 <script>
-$(document).ready(function() {
-    $('#ratecardsTable').DataTable({
-        order: [[0, 'asc'], [2, 'asc']],
-        pageLength: 25
-    });
+\$(document).ready(function() {
+    if ({$hasData}) {
+        \$('#ratecardsTable').DataTable({
+            order: [[0, 'asc'], [2, 'asc']],
+            pageLength: 25
+        });
+    }
     
-    $('.delete-ratecard').click(function() {
+    \$('.delete-ratecard').click(function() {
         if (confirm('Are you sure you want to delete this rate card?')) {
-            const id = $(this).data('id');
-            // Delete via AJAX
-            $.post('index.php?page=ratecard/delete', {id: id}, function(response) {
+            const id = \$(this).data('id');
+            \$.post('index.php?page=ratecard/delete', {id: id}, function(response) {
                 location.reload();
             });
         }
