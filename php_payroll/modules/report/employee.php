@@ -12,6 +12,17 @@ $clientId = isset($_GET['client_id']) ? (int)$_GET['client_id'] : 0;
 $designation = isset($_GET['designation']) ? sanitize($_GET['designation']) : '';
 $reportType = isset($_GET['report_type']) ? sanitize($_GET['report_type']) : 'summary';
 
+// Manager scoping — force to manager's unit
+if (($_SESSION['role_code'] ?? '') === 'manager') {
+    $unitIdOverride = (int)($_SESSION['unit_id'] ?? 0);
+    if ($unitIdOverride > 0) {
+        $managerUnit = $db->fetch("SELECT client_id FROM units WHERE id = ?", [$unitIdOverride]);
+        if ($managerUnit && $managerUnit['client_id']) {
+            $clientId = (int)$managerUnit['client_id'];
+        }
+    }
+}
+
 // Build query - use JOINs for client_name and unit_name
 $where = "1=1";
 $params = [];

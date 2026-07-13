@@ -171,6 +171,12 @@ class SimpleJWT
 // Initialize JWT
 SimpleJWT::init(JWT_SECRET);
 
+// Auto-load helpers for all endpoints that require config.php
+if (!defined('HELPERS_LOADED')) {
+    define('HELPERS_LOADED', true);
+    require_once __DIR__ . '/helpers.php';
+}
+
 // ─── Auth Helper ──────────────────────────────────────────────────────────────
 /**
  * Require authentication via JWT. Returns employee_id or exits with 401.

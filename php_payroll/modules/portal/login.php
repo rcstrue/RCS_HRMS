@@ -33,19 +33,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db = Database::getInstance();
             
             // Build query based on provided credentials
-            $sql = "SELECT e.id, e.employee_code, e.full_name, e.father_name, e.mobile_number, 
+            $sql = "SELECT e.id, e.employee_code, e.full_name, e.father_name, e.mobile_number,
                            e.email, e.designation, e.department, e.date_of_joining,
-                           e.worker_category, e.status, e.photo_path,
-                           e.uan_number, e.esi_number, e.is_pf_applicable, e.is_esi_applicable,
+                           e.worker_category, e.status, e.profile_pic_url,
+                           e.uan_number, e.esic_number, e.date_of_birth,
                            c.name as client_name,
                            u.name as unit_name,
                            ess.basic_da, ess.hra, ess.gross_salary
                     FROM employees e
-                    LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
+                    LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id
                         AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
                     LEFT JOIN clients c ON e.client_id = c.id
                     LEFT JOIN units u ON e.unit_id = u.id
-                    WHERE e.status = 'active'";
+                    WHERE e.status = 'approved'";
             
             $params = [];
             
@@ -63,6 +63,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $employee = $db->fetch($sql, $params);
             
+            // Require PIN for portal access
+            $pin = trim($_POST['pin'] ?? '');
+            if (empty($pin)) {
+                $error = 'Please enter your PIN.';
+                $employee = null;
+            }
+
+            if ($employee) {
+                // Verify PIN against ess_employee_cache
+                $cache = $db->fetch(
+                    "SELECT pin FROM ess_employee_cache WHERE employee_id = ?",
+                    [$employee['id']]
+                );
+                $storedPin = $cache['pin'] ?? null;
+                $pinValid = false;
+                if ($storedPin) {
+                    $pinValid = (strpos($storedPin, '$2y$') === 0)
+                        ? password_verify($pin, $storedPin)
+                        : ($storedPin === $pin);
+                } else {
+                    // Default: birth year
+                    $birthYear = date('Y', strtotime($employee['date_of_birth'] ?? ''));
+                    $pinValid = ($pin === $birthYear);
+                }
+                if (!$pinValid) {
+                    $error = 'Invalid PIN. Please try again.';
+                    $employee = null;
+                }
+            }
+
             if ($employee) {
                 // Set session
                 $_SESSION['employee_portal'] = [
@@ -73,17 +103,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'designation' => $employee['designation'],
                     'client_name' => $employee['client_name'],
                     'unit_name' => $employee['unit_name'],
-                    'photo_path' => $employee['photo_path'],
+                    'photo_path' => $employee['profile_pic_url'],
                     'login_time' => time()
                 ];
                 
-                // Log the login
-                $db->insert('activity_log', [
-                    'user_id' => null,
-                    'action' => 'employee_portal_login',
-                    'module' => 'portal',
-                    'description' => "Employee {$employee['employee_code']} - {$employee['full_name']} logged into portal",
-                    'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+                // Log the login — activity_log table does not exist, use audit_log instead
+                $db->insert('audit_log', [
+                    'user_id'    => $employee['id'],
+                    'action'     => 'employee_portal_login',
+                    'details'    => json_encode(['employee_code' => $employee['employee_code']]),
+                    'ip_address' => $_SERVER['REMOTE_ADDR'] ?? '',
                     'created_at' => date('Y-m-d H:i:s')
                 ]);
                 
@@ -238,6 +267,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <input type="text" class="form-control" id="employee_code" name="employee_code" 
                            placeholder="Employee Code" value="<?php echo htmlspecialchars($_POST['employee_code'] ?? ''); ?>">
                     <label for="employee_code"><i class="bi bi-person-badge me-2"></i>Employee Code</label>
+                </div>
+                
+                <div class="form-floating">
+                    <input type="password" class="form-control" id="pin" name="pin"
+                           placeholder="PIN" maxlength="10" required>
+                    <label for="pin"><i class="bi bi-lock me-2"></i>PIN</label>
                 </div>
                 
                 <div class="divider">

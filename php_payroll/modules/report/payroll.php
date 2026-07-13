@@ -11,6 +11,17 @@ $year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
 $clientName = isset($_GET['client_name']) ? sanitize($_GET['client_name']) : '';
 $reportType = isset($_GET['report_type']) ? sanitize($_GET['report_type']) : 'summary';
 
+// Manager scoping — force client filter to manager's clients
+if (($_SESSION['role_code'] ?? '') === 'manager') {
+    $managerUnitId = (int)($_SESSION['unit_id'] ?? 0);
+    if ($managerUnitId > 0) {
+        $managerClient = $db->fetch("SELECT client_id FROM units WHERE id = ?", [$managerUnitId]);
+        if ($managerClient && $managerClient['client_id']) {
+            $clientName = $db->fetch("SELECT name FROM clients WHERE id = ?", [$managerClient['client_id']])['name'] ?? '';
+        }
+    }
+}
+
 // Build query with proper JOINs
 $where = "pp.month = :month AND pp.year = :year";
 $params = ['month' => $month, 'year' => $year];

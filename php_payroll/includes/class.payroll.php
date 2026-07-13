@@ -1256,56 +1256,27 @@ class Payroll {
      * Default slabs - can be overridden based on employee's work state
      * Common PT slabs across India (monthly)
      */
-    private function calculatePT($gross, $state = 'MH') {
-        // Maharashtra slabs (most common)
-        if ($state === 'MH' || $state === 'Maharashtra') {
-            if ($gross > 10000) {
-                return 200;  // Fixed ₹200 for salary above ₹10,000
-            }
+    private function calculatePT($gross, $state = 'GJ') {
+        // Read from professional_tax_rates DB table instead of hardcoded slabs
+        try {
+            $rate = $this->db->fetch(
+                "SELECT ptr.pt_amount
+                 FROM professional_tax_rates ptr
+                 JOIN states s ON ptr.state_id = s.id
+                 WHERE (s.state_code = :state OR s.state_name = :state)
+                   AND ptr.salary_from <= :gross
+                   AND (ptr.salary_to IS NULL OR ptr.salary_to >= :gross)
+                   AND ptr.is_active = 1
+                 ORDER BY ptr.salary_from DESC
+                 LIMIT 1",
+                ['state' => $state, 'gross' => $gross]
+            );
+            return $rate ? (float)$rate['pt_amount'] : 0;
+        } catch (Exception $e) {
+            // Fallback to simple default if DB query fails
+            if ($gross > 12000) return 200;
             return 0;
         }
-        
-        // Karnataka slabs
-        if ($state === 'KA' || $state === 'Karnataka') {
-            if ($gross > 15000) {
-                return 200;
-            } elseif ($gross > 10000) {
-                return 150;
-            }
-            return 0;
-        }
-        
-        // Tamil Nadu slabs
-        if ($state === 'TN' || $state === 'Tamil Nadu') {
-            if ($gross > 75000) { // Half yearly threshold
-                return 1250 / 6; // Approx monthly
-            } elseif ($gross > 50000) {
-                return 833 / 6;
-            }
-            return 0;
-        }
-        
-        // Delhi slabs (no PT for most)
-        if ($state === 'DL' || $state === 'Delhi') {
-            if ($gross > 25000) {
-                return 200;
-            }
-            return 0;
-        }
-        
-        // Gujarat slabs
-        if ($state === 'GJ' || $state === 'Gujarat') {
-            if ($gross > 12000) {
-                return 200;
-            }
-            return 0;
-        }
-        
-        // Default: Maharashtra-style slab
-        if ($gross > 10000) {
-            return 200;
-        }
-        return 0;
     }
 
     // Create payroll period

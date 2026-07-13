@@ -137,8 +137,8 @@ function _getLeaveBalances(mysqli $conn, string $employeeId): void
     $year = $_GET['year'] ?? date('Y');
 
     $stmt = $conn->prepare('
-        SELECT leave_type, total, used, balance, year
-        FROM ess_leave_balances
+        SELECT leave_type, opening_balance AS total, used, closing_balance AS balance, year
+        FROM leave_balances
         WHERE employee_id = ? AND year = ?
         ORDER BY leave_type
     ');
@@ -319,7 +319,7 @@ function _updateLeaveBalance(mysqli $conn, string $employeeId, string $leaveType
 
     // Check if balance record exists
     $checkStmt = $conn->prepare('
-        SELECT id, used, balance FROM ess_leave_balances
+        SELECT id, used, closing_balance AS balance FROM leave_balances
         WHERE employee_id = ? AND leave_type = ? AND year = ?
     ');
     $checkStmt->bind_param('sss', $employeeId, $leaveType, $year);
@@ -333,8 +333,8 @@ function _updateLeaveBalance(mysqli $conn, string $employeeId, string $leaveType
         $newBalance = (float)$balance['balance'] - $days;
 
         $updateStmt = $conn->prepare('
-            UPDATE ess_leave_balances
-            SET used = ?, balance = ?, updated_at = NOW()
+            UPDATE leave_balances
+            SET used = ?, closing_balance = ?, updated_at = NOW()
             WHERE id = ?
         ');
         $updateStmt->bind_param('ddi', $newUsed, $newBalance, $balance['id']);

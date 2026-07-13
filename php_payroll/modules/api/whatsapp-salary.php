@@ -4,6 +4,13 @@
  * Called from payroll process page to send bulk salary credit WhatsApp messages
  */
 
+// Auth check — only admin/hr can send WhatsApp notifications
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role_code'] ?? '', ['admin', 'hr', 'hr_executive'])) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'message' => 'Unauthorised']);
+    exit;
+}
+
 header('Content-Type: application/json');
 
 $month = (int)($_GET['month'] ?? 0);

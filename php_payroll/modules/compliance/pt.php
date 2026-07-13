@@ -4,6 +4,13 @@
  * Manage PT challans and returns for different states
  */
 
+// Role check — only admin/hr can access PT compliance
+if (!in_array($_SESSION['role_code'] ?? '', ['admin', 'hr_executive', 'hr'], true)) {
+    http_response_code(403);
+    echo '<div class="alert alert-danger m-3">Access denied. You do not have permission to access this page.</div>';
+    exit;
+}
+
 $pageTitle = 'Professional Tax Returns';
 
 // Check if professional_tax_rates table exists

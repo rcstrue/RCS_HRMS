@@ -73,6 +73,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Handle Approve/Reject
 if (isset($_POST['action']) && in_array($_POST['action'], ['approve', 'reject'])) {
+    // CSRF validation for approve/reject
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request.');
+        redirect('index.php?page=leave/apply&tab=' . $activeTab);
+        exit;
+    }
+
     $appId = (int)$_POST['application_id'];
     $action = $_POST['action'];
 
@@ -95,6 +102,10 @@ if (isset($_POST['action']) && in_array($_POST['action'], ['approve', 'reject'])
                 if ($bal) {
                     $newUsed = floatval($bal['used']) + floatval($app['total_days']);
                     $newClosing = floatval($bal['closing_balance']) - floatval($app['total_days']);
+                    // Warn if going negative (don't block — LWP is allowed to go negative)
+                    if ($newClosing < 0 && $app['leave_type'] !== 'LWP') {
+                        error_log("[Leave] Employee {$app['employee_id']} leave balance going negative: {$newClosing} for {$app['leave_type']}");
+                    }
                     $db->query("UPDATE leave_balances SET used = ?, closing_balance = ? WHERE id = ?", [$newUsed, $newClosing, $bal['id']]);
                 }
             }
@@ -348,6 +359,7 @@ $pendingCount = $db->fetchColumn("SELECT COUNT(*) FROM leave_applications WHERE 
                                     <?php if ($app['status'] === 'pending'): ?>
                                     <div class="btn-group btn-group-sm">
                                         <form method="POST" class="d-inline" onsubmit="return confirm('Approve this leave?')">
+                                            <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
                                             <input type="hidden" name="action" value="approve">
                                             <input type="hidden" name="application_id" value="<?php echo $app['id']; ?>">
                                             <button class="btn btn-success" title="Approve"><i class="bi bi-check-lg"></i></button>
@@ -436,6 +448,7 @@ $pendingCount = $db->fetchColumn("SELECT COUNT(*) FROM leave_applications WHERE 
 <div class="modal fade" id="rejectModal" tabindex="-1">
     <div class="modal-dialog modal-sm"><div class="modal-content">
         <form method="POST">
+            <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
             <input type="hidden" name="action" value="reject">
             <input type="hidden" name="application_id" id="rejectAppId">
             <div class="modal-header bg-danger text-white">

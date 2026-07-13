@@ -69,17 +69,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $db->beginTransaction();
             
-            // Generate invoice number
-            $prefix = 'INV';
-            $year = date('Y', strtotime($invoice['invoice_date']));
-            $month = date('m', strtotime($invoice['invoice_date']));
-            $stmt = $db->query("SELECT MAX(id) as max_id FROM invoices");
-            $maxId = $stmt->fetch(PDO::FETCH_ASSOC)['max_id'] ?? 0;
-            $invoice_number = $prefix . $year . $month . str_pad($maxId + 1, 5, '0', STR_PAD_LEFT);
+            // Generate invoice number AFTER insert using LAST_INSERT_ID to avoid race condition
+            $invoice_number = 'PENDING'; // placeholder — updated immediately after insert
             
             // Calculate GST
-            $client_info = $db->query("SELECT gst_number FROM clients WHERE id = {$invoice['client_id']}")->fetch(PDO::FETCH_ASSOC);
-            $company_state = 'GJ'; // Gujarat - get from company settings
+            $stmt = $db->prepare("SELECT gst_number FROM clients WHERE id = ?");
+            $stmt->execute([$invoice['client_id']]);
+            $client_info = $stmt->fetch(PDO::FETCH_ASSOC);
+            $companySetting = $db->fetch("SELECT setting_value FROM settings WHERE setting_key = 'company_state_code'");
+            $company_state = $companySetting['setting_value'] ?? 'GJ';
             $client_state = substr($client_info['gst_number'] ?? '', 0, 2);
             
             $cgst = 0;
@@ -123,6 +121,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             
             $invoice_id = $db->lastInsertId();
+            
+            // Generate actual invoice number from the inserted ID
+            $prefix = 'INV';
+            $year = date('Y', strtotime($invoice['invoice_date']));
+            $month = date('m', strtotime($invoice['invoice_date']));
+            $invoice_number = $prefix . $year . $month . str_pad((int)$invoice_id, 5, '0', STR_PAD_LEFT);
+            $db->prepare("UPDATE invoices SET invoice_number = ? WHERE id = ?")->execute([$invoice_number, $invoice_id]);
             
             // Insert items
             $stmt = $db->prepare("INSERT INTO invoice_items (invoice_id, employee_id, description, designation, 
@@ -370,7 +375,7 @@ $('#client_id').change(function() {
     const clientGST = selected.data('gst');
     
     // Check if IGST applicable (different state)
-    const companyState = 'GJ';
+    const companyState = document.getElementById('company_state_code')?.value || 'GJ';
     const clientState = clientGST ? clientGST.substring(0, 2) : '';
     isIGST = clientState !== companyState && clientState !== '';
     

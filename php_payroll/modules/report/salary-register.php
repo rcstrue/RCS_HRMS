@@ -15,6 +15,11 @@ $reportType = sanitize($_GET['type'] ?? 'all');
 $search = sanitize($_GET['search'] ?? '');
 
 // Build query
+// Manager scoping — force to manager's unit
+if (($_SESSION['role_code'] ?? '') === 'manager') {
+    $unitFilter = (int)($_SESSION['unit_id'] ?? 0);
+}
+
 $where = "pp.month = :month AND pp.year = :year";
 $params = [':month' => $month, ':year' => $year];
 

@@ -70,6 +70,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     if ($action === 'delete' && isset($_POST['user_id'])) {
+        // Validate CSRF token for delete action
+        if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+            setFlash('error', 'Invalid request. Please try again.');
+            redirect('index.php?page=settings/users');
+            exit;
+        }
         $userId = (int)$_POST['user_id'];
         
         // Prevent deleting self
@@ -268,6 +274,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <!-- Delete Form -->
 <form method="POST" id="deleteForm">
+    <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
     <input type="hidden" name="action" value="delete">
     <input type="hidden" name="user_id" id="delete_user_id">
 </form>

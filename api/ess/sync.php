@@ -40,7 +40,7 @@ function handleGet($conn) {
     // Sync all active/approved employees from employees table into ess_employee_cache
     // Uses app_role as primary role source, falls back to employee_role/worker_category
     $syncSql = "INSERT INTO ess_employee_cache
-                (employee_id, employee_code, full_name, mobile_number, designation, department, role, unit_id, unit_name, city, state, client_id, client_name, profile_pic_url, updated_at)
+                (employee_id, employee_code, full_name, mobile_number, designation, department, role, app_role, unit_id, unit_name, city, state, client_id, client_name, profile_pic_url, updated_at)
                 SELECT
                     CAST(e.id AS CHAR),
                     e.employee_code,
@@ -71,6 +71,7 @@ function handleGet($conn) {
                     CAST(e.client_id AS CHAR),
                     c.name,
                     e.profile_pic_url,
+                    e.app_role,
                     NOW()
                 FROM employees e
                 LEFT JOIN clients c ON e.client_id = c.id
@@ -90,6 +91,7 @@ function handleGet($conn) {
                     client_id = VALUES(client_id),
                     client_name = VALUES(client_name),
                     profile_pic_url = VALUES(profile_pic_url),
+                    app_role = VALUES(app_role),
                     updated_at = NOW()";
 
     $stmt = $conn->prepare($syncSql);
@@ -121,11 +123,12 @@ function handlePost($conn) {
     }
 
     $sql = "INSERT INTO ess_employee_cache
-            (employee_id, employee_code, role, unit_id, unit_name, city, state, client_name, client_id, full_name, mobile_number, designation, profile_pic_url, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            (employee_id, employee_code, role, app_role, unit_id, unit_name, city, state, client_name, client_id, full_name, mobile_number, designation, profile_pic_url, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE
                 employee_code = VALUES(employee_code),
                 role = VALUES(role),
+                app_role = VALUES(app_role),
                 unit_id = VALUES(unit_id),
                 unit_name = VALUES(unit_name),
                 city = VALUES(city),
@@ -163,6 +166,7 @@ function handlePost($conn) {
         $mobileNumber = isset($emp['mobile_number']) ? $emp['mobile_number'] : null;
         $designation = isset($emp['designation']) ? $emp['designation'] : null;
         $profilePicUrl = isset($emp['profile_pic_url']) ? $emp['profile_pic_url'] : null;
+        $appRole = isset($emp['app_role']) ? $emp['app_role'] : 'employee';
 
         // Validate role — 'admin' is included so admin syncs don't silently downgrade
         $validRoles = ['employee', 'supervisor', 'manager', 'regional_manager', 'admin'];
@@ -170,8 +174,8 @@ function handlePost($conn) {
             $role = 'employee';
         }
 
-        $stmt->bind_param('sssssssssssss',
-            $employeeId, $employeeCode, $role, $unitId, $unitName, $city, $state,
+        $stmt->bind_param('ssssssssssssss',
+            $employeeId, $employeeCode, $role, $appRole, $unitId, $unitName, $city, $state,
             $clientName, $clientId, $fullName, $mobileNumber, $designation, $profilePicUrl
         );
 

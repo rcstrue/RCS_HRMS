@@ -383,3 +383,20 @@ if (!function_exists('determineEssRole')) {
         return 'employee';
     }
 }
+
+// ─── Unit ID helper ───────────────────────────────────────────────────────────
+if (!function_exists('getEmployeeUnitId')) {
+    /**
+     * Get unit_id for an employee from ess_employee_cache.
+     * Returns 0 if not found.
+     */
+    function getEmployeeUnitId(string $employeeId, mysqli $conn): int
+    {
+        $stmt = $conn->prepare('SELECT unit_id FROM ess_employee_cache WHERE employee_id = ?');
+        $stmt->bind_param('s', $employeeId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return (int)($row['unit_id'] ?? 0);
+    }
+}
