@@ -31,7 +31,7 @@ $clients = $db->query(
 )->fetchAll(PDO::FETCH_ASSOC);
 
 // Build query for PF data
-$where = "pp.month = :month AND pp.year = :year AND ess.pf_applicable = 1";
+$where = "p.month = :month AND p.year = :year AND ess.pf_applicable = 1";
 $params = [':month' => $month, ':year' => $year];
 
 if ($clientFilter) {
@@ -64,7 +64,7 @@ $sql = "SELECT
         LEFT JOIN clients c ON e.client_id = c.id
         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
             AND ess.pf_applicable = 1
-        JOIN payroll_periods pp ON p.payroll_period_id = pp.id
+        
         WHERE {$where}
         ORDER BY e.employee_code";
 

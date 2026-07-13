@@ -128,11 +128,10 @@ if (!empty($employeeId)) {
             $payrollHistory = $db->fetchAll(
                 "SELECT p.basic_da, p.pf_employee, p.pf_employer, p.eps_employer,
                         p.paid_days, p.total_days,
-                        pp.month, pp.year
+                        p.month, p.year
                  FROM payroll p
-                 JOIN payroll_periods pp ON pp.id = p.payroll_period_id
                  WHERE p.employee_id = :empCode
-                 ORDER BY pp.year ASC, pp.month ASC",
+                 ORDER BY p.year ASC, p.month ASC",
                 ['empCode' => $employee['employee_code']]);
 
             $totalEePf = 0; $totalErPf = 0; $totalEps = 0;

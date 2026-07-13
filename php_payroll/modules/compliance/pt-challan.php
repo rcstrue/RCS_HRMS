@@ -35,11 +35,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     p.gross_salary, p.net_salary, p.pt_employee,
                     c.name as client_name
              FROM payroll p
-             JOIN employees e ON p.employee_id = e.id
+             JOIN employees e ON p.employee_id = e.employee_code
              LEFT JOIN clients c ON e.client_id = c.id
              LEFT JOIN units u ON e.unit_id = u.id
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-             WHERE pp.month = :month AND pp.year = :year
+             WHERE p.month = :month AND p.year = :year
                 AND e.is_pt_applicable = 1
                 AND (u.state = :state OR e.current_state = :state OR e.permanent_state = :state)
              ORDER BY e.full_name",

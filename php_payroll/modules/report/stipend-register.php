@@ -28,7 +28,7 @@ if ($clientFilter) {
 }
 
 // Build query - only employees without PF and ESI
-$where = "pp.month = :month AND pp.year = :year AND ess.pf_applicable = 0 AND ess.esi_applicable = 0";
+$where = "p.month = :month AND p.year = :year AND ess.pf_applicable = 0 AND ess.esi_applicable = 0";
 $params = [':month' => $month, ':year' => $year];
 
 if ($clientFilter) {
@@ -48,7 +48,6 @@ $sql = "SELECT
             p.professional_tax, p.lwf_employee, p.salary_advance, p.total_deductions, p.net_pay
         FROM payroll p
         JOIN employees e ON p.employee_id = e.employee_code
-        JOIN payroll_periods pp ON p.payroll_period_id = pp.id
         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
             AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
         LEFT JOIN units u ON e.unit_id = u.id

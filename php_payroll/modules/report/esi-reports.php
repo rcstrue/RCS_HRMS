@@ -15,7 +15,7 @@ $clients = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY
 $monthName = date('F', mktime(0,0,0,$month,1,$year));
 
 // Base WHERE for ESI applicable
-$baseWhere = "pp.month = :month AND pp.year = :year AND ess.esi_applicable = 1";
+$baseWhere = "p.month = :month AND p.year = :year AND ess.esi_applicable = 1";
 $baseParams = [':month' => $month, ':year' => $year];
 if ($clientFilter) { $baseWhere .= " AND e.client_id = :cid"; $baseParams[':cid'] = $clientFilter; }
 
@@ -30,7 +30,6 @@ $esiData = $db->fetchAll(
             c.name as client_name, u.name as unit_name
      FROM payroll p
      JOIN employees e ON p.employee_id = e.employee_code
-     JOIN payroll_periods pp ON p.payroll_period_id = pp.id
      LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
      LEFT JOIN clients c ON e.client_id = c.id
      LEFT JOIN units u ON e.unit_id = u.id

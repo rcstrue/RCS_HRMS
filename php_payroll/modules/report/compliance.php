@@ -36,8 +36,7 @@ if ($reportType === 'pf') {
             LEFT JOIN clients c ON e.client_id = c.id
             LEFT JOIN units u ON e.unit_id = u.id
             JOIN employee_salary_structures ess ON e.id = ess.employee_id
-            JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-            WHERE pp.month = :month AND pp.year = :year
+            WHERE p.month = :month AND p.year = :year
             AND ess.pf_applicable = 1";
     
     $params = ['month' => $month, 'year' => $year];
@@ -71,8 +70,7 @@ if ($reportType === 'pf') {
             LEFT JOIN clients c ON e.client_id = c.id
             LEFT JOIN units u ON e.unit_id = u.id
             JOIN employee_salary_structures ess ON e.id = ess.employee_id
-            JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-            WHERE pp.month = :month AND pp.year = :year
+            WHERE p.month = :month AND p.year = :year
             AND ess.esi_applicable = 1
             AND ess.gross_salary <= 21000";
     
@@ -102,8 +100,7 @@ if ($reportType === 'pf') {
             JOIN employees e ON p.employee_id = e.employee_code
             LEFT JOIN clients c ON e.client_id = c.id
             LEFT JOIN units u ON e.unit_id = u.id
-            JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-            WHERE pp.month = :month AND pp.year = :year
+            WHERE p.month = :month AND p.year = :year
             AND p.professional_tax > 0";
     
     $params = ['month' => $month, 'year' => $year];

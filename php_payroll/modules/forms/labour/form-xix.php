@@ -14,7 +14,7 @@ $company = null;
 try {
     global $db;
 
-    $stmt = $db->query("SELECT DISTINCT year FROM payroll_periods ORDER BY year DESC");
+    $stmt = $db->query("SELECT DISTINCT year FROM payroll ORDER BY year DESC");
     $years = $stmt->fetchAll(PDO::FETCH_COLUMN);
     if (empty($years)) $years = [date('Y')];
 
@@ -99,10 +99,9 @@ try {
                    SUM(p.pf_employee) as pf_total,
                    SUM(p.esi_employee) as esi_total,
                    SUM(p.overtime_hours) as total_ot,
-                   COUNT(DISTINCT p.payroll_period_id) as period_count
+                   COUNT(DISTINCT p.month) as period_count
             FROM payroll p
-            JOIN payroll_periods pp ON pp.id = p.payroll_period_id
-            WHERE p.employee_id IN ($placeholders) AND pp.year = ?
+            WHERE p.employee_id IN ($placeholders) AND p.year = ?
         ");
         $stmt->execute(array_merge($empIds, [$filterYear]));
         $payrollSummary = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -120,15 +119,14 @@ try {
 
         // Monthly breakdown
         $stmt = $db->prepare("
-            SELECT pp.month, pp.year,
+            SELECT p.month, p.year,
                    COUNT(DISTINCT p.employee_id) as emp_count,
                    SUM(p.paid_days) as total_days,
                    SUM(p.gross_earnings) as gross,
                    SUM(p.overtime_hours) as ot_hrs
             FROM payroll p
-            JOIN payroll_periods pp ON pp.id = p.payroll_period_id
-            WHERE p.employee_id IN ($placeholders) AND pp.year = ?
-            GROUP BY pp.id ORDER BY pp.month ASC
+            WHERE p.employee_id IN ($placeholders) AND p.year = ?
+            GROUP BY p.month, p.year ORDER BY p.month ASC
         ");
         $stmt->execute(array_merge($empIds, [$filterYear]));
         $data['periods'] = $stmt->fetchAll(PDO::FETCH_ASSOC);

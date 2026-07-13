@@ -9,9 +9,8 @@ $pageTitle = 'PF Form 12A - Monthly Contribution Challan';
 
 // CSV Export
 if (isset($_GET['export'])) {
-    $periodId = sanitize($_GET['payroll_period_id'] ?? '');
-    $month = sanitize($_GET['month'] ?? date('m'));
-    $year = sanitize($_GET['year'] ?? date('Y'));
+    $month = (int)sanitize($_GET['month'] ?? date('m'));
+    $year = (int)sanitize($_GET['year'] ?? date('Y'));
 
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="PF_Form_12A_' . $month . '_' . $year . '.csv"');
@@ -31,8 +30,8 @@ if (isset($_GET['export'])) {
                                        SUM(p.edlis_employer) as total_edli,
                                        SUM(p.epf_admin_charges) as total_admin
                                 FROM payroll p
-                                WHERE p.payroll_period_id = :periodId",
-            ['periodId' => $periodId]);
+                                WHERE p.month = :month AND p.year = :year",
+            ['month' => $month, 'year' => $year]);
         $row = $rows[0] ?? [];
 
         $totalEpf = ($row['total_epf_ee'] ?? 0) + ($row['total_epf_er'] ?? 0);
@@ -57,35 +56,26 @@ if (isset($_GET['export'])) {
 }
 
 // Get filter values
-$month = sanitize($_GET['month'] ?? date('m'));
-$year = sanitize($_GET['year'] ?? date('Y'));
-$periodId = sanitize($_GET['payroll_period_id'] ?? '');
+$month = (int)sanitize($_GET['month'] ?? date('m'));
+$year = (int)sanitize($_GET['year'] ?? date('Y'));
 
-// Fetch payroll periods
+// Fetch payroll periods (distinct month/year from payroll table)
 $payrollPeriods = [];
 try {
-    $payrollPeriods = $db->fetchAll("SELECT pp.*, COUNT(p.id) as employee_count
-                                     FROM payroll_periods pp
-                                     LEFT JOIN payroll p ON p.payroll_period_id = pp.id
-                                     WHERE pp.status = 'Processed'
-                                     GROUP BY pp.id
-                                     ORDER BY pp.year DESC, pp.month DESC
+    $payrollPeriods = $db->fetchAll("SELECT DISTINCT p.month, p.year, COUNT(*) as employee_count
+                                     FROM payroll p
+                                     GROUP BY p.month, p.year
+                                     ORDER BY p.year DESC, p.month DESC
                                      LIMIT 24");
 } catch (Exception $e) {
     $errorMsg = 'Error fetching payroll periods: ' . $e->getMessage();
 }
 
-// If period selected, fetch data
+// If month/year selected, fetch data
 $summary = null;
 $employeeContributions = [];
-if (!empty($periodId)) {
+if ($month && $year) {
     try {
-        $period = $db->fetch("SELECT * FROM payroll_periods WHERE id = :id", ['id' => $periodId]);
-        if ($period) {
-            $month = $period['month'];
-            $year = $period['year'];
-        }
-
         // Summary totals
         $summary = $db->fetch("SELECT COUNT(DISTINCT p.employee_id) as total_employees,
                                       SUM(p.basic_da) as total_wages,
@@ -97,8 +87,8 @@ if (!empty($periodId)) {
                                       SUM(p.gross_earnings) as total_gross,
                                       SUM(p.paid_days) as total_paid_days
                                FROM payroll p
-                               WHERE p.payroll_period_id = :periodId",
-            ['periodId' => $periodId]);
+                               WHERE p.month = :month AND p.year = :year",
+            ['month' => $month, 'year' => $year]);
 
         // Employee-wise contributions
         $employeeContributions = $db->fetchAll(
@@ -107,9 +97,9 @@ if (!empty($periodId)) {
                     e.employee_code, e.full_name, e.father_name, e.uan_number, e.esic_number
              FROM payroll p
              JOIN employees e ON e.employee_code = p.employee_id
-             WHERE p.payroll_period_id = :periodId
+             WHERE p.month = :month AND p.year = :year
              ORDER BY e.employee_code ASC",
-            ['periodId' => $periodId]
+            ['month' => $month, 'year' => $year]
         );
     } catch (Exception $e) {
         $errorMsg = 'Error fetching contribution data: ' . $e->getMessage();
@@ -210,23 +200,23 @@ if ($summary) {
             <form method="GET">
                 <input type="hidden" name="page" value="report/pf/form-12a">
                 <div class="row g-3 align-items-end">
-                    <div class="col-md-5">
-                        <label class="form-label">Payroll Period</label>
-                        <select name="payroll_period_id" class="form-select form-select-sm" onchange="this.form.submit()">
-                            <option value="">-- Select Period --</option>
-                            <?php foreach ($payrollPeriods as $pp): ?>
-                                <option value="<?= $pp['id'] ?>" <?= $periodId == $pp['id'] ? 'selected' : '' ?>>
-                                    <?= str_pad($pp['month'], 2, '0', STR_PAD_LEFT) ?>/<?= $pp['year'] ?>
-                                    (<?= $pp['employee_count'] ?> employees)
-                                </option>
-                            <?php endforeach; ?>
+                    <div class="col-md-3">
+                        <label class="form-label">Month</label>
+                        <select name="month" class="form-select form-select-sm" onchange="this.form.submit()">
+                            <?php for ($i = 1; $i <= 12; $i++): ?>
+                                <option value="<?= $i ?>" <?= $i == $month ? 'selected' : '' ?>><?= str_pad($i, 2, '0', STR_PAD_LEFT) ?></option>
+                            <?php endfor; ?>
                         </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Year</label>
+                        <input type="number" name="year" class="form-control form-control-sm" value="<?= $year ?>" min="2020" max="2030" onchange="this.form.submit()">
                     </div>
                     <div class="col-md-3">
                         <div class="d-flex gap-2">
                             <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search me-1"></i>View</button>
                             <?php if ($summary): ?>
-                                <a href="?page=report/pf/form-12a&payroll_period_id=<?= $periodId ?>&month=<?= $month ?>&year=<?= $year ?>&export=1" class="btn btn-success btn-sm"><i class="bi bi-download me-1"></i>CSV</a>
+                                <a href="?page=report/pf/form-12a&month=<?= $month ?>&year=<?= $year ?>&export=1" class="btn btn-success btn-sm"><i class="bi bi-download me-1"></i>CSV</a>
                                 <button onclick="window.print()" class="btn btn-outline-dark btn-sm"><i class="bi bi-printer"></i></button>
                             <?php endif; ?>
                         </div>
@@ -242,7 +232,7 @@ if ($summary) {
         </div>
     <?php endif; ?>
 
-    <?php if ($summary && $periodId): ?>
+    <?php if ($summary && $month && $year): ?>
     <!-- Print Header -->
     <div class="d-none d-print-block mb-3">
         <h4 class="text-center fw-bold mb-0">FORM 12A</h4>

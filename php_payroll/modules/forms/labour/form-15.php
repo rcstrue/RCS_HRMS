@@ -50,11 +50,10 @@ try {
             $salaryStructure = $stmt->fetch(PDO::FETCH_ASSOC);
 
             // Last payroll record
-            $stmt = $db->prepare("SELECT p.*, pp.month, pp.year
+            $stmt = $db->prepare("SELECT p.*, p.month, p.year
                                   FROM payroll p
-                                  JOIN payroll_periods pp ON pp.id = p.payroll_period_id
                                   WHERE p.employee_id = ?
-                                  ORDER BY pp.year DESC, pp.month DESC
+                                  ORDER BY p.year DESC, p.month DESC
                                   LIMIT 1");
             $stmt->execute([$empId]);
             $lastPayroll = $stmt->fetch(PDO::FETCH_ASSOC);

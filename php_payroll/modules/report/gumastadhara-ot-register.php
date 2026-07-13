@@ -32,7 +32,7 @@ if ($clientFilter) {
 }
 
 // Build query for overtime data from payroll
-$where = "pp.month = :month AND pp.year = :year AND (p.overtime_hours > 0 OR p.overtime_amount > 0)";
+$where = "p.month = :month AND p.year = :year AND (p.overtime_hours > 0 OR p.overtime_amount > 0)";
 $params = [':month' => $month, ':year' => $year];
 
 if ($clientFilter) {
@@ -51,10 +51,9 @@ $sql = "SELECT
             ess.basic_da AS basic_wages, ess.gross_salary AS monthly_wages,
             p.overtime_hours, p.overtime_amount,
             p.paid_days, p.total_days,
-            pp.start_date, pp.end_date
+            p.month, p.year
         FROM payroll p
         JOIN employees e ON p.employee_id = e.employee_code
-        JOIN payroll_periods pp ON p.payroll_period_id = pp.id
         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
         LEFT JOIN clients c ON e.client_id = c.id
         LEFT JOIN units u ON e.unit_id = u.id
@@ -77,8 +76,7 @@ try {
          FROM daily_attendance da
          JOIN employees e ON da.employee_id = e.id
          JOIN payroll p ON p.employee_id = e.employee_code
-         JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-         WHERE pp.month = :month AND pp.year = :year
+         WHERE p.month = :month AND p.year = :year
            AND da.overtime_hours > 0"
     );
     $dailyStmt->execute([':month' => $month, ':year' => $year]);

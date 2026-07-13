@@ -49,8 +49,8 @@ if (isset($_GET['export'])) {
                         SUM(p.edlis_employer) as total_edli,
                         SUM(p.epf_admin_charges) as total_admin
                  FROM payroll p
-                 WHERE p.payroll_period_id = :periodId",
-                ['periodId' => $period['id']]
+                 WHERE p.month = :month AND p.year = :year",
+                ['month' => $m, 'year' => $year]
             );
 
             $totalDues = ($summary['total_epf_ee'] ?? 0) + ($summary['total_epf_er'] ?? 0) +
@@ -162,8 +162,8 @@ try {
                         SUM(p.edlis_employer) as total_edli,
                         SUM(p.epf_admin_charges) as total_admin
                  FROM payroll p
-                 WHERE p.payroll_period_id = :periodId",
-                ['periodId' => $period['id']]
+                 WHERE p.month = :month AND p.year = :year",
+                ['month' => $m, 'year' => $year]
             );
 
             $entry['total_employees'] = $summary['total_employees'] ?? 0;

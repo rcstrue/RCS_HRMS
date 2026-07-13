@@ -37,10 +37,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     p.basic_da, p.pf_employee, p.pf_employer, p.edli_employee, p.edli_employer,
                     p.present_days, p.paid_days
              FROM payroll p
-             JOIN employees e ON p.employee_id = e.id
+             JOIN employees e ON p.employee_id = e.employee_code
              LEFT JOIN clients c ON e.client_id = c.id
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-             WHERE pp.month = :month AND pp.year = :year
+             WHERE p.month = :month AND p.year = :year
                 AND e.is_pf_applicable = 1
                 AND e.uan_number IS NOT NULL AND e.uan_number != ''
              ORDER BY e.employee_code",

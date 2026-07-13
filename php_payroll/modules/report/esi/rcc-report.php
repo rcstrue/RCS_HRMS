@@ -7,7 +7,6 @@ $year = (int)($_GET['year'] ?? date('Y'));
 $monthName = $monthNames[$month] ?? '';
 
 $company = null;
-$period = null;
 $rccData = null;
 $rows = [];
 
@@ -17,38 +16,33 @@ try {
     $company = null;
 }
 
-try {
-    $period = $db->fetch("SELECT * FROM payroll_periods WHERE month = ? AND year = ?", [$month, $year]);
-} catch (Exception $e) {
-    $period = null;
-}
-
 $totalEE = 0;
 $totalER = 0;
 $totalWages = 0;
 $empCount = 0;
 
-if ($period) {
-    try {
-        $stats = $db->fetch("
-            SELECT COUNT(DISTINCT p.employee_id) as emp_count,
-                   COALESCE(SUM(p.gross_earnings), 0) as total_wages,
-                   COALESCE(SUM(p.esi_employee), 0) as total_ee,
-                   COALESCE(SUM(p.esi_employer), 0) as total_er
-            FROM payroll p
-            JOIN employees e ON e.employee_code = p.employee_id
-            JOIN employee_salary_structures ess ON ess.employee_id = e.id
-                AND ess.effective_from <= ? AND (ess.effective_to IS NULL OR ess.effective_to >= ?)
-            WHERE p.payroll_period_id = ? AND e.status = 'active' AND ess.esi_applicable = 1
-        ", [$period['start_date'], $period['end_date'], $period['id']]);
+$startDate = date('Y-m-01', mktime(0, 0, 0, $month, 1, $year));
+$endDate = date('Y-m-t', mktime(0, 0, 0, $month, 1, $year));
 
-        $empCount = $stats['emp_count'];
-        $totalWages = $stats['total_wages'];
-        $totalEE = $stats['total_ee'];
-        $totalER = $stats['total_er'];
-    } catch (Exception $e) {
-        $error = $e->getMessage();
-    }
+try {
+    $stats = $db->fetch("
+        SELECT COUNT(DISTINCT p.employee_id) as emp_count,
+               COALESCE(SUM(p.gross_earnings), 0) as total_wages,
+               COALESCE(SUM(p.esi_employee), 0) as total_ee,
+               COALESCE(SUM(p.esi_employer), 0) as total_er
+        FROM payroll p
+        JOIN employees e ON e.employee_code = p.employee_id
+        JOIN employee_salary_structures ess ON ess.employee_id = e.id
+            AND ess.effective_from <= ? AND (ess.effective_to IS NULL OR ess.effective_to >= ?)
+        WHERE p.month = ? AND p.year = ? AND e.status = 'active' AND ess.esi_applicable = 1
+    ", [$startDate, $endDate, $month, $year]);
+
+    $empCount = $stats['emp_count'];
+    $totalWages = $stats['total_wages'];
+    $totalEE = $stats['total_ee'];
+    $totalER = $stats['total_er'];
+} catch (Exception $e) {
+    $error = $e->getMessage();
 }
 
 $totalContrib = $totalEE + $totalER;

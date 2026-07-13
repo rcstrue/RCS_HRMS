@@ -177,8 +177,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         
         // Add arrear to payroll
         $existingPayroll = $db->fetch(
-            "SELECT * FROM payroll WHERE payroll_period_id = :period_id AND employee_id = :emp_id",
-            ['period_id' => $periodId, 'emp_id' => $arrear['employee_id']]
+            "SELECT * FROM payroll WHERE month = :month AND year = :year AND employee_id = :emp_id",
+            ['month' => $paymentMonth, 'year' => $paymentYear, 'emp' => $arrear['employee_id']]
         );
         
         if ($existingPayroll) {
@@ -193,8 +193,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         } else {
             // Create new payroll record with arrear
             $db->insert('payroll', [
-                'payroll_period_id' => $periodId,
-                'employee_id' => $arrear['employee_id'],
+                'month' => $paymentMonth,
+                'year' => $paymentYear,
                 'arrears' => $arrear['gross_arrear'],
                 'pf_employee' => $arrear['pf_arrear'],
                 'esi_employee' => $arrear['esi_arrear'],

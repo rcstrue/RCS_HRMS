@@ -16,7 +16,7 @@ $clients = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY
 // ========== TAB: Annual Salary Summary ==========
 $annualData = [];
 if ($tab === 'annual') {
-    $where = "pp.year = :year";
+    $where = "p.year = :year";
     $params = [':year' => $year];
     if ($clientFilter) { $where .= " AND e.client_id = :cid"; $params[':cid'] = $clientFilter; }
     
@@ -32,10 +32,9 @@ if ($tab === 'annual') {
                 SUM(p.esi_employer) as total_esi_er,
                 SUM(p.professional_tax) as total_pt,
                 SUM(p.ctc) as total_ctc,
-                COUNT(DISTINCT pp.id) as months_worked
+                COUNT(DISTINCT p.month) as months_worked
          FROM payroll p
          JOIN employees e ON p.employee_id = e.employee_code
-         JOIN payroll_periods pp ON p.payroll_period_id = pp.id
          LEFT JOIN clients c ON e.client_id = c.id
          WHERE $where
          GROUP BY e.employee_code, e.full_name, e.designation, c.name
@@ -47,9 +46,9 @@ if ($tab === 'annual') {
 // ========== TAB: Department-wise Summary ==========
 $deptData = [];
 if ($tab === 'department') {
-    $where = "pp.year = :year";
+    $where = "p.year = :year";
     $params = [':year' => $year];
-    if ($month) { $where .= " AND pp.month = :month"; $params[':month'] = $month; }
+    if ($month) { $where .= " AND p.month = :month"; $params[':month'] = $month; }
     
     $deptData = $db->fetchAll(
         "SELECT COALESCE(d.name, 'No Department') as department_name,
@@ -61,7 +60,6 @@ if ($tab === 'department') {
                 AVG(p.net_pay) as avg_net
          FROM payroll p
          JOIN employees e ON p.employee_id = e.employee_code
-         JOIN payroll_periods pp ON p.payroll_period_id = pp.id
          LEFT JOIN departments d ON e.department_id = d.id
          WHERE $where
          GROUP BY d.name
@@ -74,18 +72,17 @@ if ($tab === 'department') {
 $companyMonthly = [];
 if ($tab === 'company') {
     $companyMonthly = $db->fetchAll(
-        "SELECT pp.month, pp.year,
+        "SELECT p.month, p.year,
                 COUNT(DISTINCT p.employee_id) as employee_count,
                 SUM(p.gross_earnings) as total_gross,
                 SUM(p.total_deductions) as total_deductions,
                 SUM(p.net_pay) as total_net,
                 SUM(p.ctc) as total_ctc
          FROM payroll p
-         JOIN payroll_periods pp ON p.payroll_period_id = pp.id
          JOIN employees e ON p.employee_id = e.employee_code
-         WHERE pp.year = :year
-         GROUP BY pp.month, pp.year
-         ORDER BY pp.month",
+         WHERE p.year = :year
+         GROUP BY p.month, p.year
+         ORDER BY p.month",
         [':year' => $year]
     );
 }

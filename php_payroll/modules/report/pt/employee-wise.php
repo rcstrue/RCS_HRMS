@@ -19,17 +19,15 @@ if (isset($_GET['export'])) {
 
     // Load data for CSV
     try {
-        $csvPeriod = $db->fetch("SELECT id FROM payroll_periods WHERE month = ? AND year = ?", [$month, $year]);
-        if ($csvPeriod) {
-            $csvRows = $db->fetchAll("
+        $csvRows = $db->fetchAll("
                 SELECT e.employee_code, e.full_name, e.designation, e.state,
                        u.name as unit_name, p.gross_earnings, p.professional_tax
                 FROM payroll p
                 JOIN employees e ON e.employee_code = p.employee_id
                 LEFT JOIN units u ON u.id = e.unit_id
-                WHERE p.payroll_period_id = ? AND e.status = 'active'
+                WHERE p.month = ? AND p.year = ? AND e.status = 'active'
                 ORDER BY e.state, e.employee_code
-            ", [$csvPeriod['id']]);
+            ", [$month, $year]);
 
             $sno = 1;
             foreach ($csvRows as $r) {
@@ -49,42 +47,33 @@ if (isset($_GET['export'])) {
     exit;
 }
 
-// Fetch payroll period and data
-$period = null;
+// Fetch payroll data
 $allRows = [];
 $stateGroups = [];
 
 try {
-    $period = $db->fetch("SELECT * FROM payroll_periods WHERE month = ? AND year = ?", [$month, $year]);
-} catch (Exception $e) {
-    $period = null;
-}
-
-if ($period) {
-    try {
-        $allRows = $db->fetchAll("
+    $allRows = $db->fetchAll("
             SELECT e.employee_code, e.full_name, e.designation, e.state, e.unit_id,
                    u.name as unit_name, p.gross_earnings, p.professional_tax
             FROM payroll p
             JOIN employees e ON e.employee_code = p.employee_id
             LEFT JOIN units u ON u.id = e.unit_id
-            WHERE p.payroll_period_id = ? AND e.status = 'active'
+            WHERE p.month = ? AND p.year = ? AND e.status = 'active'
             ORDER BY e.state, e.employee_code
-        ", [$period['id']]);
+        ", [$month, $year]);
 
-        // Group by state
-        foreach ($allRows as $row) {
-            $state = $row['state'] ?: 'Unknown';
-            if (!isset($stateGroups[$state])) {
-                $stateGroups[$state] = [];
-            }
-            $stateGroups[$state][] = $row;
+    // Group by state
+    foreach ($allRows as $row) {
+        $state = $row['state'] ?: 'Unknown';
+        if (!isset($stateGroups[$state])) {
+            $stateGroups[$state] = [];
         }
-    } catch (Exception $e) {
-        $error = $e->getMessage();
-        $allRows = [];
-        $stateGroups = [];
+        $stateGroups[$state][] = $row;
     }
+} catch (Exception $e) {
+    $error = $e->getMessage();
+    $allRows = [];
+    $stateGroups = [];
 }
 
 // Total calculations
@@ -180,8 +169,6 @@ function getPTSlab($state, $grossSalary) {
 
     <?php if (isset($error)): ?>
         <div class="alert alert-danger"><?= sanitize($error) ?></div>
-    <?php elseif (!$period): ?>
-        <div class="alert alert-warning">No payroll period found for <?= sanitize($monthName) ?> <?= $year ?>.</div>
     <?php elseif (empty($allRows)): ?>
         <div class="alert alert-info">No employee records found with PT deductions for this period.</div>
     <?php else: ?>

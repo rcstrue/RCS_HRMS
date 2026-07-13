@@ -18,7 +18,7 @@ try {
 }
 
 // Build query for annual payroll data
-$where = "pp.year = :year";
+$where = "p.year = :year";
 $params = [':year' => $year];
 
 if ($clientFilter) {
@@ -45,7 +45,6 @@ $sql = "SELECT
             AVG(p.gross_salary) as avg_wages
         FROM payroll p
         JOIN employees e ON p.employee_id = e.employee_code
-        JOIN payroll_periods pp ON p.payroll_period_id = pp.id
         LEFT JOIN clients c ON e.client_id = c.id
         WHERE $where
         GROUP BY c.id, c.name
@@ -77,14 +76,13 @@ foreach ($clientData as $row) {
 // Get monthly trend data for the year
 $monthlyData = [];
 try {
-    $mtSql = "SELECT pp.month, 
+    $mtSql = "SELECT p.month, 
                      COUNT(DISTINCT p.employee_id) as emp_count,
                      SUM(p.gross_salary) as total_gross,
                      SUM(p.net_pay) as total_net
               FROM payroll p
-              JOIN payroll_periods pp ON p.payroll_period_id = pp.id
               JOIN employees e ON p.employee_id = e.employee_code
-              WHERE pp.year = :year";
+              WHERE p.year = :year";
     $mtParams = [':year' => $year];
     
     if ($clientFilter) {
@@ -92,7 +90,7 @@ try {
         $mtParams[':cid'] = $clientFilter;
     }
     
-    $mtSql .= " GROUP BY pp.month ORDER BY pp.month";
+    $mtSql .= " GROUP BY p.month ORDER BY p.month";
     
     $mtStmt = $db->prepare($mtSql);
     $mtStmt->execute($mtParams);

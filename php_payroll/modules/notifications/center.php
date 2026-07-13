@@ -65,8 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $empStmt = $db->prepare("SELECT e.full_name, e.mobile_number, p.net_salary
              FROM employees e
              LEFT JOIN payroll p ON e.employee_code = p.employee_id
-             LEFT JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-             WHERE e.status = 'approved' AND pp.month = ? AND pp.year = ?");
+             WHERE e.status = 'approved' AND p.month = ? AND p.year = ?");
         $empStmt->execute([$month, $year]);
         $employees = $empStmt->fetchAll(PDO::FETCH_ASSOC);
         
@@ -105,8 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $payrollStmt = $db->prepare("SELECT p.id, e.id as employee_id, e.full_name, e.personal_email
              FROM payroll p
              JOIN employees e ON p.employee_id = e.employee_code
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-             WHERE pp.month = ? AND pp.year = ?");
+             WHERE p.month = ? AND p.year = ?");
         $payrollStmt->execute([$month, $year]);
         $payrolls = $payrollStmt->fetchAll(PDO::FETCH_ASSOC);
         

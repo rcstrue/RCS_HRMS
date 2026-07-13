@@ -55,9 +55,8 @@ $sql = "SELECT
         LEFT JOIN units u ON e.unit_id = u.id
         LEFT JOIN clients c ON e.client_id = c.id
         LEFT JOIN payroll p ON e.employee_code = p.employee_id
-            AND p.payroll_period_id = (
-                SELECT id FROM payroll_periods WHERE year = :year ORDER BY month DESC LIMIT 1
-            )
+            AND p.year = :year
+            AND p.month = (SELECT MAX(p2.month) FROM payroll p2 WHERE p2.year = :year)
         WHERE $where
         ORDER BY e.employee_code";
 

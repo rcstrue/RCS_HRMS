@@ -35,17 +35,18 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // Get input data
-$periodId = (int)($_POST['period_id'] ?? 0);
+$month = (int)($_POST['month'] ?? 0);
+$year = (int)($_POST['year'] ?? 0);
 $empCode = sanitize($_POST['emp_code'] ?? '');
 
-if (!$periodId || !$empCode) {
+if (!$month || !$year || !$empCode) {
     echo json_encode(['success' => false, 'message' => 'Missing required parameters']);
     exit;
 }
 
 // ── Input validation ──
-if ($periodId < 1) {
-    echo json_encode(['success' => false, 'message' => 'Invalid payroll period ID']);
+if ($month < 1 || $month > 12 || $year < 2020) {
+    echo json_encode(['success' => false, 'message' => 'Invalid month or year']);
     exit;
 }
 if (!preg_match('/^[A-Za-z0-9_\-]+$/', $empCode)) {
@@ -108,8 +109,8 @@ $pt = $ptAmount;
 
 // Get existing deduction adjustments
 $existingPayroll = $db->fetch(
-    "SELECT salary_advance, other_deductions FROM payroll WHERE payroll_period_id = :pid AND employee_id = :emp",
-    ['pid' => $periodId, 'emp' => $empCode]
+    "SELECT salary_advance, other_deductions FROM payroll WHERE month = :month AND year = :year AND employee_id = :emp",
+    ['month' => $month, 'year' => $year, 'emp' => $empCode]
 );
 
 $salaryAdvance = floatval($existingPayroll['salary_advance'] ?? 0);
@@ -134,7 +135,7 @@ try {
         'total_deductions' => $totalDed,
         'net_pay'          => $netPay,
         'updated_at'       => date('Y-m-d H:i:s')
-    ], 'payroll_period_id = :pid AND employee_id = :emp', ['pid' => $periodId, 'emp' => $empCode]);
+    ], 'month = :month AND year = :year AND employee_id = :emp', ['month' => $month, 'year' => $year, 'emp' => $empCode]);
     
     echo json_encode([
         'success' => true,

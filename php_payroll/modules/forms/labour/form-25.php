@@ -15,8 +15,8 @@ $currentYear = date('Y');
 try {
     global $db;
 
-    // Years from payroll_periods
-    $stmt = $db->query("SELECT DISTINCT year FROM payroll_periods ORDER BY year DESC");
+    // Years from payroll
+    $stmt = $db->query("SELECT DISTINCT year FROM payroll ORDER BY year DESC");
     $years = $stmt->fetchAll(PDO::FETCH_COLUMN);
     if (empty($years)) {
         for ($y = $currentYear; $y >= $currentYear - 5; $y--) $years[] = $y;
@@ -83,8 +83,7 @@ try {
         $stmt2 = $db->prepare("
             SELECT p.employee_id, SUM(p.total_days) as total_days, SUM(p.paid_days) as paid_days
             FROM payroll p
-            JOIN payroll_periods pp ON pp.id = p.payroll_period_id
-            WHERE p.employee_id IN ($placeholders) AND pp.year = ?
+            WHERE p.employee_id IN ($placeholders) AND p.year = ?
             GROUP BY p.employee_id
         ");
         $allParams = array_merge($empIds, [$filterYear]);

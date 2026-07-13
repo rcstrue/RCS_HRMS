@@ -35,19 +35,10 @@ try {
 
 // Monthly trend data (12 months)
 $monthlyTrend = [];
-try {
-    $periods = $db->fetchAll("SELECT * FROM payroll_periods WHERE year = ? ORDER BY month", [$year]);
-} catch (Exception $e) {
-    $periods = [];
-}
+for ($m = 1; $m <= 12; $m++) {
+    $startDate = date('Y-m-01', mktime(0, 0, 0, $m, 1, $year));
+    $endDate = date('Y-m-t', mktime(0, 0, 0, $m, 1, $year));
 
-$totWages = 0;
-$totEE = 0;
-$totER = 0;
-$totIPs = 0;
-$totNCP = 0;
-
-foreach ($periods as $period) {
     try {
         $stats = $db->fetch("
             SELECT COUNT(DISTINCT p.employee_id) as emp_count,
@@ -59,13 +50,13 @@ foreach ($periods as $period) {
             JOIN employees e ON e.employee_code = p.employee_id
             JOIN employee_salary_structures ess ON ess.employee_id = e.id
                 AND ess.effective_from <= ? AND (ess.effective_to IS NULL OR ess.effective_to >= ?)
-            WHERE p.payroll_period_id = ? AND e.status = 'active' AND ess.esi_applicable = 1
-        ", [$period['start_date'], $period['end_date'], $period['id']]);
+            WHERE p.month = ? AND p.year = ? AND e.status = 'active' AND ess.esi_applicable = 1
+        ", [$startDate, $endDate, $m, $year]);
 
         $monthlyTrend[] = [
-            'month' => $period['month'],
-            'month_name' => $fullMonthNames[$period['month']] ?? '',
-            'short_name' => $monthNames[$period['month']] ?? '',
+            'month' => $m,
+            'month_name' => $fullMonthNames[$m] ?? '',
+            'short_name' => $monthNames[$m] ?? '',
             'emp_count' => $stats['emp_count'],
             'total_wages' => $stats['total_wages'],
             'total_ee' => $stats['total_ee'],
@@ -80,31 +71,15 @@ foreach ($periods as $period) {
         $totNCP += $stats['ncp_days'];
     } catch (Exception $e) {
         $monthlyTrend[] = [
-            'month' => $period['month'],
-            'month_name' => $fullMonthNames[$period['month']] ?? '',
-            'short_name' => $monthNames[$period['month']] ?? '',
-            'emp_count' => 0, 'total_wages' => 0,
-            'total_ee' => 0, 'total_er' => 0,
-            'total_contrib' => 0, 'ncp_days' => 0
-        ];
-    }
-}
-
-// Fill in missing months
-$existingMonths = array_column($monthlyTrend, 'month');
-for ($m = 1; $m <= 12; $m++) {
-    if (!in_array($m, $existingMonths)) {
-        $monthlyTrend[] = [
             'month' => $m,
-            'month_name' => $fullMonthNames[$m],
-            'short_name' => $monthNames[$m],
+            'month_name' => $fullMonthNames[$m] ?? '',
+            'short_name' => $monthNames[$m] ?? '',
             'emp_count' => 0, 'total_wages' => 0,
             'total_ee' => 0, 'total_er' => 0,
             'total_contrib' => 0, 'ncp_days' => 0
         ];
     }
 }
-usort($monthlyTrend, fn($a, $b) => $a['month'] <=> $b['month']);
 
 // Accident register summary
 $accidents = [];

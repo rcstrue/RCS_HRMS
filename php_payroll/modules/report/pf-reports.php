@@ -14,7 +14,7 @@ $clientFilter = (int)($_GET['client_id'] ?? 0);
 $clients = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 
 // Build base WHERE
-$baseWhere = "pp.month = :month AND pp.year = :year AND ess.pf_applicable = 1";
+$baseWhere = "p.month = :month AND p.year = :year AND ess.pf_applicable = 1";
 $baseParams = [':month' => $month, ':year' => $year];
 if ($clientFilter) { $baseWhere .= " AND e.client_id = :cid"; $baseParams[':cid'] = $clientFilter; }
 
@@ -33,7 +33,6 @@ if ($tab === 'account_register') {
                 c.name as client_name
          FROM payroll p
          JOIN employees e ON p.employee_id = e.employee_code
-         JOIN payroll_periods pp ON p.payroll_period_id = pp.id
          LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
          LEFT JOIN clients c ON e.client_id = c.id
          WHERE $baseWhere
@@ -52,7 +51,6 @@ if ($tab === 'summary') {
                 p.gross_salary, c.name as client_name
          FROM payroll p
          JOIN employees e ON p.employee_id = e.employee_code
-         JOIN payroll_periods pp ON p.payroll_period_id = pp.id
          LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
          LEFT JOIN clients c ON e.client_id = c.id
          WHERE $baseWhere
@@ -79,7 +77,6 @@ if ($tab === 'form12a') {
     $totalEmployees = $db->fetchColumn(
         "SELECT COUNT(DISTINCT p.employee_id) FROM payroll p
          JOIN employees e ON p.employee_id = e.employee_code
-         JOIN payroll_periods pp ON p.payroll_period_id = pp.id
          LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
          WHERE $baseWhere", $baseParams
     ) ?: 0;
@@ -88,7 +85,6 @@ if ($tab === 'form12a') {
     $contributing = $db->fetchColumn(
         "SELECT COUNT(DISTINCT p.employee_id) FROM payroll p
          JOIN employees e ON p.employee_id = e.employee_code
-         JOIN payroll_periods pp ON p.payroll_period_id = pp.id
          LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
          WHERE $baseWhere AND p.pf_employee > 0", $baseParams
     ) ?: 0;
@@ -97,7 +93,6 @@ if ($tab === 'form12a') {
     $totalWages = $db->fetchColumn(
         "SELECT SUM(p.basic_da) FROM payroll p
          JOIN employees e ON p.employee_id = e.employee_code
-         JOIN payroll_periods pp ON p.payroll_period_id = pp.id
          LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
          WHERE $baseWhere", $baseParams
     ) ?: 0;
@@ -127,7 +122,6 @@ if ($tab === 'form3a') {
                 p.overtime_amount, c.name as client_name
          FROM payroll p
          JOIN employees e ON p.employee_id = e.employee_code
-         JOIN payroll_periods pp ON p.payroll_period_id = pp.id
          LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
          LEFT JOIN clients c ON e.client_id = c.id
          WHERE $baseWhere

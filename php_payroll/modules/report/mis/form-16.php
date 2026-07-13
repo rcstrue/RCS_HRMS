@@ -43,12 +43,11 @@ if ($employeeId > 0) {
     if ($employee) {
         try {
             $payrollRecords = $db->fetchAll("
-                SELECT p.*, pp.month, pp.year
+                SELECT p.*, p.month, p.year
                 FROM payroll p
-                JOIN payroll_periods pp ON pp.id = p.payroll_period_id
                 WHERE p.employee_id = ?
-                    AND ((pp.year = ? AND pp.month >= 4) OR (pp.year = ? AND pp.month <= 3))
-                ORDER BY pp.year, pp.month
+                    AND ((p.year = ? AND p.month >= 4) OR (p.year = ? AND p.month <= 3))
+                ORDER BY p.year, p.month
             ", [$employee['employee_code'], $fyStart, $fyEnd]);
         } catch (Exception $e) {
             $payrollRecords = [];

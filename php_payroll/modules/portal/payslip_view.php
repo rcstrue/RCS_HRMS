@@ -18,9 +18,10 @@ require_once '../../includes/database.php';
 
 $db = Database::getInstance();
 $employeeId = $_SESSION['employee_portal']['employee_id'];
-$periodId = intval($_GET['period'] ?? 0);
+$month = intval($_GET['month'] ?? 0);
+$year = intval($_GET['year'] ?? 0);
 
-if (!$periodId) {
+if (!$month || !$year) {
     setFlash('error', 'Invalid payslip period');
     header('Location: index.php?page=portal/payslips');
     exit;
@@ -28,19 +29,18 @@ if (!$periodId) {
 
 // Get payslip details
 $payslip = $db->fetch(
-    "SELECT p.*, pp.period_name, pp.month, pp.year, pp.start_date, pp.end_date,
+    "SELECT p.*, p.month, p.year,
             e.employee_code, e.full_name, e.father_name, e.designation, e.department,
             e.date_of_joining, e.uan_number, e.esi_number, e.pan_number,
             e.bank_name, e.bank_account_number, e.bank_ifsc_code,
             c.name as client_name,
             u.name as unit_name
      FROM payroll p
-     JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-     JOIN employees e ON p.employee_id = e.id
+     JOIN employees e ON p.employee_id = e.employee_code
      LEFT JOIN clients c ON p.client_id = c.id
      LEFT JOIN units u ON p.unit_id = u.id
-     WHERE p.payroll_period_id = :period_id AND p.employee_id = :emp_id",
-    ['period_id' => $periodId, 'emp_id' => $employeeId]
+     WHERE p.month = :month AND p.year = :year AND p.employee_id = :emp_id",
+    ['month' => $month, 'year' => $year, 'emp_id' => $employeeId]
 );
 
 if (!$payslip) {

@@ -52,7 +52,6 @@ $sql = "SELECT
             p.ctc
         FROM payroll p
         JOIN employees e ON p.employee_id = e.employee_code
-        JOIN payroll_periods pp ON p.payroll_period_id = pp.id
         LEFT JOIN (
             SELECT employee_id, pf_applicable, esi_applicable
             FROM employee_salary_structures

@@ -47,8 +47,8 @@ foreach ($periods as $period) {
                    COALESCE(SUM(p.professional_tax), 0) as total_pt
             FROM payroll p
             JOIN employees e ON e.employee_code = p.employee_id
-            WHERE p.payroll_period_id = ? AND e.status = 'active'
-        ", [$period['id']]);
+            WHERE p.month = ? AND p.year = ? AND e.status = 'active'
+        ", [$period['month'], $period['year']]);
 
         // Try to get challan info
         $challan = null;
@@ -92,11 +92,10 @@ try {
         SELECT e.state,
                COUNT(DISTINCT p.employee_id) as emp_count,
                COALESCE(SUM(p.professional_tax), 0) as total_pt,
-               COUNT(DISTINCT p.payroll_period_id) as months_active
+               COUNT(DISTINCT p.month) as months_active
         FROM payroll p
         JOIN employees e ON e.employee_code = p.employee_id
-        JOIN payroll_periods pp ON pp.id = p.payroll_period_id
-        WHERE pp.year = ? AND e.status = 'active'
+        WHERE p.year = ? AND e.status = 'active'
         GROUP BY e.state
         ORDER BY total_pt DESC
     ", [$year]);

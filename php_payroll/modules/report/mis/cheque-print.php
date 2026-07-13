@@ -25,19 +25,12 @@ if ($clientId > 0) {
     }
 }
 
-$period = null;
+// Fetch payroll data
 $allRows = [];
 $bankGroups = [];
 
-try {
-    $period = $db->fetch("SELECT * FROM payroll_periods WHERE month = ? AND year = ?", [$month, $year]);
-} catch (Exception $e) {
-    $period = null;
-}
-
-if ($period) {
-    $params = [$period['id']];
-    $where = ["e.status = 'active'"];
+$params = [$month, $year];
+$where = ["e.status = 'active'"];
 
     if ($clientId > 0) {
         $where[] = "e.client_id = ?";
@@ -60,7 +53,7 @@ if ($period) {
                    p.net_pay
             FROM payroll p
             JOIN employees e ON e.employee_code = p.employee_id
-            WHERE p.payroll_period_id = ? AND {$whereClause}
+            WHERE p.month = ? AND {$whereClause}
             ORDER BY e.bank_name, e.employee_code
         ", $params);
 
@@ -81,7 +74,6 @@ if ($period) {
         $allRows = [];
         $bankGroups = [];
     }
-}
 
 $grandTotal = array_sum(array_map(fn($r) => $r['net_pay'], $allRows));
 

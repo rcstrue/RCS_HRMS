@@ -210,8 +210,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         
         // Add bonus to payroll
         $existingPayroll = $db->fetch(
-            "SELECT * FROM payroll WHERE payroll_period_id = :period_id AND employee_id = :emp_id",
-            ['period_id' => $periodId, 'emp_id' => $bonus['employee_id']]
+            "SELECT * FROM payroll WHERE month = :month AND year = :year AND employee_id = :emp_id",
+            ['month' => $paymentMonth, 'year' => $paymentYear, 'emp_id' => $bonus['employee_id']]
         );
         
         if ($existingPayroll) {
@@ -222,8 +222,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             ], SQL_WHERE_ID, ['id' => $existingPayroll['id']]);
         } else {
             $db->insert('payroll', [
-                'payroll_period_id' => $periodId,
                 'employee_id' => $bonus['employee_id'],
+                'month' => $paymentMonth,
+                'year' => $paymentYear,
                 'bonus' => $bonus['bonus_amount'],
                 'net_salary' => $bonus['bonus_amount'],
                 'payment_status' => 'pending',

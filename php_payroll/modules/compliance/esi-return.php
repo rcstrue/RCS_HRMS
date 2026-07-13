@@ -41,10 +41,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     p.gross_salary, p.net_salary, p.esi_employee, p.esi_employer,
                     p.present_days, p.paid_days, p.total_working_days
              FROM payroll p
-             JOIN employees e ON p.employee_id = e.id
+             JOIN employees e ON p.employee_id = e.employee_code
              LEFT JOIN clients c ON e.client_id = c.id
-             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
-             WHERE pp.month = :month AND pp.year = :year
+             
+             WHERE p.month = :month AND p.year = :year
                 AND e.is_esi_applicable = 1
                 AND p.gross_salary <= :ceiling
              ORDER BY e.full_name",

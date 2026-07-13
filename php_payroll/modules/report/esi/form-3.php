@@ -10,12 +10,6 @@ if (isset($_GET['export'])) {
     $month = (int)($_GET['month'] ?? date('m'));
     $year = (int)($_GET['year'] ?? date('Y'));
 
-    try {
-        $period = $db->fetch("SELECT * FROM payroll_periods WHERE month = ? AND year = ?", [$month, $year]);
-    } catch (Exception $e) {
-        $period = null;
-    }
-
     fputcsv($output, ['ESI Form 3 - Return of Contributions']);
     fputcsv($output, ['Month:', $month, 'Year:', $year]);
     fputcsv($output, []);
@@ -23,18 +17,20 @@ if (isset($_GET['export'])) {
     $headers = ['S.No', 'IP No', 'ESI No', 'Employee Name', 'Father Name', 'Gender', 'Total Wages', 'Wages for ESI', 'EE Contribution (0.75%)', 'ER Contribution (3.25%)', 'Total Contribution', 'NCP Days'];
     fputcsv($output, $headers);
 
-    if ($period) {
-        try {
-            $rows = $db->fetchAll("
-                SELECT e.employee_code, e.full_name, e.father_name, e.gender, e.esic_number,
-                       p.gross_earnings, p.esi_employee, p.esi_employer, p.total_days, p.paid_days
-                FROM payroll p
-                JOIN employees e ON e.employee_code = p.employee_id
-                JOIN employee_salary_structures ess ON ess.employee_id = e.id
-                    AND ess.effective_from <= ? AND (ess.effective_to IS NULL OR ess.effective_to >= ?)
-                WHERE p.payroll_period_id = ? AND e.status = 'active' AND ess.esi_applicable = 1
-                ORDER BY e.employee_code
-            ", [$period['start_date'], $period['end_date'], $period['id']]);
+    $startDate = date('Y-m-01', mktime(0, 0, 0, $month, 1, $year));
+    $endDate = date('Y-m-t', mktime(0, 0, 0, $month, 1, $year));
+
+    try {
+        $rows = $db->fetchAll("
+            SELECT e.employee_code, e.full_name, e.father_name, e.gender, e.esic_number,
+                   p.gross_earnings, p.esi_employee, p.esi_employer, p.total_days, p.paid_days
+            FROM payroll p
+            JOIN employees e ON e.employee_code = p.employee_id
+            JOIN employee_salary_structures ess ON ess.employee_id = e.id
+                AND ess.effective_from <= ? AND (ess.effective_to IS NULL OR ess.effective_to >= ?)
+            WHERE p.month = ? AND p.year = ? AND e.status = 'active' AND ess.esi_applicable = 1
+            ORDER BY e.employee_code
+        ", [$startDate, $endDate, $month, $year]);
 
             $sno = 1;
             $totalWages = 0;
@@ -70,9 +66,8 @@ if (isset($_GET['export'])) {
 
             fputcsv($output, []);
             fputcsv($output, ['', '', '', '', '', 'TOTAL', round($totalWages, 2), round($totalWages, 2), round($totalEE, 2), round($totalER, 2), round($totalContrib, 2), '']);
-        } catch (Exception $e) {
-            fputcsv($output, ['Error: ' . $e->getMessage()]);
-        }
+    } catch (Exception $e) {
+        fputcsv($output, ['Error: ' . $e->getMessage()]);
     }
 
     fclose($output);
@@ -81,15 +76,8 @@ if (isset($_GET['export'])) {
 
 $month = (int)($_GET['month'] ?? date('m'));
 $year = (int)($_GET['year'] ?? date('Y'));
-$period = null;
 $rows = [];
 $company = null;
-
-try {
-    $period = $db->fetch("SELECT * FROM payroll_periods WHERE month = ? AND year = ?", [$month, $year]);
-} catch (Exception $e) {
-    $period = null;
-}
 
 try {
     $company = $db->fetch("SELECT * FROM companies LIMIT 1");
@@ -97,23 +85,24 @@ try {
     $company = null;
 }
 
-if ($period) {
-    try {
-        $rows = $db->fetchAll("
-            SELECT e.employee_code, e.full_name, e.father_name, e.gender, e.esic_number,
-                   p.gross_earnings, p.esi_employee, p.esi_employer, p.total_days, p.paid_days,
-                   ess.gross_salary
-            FROM payroll p
-            JOIN employees e ON e.employee_code = p.employee_id
-            JOIN employee_salary_structures ess ON ess.employee_id = e.id
-                AND ess.effective_from <= ? AND (ess.effective_to IS NULL OR ess.effective_to >= ?)
-            WHERE p.payroll_period_id = ? AND e.status = 'active' AND ess.esi_applicable = 1
-            ORDER BY e.employee_code
-        ", [$period['start_date'], $period['end_date'], $period['id']]);
-    } catch (Exception $e) {
-        $rows = [];
-        $error = $e->getMessage();
-    }
+$startDate = date('Y-m-01', mktime(0, 0, 0, $month, 1, $year));
+$endDate = date('Y-m-t', mktime(0, 0, 0, $month, 1, $year));
+
+try {
+    $rows = $db->fetchAll("
+        SELECT e.employee_code, e.full_name, e.father_name, e.gender, e.esic_number,
+               p.gross_earnings, p.esi_employee, p.esi_employer, p.total_days, p.paid_days,
+               ess.gross_salary
+        FROM payroll p
+        JOIN employees e ON e.employee_code = p.employee_id
+        JOIN employee_salary_structures ess ON ess.employee_id = e.id
+            AND ess.effective_from <= ? AND (ess.effective_to IS NULL OR ess.effective_to >= ?)
+        WHERE p.month = ? AND p.year = ? AND e.status = 'active' AND ess.esi_applicable = 1
+        ORDER BY e.employee_code
+    ", [$startDate, $endDate, $month, $year]);
+} catch (Exception $e) {
+    $rows = [];
+    $error = $e->getMessage();
 }
 
 $monthNames = [1=>'January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -187,8 +176,6 @@ foreach ($rows as $row) {
 
     <?php if (isset($error)): ?>
         <div class="alert alert-danger"><?= sanitize($error) ?></div>
-    <?php elseif (!$period): ?>
-        <div class="alert alert-warning">No payroll period found for <?= sanitize($monthName) ?> <?= $year ?>.</div>
     <?php elseif (empty($rows)): ?>
         <div class="alert alert-info">No ESI-applicable employees found for this period.</div>
     <?php else: ?>

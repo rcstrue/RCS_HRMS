@@ -21,13 +21,12 @@ $employeeId = $_SESSION['employee_portal']['employee_id'];
 
 // Get all payslips
 $payslips = $db->fetchAll(
-    "SELECT p.*, pp.period_name, pp.month, pp.year, pp.status as period_status,
+    "SELECT p.*, p.month, p.year,
             c.name as client_name
      FROM payroll p
-     JOIN payroll_periods pp ON p.payroll_period_id = pp.id
      LEFT JOIN clients c ON p.client_id = c.id
      WHERE p.employee_id = :id
-     ORDER BY pp.year DESC, pp.month DESC",
+     ORDER BY p.year DESC, p.month DESC",
     ['id' => $employeeId]
 );
 
@@ -98,11 +97,11 @@ include '../../templates/header.php';
                                     </span>
                                 </td>
                                 <td class="text-center">
-                                    <a href="index.php?page=portal/payslip_view&period=<?php echo $p['payroll_period_id']; ?>" 
+                                    <a href="index.php?page=portal/payslip_view&month=<?php echo $p['month']; ?>&year=<?php echo $p['year']; ?>" 
                                        class="btn btn-sm btn-outline-primary" title="View Payslip">
                                         <i class="bi bi-eye"></i>
                                     </a>
-                                    <a href="index.php?page=portal/payslip_print&period=<?php echo $p['payroll_period_id']; ?>" 
+                                    <a href="index.php?page=portal/payslip_print&month=<?php echo $p['month']; ?>&year=<?php echo $p['year']; ?>" 
                                        class="btn btn-sm btn-outline-success" title="Print Payslip" target="_blank">
                                         <i class="bi bi-printer"></i>
                                     </a>

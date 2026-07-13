@@ -9,29 +9,29 @@ $pageTitle = 'PF Form 9 - Return of Contributions';
 
 // CSV Export
 if (isset($_GET['export'])) {
-    $periodId = sanitize($_GET['payroll_period_id'] ?? '');
+    $month = (int)sanitize($_GET['month'] ?? date('m'));
+    $year = (int)sanitize($_GET['year'] ?? date('Y'));
 
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="PF_Form_9_' . date('dmY') . '.csv"');
     $output = fopen('php://output', 'w');
     fprintf($output, chr(0xEF) . chr(0xBB) . chr(0xBF));
 
+    fputcsv($output, ['PF Form 9 - Return of Contributions']);
+    fputcsv($output, ['Month: ' . str_pad($month, 2, '0', STR_PAD_LEFT) . '/' . $year]);
+    fputcsv($output, []);
+
+    $headers = ['Sr No', 'PF Acct No', 'UAN', 'Name', 'Wages for PF', 'EPF (EE)', 'EPF (ER)', 'EPS', 'EDLI', 'Admin Charges', 'Total', 'NCP Days', 'Refund'];
+    fputcsv($output, $headers);
+
     try {
-        $period = $db->fetch("SELECT * FROM payroll_periods WHERE id = :id", ['id' => $periodId]);
-        fputcsv($output, ['PF Form 9 - Return of Contributions']);
-        fputcsv($output, ['Month: ' . str_pad($period['month'] ?? '', 2, '0', STR_PAD_LEFT) . '/' . ($period['year'] ?? '')]);
-        fputcsv($output, []);
-
-        $headers = ['Sr No', 'PF Acct No', 'UAN', 'Name', 'Wages for PF', 'EPF (EE)', 'EPF (ER)', 'EPS', 'EDLI', 'Admin Charges', 'Total', 'NCP Days', 'Refund'];
-        fputcsv($output, $headers);
-
         $contributions = $db->fetchAll(
             "SELECT p.*, e.full_name, e.uan_number, e.esic_number, e.employee_code
              FROM payroll p
              JOIN employees e ON e.employee_code = p.employee_id
-             WHERE p.payroll_period_id = :periodId
+             WHERE p.month = :month AND p.year = :year
              ORDER BY e.employee_code",
-            ['periodId' => $periodId]);
+            ['month' => $month, 'year' => $year]);
 
         $sr = 1;
         $totalWages = 0; $totalEpfEe = 0; $totalEpfEr = 0; $totalEps = 0;
@@ -78,18 +78,17 @@ if (isset($_GET['export'])) {
 }
 
 // Get filter values
-$periodId = sanitize($_GET['payroll_period_id'] ?? '');
+$month = (int)sanitize($_GET['month'] ?? date('m'));
+$year = (int)sanitize($_GET['year'] ?? date('Y'));
 $clientId = sanitize($_GET['client_id'] ?? '');
 
-// Fetch payroll periods
+// Fetch payroll periods (distinct month/year from payroll table)
 $payrollPeriods = [];
 try {
-    $payrollPeriods = $db->fetchAll("SELECT pp.*, COUNT(p.id) as emp_count
-                                     FROM payroll_periods pp
-                                     LEFT JOIN payroll p ON p.payroll_period_id = pp.id
-                                     WHERE pp.status = 'Processed'
-                                     GROUP BY pp.id
-                                     ORDER BY pp.year DESC, pp.month DESC
+    $payrollPeriods = $db->fetchAll("SELECT DISTINCT p.month, p.year, COUNT(*) as emp_count
+                                     FROM payroll p
+                                     GROUP BY p.month, p.year
+                                     ORDER BY p.year DESC, p.month DESC
                                      LIMIT 24");
 } catch (Exception $e) {
     $errorMsg = 'Error fetching periods: ' . $e->getMessage();
@@ -105,7 +104,7 @@ try {
 // Fetch contributions
 $contributions = [];
 $summaryTotals = [];
-if (!empty($periodId)) {
+if ($month && $year) {
     try {
         $contributions = $db->fetchAll(
             "SELECT p.employee_id, p.basic_da, p.pf_employee, p.pf_employer,
@@ -117,8 +116,8 @@ if (!empty($periodId)) {
              FROM payroll p
              JOIN employees e ON e.employee_code = p.employee_id
              LEFT JOIN clients c ON c.id = e.client_id
-             WHERE p.payroll_period_id = :periodId",
-            ['periodId' => $periodId]);
+             WHERE p.month = :month AND p.year = :year",
+            ['month' => $month, 'year' => $year]);
 
         // Apply client filter
         if (!empty($clientId)) {
@@ -157,13 +156,8 @@ if (!empty($periodId)) {
     }
 }
 
-// Get period info
-$period = null;
-if (!empty($periodId)) {
-    try {
-        $period = $db->fetch("SELECT * FROM payroll_periods WHERE id = :id", ['id' => $periodId]);
-    } catch (Exception $e) {}
-}
+// Get period info (month/year from filter)
+$period = ['month' => $month, 'year' => $year];
 ?>
 
 <style>
@@ -211,17 +205,17 @@ if (!empty($periodId)) {
             <form method="GET">
                 <input type="hidden" name="page" value="report/pf/form-9">
                 <div class="row g-3 align-items-end">
-                    <div class="col-md-4">
-                        <label class="form-label">Payroll Period</label>
-                        <select name="payroll_period_id" class="form-select form-select-sm">
-                            <option value="">-- Select Period --</option>
-                            <?php foreach ($payrollPeriods as $pp): ?>
-                                <option value="<?= $pp['id'] ?>" <?= $periodId == $pp['id'] ? 'selected' : '' ?>>
-                                    <?= str_pad($pp['month'], 2, '0', STR_PAD_LEFT) ?>/<?= $pp['year'] ?>
-                                    (<?= $pp['emp_count'] ?> employees)
-                                </option>
-                            <?php endforeach; ?>
+                    <div class="col-md-3">
+                        <label class="form-label">Month</label>
+                        <select name="month" class="form-select form-select-sm">
+                            <?php for ($i = 1; $i <= 12; $i++): ?>
+                                <option value="<?= $i ?>" <?= $i == $month ? 'selected' : '' ?>><?= str_pad($i, 2, '0', STR_PAD_LEFT) ?></option>
+                            <?php endfor; ?>
                         </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Year</label>
+                        <input type="number" name="year" class="form-control form-control-sm" value="<?= $year ?>" min="2020" max="2030">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Client</label>
@@ -237,8 +231,8 @@ if (!empty($periodId)) {
                     </div>
                     <div class="col-md-3">
                         <div class="d-flex gap-2">
-                            <?php if ($periodId): ?>
-                                <a href="?page=report/pf/form-9&payroll_period_id=<?= $periodId ?>&client_id=<?= $clientId ?>&export=1" class="btn btn-success btn-sm"><i class="bi bi-download me-1"></i>CSV</a>
+                            <?php if ($month && $year): ?>
+                                <a href="?page=report/pf/form-9&month=<?= $month ?>&year=<?= $year ?>&client_id=<?= $clientId ?>&export=1" class="btn btn-success btn-sm"><i class="bi bi-download me-1"></i>CSV</a>
                                 <button onclick="window.print()" class="btn btn-outline-dark btn-sm"><i class="bi bi-printer"></i></button>
                             <?php endif; ?>
                         </div>
@@ -254,7 +248,7 @@ if (!empty($periodId)) {
         </div>
     <?php endif; ?>
 
-    <?php if (!empty($periodId) && $period): ?>
+    <?php if ($month && $year): ?>
     <!-- Summary Cards -->
     <div class="row g-3 mb-4">
         <div class="col-lg-2 col-md-4 col-6">

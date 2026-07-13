@@ -98,9 +98,9 @@ try {
         FROM employees e
         JOIN units u ON e.unit_id = u.id
         LEFT JOIN payroll p ON e.employee_code = p.employee_id
-        LEFT JOIN payroll_periods pp ON p.payroll_period_id = pp.id
+        
         WHERE e.status = 'approved'
-        AND pp.month = ? AND pp.year = ?
+        AND p.month = ? AND p.year = ?
         AND u.state IS NOT NULL AND u.state != ''
         GROUP BY u.state
         ORDER BY u.state");

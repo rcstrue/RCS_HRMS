@@ -61,8 +61,8 @@ try {
             u.name as unit_name, c.name as client_name
         FROM attendance_summary at
         JOIN employees e ON e.id = at.employee_id
-        LEFT JOIN payroll p ON p.employee_id = e.id
-            AND p.payroll_period_id IN (SELECT id FROM payroll_periods WHERE month = :month AND year = :year)
+        LEFT JOIN payroll p ON p.employee_id = e.employee_code
+            AND p.month = :month AND p.year = :year
         LEFT JOIN employee_salary_structures ess ON ess.employee_id = e.id AND ess.effective_to IS NULL
         LEFT JOIN units u ON u.id = e.unit_id
         LEFT JOIN clients c ON c.id = e.client_id

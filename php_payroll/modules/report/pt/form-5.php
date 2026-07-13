@@ -18,56 +18,40 @@ try {
     $company = null;
 }
 
-try {
-    $period = $db->fetch("SELECT * FROM payroll_periods WHERE month = ? AND year = ?", [$month, $year]);
-} catch (Exception $e) {
-    $period = null;
-}
-
 // Get available states
 $availableStates = [];
 try {
     $availableStates = $db->fetchAll("
         SELECT DISTINCT e.state FROM employees e
         JOIN payroll p ON p.employee_id = e.employee_code
-        JOIN payroll_periods pp ON pp.id = p.payroll_period_id
-        WHERE pp.month = ? AND pp.year = ? AND e.status = 'active'
+        WHERE p.month = ? AND p.year = ? AND e.status = 'active'
         ORDER BY e.state
     ", [$month, $year]);
 } catch (Exception $e) {
     $availableStates = [];
 }
 
-if ($period) {
-    $params = [$period['id']];
-    $stateWhere = '';
-    if ($stateFilter) {
-        $stateWhere = " AND e.state = ?";
-        $params[] = $stateFilter;
-    }
+try {
+    $rows = $db->fetchAll("
+        SELECT e.employee_code, e.full_name, e.designation, e.state,
+               p.gross_earnings, p.professional_tax
+        FROM payroll p
+        JOIN employees e ON e.employee_code = p.employee_id
+        WHERE p.month = ? AND p.year = ? AND e.status = 'active' $stateWhere
+        ORDER BY e.state, e.employee_code
+    ", [$month, $year] + ($stateFilter ? [$stateFilter] : []));
 
-    try {
-        $rows = $db->fetchAll("
-            SELECT e.employee_code, e.full_name, e.designation, e.state,
-                   p.gross_earnings, p.professional_tax
-            FROM payroll p
-            JOIN employees e ON e.employee_code = p.employee_id
-            WHERE p.payroll_period_id = ? AND e.status = 'active' $stateWhere
-            ORDER BY e.state, e.employee_code
-        ", $params);
-
-        foreach ($rows as $row) {
-            $state = $row['state'] ?: 'Unknown';
-            if (!isset($stateGroups[$state])) {
-                $stateGroups[$state] = ['rows' => [], 'total' => 0, 'count' => 0];
-            }
-            $stateGroups[$state]['rows'][] = $row;
-            $stateGroups[$state]['total'] += $row['professional_tax'];
-            $stateGroups[$state]['count']++;
+    foreach ($rows as $row) {
+        $state = $row['state'] ?: 'Unknown';
+        if (!isset($stateGroups[$state])) {
+            $stateGroups[$state] = ['rows' => [], 'total' => 0, 'count' => 0];
         }
-    } catch (Exception $e) {
-        $error = $e->getMessage();
+        $stateGroups[$state]['rows'][] = $row;
+        $stateGroups[$state]['total'] += $row['professional_tax'];
+        $stateGroups[$state]['count']++;
     }
+} catch (Exception $e) {
+    $error = $e->getMessage();
 }
 
 $grandTotal = array_sum(array_map(fn($g) => $g['total'], $stateGroups));
@@ -119,8 +103,8 @@ $grandCount = count($rows);
 
     <?php if (isset($error)): ?>
         <div class="alert alert-danger"><?= sanitize($error) ?></div>
-    <?php elseif (!$period): ?>
-        <div class="alert alert-warning">No payroll period found for <?= sanitize($monthName) ?> <?= $year ?>.</div>
+    <?php elseif (empty($rows)): ?>
+        <div class="alert alert-warning">No payroll data found for <?= sanitize($monthName) ?> <?= $year ?>.</div>
     <?php else: ?>
 
     <?php foreach ($stateGroups as $state => $group): ?>

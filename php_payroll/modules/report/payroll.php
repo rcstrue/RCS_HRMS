@@ -23,7 +23,7 @@ if (($_SESSION['role_code'] ?? '') === 'manager') {
 }
 
 // Build query with proper JOINs
-$where = "pp.month = :month AND pp.year = :year";
+$where = "p.month = :month AND p.year = :year";
 $params = ['month' => $month, 'year' => $year];
 
 if ($clientName) {
@@ -50,7 +50,6 @@ if ($reportType === 'summary') {
                 SUM(p.net_pay) as total_net
             FROM payroll p
             JOIN employees e ON p.employee_id = e.employee_code
-            JOIN payroll_periods pp ON p.payroll_period_id = pp.id
             LEFT JOIN clients c ON e.client_id = c.id
             LEFT JOIN units u ON e.unit_id = u.id
             WHERE {$where}
@@ -74,7 +73,6 @@ if ($reportType === 'summary') {
                 p.net_pay
             FROM payroll p
             JOIN employees e ON p.employee_id = e.employee_code
-            JOIN payroll_periods pp ON p.payroll_period_id = pp.id
             LEFT JOIN clients c ON e.client_id = c.id
             LEFT JOIN units u ON e.unit_id = u.id
             WHERE {$where}
@@ -92,7 +90,6 @@ if ($reportType === 'summary') {
                 SUM(p.professional_tax) as total_pt
             FROM payroll p
             JOIN employees e ON p.employee_id = e.employee_code
-            JOIN payroll_periods pp ON p.payroll_period_id = pp.id
             LEFT JOIN clients c ON e.client_id = c.id
             WHERE {$where}
             GROUP BY c.name

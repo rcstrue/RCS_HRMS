@@ -64,46 +64,39 @@ $totals = [
 ];
 
 try {
-    // Find payroll period
-    $stmt = $db->prepare("SELECT * FROM payroll_periods WHERE month = ? AND year = ? LIMIT 1");
-    $stmt->execute([$filterMonth, $filterYear]);
-    $periodInfo = $stmt->fetch(PDO::FETCH_ASSOC);
+    $sql = "SELECT p.*, e.employee_code, e.full_name, e.father_name, e.designation,
+                   ess.basic_da as salary_basic_da
+            FROM payroll p
+            JOIN employees e ON p.employee_id = e.employee_code
+            LEFT JOIN employee_salary_structures ess ON ess.employee_id = e.id
+            WHERE p.month = ? AND p.year = ?";
 
-    if ($periodInfo) {
-        $sql = "SELECT p.*, e.employee_code, e.full_name, e.father_name, e.designation,
-                       ess.basic_da as salary_basic_da
-                FROM payroll p
-                JOIN employees e ON e.id = p.employee_id
-                LEFT JOIN employee_salary_structures ess ON ess.employee_id = e.id
-                WHERE p.payroll_period_id = ?";
+    $params = [$filterMonth, $filterYear];
 
-        $params = [$periodInfo['id']];
+    if ($filterClient > 0) {
+        $sql .= " AND e.client_id = ?";
+        $params[] = $filterClient;
+    }
+    if ($filterUnit > 0) {
+        $sql .= " AND e.unit_id = ?";
+        $params[] = $filterUnit;
+    }
 
-        if ($filterClient > 0) {
-            $sql .= " AND e.client_id = ?";
-            $params[] = $filterClient;
-        }
-        if ($filterUnit > 0) {
-            $sql .= " AND e.unit_id = ?";
-            $params[] = $filterUnit;
-        }
+    $sql .= " ORDER BY e.employee_code ASC";
 
-        $sql .= " ORDER BY e.employee_code ASC";
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $wageData = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $stmt = $db->prepare($sql);
-        $stmt->execute($params);
-        $wageData = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        // Calculate totals
-        foreach ($wageData as $row) {
-            $totals['total_days']       += intval($row['paid_days'] ?? 0);
-            $totals['total_gross']       += floatval($row['gross_earnings'] ?? 0);
-            $totals['total_pf']          += floatval($row['pf_employee'] ?? 0);
-            $totals['total_esi']         += floatval($row['esi_employee'] ?? 0);
-            $totals['total_pt']          += floatval($row['professional_tax'] ?? 0);
-            $totals['total_deductions']  += floatval($row['total_deductions'] ?? 0);
-            $totals['total_net']         += floatval($row['net_pay'] ?? 0);
-        }
+    // Calculate totals
+    foreach ($wageData as $row) {
+        $totals['total_days']       += intval($row['paid_days'] ?? 0);
+        $totals['total_gross']       += floatval($row['gross_earnings'] ?? 0);
+        $totals['total_pf']          += floatval($row['pf_employee'] ?? 0);
+        $totals['total_esi']         += floatval($row['esi_employee'] ?? 0);
+        $totals['total_pt']          += floatval($row['professional_tax'] ?? 0);
+        $totals['total_deductions']  += floatval($row['total_deductions'] ?? 0);
+        $totals['total_net']         += floatval($row['net_pay'] ?? 0);
     }
 } catch (Exception $e) {
     $error = 'Error: ' . $e->getMessage();

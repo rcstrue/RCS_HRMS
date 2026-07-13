@@ -43,12 +43,11 @@ if ($employeeId > 0) {
         // Get latest payroll record
         try {
             $payrollData = $db->fetch("
-                SELECT p.*, pp.month, pp.year
+                SELECT p.*, p.month, p.year
                 FROM payroll p
-                JOIN payroll_periods pp ON pp.id = p.payroll_period_id
-                WHERE p.employee_id = ? AND e.employee_code = ?
-                ORDER BY pp.year DESC, pp.month DESC LIMIT 1
-            ", [$employee['employee_code'], $employee['employee_code']]);
+                WHERE p.employee_id = ?
+                ORDER BY p.year DESC, p.month DESC LIMIT 1
+            ", [$employee['employee_code']]);
         } catch (Exception $e) {
             $payrollData = null;
         }
@@ -57,11 +56,10 @@ if ($employeeId > 0) {
         if (!$payrollData) {
             try {
                 $payrollData = $db->fetch("
-                    SELECT p.*, pp.month, pp.year
+                    SELECT p.*, p.month, p.year
                     FROM payroll p
-                    JOIN payroll_periods pp ON pp.id = p.payroll_period_id
                     WHERE p.employee_id = ?
-                    ORDER BY pp.year DESC, pp.month DESC LIMIT 1
+                    ORDER BY p.year DESC, p.month DESC LIMIT 1
                 ", [$employee['employee_code']]);
             } catch (Exception $e) {
                 $payrollData = null;

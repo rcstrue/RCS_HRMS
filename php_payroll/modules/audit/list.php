@@ -10,10 +10,10 @@ $dateTo = $_GET['date_to'] ?? '';
 $where = "WHERE 1=1";
 $params = [];
 
-if ($moduleFilter) { $where .= " AND module = ?"; $params['module'] = $moduleFilter; }
-if ($userFilter) { $where .= " AND user_id = ?"; $params['user_id'] = $userFilter; }
-if ($dateFrom) { $where .= " AND DATE(created_at) >= ?"; $params['date_from'] = $dateFrom; }
-if ($dateTo) { $where .= " AND DATE(created_at) <= ?"; $params['date_to'] = $dateTo; }
+if ($moduleFilter) { $where .= " AND module = ?"; $params[] = $moduleFilter; }
+if ($userFilter) { $where .= " AND user_id = ?"; $params[] = $userFilter; }
+if ($dateFrom) { $where .= " AND DATE(created_at) >= ?"; $params[] = $dateFrom; }
+if ($dateTo) { $where .= " AND DATE(created_at) <= ?"; $params[] = $dateTo; }
 
 $stmt = $db->prepare("SELECT al.*, u.username, u.first_name, u.last_name
         FROM audit_log al

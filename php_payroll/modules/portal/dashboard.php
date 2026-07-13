@@ -55,11 +55,10 @@ $attendance = $db->fetch(
 
 // Get recent payslips
 $payslips = $db->fetchAll(
-    "SELECT p.*, pp.period_name, pp.month, pp.year
+    "SELECT p.*, p.month, p.year
      FROM payroll p
-     JOIN payroll_periods pp ON p.payroll_period_id = pp.id
      WHERE p.employee_id = :id
-     ORDER BY pp.year DESC, pp.month DESC
+     ORDER BY p.year DESC, p.month DESC
      LIMIT 6",
     ['id' => $employeeId]
 );
@@ -332,7 +331,7 @@ include '../../templates/header.php';
                                 <td class="text-end text-danger"><?php echo formatCurrency($p['pf_employee'] + $p['esi_employee'] + $p['pt_employee']); ?></td>
                                 <td class="text-end"><strong><?php echo formatCurrency($p['net_salary']); ?></strong></td>
                                 <td>
-                                    <a href="index.php?page=portal/payslip_view&period=<?php echo $p['payroll_period_id']; ?>" 
+                                    <a href="index.php?page=portal/payslip_view&month=<?php echo $p['month']; ?>&year=<?php echo $p['year']; ?>" 
                                        class="btn btn-sm btn-outline-primary">
                                         <i class="bi bi-eye"></i>
                                     </a>

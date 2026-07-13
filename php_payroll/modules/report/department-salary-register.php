@@ -18,7 +18,7 @@ try {
 }
 
 // Build query
-$where = "pp.month = :month AND pp.year = :year AND e.status = 'approved'";
+$where = "p.month = :month AND p.year = :year AND e.status = 'approved'";
 $params = [':month' => $month, ':year' => $year];
 
 if ($clientFilter) {
@@ -38,7 +38,6 @@ $sql = "SELECT
             p.salary_advance, p.total_deductions, p.net_pay
         FROM payroll p
         JOIN employees e ON p.employee_id = e.employee_code
-        JOIN payroll_periods pp ON p.payroll_period_id = pp.id
         LEFT JOIN clients c ON e.client_id = c.id
         WHERE $where
         ORDER BY e.department, e.employee_code";

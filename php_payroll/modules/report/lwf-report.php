@@ -50,7 +50,7 @@ try {
 }
 
 // Build query
-$where = "pp.month = :month AND pp.year = :year";
+$where = "p.month = :month AND p.year = :year";
 $params = [':month' => $month, ':year' => $year];
 
 if ($clientFilter) {
@@ -68,7 +68,6 @@ $sql = "SELECT
             ess.lwf_applicable
         FROM payroll p
         JOIN employees e ON p.employee_id = e.employee_code
-        JOIN payroll_periods pp ON p.payroll_period_id = pp.id
         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
             AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
         LEFT JOIN units u ON e.unit_id = u.id
