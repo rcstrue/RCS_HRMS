@@ -49,7 +49,6 @@ $ratecards = $stmt->fetchAll(PDO::FETCH_ASSOC);
 // Get clients
 $clients = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 
-include '../../templates/header.php';
 ?>
 
 <div class="page-header">
@@ -195,5 +194,4 @@ $(document).ready(function() {
 </script>
 JS;
 
-include '../../templates/footer.php';
 ?>

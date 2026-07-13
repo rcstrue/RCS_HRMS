@@ -104,7 +104,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-include '../../templates/header.php';
 ?>
 
 <div class="page-header">
@@ -314,7 +313,8 @@ $(document).ready(function() {
         if (clientId) {
             $.get(`index.php?page=api/units&client_id=${clientId}`, function(data) {
                 let options = '<option value="">All Units</option>';
-                data.forEach(unit => {
+                const units = data.units || data;
+                units.forEach(unit => {
                     options += `<option value="${unit.id}">${unit.name}</option>`;
                 });
                 $('#unit_id').html(options);
@@ -335,5 +335,4 @@ $(document).ready(function() {
 </script>
 JS;
 
-include '../../templates/footer.php';
 ?>

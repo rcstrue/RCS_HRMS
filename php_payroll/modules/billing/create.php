@@ -385,7 +385,8 @@ $('#client_id').change(function() {
     if (clientId) {
         $.get(`index.php?page=api/units&client_id=${clientId}`, function(data) {
             let options = '<option value="">All Units</option>';
-            data.forEach(unit => {
+            const units = data.units || data;
+            units.forEach(unit => {
                 options += `<option value="${unit.id}">${unit.name}</option>`;
             });
             $('#unit_id').html(options);
@@ -395,16 +396,18 @@ $('#client_id').change(function() {
 
 // Add item
 $('#addItem').click(function() {
+    // Build employee options HTML from the first row's select
+    const empOptions = $('.employee-select').first().html();
     const template = `
         <tr class="item-row">
             <td>
                 <select name="items[${itemIndex}][employee_id]" class="form-select form-select-sm employee-select">
                     <option value="">Select or type description</option>
-                    $('#employeeOptions').html()
+                    ${empOptions}
                 </select>
                 <input type="text" name="items[${itemIndex}][description]" class="form-control form-control-sm mt-1" placeholder="Description">
             </td>
-            <td><input type="text" name="items[${itemIndex}][designation]" class="form-control form-select-sm designation"></td>
+            <td><input type="text" name="items[${itemIndex}][designation]" class="form-control form-control-sm designation"></td>
             <td><input type="number" name="items[${itemIndex}][days_worked]" class="form-control form-control-sm days" step="0.5" value="30"></td>
             <td><input type="number" name="items[${itemIndex}][rate_per_day]" class="form-control form-control-sm rate" step="0.01" value="0"></td>
             <td><input type="number" name="items[${itemIndex}][amount]" class="form-control form-control-sm amount" step="0.01" readonly></td>
