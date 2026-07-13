@@ -55,4 +55,21 @@ Stage Summary:
 - Backend: auto-role.php created at /RCS_HRMS/api/ess/auto-role.php
 - Frontend: DesignationManagement.tsx now has auto-role preview + apply UI
 - Frontend built and deployed to /home/z/my-project/api/
-- Production deploy needed: copy auto-role.php to server's api/ess/ directory
+- Production deploy needed: copy auto-role.php to server's api/ess/ directory---
+Task ID: 1-4
+Agent: Main Agent
+Task: Repair audit items C5, C12, C13, C14 from RCS_HRMS_Audit_Report
+
+Work Log:
+- Read audit report PDF, identified C5/C12/C13/C14 descriptions and exact file locations
+- C5: Added session auth check (user_id) to top of modules/api/image-tool.php — blocks unauthenticated access to employee document browsing/deletion
+- C12: Changed e.status = 1 to e.status = 'approved' in bonus-register.php, department-salary-register.php, leave-register.php, gratuity-form-f.php
+- C13: Changed e.pf_number to e.uan_number in pf-reports.php (Account Register + Summary SELECT) and custom.php (column definition label)
+- C14: Changed clients/units WHERE status = 1 to WHERE is_active = 1 in pf/form-5.php, pf/form-9.php, pf/dues-remitted.php, pf/cover-exempt.php
+- Committed all 11 modified files and pushed to GitHub (RCS_HRMS submodule)
+- C6 skipped per user instruction (EXPLAIN LATER)
+
+Stage Summary:
+- 11 files modified, 1 commit pushed to GitHub RCS_HRMS repo
+- All 4 audit items (C5, C12, C13, C14) repaired
+- C6 deferred (portal login OTP) per user instruction

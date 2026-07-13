@@ -1,0 +1,558 @@
+     1→<?php
+     2→/**
+     3→ * PF Dues & Remitted Report
+     4→ * Monthly PF dues vs actual remitted comparison with annual summary
+     5→ * Framework: RCS HRMS Pro (index.php?page=module/file)
+     6→ */
+     7→
+     8→$pageTitle = 'PF Dues & Remitted Report';
+     9→
+    10→// CSV Export
+    11→if (isset($_GET['export'])) {
+    12→    $year = sanitize($_GET['year'] ?? date('Y'));
+    13→    $clientId = sanitize($_GET['client_id'] ?? '');
+    14→
+    15→    header('Content-Type: text/csv; charset=utf-8');
+    16→    header('Content-Disposition: attachment; filename="PF_Dues_Remitted_' . $year . '.csv"');
+    17→    $output = fopen('php://output', 'w');
+    18→    fprintf($output, chr(0xEF) . chr(0xBB) . chr(0xBF));
+    19→
+    20→    fputcsv($output, ['PF Dues & Remitted Report — Year ' . $year]);
+    21→    fputcsv($output, ['Generated: ' . date('d/m/Y H:i')]);
+    22→    fputcsv($output, []);
+    23→
+    24→    $headers = ['Month', 'No. of Employees', 'Total Wages', 'Total Dues (EPF+EPS+EDLI+Admin)',
+    25→                'Amount Remitted', 'Challan No.', 'Challan Date', 'Difference', 'Status'];
+    26→    fputcsv($output, $headers);
+    27→
+    28→    try {
+    29→        for ($m = 1; $m <= 12; $m++) {
+    30→            $period = $db->fetch(
+    31→                "SELECT pp.id FROM payroll_periods pp
+    32→                 WHERE pp.month = :month AND pp.year = :year AND pp.status = 'Processed'
+    33→                 LIMIT 1",
+    34→                ['month' => $m, 'year' => $year]
+    35→            );
+    36→
+    37→            if (!$period) {
+    38→                $monthName = date('F', mktime(0, 0, 0, $m, 1));
+    39→                fputcsv($output, [$monthName, 0, 0, 0, 0, '', '', 0, 'Not Processed']);
+    40→                continue;
+    41→            }
+    42→
+    43→            $summary = $db->fetch(
+    44→                "SELECT COUNT(DISTINCT p.employee_id) as total_employees,
+    45→                        SUM(p.basic_da) as total_wages,
+    46→                        SUM(p.pf_employee) as total_epf_ee,
+    47→                        SUM(p.pf_employer) as total_epf_er,
+    48→                        SUM(p.eps_employer) as total_eps,
+    49→                        SUM(p.edlis_employer) as total_edli,
+    50→                        SUM(p.epf_admin_charges) as total_admin
+    51→                 FROM payroll p
+    52→                 WHERE p.payroll_period_id = :periodId",
+    53→                ['periodId' => $period['id']]
+    54→            );
+    55→
+    56→            $totalDues = ($summary['total_epf_ee'] ?? 0) + ($summary['total_epf_er'] ?? 0) +
+    57→                         ($summary['total_eps'] ?? 0) + ($summary['total_edli'] ?? 0) +
+    58→                         ($summary['total_admin'] ?? 0);
+    59→
+    60→            // Try to find challan info from pf_challans or pf_remissions table
+    61→            $challanNo = '';
+    62→            $challanDate = '';
+    63→            $amountRemitted = 0;
+    64→            $status = 'Pending';
+    65→
+    66→            try {
+    67→                $challan = $db->fetch(
+    68→                    "SELECT challan_no, challan_date, amount_paid, status
+    69→                     FROM pf_remissions
+    70→                     WHERE payroll_period_id = :periodId
+    71→                     LIMIT 1",
+    72→                    ['periodId' => $period['id']]
+    73→                );
+    74→                if ($challan) {
+    75→                    $challanNo = $challan['challan_no'] ?? '';
+    76→                    $challanDate = $challan['challan_date'] ? formatDate($challan['challan_date']) : '';
+    77→                    $amountRemitted = $challan['amount_paid'] ?? 0;
+    78→                    $status = $challan['status'] ?? 'Pending';
+    79→                }
+    80→            } catch (Exception $e) {
+    81→                // Table may not exist
+    82→            }
+    83→
+    84→            $difference = round($totalDues - $amountRemitted, 2);
+    85→
+    86→            $monthName = date('F', mktime(0, 0, 0, $m, 1));
+    87→            fputcsv($output, [
+    88→                $monthName,
+    89→                $summary['total_employees'] ?? 0,
+    90→                formatCurrency($summary['total_wages'] ?? 0),
+    91→                formatCurrency($totalDues),
+    92→                formatCurrency($amountRemitted),
+    93→                $challanNo,
+    94→                $challanDate,
+    95→                formatCurrency($difference),
+    96→                $status
+    97→            ]);
+    98→        }
+    99→    } catch (Exception $e) {
+   100→        fputcsv($output, ['Error', $e->getMessage()]);
+   101→    }
+   102→
+   103→    fclose($output);
+   104→    exit;
+   105→}
+   106→
+   107→// Get filter values
+   108→$year = sanitize($_GET['year'] ?? date('Y'));
+   109→$clientId = sanitize($_GET['client_id'] ?? '');
+   110→
+   111→// Fetch clients for filter
+   112→try {
+   113→    $clients = $db->fetchAll("SELECT id, name FROM clients WHERE status = 1 ORDER BY name");
+   114→} catch (Exception $e) {
+   115→    $clients = [];
+   116→}
+   117→
+   118→// Fetch monthly data
+   119→$monthlyData = [];
+   120→$annualTotals = [
+   121→    'total_employees_count' => 0,
+   122→    'total_wages' => 0,
+   123→    'total_dues' => 0,
+   124→    'total_remitted' => 0,
+   125→    'total_difference' => 0,
+   126→    'months_paid' => 0,
+   127→    'months_pending' => 0,
+   128→];
+   129→
+   130→try {
+   131→    for ($m = 1; $m <= 12; $m++) {
+   132→        $entry = [
+   133→            'month' => $m,
+   134→            'month_name' => date('F', mktime(0, 0, 0, $m, 1)),
+   135→            'total_employees' => 0,
+   136→            'total_wages' => 0,
+   137→            'total_dues' => 0,
+   138→            'amount_remittted' => 0,
+   139→            'challan_no' => '',
+   140→            'challan_date' => '',
+   141→            'difference' => 0,
+   142→            'status' => 'Not Processed',
+   143→            'period_id' => null,
+   144→        ];
+   145→
+   146→        $period = $db->fetch(
+   147→            "SELECT pp.id FROM payroll_periods pp
+   148→             WHERE pp.month = :month AND pp.year = :year AND pp.status = 'Processed'
+   149→             LIMIT 1",
+   150→            ['month' => $m, 'year' => $year]
+   151→        );
+   152→
+   153→        if ($period) {
+   154→            $entry['period_id'] = $period['id'];
+   155→
+   156→            $summary = $db->fetch(
+   157→                "SELECT COUNT(DISTINCT p.employee_id) as total_employees,
+   158→                        SUM(p.basic_da) as total_wages,
+   159→                        SUM(p.pf_employee) as total_epf_ee,
+   160→                        SUM(p.pf_employer) as total_epf_er,
+   161→                        SUM(p.eps_employer) as total_eps,
+   162→                        SUM(p.edlis_employer) as total_edli,
+   163→                        SUM(p.epf_admin_charges) as total_admin
+   164→                 FROM payroll p
+   165→                 WHERE p.payroll_period_id = :periodId",
+   166→                ['periodId' => $period['id']]
+   167→            );
+   168→
+   169→            $entry['total_employees'] = $summary['total_employees'] ?? 0;
+   170→            $entry['total_wages'] = $summary['total_wages'] ?? 0;
+   171→            $entry['total_dues'] = ($summary['total_epf_ee'] ?? 0) + ($summary['total_epf_er'] ?? 0) +
+   172→                                   ($summary['total_eps'] ?? 0) + ($summary['total_edli'] ?? 0) +
+   173→                                   ($summary['total_admin'] ?? 0);
+   174→            $entry['status'] = 'Dues Calculated';
+   175→
+   176→            // Check for remittance record
+   177→            try {
+   178→                $challan = $db->fetch(
+   179→                    "SELECT challan_no, challan_date, amount_paid, status
+   180→                     FROM pf_remissions
+   181→                     WHERE payroll_period_id = :periodId
+   182→                     LIMIT 1",
+   183→                    ['periodId' => $period['id']]
+   184→                );
+   185→                if ($challan) {
+   186→                    $entry['challan_no'] = $challan['challan_no'] ?? '';
+   187→                    $entry['challan_date'] = $challan['challan_date'] ?? '';
+   188→                    $entry['amount_remittted'] = $challan['amount_paid'] ?? 0;
+   189→                    $entry['status'] = $challan['status'] ?? 'Pending';
+   190→                }
+   191→            } catch (Exception $e) {
+   192→                // Table may not exist — that's fine
+   193→            }
+   194→
+   195→            $entry['difference'] = round($entry['total_dues'] - $entry['amount_remittted'], 2);
+   196→        }
+   197→
+   198→        // Accumulate annual totals
+   199→        $annualTotals['total_employees_count'] += $entry['total_employees'];
+   200→        $annualTotals['total_wages'] += $entry['total_wages'];
+   201→        $annualTotals['total_dues'] += $entry['total_dues'];
+   202→        $annualTotals['total_remitted'] += $entry['amount_remittted'];
+   203→        $annualTotals['total_difference'] += $entry['difference'];
+   204→
+   205→        if (in_array($entry['status'], ['Paid', 'Remitted'])) {
+   206→            $annualTotals['months_paid']++;
+   207→        } elseif ($entry['status'] !== 'Not Processed') {
+   208→            $annualTotals['months_pending']++;
+   209→        }
+   210→
+   211→        $monthlyData[] = $entry;
+   212→    }
+   213→} catch (Exception $e) {
+   214→    $errorMsg = 'Error fetching monthly data: ' . $e->getMessage();
+   215→}
+   216→
+   217→// Compliance percentage
+   218→$compliancePct = $annualTotals['total_dues'] > 0
+   219→    ? round(($annualTotals['total_remitted'] / $annualTotals['total_dues']) * 100, 1)
+   220→    : 0;
+   221→?>
+   222→
+   223→<style>
+   224→@media print {
+   225→    .btn, form, .no-print { display: none !important; }
+   226→    .card { border: none !important; box-shadow: none !important; }
+   227→    .table { font-size: 10px; }
+   228→    body { font-size: 12px; }
+   229→}
+   230→.dues-header {
+   231→    background: linear-gradient(135deg, #e65100 0%, #ef6c00 100%);
+   232→    color: white;
+   233→    padding: 20px;
+   234→    border-radius: 8px;
+   235→    margin-bottom: 20px;
+   236→}
+   237→.status-paid { color: #2e7d32; }
+   238→.status-pending { color: #e65100; }
+   239→.status-not-processed { color: #9e9e9e; }
+   240→.dues-card {
+   241→    border-left: 4px solid #e65100;
+   242→}
+   243→</style>
+   244→
+   245→<div class="container-fluid">
+   246→    <!-- Header -->
+   247→    <div class="dues-header no-print">
+   248→        <div class="d-flex justify-content-between align-items-center">
+   249→            <div>
+   250→                <h4 class="mb-1"><i class="bi bi-cash-coin me-2"></i><?= htmlspecialchars($pageTitle) ?></h4>
+   251→                <p class="mb-0 opacity-75">Monthly PF dues vs. remitted comparison — Compliance tracking</p>
+   252→            </div>
+   253→            <div class="text-end">
+   254→                <span class="badge bg-light text-dark fs-6"><?= date('d/m/Y') ?></span>
+   255→            </div>
+   256→        </div>
+   257→    </div>
+   258→
+   259→    <!-- Print Header -->
+   260→    <div class="d-none d-print-block mb-3">
+   261→        <h5 class="text-center fw-bold mb-0">PF DUES & REMITTED REPORT</h5>
+   262→        <p class="text-center mb-0">Financial Year: <?= $year ?></p>
+   263→        <p class="text-center mb-0 small">Generated on: <?= date('d/m/Y') ?></p>
+   264→        <hr>
+   265→    </div>
+   266→
+   267→    <!-- Filters -->
+   268→    <div class="card mb-4 no-print">
+   269→        <div class="card-header bg-light">
+   270→            <h6 class="mb-0"><i class="bi bi-funnel me-2"></i>Filters</h6>
+   271→        </div>
+   272→        <div class="card-body">
+   273→            <form method="GET" id="filterForm">
+   274→                <input type="hidden" name="page" value="report/pf/dues-remitted">
+   275→                <div class="row g-3 align-items-end">
+   276→                    <div class="col-md-3">
+   277→                        <label class="form-label">Year</label>
+   278→                        <select name="year" class="form-select form-select-sm" onchange="document.getElementById('filterForm').submit()">
+   279→                            <?php for ($y = date('Y'); $y >= date('Y') - 5; $y--): ?>
+   280→                                <option value="<?= $y ?>" <?= $year == $y ? 'selected' : '' ?>><?= $y ?></option>
+   281→                            <?php endfor; ?>
+   282→                        </select>
+   283→                    </div>
+   284→                    <div class="col-md-3">
+   285→                        <label class="form-label">Client</label>
+   286→                        <select name="client_id" class="form-select form-select-sm" onchange="document.getElementById('filterForm').submit()">
+   287→                            <option value="">All Clients</option>
+   288→                            <?php foreach ($clients as $c): ?>
+   289→                                <option value="<?= $c['id'] ?>" <?= $clientId == $c['id'] ? 'selected' : '' ?>><?= htmlspecialchars($c['name']) ?></option>
+   290→                            <?php endforeach; ?>
+   291→                        </select>
+   292→                    </div>
+   293→                    <div class="col-md-2">
+   294→                        <button type="submit" class="btn btn-primary btn-sm w-100"><i class="bi bi-search me-1"></i>View</button>
+   295→                    </div>
+   296→                    <div class="col-md-4">
+   297→                        <div class="d-flex gap-2">
+   298→                            <a href="?page=report/pf/dues-remitted&year=<?= $year ?>&client_id=<?= $clientId ?>&export=1" class="btn btn-success btn-sm flex-fill"><i class="bi bi-download me-1"></i>Export CSV</a>
+   299→                            <button onclick="window.print()" class="btn btn-outline-dark btn-sm"><i class="bi bi-printer"></i></button>
+   300→                        </div>
+   301→                    </div>
+   302→                </div>
+   303→            </form>
+   304→        </div>
+   305→    </div>
+   306→
+   307→    <?php if (!empty($errorMsg)): ?>
+   308→        <div class="alert alert-danger alert-dismissible fade show no-print">
+   309→            <i class="bi bi-exclamation-triangle me-2"></i><?= htmlspecialchars($errorMsg) ?>
+   310→            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+   311→        </div>
+   312→    <?php endif; ?>
+   313→
+   314→    <!-- Annual Summary Cards -->
+   315→    <div class="row g-3 mb-4">
+   316→        <div class="col-lg-2 col-md-4 col-6">
+   317→            <div class="card text-center p-3 dues-card">
+   318→                <div class="text-muted small mb-1">Total Dues</div>
+   319→                <div class="fs-5 fw-bold text-danger"><?= formatCurrency($annualTotals['total_dues']) ?></div>
+   320→            </div>
+   321→        </div>
+   322→        <div class="col-lg-2 col-md-4 col-6">
+   323→            <div class="card text-center p-3" style="border-left:4px solid #2e7d32">
+   324→                <div class="text-muted small mb-1">Total Remitted</div>
+   325→                <div class="fs-5 fw-bold text-success"><?= formatCurrency($annualTotals['total_remitted']) ?></div>
+   326→            </div>
+   327→        </div>
+   328→        <div class="col-lg-2 col-md-4 col-6">
+   329→            <div class="card text-center p-3" style="border-left:4px solid #c62828">
+   330→                <div class="text-muted small mb-1">Outstanding</div>
+   331→                <div class="fs-5 fw-bold text-danger"><?= formatCurrency($annualTotals['total_difference']) ?></div>
+   332→            </div>
+   333→        </div>
+   334→        <div class="col-lg-2 col-md-4 col-6">
+   335→            <div class="card text-center p-3" style="border-left:4px solid #1565c0">
+   336→                <div class="text-muted small mb-1">Compliance %</div>
+   337→                <div class="fs-5 fw-bold <?= $compliancePct >= 90 ? 'text-success' : ($compliancePct >= 70 ? 'text-warning' : 'text-danger') ?>">
+   338→                    <?= $compliancePct ?>%
+   339→                </div>
+   340→            </div>
+   341→        </div>
+   342→        <div class="col-lg-2 col-md-4 col-6">
+   343→            <div class="card text-center p-3" style="border-left:4px solid #2e7d32">
+   344→                <div class="text-muted small mb-1">Months Paid</div>
+   345→                <div class="fs-5 fw-bold text-success"><?= $annualTotals['months_paid'] ?>/12</div>
+   346→            </div>
+   347→        </div>
+   348→        <div class="col-lg-2 col-md-4 col-6">
+   349→            <div class="card text-center p-3" style="border-left:4px solid #e65100">
+   350→                <div class="text-muted small mb-1">Total Wages</div>
+   351→                <div class="fs-5 fw-bold"><?= formatCurrency($annualTotals['total_wages']) ?></div>
+   352→            </div>
+   353→        </div>
+   354→    </div>
+   355→
+   356→    <!-- Monthly Breakdown Table -->
+   357→    <div class="card mb-4">
+   358→        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+   359→            <h6 class="mb-0"><i class="bi bi-table me-2"></i>Monthly PF Dues vs. Remitted — <?= $year ?></h6>
+   360→            <span class="badge bg-light text-dark">Compliance: <?= $compliancePct ?>%</span>
+   361→        </div>
+   362→        <div class="card-body p-0">
+   363→            <div class="table-responsive">
+   364→                <table class="table table-sm table-bordered table-hover mb-0">
+   365→                    <thead class="table-light">
+   366→                        <tr>
+   367→                            <th style="width:110px">Month</th>
+   368→                            <th class="text-center" style="width:50px">Emp.</th>
+   369→                            <th class="text-end" style="width:110px">Total Wages</th>
+   370→                            <th class="text-end" style="width:120px">Total Dues</th>
+   371→                            <th class="text-end" style="width:120px">Amount Remitted</th>
+   372→                            <th style="width:120px">Challan No.</th>
+   373→                            <th class="text-center" style="width:95px">Challan Date</th>
+   374→                            <th class="text-end" style="width:110px">Difference</th>
+   375→                            <th class="text-center" style="width:110px">Status</th>
+   376→                        </tr>
+   377→                    </thead>
+   378→                    <tbody>
+   379→                        <?php foreach ($monthlyData as $row): ?>
+   380→                            <?php
+   381→                            $statusClass = 'status-not-processed';
+   382→                            $rowClass = '';
+   383→                            if ($row['status'] === 'Paid' || $row['status'] === 'Remitted') {
+   384→                                $statusClass = 'status-paid';
+   385→                            } elseif ($row['status'] !== 'Not Processed') {
+   386→                                $statusClass = 'status-pending';
+   387→                                $rowClass = 'table-warning';
+   388→                            }
+   389→                            ?>
+   390→                            <tr class="<?= $rowClass ?>">
+   391→                                <td class="fw-bold"><?= $row['month_name'] ?></td>
+   392→                                <td class="text-center"><?= $row['total_employees'] > 0 ? $row['total_employees'] : '<span class="text-muted">—</span>' ?></td>
+   393→                                <td class="text-end"><?= $row['total_wages'] > 0 ? formatCurrency($row['total_wages']) : '<span class="text-muted">—</span>' ?></td>
+   394→                                <td class="text-end fw-bold"><?= $row['total_dues'] > 0 ? formatCurrency($row['total_dues']) : '<span class="text-muted">—</span>' ?></td>
+   395→                                <td class="text-end"><?= $row['amount_remittted'] > 0 ? formatCurrency($row['amount_remittted']) : '<span class="text-muted">—</span>' ?></td>
+   396→                                <td><?= htmlspecialchars($row['challan_no'] ?: '—') ?></td>
+   397→                                <td class="text-center"><?= $row['challan_date'] ? formatDate($row['challan_date']) : '—' ?></td>
+   398→                                <td class="text-end">
+   399→                                    <?php if ($row['total_dues'] > 0): ?>
+   400→                                        <span class="<?= abs($row['difference']) > 0.01 ? 'text-danger fw-bold' : 'text-success' ?>">
+   401→                                            <?= formatCurrency($row['difference']) ?>
+   402→                                        </span>
+   403→                                    <?php else: ?>
+   404→                                        <span class="text-muted">—</span>
+   405→                                    <?php endif; ?>
+   406→                                </td>
+   407→                                <td class="text-center">
+   408→                                    <?php
+   409→                                    $badgeClass = 'bg-secondary';
+   410→                                    $statusLabel = $row['status'];
+   411→                                    if ($row['status'] === 'Paid' || $row['status'] === 'Remitted') {
+   412→                                        $badgeClass = 'bg-success';
+   413→                                    } elseif ($row['status'] === 'Dues Calculated') {
+   414→                                        $badgeClass = 'bg-warning text-dark';
+   415→                                    } elseif ($row['status'] === 'Pending') {
+   416→                                        $badgeClass = 'bg-danger';
+   417→                                    }
+   418→                                    ?>
+   419→                                    <span class="badge <?= $badgeClass ?>"><?= htmlspecialchars($statusLabel) ?></span>
+   420→                                </td>
+   421→                            </tr>
+   422→                        <?php endforeach; ?>
+   423→                    </tbody>
+   424→                    <tfoot class="table-dark">
+   425→                        <tr>
+   426→                            <th>ANNUAL TOTAL</th>
+   427→                            <th class="text-center"><?= $annualTotals['total_employees_count'] ?></th>
+   428→                            <th class="text-end"><?= formatCurrency($annualTotals['total_wages']) ?></th>
+   429→                            <th class="text-end"><?= formatCurrency($annualTotals['total_dues']) ?></th>
+   430→                            <th class="text-end"><?= formatCurrency($annualTotals['total_remitted']) ?></th>
+   431→                            <th colspan="2"></th>
+   432→                            <th class="text-end <?= abs($annualTotals['total_difference']) > 0.01 ? 'text-danger' : 'text-success' ?>">
+   433→                                <?= formatCurrency($annualTotals['total_difference']) ?>
+   434→                            </th>
+   435→                            <th class="text-center"><?= $annualTotals['months_paid'] ?> Paid</th>
+   436→                        </tr>
+   437→                    </tfoot>
+   438→                </table>
+   439→            </div>
+   440→        </div>
+   441→    </div>
+   442→
+   443→    <!-- Annual Summary Section -->
+   444→    <div class="card mb-4">
+   445→        <div class="card-header bg-light">
+   446→            <h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Annual Summary — <?= $year ?></h6>
+   447→        </div>
+   448→        <div class="card-body">
+   449→            <div class="row">
+   450→                <div class="col-md-6">
+   451→                    <table class="table table-sm table-borderless mb-0">
+   452→                        <tr>
+   453→                            <td class="text-muted" style="width:220px">Total Employees (avg per month)</td>
+   454→                            <td class="text-end fw-bold"><?= $annualTotals['total_employees_count'] > 0 ? round($annualTotals['total_employees_count'] / 12) : 0 ?></td>
+   455→                        </tr>
+   456→                        <tr>
+   457→                            <td class="text-muted">Total Wages for PF</td>
+   458→                            <td class="text-end fw-bold"><?= formatCurrency($annualTotals['total_wages']) ?></td>
+   459→                        </tr>
+   460→                        <tr>
+   461→                            <td class="text-muted">Total PF Dues (All Components)</td>
+   462→                            <td class="text-end fw-bold"><?= formatCurrency($annualTotals['total_dues']) ?></td>
+   463→                        </tr>
+   464→                        <tr>
+   465→                            <td class="text-muted">Total Amount Remitted</td>
+   466→                            <td class="text-end fw-bold text-success"><?= formatCurrency($annualTotals['total_remitted']) ?></td>
+   467→                        </tr>
+   468→                    </table>
+   469→                </div>
+   470→                <div class="col-md-6">
+   471→                    <table class="table table-sm table-borderless mb-0">
+   472→                        <tr>
+   473→                            <td class="text-muted" style="width:220px">Outstanding Balance</td>
+   474→                            <td class="text-end fw-bold <?= $annualTotals['total_difference'] > 0 ? 'text-danger' : 'text-success' ?>">
+   475→                                <?= formatCurrency(abs($annualTotals['total_difference'])) ?>
+   476→                            </td>
+   477→                        </tr>
+   478→                        <tr>
+   479→                            <td class="text-muted">Months Fully Remitted</td>
+   480→                            <td class="text-end fw-bold text-success"><?= $annualTotals['months_paid'] ?> of 12</td>
+   481→                        </tr>
+   482→                        <tr>
+   483→                            <td class="text-muted">Months Pending</td>
+   484→                            <td class="text-end fw-bold text-warning"><?= $annualTotals['months_pending'] ?></td>
+   485→                        </tr>
+   486→                        <tr class="border-top">
+   487→                            <td class="fw-bold">Compliance Rate</td>
+   488→                            <td class="text-end fw-bold">
+   489→                                <span class="badge <?= $compliancePct >= 90 ? 'bg-success' : ($compliancePct >= 70 ? 'bg-warning text-dark' : 'bg-danger') ?> fs-6">
+   490→                                    <?= $compliancePct ?>%
+   491→                                </span>
+   492→                            </td>
+   493→                        </tr>
+   494→                    </table>
+   495→                </div>
+   496→            </div>
+   497→        </div>
+   498→    </div>
+   499→
+   500→    <!-- Compliance Progress -->
+   501→    <div class="card mb-4">
+   502→        <div class="card-header bg-light">
+   503→            <h6 class="mb-0"><i class="bi bi-pie-chart me-2"></i>Compliance Progress</h6>
+   504→        </div>
+   505→        <div class="card-body">
+   506→            <div class="progress mb-3" style="height: 28px;">
+   507→                <div class="progress-bar bg-success" role="progressbar"
+   508→                     style="width: <?= $annualTotals['months_paid'] / 12 * 100 ?>%"
+   509→                     aria-valuenow="<?= $annualTotals['months_paid'] ?>"
+   510→                     aria-valuemin="0" aria-valuemax="12">
+   511→                    <?= $annualTotals['months_paid'] ?> Months Paid
+   512→                </div>
+   513→                <?php if ($annualTotals['months_pending'] > 0): ?>
+   514→                <div class="progress-bar bg-warning text-dark" role="progressbar"
+   515→                     style="width: <?= $annualTotals['months_pending'] / 12 * 100 ?>%"
+   516→                     aria-valuenow="<?= $annualTotals['months_pending'] ?>"
+   517→                     aria-valuemin="0" aria-valuemax="12">
+   518→                    <?= $annualTotals['months_pending'] ?> Pending
+   519→                </div>
+   520→                <?php endif; ?>
+   521→            </div>
+   522→            <p class="text-muted small mb-0">
+   523→                <i class="bi bi-info-circle me-1"></i>
+   524→                <?php
+   525→                $unprocessed = 12 - $annualTotals['months_paid'] - $annualTotals['months_pending'];
+   526→                if ($unprocessed > 0) {
+   527→                    echo $unprocessed . ' month(s) not yet processed for ' . $year . '.';
+   528→                } elseif ($compliancePct >= 90) {
+   529→                    echo 'Excellent compliance for ' . $year . '. Keep up the good work!';
+   530→                } elseif ($compliancePct >= 70) {
+   531→                    echo 'Moderate compliance. Consider prioritizing pending remittances.';
+   532→                } else {
+   533→                    echo 'Low compliance. Immediate attention required for pending PF dues.';
+   534→                }
+   535→                ?>
+   536→            </p>
+   537→        </div>
+   538→    </div>
+   539→
+   540→    <!-- Print Footer -->
+   541→    <div class="d-none d-print-block mt-4">
+   542→        <hr>
+   543→        <div class="row">
+   544→            <div class="col-6">
+   545→                <p class="mb-0 fw-bold">Prepared By</p>
+   546→                <div style="height:40px;border-bottom:1px solid #333;"></div>
+   547→                <p class="mb-0 small">Name: _______________ Date: _______________</p>
+   548→            </div>
+   549→            <div class="col-6 text-end">
+   550→                <p class="mb-0 fw-bold">Authorized Signatory</p>
+   551→                <div style="height:40px;border-bottom:1px solid #333;"></div>
+   552→                <p class="mb-0 small">Name: _______________ Date: _______________</p>
+   553→                <p class="mb-0 small">Office Seal</p>
+   554→            </div>
+   555→        </div>
+   556→    </div>
+   557→</div>
+   558→
