@@ -20,7 +20,7 @@ if (($_SESSION['role_code'] ?? '') === 'manager') {
     $unitFilter = (int)($_SESSION['unit_id'] ?? 0);
 }
 
-$where = "pp.month = :month AND pp.year = :year";
+$where = "p.month = :month AND p.year = :year";
 $params = [':month' => $month, ':year' => $year];
 
 if ($clientFilter) { $where .= " AND e.client_id = :cid"; $params[':cid'] = $clientFilter; }
