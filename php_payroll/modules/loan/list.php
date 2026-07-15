@@ -89,7 +89,7 @@ if ($selectedClient) {
 $unitEmployees = [];
 if ($selectedUnit) {
     $unitEmployees = $db->fetchAll(
-        "SELECT id, employee_code, full_name FROM employees WHERE status IN ('approved', 'active') AND unit_id = ? ORDER BY employee_code",
+        "SELECT id, employee_code, full_name FROM employees WHERE status = 'approved' AND unit_id = ? ORDER BY employee_code",
         [$selectedUnit]
     );
 }

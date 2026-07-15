@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
              LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
                 AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
              LEFT JOIN clients c ON e.client_id = c.id
-             WHERE e.status IN ('active', 'resigned', 'terminated')
+             WHERE e.status IN ('approved', 'resigned', 'terminated')
                 AND e.is_bonus_applicable = 1
                 AND (ess.basic_da <= 21000 OR ess.gross_salary <= 21000)
              ORDER BY e.full_name"

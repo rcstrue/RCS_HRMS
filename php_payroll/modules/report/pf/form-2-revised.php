@@ -24,7 +24,7 @@ try {
                                 LEFT JOIN employee_salary_structures ess ON ess.employee_id = e.id
                                     AND ess.effective_to IS NULL
                                 LEFT JOIN clients c ON c.id = e.client_id
-                                WHERE e.status IN ('active', 'inactive')
+                                WHERE e.status IN ('approved', 'resigned', 'terminated')
                                   AND ess.pf_applicable = 1
                                 ORDER BY e.employee_code ASC");
 } catch (Exception $e) {

@@ -50,7 +50,7 @@ if ($selectedClient) {
 
 // Build employee query with client/unit filter
 try {
-    $empWhere = "WHERE e.status IN ('active', 'approved')";
+    $empWhere = "WHERE e.status = 'approved'";
     $empParams = [];
 
     if ($selectedClient) {

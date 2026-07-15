@@ -37,7 +37,7 @@ if (isset($_GET['export'])) {
                     AND ess.effective_to IS NULL
                 LEFT JOIN clients c ON c.id = e.client_id
                 LEFT JOIN units u ON u.id = e.unit_id
-                WHERE e.status IN ('active', 'inactive')
+                WHERE e.status IN ('approved', 'resigned', 'terminated')
                   AND ess.pf_applicable = 1
                   AND ess.basic_da <= 15000";
         $params = [];
@@ -80,7 +80,7 @@ if (isset($_GET['export'])) {
                     AND ess.effective_to IS NULL
                 LEFT JOIN clients c ON c.id = e.client_id
                 LEFT JOIN units u ON u.id = e.unit_id
-                WHERE e.status IN ('active', 'inactive')
+                WHERE e.status IN ('approved', 'resigned', 'terminated')
                   AND (ess.pf_applicable = 0 OR ess.pf_applicable IS NULL OR ess.basic_da > 15000)";
         $params = [];
         if (!empty($clientId)) { $sql .= " AND e.client_id = :clientId"; $params['clientId'] = $clientId; }
@@ -163,7 +163,7 @@ try {
                 AND ess.effective_to IS NULL
             LEFT JOIN clients c ON c.id = e.client_id
             LEFT JOIN units u ON u.id = e.unit_id
-            WHERE e.status IN ('active', 'inactive')
+            WHERE e.status IN ('approved', 'resigned', 'terminated')
               AND ess.pf_applicable = 1
               AND ess.basic_da <= :wageCeiling";
     $params = ['wageCeiling' => $wageCeiling];
@@ -212,7 +212,7 @@ try {
                 AND ess.effective_to IS NULL
             LEFT JOIN clients c ON c.id = e.client_id
             LEFT JOIN units u ON u.id = e.unit_id
-            WHERE e.status IN ('active', 'inactive')
+            WHERE e.status IN ('approved', 'resigned', 'terminated')
               AND (ess.pf_applicable = 0 OR ess.pf_applicable IS NULL OR ess.basic_da > :wageCeiling)";
     $params = ['wageCeiling' => $wageCeiling];
     if (!empty($clientId)) { $sql .= " AND e.client_id = :clientId"; $params['clientId'] = $clientId; }
@@ -678,7 +678,7 @@ $exemptPct = $totalEmployees > 0 ? round(($exemptStats['total'] / $totalEmployee
                                  LEFT JOIN employee_salary_structures ess ON ess.employee_id = e.id
                                      AND ess.effective_to IS NULL
                                  LEFT JOIN clients c ON c.id = e.client_id
-                                 WHERE e.status IN ('active', 'inactive')
+                                 WHERE e.status IN ('approved', 'resigned', 'terminated')
                                    AND ess.basic_da IS NOT NULL
                                  ORDER BY c.name"
                             );

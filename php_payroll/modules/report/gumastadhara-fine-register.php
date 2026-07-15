@@ -50,7 +50,7 @@ if ($clientFilter) {
 
 // Get employees for dropdown (filter by client/unit if selected)
 try {
-    $empWhere = "status IN ('approved', 'active')";
+    $empWhere = "status = 'approved'";
     $empParams = [];
     if ($clientFilter) { $empWhere .= " AND client_id = ?"; $empParams[] = $clientFilter; }
     if ($unitFilter) { $empWhere .= " AND unit_id = ?"; $empParams[] = $unitFilter; }

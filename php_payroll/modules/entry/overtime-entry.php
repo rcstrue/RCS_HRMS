@@ -133,7 +133,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     header('Pragma: no-cache');
     header('Expires: 0');
 
-    $where = "e.status IN ('approved', 'active')";
+    $where = "e.status = 'approved'";
     $params = [];
     if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
     if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }
@@ -174,7 +174,7 @@ $employees = [];
 $summaryTotals = ['total_employees' => 0, 'total_ot_hours' => 0, 'total_est_amount' => 0];
 
 if ($filterPressed && $clientFilter) {
-    $where = "e.status IN ('approved', 'active')";
+    $where = "e.status = 'approved'";
     $params = [];
     if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
     if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }

@@ -30,7 +30,7 @@ $allRows = [];
 $bankGroups = [];
 
 $params = [$month, $year];
-$where = ["e.status = 'active'"];
+$where = ["e.status = 'approved'"];
 
     if ($clientId > 0) {
         $where[] = "e.client_id = ?";

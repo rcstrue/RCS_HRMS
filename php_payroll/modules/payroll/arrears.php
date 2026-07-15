@@ -233,7 +233,7 @@ $employees = $db->fetchAll(
             c.name as client_name
      FROM employees e
      LEFT JOIN clients c ON e.client_id = c.id
-     WHERE e.status = 'active'
+     WHERE e.status = 'approved'
      ORDER BY e.full_name"
 );
 

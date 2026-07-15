@@ -24,7 +24,7 @@ $rows = $db->fetchAll(
     "SELECT e.id, e.employee_code, e.full_name, e.mobile_number, e.designation, e.status
      FROM employees e
      WHERE (e.full_name LIKE ? OR e.employee_code LIKE ? OR e.mobile_number LIKE ?)
-     AND e.status IN ('approved', 'active')
+     AND e.status = 'approved'
      ORDER BY e.employee_code
      LIMIT 20",
     ['%' . $q . '%', '%' . $q . '%', '%' . $q . '%']

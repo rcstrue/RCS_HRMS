@@ -60,7 +60,7 @@ if ($clientId > 0) {
 
 // Build query
 $params = [];
-$where = ["e.status = 'active'"];
+$where = ["e.status = 'approved'"];
 
 if ($clientId > 0) {
     $where[] = "e.client_id = ?";

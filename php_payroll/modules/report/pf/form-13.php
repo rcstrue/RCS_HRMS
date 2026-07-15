@@ -31,7 +31,7 @@ if (isset($_GET['export'])) {
                                     LEFT JOIN employee_salary_structures ess ON ess.employee_id = e.id
                                         AND ess.effective_to IS NULL
                                     LEFT JOIN clients c ON c.id = e.client_id
-                                    WHERE e.status IN ('active', 'inactive')
+                                    WHERE e.status IN ('approved', 'resigned', 'terminated')
                                       AND ess.pf_applicable = 1
                                       AND e.uan_number IS NOT NULL
                                       AND e.uan_number != ''
@@ -96,7 +96,7 @@ try {
                                     AND ess.effective_to IS NULL
                                 LEFT JOIN clients c ON c.id = e.client_id
                                 LEFT JOIN units u ON u.id = e.unit_id
-                                WHERE e.status IN ('active', 'inactive')
+                                WHERE e.status IN ('approved', 'resigned', 'terminated')
                                   AND ess.pf_applicable = 1
                                   AND e.uan_number IS NOT NULL
                                   AND e.uan_number != ''

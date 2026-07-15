@@ -37,7 +37,7 @@ if (isset($_GET['export'])) {
                        ess.basic_da, ess.pf_applicable, ess.effective_from
                 FROM employees e
                 JOIN employee_salary_structures ess ON ess.employee_id = e.id
-                WHERE e.status = 'active'
+                WHERE e.status = 'approved'
                   AND ess.pf_applicable = 1
                   AND DATE(e.date_of_joining) >= :startDate
                   AND DATE(e.date_of_joining) <= :endDate";
@@ -192,7 +192,7 @@ try {
                 AND (ess.effective_to IS NULL OR ess.effective_to >= :startDate)
             LEFT JOIN clients c ON c.id = e.client_id
             LEFT JOIN units u ON u.id = e.unit_id
-            WHERE e.status IN ('active', 'inactive')
+            WHERE e.status IN ('approved', 'resigned', 'terminated')
               AND ess.pf_applicable = 1
               AND DATE(e.date_of_joining) >= :startDate
               AND DATE(e.date_of_joining) <= :endDate";

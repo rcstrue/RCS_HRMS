@@ -52,7 +52,7 @@ try {
     $sql = "SELECT e.*, ess.gross_salary
             FROM employees e
             LEFT JOIN employee_salary_structures ess ON ess.employee_id = e.id
-            WHERE e.status = 'active'";
+            WHERE e.status = 'approved'";
 
     $params = [];
 

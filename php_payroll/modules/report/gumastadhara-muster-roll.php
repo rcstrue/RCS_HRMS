@@ -58,7 +58,7 @@ try {
 $attendanceData = [];
 if ($mode === 'filled') {
     try {
-        $where = "e.status IN ('approved', 'active')";
+        $where = "e.status = 'approved'";
         $params = [$month, $year];
         if ($clientFilter) { $where .= " AND e.client_id = ?"; $params[] = $clientFilter; }
         if ($unitFilter) { $where .= " AND e.unit_id = ?"; $params[] = $unitFilter; }

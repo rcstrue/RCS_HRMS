@@ -28,7 +28,7 @@ if (isset($_GET['export'])) {
             JOIN employees e ON e.employee_code = p.employee_id
             JOIN employee_salary_structures ess ON ess.employee_id = e.id
                 AND ess.effective_from <= ? AND (ess.effective_to IS NULL OR ess.effective_to >= ?)
-            WHERE p.month = ? AND p.year = ? AND e.status = 'active' AND ess.esi_applicable = 1
+            WHERE p.month = ? AND p.year = ? AND e.status = 'approved' AND ess.esi_applicable = 1
             ORDER BY e.employee_code
         ", [$startDate, $endDate, $month, $year]);
 
@@ -97,7 +97,7 @@ try {
         JOIN employees e ON e.employee_code = p.employee_id
         JOIN employee_salary_structures ess ON ess.employee_id = e.id
             AND ess.effective_from <= ? AND (ess.effective_to IS NULL OR ess.effective_to >= ?)
-        WHERE p.month = ? AND p.year = ? AND e.status = 'active' AND ess.esi_applicable = 1
+        WHERE p.month = ? AND p.year = ? AND e.status = 'approved' AND ess.esi_applicable = 1
         ORDER BY e.employee_code
     ", [$startDate, $endDate, $month, $year]);
 } catch (Exception $e) {

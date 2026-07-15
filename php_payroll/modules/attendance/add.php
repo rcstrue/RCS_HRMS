@@ -106,7 +106,7 @@ if ($selectedUnit && $_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['load']
                     FROM employee_salary_structures WHERE effective_to IS NULL GROUP BY employee_id) ess
             ON e.id = ess.employee_id
         LEFT JOIN attendance_summary att ON e.id = att.employee_id AND att.month = ? AND att.year = ?
-        WHERE e.unit_id = ? AND e.status IN ('approved', 'active')
+        WHERE e.unit_id = ? AND e.status = 'approved'
         ORDER BY e.employee_code
     ");
     $stmt->execute([$selectedMonth, $selectedYear, $selectedUnit]);

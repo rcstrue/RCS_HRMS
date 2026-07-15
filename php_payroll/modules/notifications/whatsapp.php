@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($tab === 'bulk') && ($_POST['actio
         if ($unitId > 0) {
             $rows = $db->fetchAll(
                 "SELECT id AS employee_id, mobile_number AS mobile, full_name
-                 FROM employees WHERE unit_id = ? AND status IN ('approved','active') AND mobile_number IS NOT NULL AND mobile_number != ''",
+                 FROM employees WHERE unit_id = ? AND status = 'approved' AND mobile_number IS NOT NULL AND mobile_number != ''",
                 [$unitId]
             );
             $recipients = $rows;
@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($tab === 'bulk') && ($_POST['actio
         if ($clientId > 0) {
             $rows = $db->fetchAll(
                 "SELECT id AS employee_id, mobile_number AS mobile, full_name
-                 FROM employees WHERE client_id = ? AND status IN ('approved','active') AND mobile_number IS NOT NULL AND mobile_number != ''",
+                 FROM employees WHERE client_id = ? AND status = 'approved' AND mobile_number IS NOT NULL AND mobile_number != ''",
                 [$clientId]
             );
             $recipients = $rows;
@@ -81,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($tab === 'bulk') && ($_POST['actio
                 "SELECT id AS employee_id, mobile_number AS mobile, full_name
                  FROM employees
                  WHERE (full_name LIKE ? OR employee_code LIKE ? OR mobile_number LIKE ?)
-                 AND status IN ('approved','active') AND mobile_number IS NOT NULL AND mobile_number != ''",
+                 AND status = 'approved' AND mobile_number IS NOT NULL AND mobile_number != ''",
                 ['%' . $search . '%', '%' . $search . '%', '%' . $search . '%']
             );
             $recipients = $rows;

@@ -24,7 +24,7 @@ $deployment = [
 // Get employees without active deployment
 $employees = $db->query("SELECT e.id, e.employee_code, e.full_name, e.designation, e.client_id
     FROM employees e 
-    WHERE e.status = 'active' 
+    WHERE e.status = 'approved' 
     AND e.id NOT IN (SELECT employee_id FROM employee_deployments WHERE status = 'active')
     ORDER BY e.full_name")->fetchAll(PDO::FETCH_ASSOC);
 

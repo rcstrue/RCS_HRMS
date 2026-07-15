@@ -25,7 +25,7 @@ if (isset($_GET['export'])) {
                 FROM payroll p
                 JOIN employees e ON e.employee_code = p.employee_id
                 LEFT JOIN units u ON u.id = e.unit_id
-                WHERE p.month = ? AND p.year = ? AND e.status = 'active'
+                WHERE p.month = ? AND p.year = ? AND e.status = 'approved'
                 ORDER BY e.state, e.employee_code
             ", [$month, $year]);
 
@@ -58,7 +58,7 @@ try {
             FROM payroll p
             JOIN employees e ON e.employee_code = p.employee_id
             LEFT JOIN units u ON u.id = e.unit_id
-            WHERE p.month = ? AND p.year = ? AND e.status = 'active'
+            WHERE p.month = ? AND p.year = ? AND e.status = 'approved'
             ORDER BY e.state, e.employee_code
         ", [$month, $year]);
 

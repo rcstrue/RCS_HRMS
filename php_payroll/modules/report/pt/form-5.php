@@ -24,7 +24,7 @@ try {
     $availableStates = $db->fetchAll("
         SELECT DISTINCT e.state FROM employees e
         JOIN payroll p ON p.employee_id = e.employee_code
-        WHERE p.month = ? AND p.year = ? AND e.status = 'active'
+        WHERE p.month = ? AND p.year = ? AND e.status = 'approved'
         ORDER BY e.state
     ", [$month, $year]);
 } catch (Exception $e) {
@@ -37,7 +37,7 @@ try {
                p.gross_earnings, p.professional_tax
         FROM payroll p
         JOIN employees e ON e.employee_code = p.employee_id
-        WHERE p.month = ? AND p.year = ? AND e.status = 'active' $stateWhere
+        WHERE p.month = ? AND p.year = ? AND e.status = 'approved' $stateWhere
         ORDER BY e.state, e.employee_code
     ", [$month, $year] + ($stateFilter ? [$stateFilter] : []));
 
