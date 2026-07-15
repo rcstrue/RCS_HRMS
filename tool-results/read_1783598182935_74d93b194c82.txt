@@ -1,0 +1,1815 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Payroll Entry / Process Edit Page
+     4→ * Version: 1.1.0
+     5→ *
+     6→ * Excel-like editable grid for direct payroll entry.
+     7→ * Route: index.php?page=payroll/process-edit
+     8→ *
+     9→ * Features:
+    10→ * - Sticky left columns (Code, Name, Designation, Status icons)
+    11→ * - Editable Attendance, Wage Details, Advances, Office Deductions
+    12→ * - Auto-calculated Earnings, Deductions (PF/ESI/PT/LWF), Gross, Net Pay
+    13→ * - Live JavaScript recalculation on every input change
+    14→ * - Per-row save via AJAX to api/payroll-save-row.php
+    15→ * - Double-click modal for detailed employee editing
+    16→ * - Yellow highlight on changed cells
+    17→ * - Toast notification on load
+    18→ */
+    19→
+    20→$pageTitle = 'Payroll Entry';
+    21→
+    22→// ── Session Filters ──────────────────────────────────────────────
+    23→$clientId = (int)($_SESSION['filter_client_id'] ?? 0);
+    24→$unitId   = (int)($_SESSION['filter_unit_id'] ?? 0);
+    25→$month    = (int)($_SESSION['filter_month'] ?? prev_month_num());
+    26→$year     = (int)($_SESSION['filter_year'] ?? prev_month_year());
+    27→
+    28→// Override from GET params (when form is submitted)
+    29→if (isset($_GET['client_id'])) $clientId = (int)$_GET['client_id'];
+    30→if (isset($_GET['unit_id']))   $unitId   = (int)$_GET['unit_id'];
+    31→if (isset($_GET['month']))     $month    = (int)$_GET['month'];
+    32→if (isset($_GET['year']))      $year     = (int)$_GET['year'];
+    33→// Save back to session for persistence
+    34→$_SESSION['filter_client_id'] = $clientId;
+    35→$_SESSION['filter_unit_id']   = $unitId;
+    36→$_SESSION['filter_month']     = $month;
+    37→$_SESSION['filter_year']      = $year;
+    38→
+    39→$calendarDays = cal_days_in_month(CAL_GREGORIAN, $month, $year);
+    40→
+    41→// ── Fetch unit's pay_days_type from salary formula ──────────────
+    42→$unitFormula = null;
+    43→if ($unitId > 0) {
+    44→    $unitFormula = $db->fetch(
+    45→        "SELECT * FROM unit_salary_formulas
+    46→         WHERE unit_id = ? AND is_active = 1
+    47→         ORDER BY effective_from DESC LIMIT 1",
+    48→        [$unitId]
+    49→    );
+    50→}
+    51→$payDaysType = $unitFormula['pay_days_type'] ?? 'actual';
+    52→
+    53→// Calculate totalDays based on pay_days_type
+    54→$totalDays = $calendarDays;
+    55→switch ($payDaysType) {
+    56→    case 'fixed_30':
+    57→        $totalDays = 30;
+    58→        break;
+    59→    case 'previous_month':
+    60→        $prevMonth = $month - 1;
+    61→        $prevYear  = $year;
+    62→        if ($prevMonth < 1) { $prevMonth = 12; $prevYear--; }
+    63→        $totalDays = (int)cal_days_in_month(CAL_GREGORIAN, $prevMonth, $prevYear);
+    64→        break;
+    65→    case 'calendar_minus_sundays':
+    66→        // Count all Sundays in the selected month
+    67→        $sundays = 0;
+    68→        for ($d = 1; $d <= $calendarDays; $d++) {
+    69→            $dow = (int)date('N', strtotime("$year-$month-$d"));
+    70→            if ($dow === 7) $sundays++;
+    71→        }
+    72→        $totalDays = $calendarDays - $sundays;
+    73→        break;
+    74→    default: // 'actual'
+    75→        $totalDays = $calendarDays;
+    76→        break;
+    77→}
+    78→
+    79→// Also get OT settings from unit formula
+    80→$unitOtCalcType = $unitFormula['ot_calculation_type'] ?? 'double_pay';
+    81→$unitOtCalcOn   = $unitFormula['ot_calculation_on'] ?? 'basic_da';
+    82→$unitOtHrsPerDay = (float)($unitFormula['ot_hours_per_day'] ?? 8);
+    83→
+    84→// ── Pay days calculation is handled above via unit_salary_formulas ──
+    85→
+    86→// ── Fetch PF/ESI rates from DB (match process.php class.payroll.php) ──
+    87→$pfEmployeeShare = 12.00;
+    88→$pfWageCeiling = 15000;
+    89→$pfEmployerShare = 3.67;
+    90→$pfEmployerEps = 8.33;
+    91→$pfEmployerEdlis = 0.50;
+    92→$pfEpfAdmin = 0.50;
+    93→$esiEmployeeShare = 0.75;
+    94→$esiEmployerShare = 3.25;
+    95→$esiWageCeiling = 21000;
+    96→try {
+    97→    $pfRate = $db->fetch("SELECT * FROM pf_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1");
+    98→    if ($pfRate) {
+    99→        $pfEmployeeShare = (float)$pfRate['employee_share'];
+   100→        $pfWageCeiling  = (float)$pfRate['wage_ceiling'];
+   101→        $pfEmployerShare = (float)$pfRate['employer_share_pf'];
+   102→        $pfEmployerEps  = (float)$pfRate['employer_share_eps'];
+   103→        $pfEmployerEdlis = (float)$pfRate['employer_share_edlis'];
+   104→        $pfEpfAdmin     = (float)$pfRate['epf_admin_charges'];
+   105→    }
+   106→} catch (Exception $e) {}
+   107→try {
+   108→    $esiRate = $db->fetch("SELECT * FROM esi_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1");
+   109→    if ($esiRate) {
+   110→        $esiEmployeeShare = (float)$esiRate['employee_share'];
+   111→        $esiEmployerShare = (float)$esiRate['employer_share'];
+   112→        $esiWageCeiling   = (float)$esiRate['wage_ceiling'];
+   113→    }
+   114→} catch (Exception $e) {}
+   115→
+   116→// ── Fetch unit state + PT + LWF configuration ────────────────
+   117→$unitState = '';
+   118→$unitStatePtApplicable = false;
+   119→$ptSlabs = [];
+   120→$lwfAmount = 0; // Default 0, will be set per-state below
+   121→if ($unitId > 0) {
+   122→    $unitInfo = $db->fetch(
+   123→        "SELECT u.state, s.pt_applicable as state_pt_applicable, s.id as state_id
+   124→         FROM units u
+   125→         LEFT JOIN states s ON (u.state = s.state_code OR u.state = s.state_name)
+   126→         WHERE u.id = ?",
+   127→        [$unitId]
+   128→    );
+   129→    if ($unitInfo) {
+   130→        $unitState = $unitInfo['state'] ?? '';
+   131→        $unitStatePtApplicable = !empty($unitInfo['state_pt_applicable']);
+   132→    }
+   133→    // Fetch PT slabs for this state
+   134→    if ($unitStatePtApplicable && $unitState) {
+   135→        try {
+   136→            $ptSlabs = $db->fetchAll(
+   137→                "SELECT min_gross, max_gross, pt_amount
+   138→                 FROM professional_tax_slabs
+   139→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   140→                 ORDER BY min_gross",
+   141→                [$unitState, ucfirst(strtolower($unitState))]
+   142→            );
+   143→        } catch (Exception $e) {}
+   144→    }
+   145→    // Fetch LWF rate for this state (from lwf_rates → lwf_state_rates fallback)
+   146→    if ($unitState) {
+   147→        try {
+   148→            $lwfRate = $db->fetch(
+   149→                "SELECT lr.employee_share, lr.contribution_months
+   150→                 FROM lwf_rates lr
+   151→                 JOIN states s ON lr.state_id = s.id
+   152→                 WHERE (s.state_code = ? OR s.state_name = ?)
+   153→                 AND lr.is_active = 1 AND lr.effective_from <= CURDATE()
+   154→                 ORDER BY lr.effective_from DESC LIMIT 1",
+   155→                [$unitState, $unitState]
+   156→            );
+   157→            if (!$lwfRate) {
+   158→                $lwfRate = $db->fetch(
+   159→                    "SELECT employee_share, contribution_months
+   160→                     FROM lwf_state_rates
+   161→                     WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   162→                     AND effective_from <= CURDATE()
+   163→                     ORDER BY effective_from DESC LIMIT 1",
+   164→                    [$unitState, ucfirst(strtolower($unitState))]
+   165→                );
+   166→            }
+   167→            if ($lwfRate) {
+   168→                $contribMonths = array_filter(array_map('intval', explode(',', $lwfRate['contribution_months'] ?? '')));
+   169→                if (in_array($month, $contribMonths)) {
+   170→                    $lwfAmount = floatval($lwfRate['employee_share']);
+   171→                }
+   172→            }
+   173→        } catch (Exception $e) {}
+   174→    }
+   175→}
+   176→
+   177→// ── Dropdowns ────────────────────────────────────────────────────
+   178→$clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
+   179→
+   180→// Units filtered by selected client (same pattern as attendance/add)
+   181→$units = [];
+   182→if ($clientId > 0) {
+   183→    $units = $db->fetchAll(
+   184→        "SELECT id, name, unit_code FROM units WHERE client_id = ? AND is_active = 1 ORDER BY name",
+   185→        [$clientId]
+   186→    );
+   187→}
+   188→
+   189→// ── Handle Load Employees via POST (AJAX or form) ───────────────
+   190→$employeeData = [];
+   191→$loaded = false;
+   192→
+   193→if (isset($_GET['load']) && (int)$_GET['load'] === 1 && $unitId > 0) {
+   194→    $loaded = true;
+   195→
+   196→    // Ensure loan tables exist before querying them in the loop
+   197→    try {
+   198→        $db->exec("CREATE TABLE IF NOT EXISTS `employee_loans` (
+   199→            `id` int(11) NOT NULL AUTO_INCREMENT,
+   200→            `employee_id` int(11) NOT NULL,
+   201→            `unit_id` int(11) DEFAULT NULL,
+   202→            `loan_type` varchar(50) DEFAULT 'Personal',
+   203→            `amount` decimal(12,2) NOT NULL,
+   204→            `interest_rate` decimal(5,2) DEFAULT 0.00,
+   205→            `tenure_months` int(11) NOT NULL,
+   206→            `emi_amount` decimal(12,2) NOT NULL,
+   207→            `total_interest` decimal(12,2) DEFAULT 0.00,
+   208→            `total_repayable` decimal(12,2) NOT NULL,
+   209→            `balance_amount` decimal(12,2) NOT NULL,
+   210→            `emi_deducted` int(11) DEFAULT 0,
+   211→            `start_month` int(2) NOT NULL,
+   212→            `start_year` int(4) NOT NULL,
+   213→            `status` enum('Active','Closed','Settled','Written Off') DEFAULT 'Active',
+   214→            `remarks` text DEFAULT NULL,
+   215→            `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+   216→            `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   217→            PRIMARY KEY (`id`),
+   218→            KEY `idx_employee` (`employee_id`),
+   219→            KEY `idx_unit` (`unit_id`),
+   220→            KEY `idx_status` (`status`)
+   221→        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+   222→        $db->exec("CREATE TABLE IF NOT EXISTS `loan_emi_log` (
+   223→            `id` int(11) NOT NULL AUTO_INCREMENT,
+   224→            `loan_id` int(11) NOT NULL,
+   225→            `employee_id` int(11) NOT NULL,
+   226→            `month` int(2) NOT NULL,
+   227→            `year` int(4) NOT NULL,
+   228→            `emi_amount` decimal(12,2) NOT NULL,
+   229→            `principal_component` decimal(12,2) DEFAULT 0.00,
+   230→            `interest_component` decimal(12,2) DEFAULT 0.00,
+   231→            `balance_after` decimal(12,2) NOT NULL,
+   232→            `deducted_via_payroll` tinyint(1) DEFAULT 1,
+   233→            `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+   234→            PRIMARY KEY (`id`),
+   235→            UNIQUE KEY `uniq_loan_month_year` (`loan_id`, `month`, `year`),
+   236→            KEY `idx_employee_month` (`employee_id`, `month`, `year`)
+   237→        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+   238→    } catch (Exception $e) {}
+   239→
+   240→    $employees = $db->fetchAll(
+   241→        "SELECT id, employee_code, full_name, designation
+   242→         FROM employees
+   243→         WHERE unit_id = ? AND status IN ('approved', 'active')
+   244→         ORDER BY employee_code",
+   245→        [$unitId]
+   246→    );
+   247→
+   248→    // Use last day of SELECTED month — not CURDATE() — so editing a past month
+   249→    // loads the salary structure that was actually active during that month,
+   250→    // not the latest one created for a future month.
+   251→    $effDateStr = sprintf('%04d-%02d-%02d', $year, $month, cal_days_in_month(CAL_GREGORIAN, $month, $year));
+   252→
+   253→    foreach ($employees as $emp) {
+   254→        $empId  = (int)$emp['id'];
+   255→        $empCode = $emp['employee_code'];
+   256→
+   257→        // Salary structure (latest effective for selected month)
+   258→        $salary = $db->fetch(
+   259→            "SELECT * FROM employee_salary_structures
+   260→             WHERE employee_id = ? AND effective_from <= ?
+   261→             ORDER BY effective_from DESC LIMIT 1",
+   262→            [$empId, $effDateStr]
+   263→        );
+   264→
+   265→        // Attendance
+   266→        $att = [];
+   267→        try {
+   268→            $att = $db->fetch(
+   269→                "SELECT * FROM attendance_summary
+   270→                 WHERE employee_id = ? AND month = ? AND year = ?",
+   271→                [$empId, $month, $year]
+   272→            );
+   273→        } catch (Exception $e) {
+   274→            $att = [];
+   275→        }
+   276→
+   277→        // Advances
+   278→        $adv = [];
+   279→        try {
+   280→            $adv = $db->fetch(
+   281→                "SELECT COALESCE(adv1,0)+COALESCE(adv2,0)+COALESCE(office_advance,0)+COALESCE(dress_advance,0) as total_advance,
+   282→                        COALESCE(adv1,0) as adv1,
+   283→                        COALESCE(adv2,0) as adv2,
+   284→                        COALESCE(office_advance,0) as office_advance,
+   285→                        COALESCE(dress_advance,0) as dress_advance
+   286→                 FROM employee_advances
+   287→                 WHERE employee_id = ? AND month = ? AND year = ?",
+   288→                [$empId, $month, $year]
+   289→            );
+   290→        } catch (Exception $e) {
+   291→            $adv = [];
+   292→        }
+   293→
+   294→        // Existing payroll record (if already saved for this month/year)
+   295→        $existing = [];
+   296→        try {
+   297→            // Try direct month/year lookup first (new schema)
+   298→            $existing = $db->fetch(
+   299→                "SELECT * FROM payroll
+   300→                 WHERE employee_id = ? AND month = ? AND year = ?",
+   301→                [$empCode, $month, $year]
+   302→            );
+   303→        } catch (Exception $e) {
+   304→            $existing = [];
+   305→        }
+   306→
+   307→        // Active loan EMI for this employee (with balance > 0, not already deducted this month)
+   308→        $loanEmi = 0;
+   309→        try {
+   310→            // Sum EMI from ALL active loans
+   311→            $loans = $db->fetchAll(
+   312→                "SELECT el.emi_amount, el.id as loan_id
+   313→                 FROM employee_loans el
+   314→                 WHERE el.employee_id = ? AND el.status = 'Active'
+   315→                 AND el.balance_amount > 0
+   316→                 AND (el.start_year < ? OR (el.start_year = ? AND el.start_month <= ?))
+   317→                 AND el.id NOT IN (
+   318→                     SELECT lem.loan_id FROM loan_emi_log lem
+   319→                     WHERE lem.month = ? AND lem.year = ?
+   320→                 )",
+   321→                [$empId, $year, $year, $month, $month, $year]
+   322→            );
+   323→            foreach ($loans as $loan) {
+   324→                $loanEmi += floatval($loan['emi_amount']);
+   325→            }
+   326→        } catch (Exception $e) {
+   327→            // Fallback: try without emi_log check (in case table has different structure)
+   328→            try {
+   329→                $loans2 = $db->fetchAll(
+   330→                    "SELECT el.emi_amount, el.id as loan_id
+   331→                     FROM employee_loans el
+   332→                     WHERE el.employee_id = ? AND el.status = 'Active'
+   333→                     AND el.balance_amount > 0
+   334→                     AND (el.start_year < ? OR (el.start_year = ? AND el.start_month <= ?))",
+   335→                    [$empId, $year, $year, $month]
+   336→                );
+   337→                foreach ($loans2 as $loan2) {
+   338→                    $loanEmi += floatval($loan2['emi_amount']);
+   339→                }
+   340→            } catch (Exception $e2) {
+   341→                $loanEmi = 0;
+   342→            }
+   343→        }
+   344→
+   345→        $employeeData[] = [
+   346→            'emp'      => $emp,
+   347→            'salary'   => $salary ?: [],
+   348→            'att'      => $att ?: [],
+   349→            'adv'      => $adv ?: [],
+   350→            'existing' => $existing ?: [],
+   351→            'loan_emi' => $loanEmi,
+   352→        ];
+   353→    }
+   354→}
+   355→
+   356→// Month name for display
+   357→$monthNames = [1=>'January','February','March','April','May','June',
+   358→               7=>'July','August','September','October','November','December'];
+   359→$monthLabel = $monthNames[$month] ?? '';
+   360→?>
+   361→
+   362→<style>
+   363→/* ── Grid wrapper ────────────────────────────────────────────── */
+   364→#payrollGridWrapper {
+   365→    max-height: calc(100vh - 280px);
+   366→    overflow: auto;
+   367→    border: 1px solid #dee2e6;
+   368→    border-radius: 4px;
+   369→}
+   370→
+   371→#payrollGridWrapper::-webkit-scrollbar { width: 8px; height: 8px; }
+   372→#payrollGridWrapper::-webkit-scrollbar-track { background: #f1f1f1; }
+   373→#payrollGridWrapper::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+   374→#payrollGridWrapper::-webkit-scrollbar-thumb:hover { background: #555; }
+   375→
+   376→/* ── Table ───────────────────────────────────────────────────── */
+   377→#payrollTable {
+   378→    font-size: 0.78rem;
+   379→    white-space: nowrap;
+   380→}
+   381→
+   382→#payrollTable th,
+   383→#payrollTable td {
+   384→    padding: 3px 5px !important;
+   385→    vertical-align: middle;
+   386→    border-right: 1px solid #e9ecef;
+   387→}
+   388→
+   389→/* ── Sticky columns ──────────────────────────────────────────── */
+   390→.sticky-col {
+   391→    position: sticky !important;
+   392→    z-index: 2 !important;
+   393→    background: #fff !important;
+   394→}
+   395→.sticky-col-0 { left: 0;    min-width: 32px;  width: 32px;  max-width: 32px;  }
+   396→.sticky-col-1 { left: 32px;  min-width: 80px;  width: 80px;  max-width: 80px;  }
+   397→.sticky-col-2 { left: 112px; min-width: 160px; width: 160px; max-width: 160px; }
+   398→.sticky-col-3 { left: 272px; min-width: 120px; width: 120px; max-width: 120px; }
+   399→
+   400→#payrollTable thead .sticky-col {
+   401→    z-index: 3 !important;
+   402→}
+   403→
+   404→/* ── Column group backgrounds ────────────────────────────────── */
+   405→.col-att   { background: #e3f2fd !important; }
+   406→.col-wage  { background: #fff8e1 !important; }
+   407→.col-earn  { background: #e8f5e9 !important; }
+   408→.col-ded   { background: #fce4ec !important; }
+   409→.col-gross { background: #c8e6c9 !important; border-left: 2px solid #666 !important; }
+   410→.col-net   { background: #bbdefb !important; border-left: 2px solid #666 !important; }
+   411→
+   412→#payrollTable thead th.col-gross,
+   413→#payrollTable thead th.col-net {
+   414→    z-index: 4 !important;
+   415→    position: sticky !important;
+   416→}
+   417→
+   418→/* ── Input styling ───────────────────────────────────────────── */
+   419→.payroll-input {
+   420→    width: 70px;
+   421→    padding: 2px 4px;
+   422→    font-size: 0.78rem;
+   423→    border: 1px solid #ced4da;
+   424→    border-radius: 3px;
+   425→    text-align: right;
+   426→    background: #fffde7;
+   427→    transition: background 0.2s;
+   428→}
+   429→.payroll-input:focus {
+   430→    outline: none;
+   431→    border-color: #0d6efd;
+   432→    box-shadow: 0 0 0 2px rgba(13,110,253,0.15);
+   433→}
+   434→/* Hide number input spinners */
+   435→.payroll-input::-webkit-outer-spin-button,
+   436→.payroll-input::-webkit-inner-spin-button {
+   437→    -webkit-appearance: none;
+   438→    margin: 0;
+   439→}
+   440→.payroll-input[type=number] {
+   441→    -moz-appearance: textfield;
+   442→}
+   443→.payroll-input.att-input { background: #e3f2fd; }
+   444→.payroll-input.adv-input { background: #fce4ec; }
+   445→
+   446→/* ── Changed-cell highlight ──────────────────────────────────── */
+   447→.cell-changed {
+   448→    background: #fff176 !important;
+   449→    transition: background 0.3s;
+   450→}
+   451→
+   452→/* ── Row hover ───────────────────────────────────────────────── */
+   453→#payrollTable tbody tr:hover td { background-color: rgba(13,110,253,0.04) !important; }
+   454→#payrollTable tbody tr:hover .sticky-col { background-color: #f8f9fa !important; }
+   455→
+   456→/* ── Calculated cell ─────────────────────────────────────────── */
+   457→.calc-val { font-weight: 600; cursor: default; }
+   458→
+   459→/* ── Status icons ────────────────────────────────────────────── */
+   460→.status-icon { font-size: 0.72rem; }
+   461→.status-on  { color: #198754; }
+   462→.status-off { color: #dc3545; opacity: 0.5; }
+   463→
+   464→/* ── Column toggle chips ────────────────────────────────────── */
+   465→.col-toggle-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+   466→.col-toggle-chip {
+   467→    display: inline-flex; align-items: center; gap: 3px;
+   468→    padding: 2px 10px; border-radius: 12px; font-size: 0.72rem; font-weight: 600;
+   469→    cursor: pointer; user-select: none; border: 1px solid transparent;
+   470→    transition: all 0.15s;
+   471→}
+   472→.col-toggle-chip.active { color: #fff; }
+   473→.col-toggle-chip:not(.active) { background: #e9ecef; color: #666; text-decoration: line-through; }
+   474→.col-toggle-chip .chip-dot { width: 8px; height: 8px; border-radius: 50%; }
+   475→.chip-att  { background: #e3f2fd; color: #1565c0; border-color: #90caf9; }
+   476→.chip-att.active  { background: #1565c0; color: #fff; }
+   477→.chip-wage { background: #fff8e1; color: #f57f17; border-color: #ffe082; }
+   478→.chip-wage.active { background: #f57f17; color: #fff; }
+   479→.chip-earn { background: #e8f5e9; color: #2e7d32; border-color: #a5d6a7; }
+   480→.chip-earn.active { background: #2e7d32; color: #fff; }
+   481→.chip-ded  { background: #fce4ec; color: #c62828; border-color: #f48fb1; }
+   482→.chip-ded.active  { background: #c62828; color: #fff; }
+   483→
+   484→/* ── Hidden columns ─────────────────────────────────────────── */
+   485→[data-col-group].col-hidden { display: none !important; }
+   486→
+   487→/* ── Toast ───────────────────────────────────────────────────── */
+   488→#loadToast {
+   489→    position: fixed;
+   490→    bottom: 20px;
+   491→    right: 20px;
+   492→    z-index: 9999;
+   493→    min-width: 300px;
+   494→}
+   495→
+   496→/* ── Save spinner ────────────────────────────────────────────── */
+   497→.saving-row td { opacity: 0.6; }
+   498→.save-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #0d6efd; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
+   499→@keyframes spin { to { transform: rotate(360deg); } }
+   500→
+   501→/* ── Modal ───────────────────────────────────────────────────── */
+   502→#editModal .modal-dialog { max-width: 640px; }
+   503→#editModal .form-label { font-size: 0.82rem; font-weight: 600; margin-bottom: 2px; }
+   504→#editModal .form-control, #editModal .form-check-input { font-size: 0.85rem; }
+   505→#editModal .modal-body { max-height: 70vh; overflow-y: auto; }
+   506→
+   507→/* ── Footer summary bar ──────────────────────────────────────── */
+   508→#summaryBar {
+   509→    font-size: 0.82rem;
+   510→    font-weight: 600;
+   511→}
+   512→
+   513→/* ── Row save indicator ──────────────────────────────────────── */
+   514→.row-save-ok td:first-child::after {
+   515→    content: '\2713';
+   516→    position: absolute;
+   517→    left: 6px;
+   518→    top: 50%;
+   519→    transform: translateY(-50%);
+   520→    color: #198754;
+   521→    font-weight: bold;
+   522→    font-size: 0.7rem;
+   523→}
+   524→</style>
+   525→
+   526→<!-- ═══════════════════════════════════════════════════════════════ -->
+   527→<!-- COLUMN TOGGLE BAR -->
+   528→<!-- ═══════════════════════════════════════════════════════════════ -->
+   529→<div class="card mb-2" id="colToggleCard" style="display:none;">
+   530→    <div class="card-body py-1 px-2">
+   531→        <div class="col-toggle-bar">
+   532→            <small class="text-muted me-1 fw-bold"><i class="bi bi-eye me-1"></i>Columns:</small>
+   533→            <span class="col-toggle-chip chip-att active" data-toggle-group="att"><span class="chip-dot" style="background:#1565c0;"></span>Attendance</span>
+   534→            <span class="col-toggle-chip chip-wage" data-toggle-group="wage"><span class="chip-dot" style="background:#f57f17;"></span>Wage Details</span>
+   535→            <span class="col-toggle-chip chip-earn active" data-toggle-group="earn"><span class="chip-dot" style="background:#2e7d32;"></span>Earnings</span>
+   536→            <span class="col-toggle-chip chip-ded active" data-toggle-group="ded"><span class="chip-dot" style="background:#c62828;"></span>Deductions</span>
+   537→        </div>
+   538→    </div>
+   539→</div>
+   540→
+   541→<!-- ═══════════════════════════════════════════════════════════════ -->
+   542→<!-- TOP BAR -->
+   543→<!-- ═══════════════════════════════════════════════════════════════ -->
+   544→<div class="card mb-2">
+   545→    <div class="card-body py-2">
+   546→        <form method="GET" class="row g-2 align-items-end" id="filterForm">
+   547→            <input type="hidden" name="page" value="payroll/process-edit">
+   548→
+   549→            <!-- Client -->
+   550→            <div class="col-md-2">
+   551→                <label class="form-label mb-0 small">Client</label>
+   552→                <select class="form-select form-select-sm" name="client_id" id="clientSelect">
+   553→                    <option value="">-- Select --</option>
+   554→                    <?php foreach ($clients as $c): ?>
+   555→                    <option value="<?= (int)$c['id'] ?>" <?= $clientId == $c['id'] ? 'selected' : '' ?>>
+   556→                        <?= sanitize($c['name']) ?>
+   557→                    </option>
+   558→                    <?php endforeach; ?>
+   559→                </select>
+   560→            </div>
+   561→
+   562→            <!-- Unit -->
+   563→            <div class="col-md-2">
+   564→                <label class="form-label mb-0 small">Unit</label>
+   565→                <select class="form-select form-select-sm" name="unit_id" id="unitSelect">
+   566→                    <option value="">-- Select --</option>
+   567→                    <?php foreach ($units as $u): ?>
+   568→                    <option value="<?= (int)$u['id'] ?>" <?= $unitId == $u['id'] ? 'selected' : '' ?>>
+   569→                        <?= sanitize($u['name']) ?>
+   570→                    </option>
+   571→                    <?php endforeach; ?>
+   572→                </select>
+   573→            </div>
+   574→
+   575→            <!-- Month -->
+   576→            <div class="col-md-1">
+   577→                <label class="form-label mb-0 small">Month</label>
+   578→                <select class="form-select form-select-sm" name="month" id="monthSelect">
+   579→                    <?php for ($m = 1; $m <= 12; $m++): ?>
+   580→                    <option value="<?= $m ?>" <?= $month == $m ? 'selected' : '' ?>>
+   581→                        <?= date('M', mktime(0,0,0,$m,1)) ?>
+   582→                    </option>
+   583→                    <?php endfor; ?>
+   584→                </select>
+   585→            </div>
+   586→
+   587→            <!-- Year -->
+   588→            <div class="col-md-1">
+   589→                <label class="form-label mb-0 small">Year</label>
+   590→                <select class="form-select form-select-sm" name="year" id="yearSelect">
+   591→                    <?php for ($y = date('Y'); $y >= date('Y') - 3; $y--): ?>
+   592→                    <option value="<?= $y ?>" <?= $year == $y ? 'selected' : '' ?>><?= $y ?></option>
+   593→                    <?php endfor; ?>
+   594→                </select>
+   595→            </div>
+   596→
+   597→            <!-- Load Button -->
+   598→            <div class="col-md-auto">
+   599→                <button type="submit" name="load" value="1" class="btn btn-primary btn-sm">
+   600→                    <i class="bi bi-arrow-down-circle me-1"></i>Load Employees
+   601→                </button>
+   602→            </div>
+   603→
+   604→            <!-- Save All Button -->
+   605→            <div class="col-md-auto">
+   606→                <button type="button" class="btn btn-success btn-sm" id="btnSaveAll" <?= !$loaded ? 'disabled' : '' ?>>
+   607→                    <i class="bi bi-floppy me-1"></i>Save All
+   608→                </button>
+   609→            </div>
+   610→
+   611→            <!-- Info -->
+   612→            <div class="col-md-auto ms-auto">
+   613→                <span class="badge bg-light text-dark border" id="empCountBadge">
+   614→                    <?php if ($loaded): ?>
+   615→                    <i class="bi bi-people me-1"></i><?= count($employeeData) ?> Employees &middot;
+   616→                    <span title="Pay Days Mode: <?= htmlspecialchars($payDaysType) ?>"><?= $totalDays ?> Working Days</span>
+   617→                    <?php if ($payDaysType !== 'actual'): ?>
+   618→                    <span class="badge bg-info ms-1" title="Pay Days Mode"><?= $payDaysType ?></span>
+   619→                    <?php endif; ?>
+   620→                    <?php else: ?>
+   621→                    Select filters &amp; Load
+   622→                    <?php endif; ?>
+   623→                </span>
+   624→            </div>
+   625→        </form>
+   626→    </div>
+   627→</div>
+   628→
+   629→<?php if (!$loaded): ?>
+   630→<!-- Empty state -->
+   631→<div class="text-center py-5 text-muted">
+   632→    <i class="bi bi-journal-text fs-1"></i>
+   633→    <p class="mt-3">Select <strong>Client, Unit, Month, Year</strong> and click <strong>Load Employees</strong> to begin.</p>
+   634→</div>
+   635→
+   636→<?php else: ?>
+   637→<?php if (empty($employeeData)): ?>
+   638→<div class="text-center py-5 text-muted">
+   639→    <i class="bi bi-person-x fs-1"></i>
+   640→    <p class="mt-3">No active employees found for the selected unit.</p>
+   641→</div>
+   642→<?php else: ?>
+   643→
+   644→<!-- ═══════════════════════════════════════════════════════════════ -->
+   645→<!-- PAYROLL GRID -->
+   646→<!-- ═══════════════════════════════════════════════════════════════ -->
+   647→<div id="payrollGridWrapper">
+   648→    <table class="table table-sm table-bordered mb-0" id="payrollTable">
+   649→        <thead>
+   650→            <!-- ── Row 1: Group headers ──────────────────────────── -->
+   651→            <tr style="font-size:0.72rem;">
+   652→                <th rowspan="2" class="sticky-col sticky-col-0 text-center">#</th>
+   653→                <th rowspan="2" class="sticky-col sticky-col-1">Code</th>
+   654→                <th rowspan="2" class="sticky-col sticky-col-2">Employee Name</th>
+   655→                <th rowspan="2" class="sticky-col sticky-col-3">Designation</th>
+   656→                <th colspan="4" class="text-center col-att" data-col-group="att">ATTENDANCE</th>
+   657→                <th colspan="6" class="text-center col-wage" data-col-group="wage">WAGE DETAILS (Monthly)</th>
+   658→                <th colspan="6" class="text-center col-earn" data-col-group="earn">EARNINGS (Calculated)</th>
+   659→                <th rowspan="2" class="text-end col-gross" style="min-width:90px;"><strong>Gross Salary</strong></th>
+   660→                <th colspan="8" class="text-center col-ded" data-col-group="ded">DEDUCTIONS</th>
+   661→                <th rowspan="2" class="text-end col-net" style="min-width:100px; border-left:2px solid #666;"><strong>Net Pay</strong></th>
+   662→                <th rowspan="2" style="min-width:36px;"></th>
+   663→            </tr>
+   664→            <!-- ── Row 2: Column headers ─────────────────────────── -->
+   665→            <tr style="font-size:0.72rem;">
+   666→                <!-- Attendance -->
+   667→                <th class="text-center col-att" data-col-group="att">Present</th>
+   668→                <th class="text-center col-att" data-col-group="att">W/O</th>
+   669→                <th class="text-center col-att" data-col-group="att">Extra</th>
+   670→                <th class="text-center col-att" data-col-group="att">OT Hrs</th>
+   671→                <!-- Wage Details -->
+   672→                <th class="text-end col-wage" data-col-group="wage">Basic+DA</th>
+   673→                <th class="text-end col-wage" data-col-group="wage">HRA</th>
+   674→                <th class="text-end col-wage" data-col-group="wage">L.Enc</th>
+   675→                <th class="text-end col-wage" data-col-group="wage">B.Enc</th>
+   676→                <th class="text-end col-wage" data-col-group="wage">Wash</th>
+   677→                <th class="text-end col-wage" data-col-group="wage">OT Rate/hr</th>
+   678→                <!-- Earnings -->
+   679→                <th class="text-end col-earn" data-col-group="earn">Basic+DA</th>
+   680→                <th class="text-end col-earn" data-col-group="earn">HRA</th>
+   681→                <th class="text-end col-earn" data-col-group="earn">L.Enc</th>
+   682→                <th class="text-end col-earn" data-col-group="earn">B.Enc</th>
+   683→                <th class="text-end col-earn" data-col-group="earn">Wash</th>
+   684→                <th class="text-end col-earn" data-col-group="earn">OT Amt</th>
+   685→                <!-- Deductions -->
+   686→                <th class="text-end col-ded" data-col-group="ded">PF</th>
+   687→                <th class="text-end col-ded" data-col-group="ded">ESI</th>
+   688→                <th class="text-end col-ded" data-col-group="ded">PT</th>
+   689→                <th class="text-end col-ded" data-col-group="ded">LWF</th>
+   690→                <th class="text-end col-ded" data-col-group="ded">Advance</th>
+   691→                <th class="text-end col-ded" data-col-group="ded" style="background:#f3e5f5;">Loan EMI</th>
+   692→                <th class="text-end col-ded" data-col-group="ded">Off.Ded</th>
+   693→                <th class="text-end col-ded fw-bold col-gross" data-col-group="ded" style="border-left:2px solid #666;">Tot Ded</th>
+   694→            </tr>
+   695→        </thead>
+   696→        <tbody>
+   697→        <?php foreach ($employeeData as $idx => $ed):
+   698→            $emp      = $ed['emp'];
+   699→            $sal      = $ed['salary'];
+   700→            $att      = $ed['att'];
+   701→            $adv      = $ed['adv'];
+   702→            $existing = $ed['existing'];
+   703→            // Prefer saved loan_emi from existing payroll record, fall back to calculated
+   704→            $savedLoanEmi = floatval($existing['loan_emi'] ?? 0);
+   705→            $loanEmiDisplay = $savedLoanEmi > 0 ? $savedLoanEmi : floatval($ed['loan_emi']);
+   706→
+   707→            $empId      = (int)$emp['id'];
+   708→            $empCode    = $emp['employee_code'];
+   709→            $empName    = $emp['full_name'];
+   710→            $designation = $emp['designation'];
+   711→
+   712→            // Statutory flags come from salary structure, not employees table
+   713→            $pfApp  = !empty($sal['pf_applicable']);
+   714→            $esiApp = !empty($sal['esi_applicable']);
+   715→            $ptApp  = !empty($sal['pt_applicable']) && $unitStatePtApplicable;
+   716→            $lwfApp = !empty($sal['lwf_applicable']);
+   717→
+   718→            // OT settings from unit salary formula
+   719→            $otCalcType = $unitOtCalcType; // single_pay or double_pay
+   720→            $otHrsPerDay = $unitOtHrsPerDay;
+   721→            $otMultiplier = ($otCalcType === 'double_pay') ? 2 : 1;
+   722→
+   723→            // Wage details (monthly full amounts from salary structure)
+   724→            $wBasicDa = floatval($sal['basic_da'] ?? 0);
+   725→            $wHra     = floatval($sal['hra'] ?? 0);
+   726→            $wLeaveEnc = floatval($sal['leave_encashment'] ?? 0);
+   727→            $wBonusEnc = floatval($sal['bonus_encashment'] ?? 0);
+   728→            $wWash     = floatval($sal['washing_allowance'] ?? 0);
+   729→            $wGrossSal = floatval($sal['gross_salary'] ?? ($wBasicDa + $wHra + $wLeaveEnc + $wBonusEnc + $wWash));
+   730→
+   731→            // OT base depends on ot_calculation_on setting (match process.php)
+   732→            $wOtRate = 0;
+   733→            if ($totalDays > 0 && $otHrsPerDay > 0) {
+   734→                $otBase = 0;
+   735→                switch ($unitOtCalcOn) {
+   736→                    case 'gross':
+   737→                        $otBase = $wGrossSal;
+   738→                        break;
+   739→                    case 'basic_hra':
+   740→                        $otBase = $wBasicDa + $wHra;
+   741→                        break;
+   742→                    case 'basic':
+   743→                        $otBase = $wBasicDa * 0.5; // approximate basic without DA
+   744→                        break;
+   745→                    default: // basic_da
+   746→                        $otBase = $wBasicDa;
+   747→                        break;
+   748→                }
+   749→                $wOtRate = round($otBase / $totalDays / $otHrsPerDay, 2);
+   750→            }
+   751→
+   752→            // Attendance
+   753→            $attPresent  = floatval($att['total_present'] ?? 0);
+   754→            $attWO       = floatval($att['total_wo'] ?? 0);
+   755→            $attExtra    = floatval($att['total_extra'] ?? 0);
+   756→            $attOtHours  = floatval($att['overtime_hours'] ?? 0);
+   757→
+   758→            // If existing payroll, prefer existing attendance numbers
+   759→            if (!empty($existing)) {
+   760→                $attPresent = $attPresent ?: floatval($existing['total_present'] ?? 0);
+   761→                $attWO      = $attWO ?: floatval($existing['total_wo'] ?? 0);
+   762→                $attExtra   = $attExtra ?: floatval($existing['total_extra'] ?? 0);
+   763→            }
+   764→
+   765→            $paidDays = $attPresent + $attWO + $attExtra;
+   766→
+   767→            // Advances (exclude office_advance to match process.php — stored/processed separately)
+   768→            $adv1        = floatval($adv['adv1'] ?? 0);
+   769→            $adv2        = floatval($adv['adv2'] ?? 0);
+   770→            $advDress    = floatval($adv['dress_advance'] ?? 0);
+   771→            $totalAdvance = $adv1 + $adv2 + $advDress; // office_advance is NOT part of salary_advance
+   772→
+   773→            // If existing payroll and no advance data from table
+   774→            if (!empty($existing) && $totalAdvance == 0) {
+   775→                $totalAdvance = floatval($existing['salary_advance'] ?? 0);
+   776→            }
+   777→            $officeDeduction = floatval($existing['office_deduction'] ?? 0);
+   778→            // Also check office_advance from employee_advances if no existing payroll value
+   779→            if ($officeDeduction <= 0) {
+   780→                $officeDeduction = floatval($adv['office_advance'] ?? 0);
+   781→            }
+   782→
+   783→            // LWF: state-specific amount from lwf_rates table (already resolved at unit level)
+   784→            // $lwfAmount is 0 if not a contribution month or no DB rate found
+   785→            $empLwfAmount = $lwfApp ? $lwfAmount : 0;
+   786→
+   787→            // ESI eligibility: use FULL monthly gross from salary structure (matching process.php)
+   788→            // process.php checks $emp['gross_salary'] (from employee_salary_structures) not the pro-rated payroll value
+   789→            $existingGross = $wGrossSal;
+   790→        ?>
+   791→            <tr data-row="<?= $idx ?>"
+   792→                data-emp-id="<?= $empId ?>"
+   793→                data-emp-code="<?= sanitize($empCode) ?>"
+   794→                data-pf="<?= $pfApp ? 1 : 0 ?>"
+   795→                data-esi="<?= $esiApp ? 1 : 0 ?>"
+   796→                data-pt="<?= $ptApp ? 1 : 0 ?>"
+   797→                data-lwf="<?= $lwfApp ? 1 : 0 ?>"
+   798→                data-lwf-amount="<?= $empLwfAmount ?>"
+   799→                data-ot-multiplier="<?= $otMultiplier ?>"
+   800→                data-ot-hrs-per-day="<?= $otHrsPerDay ?>"
+   801→                data-existing-gross="<?= $existingGross ?>"
+   802→                data-loan-emi="<?= floatval($ed['loan_emi']) ?>"
+   803→                data-original-wages="<?= htmlspecialchars(json_encode([
+   804→                    'basic_da' => $wBasicDa, 'hra' => $wHra,
+   805→                    'leave_encashment' => $wLeaveEnc, 'bonus_encashment' => $wBonusEnc,
+   806→                    'washing_allowance' => $wWash, 'ot_rate' => $wOtRate
+   807→                ])) ?>"
+   808→            >
+   809→                <!-- Sticky cols -->
+   810→                <td class="sticky-col sticky-col-0 text-center">#<?= $idx + 1 ?></td>
+   811→                <td class="sticky-col sticky-col-1"><?= sanitize($empCode) ?></td>
+   812→                <td class="sticky-col sticky-col-2 fw-semibold"><?= sanitize($empName) ?></td>
+   813→                <td class="sticky-col sticky-col-3">
+   814→                    <?= sanitize($designation) ?>
+   815→                    <span class="ms-1">
+   816→                        <?php if ($pfApp):  ?><i class="bi bi-p-circle status-icon status-on" title="PF"></i><?php endif; ?>
+   817→                        <?php if ($esiApp): ?><i class="bi bi-e-circle status-icon status-on" title="ESI"></i><?php endif; ?>
+   818→                        <?php if ($ptApp):  ?><i class="bi bi-t-circle status-icon status-on" title="PT"></i><?php endif; ?>
+   819→                    </span>
+   820→                </td>
+   821→
+   822→                <!-- ── ATTENDANCE (editable) ─────────────────── -->
+   823→                <td class="text-center col-att" data-col-group="att">
+   824→                    <input type="number" class="payroll-input att-input att-field" name="att_present" value="<?= $attPresent > 0 ? $attPresent : '' ?>" min="0" max="31" step="0.5">
+   825→                </td>
+   826→                <td class="text-center col-att" data-col-group="att">
+   827→                    <input type="number" class="payroll-input att-input att-field" name="att_wo" value="<?= $attWO > 0 ? $attWO : '' ?>" min="0" max="31" step="0.5">
+   828→                </td>
+   829→                <td class="text-center col-att" data-col-group="att">
+   830→                    <input type="number" class="payroll-input att-input att-field" name="att_extra" value="<?= $attExtra > 0 ? $attExtra : '' ?>" min="0" max="31" step="0.5">
+   831→                </td>
+   832→                <td class="text-center col-att" data-col-group="att">
+   833→                    <input type="number" class="payroll-input att-input att-field" name="ot_hours" value="<?= $attOtHours > 0 ? $attOtHours : '' ?>" min="0" max="200" step="0.5">
+   834→                </td>
+   835→
+   836→                <!-- ── WAGE DETAILS (editable, monthly amounts) ── -->
+   837→                <td class="text-end col-wage" data-col-group="wage">
+   838→                    <input type="number" class="payroll-input wage-field" name="w_basic_da" value="<?= $wBasicDa > 0 ? $wBasicDa : '' ?>" min="0" step="1">
+   839→                </td>
+   840→                <td class="text-end col-wage" data-col-group="wage">
+   841→                    <input type="number" class="payroll-input wage-field" name="w_hra" value="<?= $wHra > 0 ? $wHra : '' ?>" min="0" step="1">
+   842→                </td>
+   843→                <td class="text-end col-wage" data-col-group="wage">
+   844→                    <input type="number" class="payroll-input wage-field" name="w_leave_enc" value="<?= $wLeaveEnc > 0 ? $wLeaveEnc : '' ?>" min="0" step="1">
+   845→                </td>
+   846→                <td class="text-end col-wage" data-col-group="wage">
+   847→                    <input type="number" class="payroll-input wage-field" name="w_bonus_enc" value="<?= $wBonusEnc > 0 ? $wBonusEnc : '' ?>" min="0" step="1">
+   848→                </td>
+   849→                <td class="text-end col-wage" data-col-group="wage">
+   850→                    <input type="number" class="payroll-input wage-field" name="w_wash" value="<?= $wWash > 0 ? $wWash : '' ?>" min="0" step="1">
+   851→                </td>
+   852→                <td class="text-end col-wage" data-col-group="wage">
+   853→                    <input type="number" class="payroll-input wage-field" name="w_ot_rate" value="<?= $wOtRate > 0 ? $wOtRate : '' ?>" min="0" step="0.01">
+   854→                </td>
+   855→
+   856→                <!-- ── EARNINGS (auto-calculated, readonly) ───── -->
+   857→                <td class="text-end col-earn calc-val earn-basic-da" data-col-group="earn">--</td>
+   858→                <td class="text-end col-earn calc-val earn-hra" data-col-group="earn">--</td>
+   859→                <td class="text-end col-earn calc-val earn-leave-enc" data-col-group="earn">--</td>
+   860→                <td class="text-end col-earn calc-val earn-bonus-enc" data-col-group="earn">--</td>
+   861→                <td class="text-end col-earn calc-val earn-wash" data-col-group="earn">--</td>
+   862→                <td class="text-end col-earn calc-val earn-ot-amt" data-col-group="earn">--</td>
+   863→
+   864→                <!-- ── GROSS ──────────────────────────────────── -->
+   865→                <td class="text-end col-gross fw-bold calc-val gross-salary">--</td>
+   866→
+   867→                <!-- ── DEDUCTIONS ─────────────────────────────── -->
+   868→                <td class="text-end col-ded calc-val ded-pf" data-col-group="ded">--</td>
+   869→                <td class="text-end col-ded calc-val ded-esi" data-col-group="ded">--</td>
+   870→                <td class="text-end col-ded calc-val ded-pt" data-col-group="ded">--</td>
+   871→                <td class="text-end col-ded calc-val ded-lwf" data-col-group="ded">--</td>
+   872→                <td class="text-end col-ded" data-col-group="ded">
+   873→                    <input type="number" class="payroll-input adv-input ded-field" name="advance" value="<?= $totalAdvance > 0 ? $totalAdvance : '' ?>" min="0" step="1">
+   874→                </td>
+   875→                <td class="text-end col-ded" data-col-group="ded" style="background:#f3e5f5;">
+   876→                    <input type="number" class="payroll-input ded-field" name="loan_emi" value="<?= $loanEmiDisplay > 0 ? $loanEmiDisplay : '' ?>" min="0" step="1" placeholder="0">
+   877→                </td>
+   878→                <td class="text-end col-ded" data-col-group="ded">
+   879→                    <input type="number" class="payroll-input adv-input ded-field" name="office_ded" value="<?= $officeDeduction > 0 ? $officeDeduction : '' ?>" min="0" step="1">
+   880→                </td>
+   881→                <td class="text-end col-ded col-gross fw-bold calc-val total-deductions" data-col-group="ded" style="border-left:2px solid #666;">--</td>
+   882→
+   883→                <!-- ── NET PAY ────────────────────────────────── -->
+   884→                <td class="text-end col-net fw-bold calc-val net-pay">--</td>
+   885→
+   886→                <!-- ── Action ─────────────────────────────────── -->
+   887→                <td class="text-center" style="min-width:36px;">
+   888→                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 btn-row-detail" title="Edit Details">
+   889→                        <i class="bi bi-pencil-square" style="font-size:0.75rem;"></i>
+   890→                    </button>
+   891→                </td>
+   892→            </tr>
+   893→        <?php endforeach; ?>
+   894→        </tbody>
+   895→        <tfoot id="summaryBar">
+   896→            <tr style="font-weight:700; font-size:0.78rem; background:#e8f0fe !important;">
+   897→                <td colspan="4" class="text-center sticky-col" style="left:0; z-index:2; background:#e8f0fe !important;">TOTALS</td>
+   898→                <!-- Attendance totals -->
+   899→                <td class="text-center col-att" data-col-group="att" id="totPresent">0</td>
+   900→                <td class="text-center col-att" data-col-group="att" id="totWO">0</td>
+   901→                <td class="text-center col-att" data-col-group="att" id="totExtra">0</td>
+   902→                <td class="text-center col-att" data-col-group="att" id="totOtHrs">0</td>
+   903→                <!-- Wage Details — no totals -->
+   904→                <td class="col-wage" data-col-group="wage"></td>
+   905→                <td class="col-wage" data-col-group="wage"></td>
+   906→                <td class="col-wage" data-col-group="wage"></td>
+   907→                <td class="col-wage" data-col-group="wage"></td>
+   908→                <td class="col-wage" data-col-group="wage"></td>
+   909→                <td class="col-wage" data-col-group="wage"></td>
+   910→                <!-- Earnings totals -->
+   911→                <td class="text-end col-earn" data-col-group="earn" id="totEarnBasicDa">--</td>
+   912→                <td class="text-end col-earn" data-col-group="earn" id="totEarnHra">--</td>
+   913→                <td class="text-end col-earn" data-col-group="earn" id="totEarnLeaveEnc">--</td>
+   914→                <td class="text-end col-earn" data-col-group="earn" id="totEarnBonusEnc">--</td>
+   915→                <td class="text-end col-earn" data-col-group="earn" id="totEarnWash">--</td>
+   916→                <td class="text-end col-earn" data-col-group="earn" id="totEarnOtAmt">--</td>
+   917→                <!-- Gross -->
+   918→                <td class="text-end col-gross" style="border-left:2px solid #666; background:#e8f0fe !important;" id="totalGross">₹0.00</td>
+   919→                <!-- Deduction totals -->
+   920→                <td class="text-end col-ded" data-col-group="ded" id="totPF">--</td>
+   921→                <td class="text-end col-ded" data-col-group="ded" id="totESI">--</td>
+   922→                <td class="text-end col-ded" data-col-group="ded" id="totPT">--</td>
+   923→                <td class="text-end col-ded" data-col-group="ded" id="totLWF">--</td>
+   924→                <td class="text-end col-ded" data-col-group="ded" id="totAdvance">--</td>
+   925→                <td class="text-end col-ded" data-col-group="ded" id="totLoanEmi">--</td>
+   926→                <td class="text-end col-ded" data-col-group="ded" id="totOffDed">--</td>
+   927→                <!-- Tot Ded -->
+   928→                <td class="text-end col-ded fw-bold col-gross" data-col-group="ded" style="border-left:2px solid #666; background:#e8f0fe !important;" id="totalDed">₹0.00</td>
+   929→                <!-- Net Pay -->
+   930→                <td class="text-end col-net" style="border-left:2px solid #666; background:#e8f0fe !important;" id="totalNet">₹0.00</td>
+   931→                <td style="background:#e8f0fe !important;"></td>
+   932→            </tr>
+   933→        </tfoot>
+   934→    </table>
+   935→</div>
+   936→
+   937→<!-- ═══════════════════════════════════════════════════════════════ -->
+   938→<!-- DETAIL EDIT MODAL -->
+   939→<!-- ═══════════════════════════════════════════════════════════════ -->
+   940→<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
+   941→    <div class="modal-dialog modal-dialog-centered">
+   942→        <div class="modal-content">
+   943→            <div class="modal-header py-2">
+   944→                <h6 class="modal-title" id="editModalTitle">
+   945→                    <i class="bi bi-person-badge me-2"></i>Edit Employee Details
+   946→                </h6>
+   947→                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+   948→            </div>
+   949→            <div class="modal-body">
+   950→                <div class="mb-3 pb-2 border-bottom">
+   951→                    <span class="fw-bold" id="modalEmpName">--</span>
+   952→                    <span class="text-muted ms-2" id="modalEmpCode">--</span>
+   953→                </div>
+   954→
+   955→                <!-- Attendance Section -->
+   956→                <h6 class="mb-2"><i class="bi bi-calendar-check me-1"></i>Attendance</h6>
+   957→                <div class="row g-2 mb-3">
+   958→                    <div class="col-3">
+   959→                        <label class="form-label">Present</label>
+   960→                        <input type="number" class="form-control form-control-sm" id="modalAttPresent" min="0" max="31" step="0.5">
+   961→                    </div>
+   962→                    <div class="col-3">
+   963→                        <label class="form-label">W/O</label>
+   964→                        <input type="number" class="form-control form-control-sm" id="modalAttWO" min="0" max="31" step="0.5">
+   965→                    </div>
+   966→                    <div class="col-3">
+   967→                        <label class="form-label">Extra</label>
+   968→                        <input type="number" class="form-control form-control-sm" id="modalAttExtra" min="0" max="31" step="0.5">
+   969→                    </div>
+   970→                    <div class="col-3">
+   971→                        <label class="form-label">OT Hours</label>
+   972→                        <input type="number" class="form-control form-control-sm" id="modalOtHours" min="0" max="200" step="0.5">
+   973→                    </div>
+   974→                </div>
+   975→
+   976→                <!-- Wage Details Section -->
+   977→                <h6 class="mb-2"><i class="bi bi-cash-coin me-1"></i>Wage Details (Monthly)</h6>
+   978→                <div class="row g-2 mb-3">
+   979→                    <div class="col-6">
+   980→                        <label class="form-label">Basic + DA</label>
+   981→                        <input type="number" class="form-control form-control-sm" id="modalWBasicDa" min="0" step="1">
+   982→                    </div>
+   983→                    <div class="col-6">
+   984→                        <label class="form-label">HRA</label>
+   985→                        <input type="number" class="form-control form-control-sm" id="modalWHra" min="0" step="1">
+   986→                    </div>
+   987→                    <div class="col-6">
+   988→                        <label class="form-label">Leave Encashment</label>
+   989→                        <input type="number" class="form-control form-control-sm" id="modalWLeaveEnc" min="0" step="1">
+   990→                    </div>
+   991→                    <div class="col-6">
+   992→                        <label class="form-label">Bonus Encashment</label>
+   993→                        <input type="number" class="form-control form-control-sm" id="modalWBonusEnc" min="0" step="1">
+   994→                    </div>
+   995→                    <div class="col-6">
+   996→                        <label class="form-label">Washing Allowance</label>
+   997→                        <input type="number" class="form-control form-control-sm" id="modalWWash" min="0" step="1">
+   998→                    </div>
+   999→                    <div class="col-6">
+  1000→                        <label class="form-label">OT Rate / hr</label>
+  1001→                        <input type="number" class="form-control form-control-sm" id="modalWOtRate" min="0" step="0.01">
+  1002→                    </div>
+  1003→                </div>
+  1004→
+  1005→                <!-- Statutory Applicability -->
+  1006→                <h6 class="mb-2"><i class="bi bi-shield-check me-1"></i>Statutory Applicability</h6>
+  1007→                <div class="row g-2 mb-3">
+  1008→                    <div class="col-3">
+  1009→                        <div class="form-check form-switch mt-2">
+  1010→                            <input class="form-check-input" type="checkbox" id="modalPfApp">
+  1011→                            <label class="form-check-label small" for="modalPfApp">PF</label>
+  1012→                        </div>
+  1013→                    </div>
+  1014→                    <div class="col-3">
+  1015→                        <div class="form-check form-switch mt-2">
+  1016→                            <input class="form-check-input" type="checkbox" id="modalEsiApp">
+  1017→                            <label class="form-check-label small" for="modalEsiApp">ESI</label>
+  1018→                        </div>
+  1019→                    </div>
+  1020→                    <div class="col-3">
+  1021→                        <div class="form-check form-switch mt-2">
+  1022→                            <input class="form-check-input" type="checkbox" id="modalPtApp">
+  1023→                            <label class="form-check-label small" for="modalPtApp">PT</label>
+  1024→                        </div>
+  1025→                    </div>
+  1026→                    <div class="col-3">
+  1027→                        <div class="form-check form-switch mt-2">
+  1028→                            <input class="form-check-input" type="checkbox" id="modalLwfApp">
+  1029→                            <label class="form-check-label small" for="modalLwfApp">LWF</label>
+  1030→                        </div>
+  1031→                    </div>
+  1032→                </div>
+  1033→
+  1034→                <!-- Deductions Section -->
+  1035→                <h6 class="mb-2"><i class="bi bi-dash-circle me-1"></i>Deductions (Editable)</h6>
+  1036→                <div class="row g-2 mb-3">
+  1037→                    <div class="col-6">
+  1038→                        <label class="form-label">Salary Advance</label>
+  1039→                        <input type="number" class="form-control form-control-sm" id="modalAdvance" min="0" step="1">
+  1040→                    </div>
+  1041→                    <div class="col-6">
+  1042→                        <label class="form-label">Office Deduction</label>
+  1043→                        <input type="number" class="form-control form-control-sm" id="modalOfficeDed" min="0" step="1">
+  1044→                    </div>
+  1045→                    <div class="col-6">
+  1046→                        <label class="form-label">Loan EMI</label>
+  1047→                        <input type="number" class="form-control form-control-sm" id="modalLoanEmi" min="0" step="1">
+  1048→                    </div>
+  1049→                </div>
+  1050→
+  1051→                <!-- Calculated Summary (read-only preview) -->
+  1052→                <div class="bg-light rounded p-2 border" id="modalCalcPreview">
+  1053→                    <div class="row text-end" style="font-size:0.8rem;">
+  1054→                        <div class="col-4">Gross Salary:</div>
+  1055→                        <div class="col-4 fw-bold" id="modalPreviewGross">₹0.00</div>
+  1056→                        <div class="col-4 fw-bold text-danger" id="modalPreviewDed">₹0.00</div>
+  1057→                        <div class="col-4 mt-1">Net Pay:</div>
+  1058→                        <div class="col-8 fw-bold text-success" id="modalPreviewNet">₹0.00</div>
+  1059→                    </div>
+  1060→                </div>
+  1061→            </div>
+  1062→            <div class="modal-footer py-2">
+  1063→                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnModalPrev">
+  1064→                    <i class="bi bi-chevron-left me-1"></i>Previous
+  1065→                </button>
+  1066→                <button type="button" class="btn btn-sm btn-primary" id="btnModalSave">
+  1067→                    <i class="bi bi-check-lg me-1"></i>Recalculate & Save
+  1068→                </button>
+  1069→                <button type="button" class="btn btn-sm btn-success" id="btnModalSaveNext">
+  1070→                    Save & Next<i class="bi bi-chevron-right ms-1"></i>
+  1071→                </button>
+  1072→            </div>
+  1073→        </div>
+  1074→    </div>
+  1075→</div>
+  1076→
+  1077→<!-- ═══════════════════════════════════════════════════════════════ -->
+  1078→<!-- TOAST -->
+  1079→<!-- ═══════════════════════════════════════════════════════════════ -->
+  1080→<div id="loadToast" class="toast align-items-center text-bg-success border-0" role="alert">
+  1081→    <div class="d-flex">
+  1082→        <div class="toast-body" id="toastBody">
+  1083→            <i class="bi bi-check-circle me-1"></i>Loaded <?= count($employeeData) ?> employees for <?= sanitize($monthLabel) ?> <?= $year ?>
+  1084→        </div>
+  1085→        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+  1086→    </div>
+  1087→</div>
+  1088→
+  1089→<!-- ═══════════════════════════════════════════════════════════════ -->
+  1090→<!-- JAVASCRIPT -->
+  1091→<!-- ═══════════════════════════════════════════════════════════════ -->
+  1092→<script>
+  1093→document.addEventListener('DOMContentLoaded', function() {
+  1094→(function() {
+  1095→    'use strict';
+  1096→
+  1097→    const TOTAL_DAYS = <?= $totalDays ?>;
+  1098→    const MONTH = <?= $month ?>;
+  1099→    const YEAR  = <?= $year ?>;
+  1100→    const UNIT_ID = <?= $unitId ?>;
+  1101→    const SAVE_URL = 'index.php?page=api/payroll-save-row';
+  1102→
+  1103→    // PT slabs from database (for unit's state)
+  1104→    const PT_SLABS = <?= json_encode($ptSlabs) ?>;
+  1105→    const UNIT_STATE = <?= json_encode($unitState) ?>;
+  1106→
+  1107→    // PF/ESI rates from DB (matching class.payroll.php)
+  1108→    const PF_EMPLOYEE_SHARE = <?= $pfEmployeeShare ?>;
+  1109→    const PF_WAGE_CEILING   = <?= $pfWageCeiling ?>;
+  1110→    const PF_EMPLOYER_SHARE = <?= $pfEmployerShare ?>;
+  1111→    const PF_EMPLOYER_EPS   = <?= $pfEmployerEps ?>;
+  1112→    const PF_EMPLOYER_EDLIS = <?= $pfEmployerEdlis ?>;
+  1113→    const PF_EPF_ADMIN      = <?= $pfEpfAdmin ?>;
+  1114→    const ESI_EMPLOYEE_SHARE = <?= $esiEmployeeShare ?>;
+  1115→    const ESI_WAGE_CEILING   = <?= $esiWageCeiling ?>;
+  1116→
+  1117→    // ── Helpers ─────────────────────────────────────────────────
+  1118→    function round2(v) { return Math.round((v || 0) * 100) / 100; }
+  1119→    function fmt(v) { return '\u20B9' + round2(v).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  1120→    function numval(el) { return parseFloat($(el).val()) || 0; }
+  1121→
+  1122→    // ── PT calculation (state-aware, slab-based) ─────────────────
+  1123→    function calculatePT(grossSalary, ptApp) {
+  1124→        if (!ptApp) return 0;
+  1125→        // If DB slabs exist, use them
+  1126→        if (PT_SLABS.length > 0) {
+  1127→            for (var i = 0; i < PT_SLABS.length; i++) {
+  1128→                var slab = PT_SLABS[i];
+  1129→                var minG = parseFloat(slab.min_gross);
+  1130→                var maxG = parseFloat(slab.max_gross);
+  1131→                if (grossSalary > minG && (isNaN(maxG) || maxG === null || grossSalary <= maxG)) {
+  1132→                    return parseFloat(slab.pt_amount);
+  1133→                }
+  1134→            }
+  1135→            return 0;
+  1136→        }
+  1137→        // Fallback: state-code-based hardcoded slabs (same as class.payroll.php)
+  1138→        var st = (UNIT_STATE || '').toUpperCase();
+  1139→        if (st === 'MH' || st === 'MAHARASHTRA') {
+  1140→            return grossSalary > 10000 ? 200 : 0;
+  1141→        }
+  1142→        if (st === 'KA' || st === 'KARNATAKA') {
+  1143→            if (grossSalary > 15000) return 200;
+  1144→            if (grossSalary > 10000) return 150;
+  1145→            return 0;
+  1146→        }
+  1147→        if (st === 'TN' || st === 'TAMIL NADU') {
+  1148→            if (grossSalary > 75000) return Math.round(1250/6 * 100) / 100;
+  1149→            if (grossSalary > 50000) return Math.round(833/6 * 100) / 100;
+  1150→            return 0;
+  1151→        }
+  1152→        if (st === 'DL' || st === 'DELHI') {
+  1153→            return grossSalary > 25000 ? 200 : 0;
+  1154→        }
+  1155→        if (st === 'GJ' || st === 'GUJARAT') {
+  1156→            return grossSalary > 12000 ? 200 : 0;
+  1157→        }
+  1158→        // Default: Maharashtra-style
+  1159→        return grossSalary > 10000 ? 200 : 0;
+  1160→    }
+  1161→
+  1162→    // ── Calculate a single row ──────────────────────────────────
+  1163→    function recalculateRow(tr) {
+  1164→        var $tr = $(tr);
+  1165→        var pfApp     = $tr.data('pf') === 1;
+  1166→        var esiApp    = $tr.data('esi') === 1;
+  1167→        var ptApp     = $tr.data('pt') === 1;
+  1168→        var lwfApp    = $tr.data('lwf') === 1;
+  1169→        var lwfAmount = parseFloat($tr.data('lwf-amount')) || 0;
+  1170→        var otMult    = parseFloat($tr.data('ot-multiplier')) || 1;
+  1171→        var existGross= parseFloat($tr.data('existing-gross')) || 0;
+  1172→
+  1173→        // Attendance inputs
+  1174→        var attPresent = numval($tr.find('[name=att_present]'));
+  1175→        var attWO      = numval($tr.find('[name=att_wo]'));
+  1176→        var attExtra   = numval($tr.find('[name=att_extra]'));
+  1177→        var otHours    = numval($tr.find('[name=ot_hours]'));
+  1178→        var paidDays   = attPresent + attWO + attExtra;
+  1179→
+  1180→        // Wage inputs (monthly full amounts)
+  1181→        var wBasicDa   = numval($tr.find('[name=w_basic_da]'));
+  1182→        var wHra       = numval($tr.find('[name=w_hra]'));
+  1183→        var wLeaveEnc  = numval($tr.find('[name=w_leave_enc]'));
+  1184→        var wBonusEnc  = numval($tr.find('[name=w_bonus_enc]'));
+  1185→        var wWash      = numval($tr.find('[name=w_wash]'));
+  1186→        var wOtRate    = numval($tr.find('[name=w_ot_rate]'));
+  1187→
+  1188→        // Deduction inputs
+  1189→        var advance    = numval($tr.find('[name=advance]'));
+  1190→        var officeDed  = numval($tr.find('[name=office_ded]'));
+  1191→
+  1192→        // Loan EMI — editable input, fall back to data attribute
+  1193→        var loanEmiInput = $tr.find('[name=loan_emi]');
+  1194→        var loanEmi = loanEmiInput.length ? numval(loanEmiInput) : (parseFloat($tr.data('loan-emi')) || 0);
+  1195→
+  1196→        // ── Calculations ──
+  1197→        var totalDays = TOTAL_DAYS;
+  1198→        if (totalDays === 0 || paidDays === 0) {
+  1199→            setRowZero($tr);
+  1200→            updateTotals();
+  1201→            return;
+  1202→        }
+  1203→
+  1204→        var basicDa     = round2(wBasicDa * paidDays / totalDays);
+  1205→        var hra         = round2(wHra * paidDays / totalDays);
+  1206→        var leaveEnc    = round2(wLeaveEnc * paidDays / totalDays);
+  1207→        var bonusEnc    = round2(wBonusEnc * paidDays / totalDays);
+  1208→        var wash        = round2(wWash * paidDays / totalDays);
+  1209→        var otAmount    = round2(wOtRate * otHours * otMult);
+  1210→
+  1211→        var grossSalary = round2(basicDa + hra + leaveEnc + bonusEnc + wash + otAmount);
+  1212→
+  1213→        // PF: use DB rates, ceiling from pf_rates table
+  1214→        var pfBase = Math.min(basicDa, PF_WAGE_CEILING);
+  1215→        var pf = pfApp ? round2(pfBase * PF_EMPLOYEE_SHARE / 100) : 0;
+  1216→        // Employer PF components (stored in calc for save)
+  1217→        var pfEmployer  = pfApp ? round2(pfBase * PF_EMPLOYER_SHARE / 100) : 0;
+  1218→        var epsEmployer = pfApp ? round2(pfBase * PF_EMPLOYER_EPS / 100) : 0;
+  1219→        var edlisEmployer= pfApp ? round2(pfBase * PF_EMPLOYER_EDLIS / 100) : 0;
+  1220→        var epfAdmin     = pfApp ? round2(pfBase * PF_EPF_ADMIN / 100) : 0;
+  1221→        var esiEmployer  = 0;
+  1222→
+  1223→        // ESI: use DB rate, check full monthly gross (not pro-rated) against ceiling
+  1224→        var esi = 0;
+  1225→        if (esiApp && existGross > 0 && existGross <= ESI_WAGE_CEILING) {
+  1226→            esi = round2(grossSalary * ESI_EMPLOYEE_SHARE / 100);
+  1227→            esiEmployer = round2(grossSalary * <?= $esiEmployerShare ?> / 100);
+  1228→        }
+  1229→
+  1230→        // PT: state-aware slab-based calculation
+  1231→        var pt = calculatePT(grossSalary, ptApp);
+  1232→
+  1233→        // LWF
+  1234→        var lwf = lwfApp ? lwfAmount : 0;
+  1235→
+  1236→        // Loan EMI (already read from input above)
+  1237→
+  1238→        var totalDed = round2(pf + esi + pt + lwf + advance + officeDed + loanEmi);
+  1239→        var netPay   = Math.round(grossSalary - totalDed); // Round to nearest ₹.00
+  1240→
+  1241→        // ── Write earnings ──
+  1242→        $tr.find('.earn-basic-da').text(fmt(basicDa));
+  1243→        $tr.find('.earn-hra').text(fmt(hra));
+  1244→        $tr.find('.earn-leave-enc').text(fmt(leaveEnc));
+  1245→        $tr.find('.earn-bonus-enc').text(fmt(bonusEnc));
+  1246→        $tr.find('.earn-wash').text(fmt(wash));
+  1247→        $tr.find('.earn-ot-amt').text(fmt(otAmount));
+  1248→
+  1249→        // ── Gross ──
+  1250→        $tr.find('.gross-salary').text(fmt(grossSalary));
+  1251→
+  1252→        // ── Deductions ──
+  1253→        $tr.find('.ded-pf').text(fmt(pf));
+  1254→        $tr.find('.ded-esi').text(fmt(esi));
+  1255→        $tr.find('.ded-pt').text(fmt(pt));
+  1256→        $tr.find('.ded-lwf').text(fmt(lwf));
+  1257→
+  1258→        // ── Totals ──
+  1259→        $tr.find('.total-deductions').text(fmt(totalDed));
+  1260→        $tr.find('.net-pay').text(fmt(netPay));
+  1261→
+  1262→        // ── Highlight negative net ──
+  1263→        if (netPay < 0) {
+  1264→            $tr.find('.net-pay').css('color', '#dc3545');
+  1265→        } else {
+  1266→            $tr.find('.net-pay').css('color', '');
+  1267→        }
+  1268→
+  1269→        // Employer contributions + CTC (matching process.php: gross + employer contrib + bonus + gratuity prov)
+  1270→        var employerContrib = round2(pfEmployer + epsEmployer + edlisEmployer + epfAdmin + esiEmployer);
+  1271→        var ctc = round2(grossSalary + employerContrib);
+  1272→        $tr.data('calc', {
+  1273→            basic_da: basicDa, hra: hra,
+  1274→            leave_encashment: leaveEnc, bonus_encashment: bonusEnc,
+  1275→            washing_allowance: wash, overtime_amount: otAmount,
+  1276→            overtime_hours: otHours,
+  1277→            gross_earnings: basicDa + hra + leaveEnc + bonusEnc + wash + otAmount,
+  1278→            gross_salary: grossSalary,
+  1279→            pf_employee: pf, esi_employee: esi, professional_tax: pt,
+  1280→            lwf_employee: lwf, salary_advance: advance,
+  1281→            office_deduction: officeDed, loan_emi: loanEmi,
+  1282→            total_deductions: totalDed, net_pay: netPay,
+  1283→            paid_days: paidDays, total_days: totalDays,
+  1284→            total_present: attPresent, total_wo: attWO, total_extra: attExtra,
+  1285→            // Employer contributions (matching process.php)
+  1286→            pf_employer: pfEmployer, eps_employer: epsEmployer,
+  1287→            edlis_employer: edlisEmployer, epf_admin_charges: epfAdmin,
+  1288→            esi_employer: esiEmployer,
+  1289→            total_employer_contribution: employerContrib,
+  1290→            ctc: ctc
+  1291→        });
+  1292→
+  1293→        updateTotals();
+  1294→    }
+  1295→
+  1296→    function setRowZero($tr) {
+  1297→        $tr.find('.calc-val').text('₹0.00');
+  1298→        $tr.data('calc', null);
+  1299→    }
+  1300→
+  1301→    // ── Update column totals ────────────────────────────────────
+  1302→    function updateTotals() {
+  1303→        var sP = 0, sWO = 0, sE = 0, sOH = 0;
+  1304→        var sEBD = 0, sEH = 0, sELE = 0, sEBE = 0, sEW = 0, sEO = 0;
+  1305→        var sGross = 0, sPF = 0, sESI = 0, sPT = 0, sLWF = 0;
+  1306→        var sAdv = 0, sLoan = 0, sOffD = 0, sDed = 0, sNet = 0;
+  1307→
+  1308→        $('#payrollTable tbody tr').each(function() {
+  1309→            var c = $(this).data('calc');
+  1310→            if (c) {
+  1311→                sP  += (c.total_present || 0);
+  1312→                sWO += (c.total_wo || 0);
+  1313→                sE  += (c.total_extra || 0);
+  1314→                sOH += (c.overtime_hours || 0);
+  1315→                sEBD += (c.basic_da || 0);
+  1316→                sEH  += (c.hra || 0);
+  1317→                sELE += (c.leave_encashment || 0);
+  1318→                sEBE += (c.bonus_encashment || 0);
+  1319→                sEW  += (c.washing_allowance || 0);
+  1320→                sEO  += (c.overtime_amount || 0);
+  1321→                sGross += (c.gross_salary || 0);
+  1322→                sPF  += (c.pf_employee || 0);
+  1323→                sESI += (c.esi_employee || 0);
+  1324→                sPT  += (c.professional_tax || 0);
+  1325→                sLWF += (c.lwf_employee || 0);
+  1326→                sAdv += (c.salary_advance || 0);
+  1327→                sLoan += (c.loan_emi || 0);
+  1328→                sOffD += (c.office_deduction || 0);
+  1329→                sDed += (c.total_deductions || 0);
+  1330→                sNet += (c.net_pay || 0);
+  1331→            }
+  1332→        });
+  1333→
+  1334→        $('#totPresent').text(sP);
+  1335→        $('#totWO').text(sWO);
+  1336→        $('#totExtra').text(sE);
+  1337→        $('#totOtHrs').text(sOH);
+  1338→        $('#totEarnBasicDa').text(fmt(sEBD));
+  1339→        $('#totEarnHra').text(fmt(sEH));
+  1340→        $('#totEarnLeaveEnc').text(fmt(sELE));
+  1341→        $('#totEarnBonusEnc').text(fmt(sEBE));
+  1342→        $('#totEarnWash').text(fmt(sEW));
+  1343→        $('#totEarnOtAmt').text(fmt(sEO));
+  1344→        $('#totalGross').text(fmt(sGross));
+  1345→        $('#totPF').text(fmt(sPF));
+  1346→        $('#totESI').text(fmt(sESI));
+  1347→        $('#totPT').text(fmt(sPT));
+  1348→        $('#totLWF').text(fmt(sLWF));
+  1349→        $('#totAdvance').text(fmt(sAdv));
+  1350→        $('#totLoanEmi').text(fmt(sLoan));
+  1351→        $('#totOffDed').text(fmt(sOffD));
+  1352→        $('#totalDed').text(fmt(sDed));
+  1353→        $('#totalNet').text(fmt(sNet));
+  1354→    }
+  1355→
+  1356→    // ── Mark changed cells ──────────────────────────────────────
+  1357→    function markChanged(input) {
+  1358→        var $input = $(input);
+  1359→        var $tr = $input.closest('tr');
+  1360→        var originalWages = $tr.data('original-wages') || {};
+  1361→
+  1362→        if ($input.hasClass('wage-field')) {
+  1363→            var fieldName = $input.attr('name');
+  1364→            var originalKey = {
+  1365→                'w_basic_da': 'basic_da', 'w_hra': 'hra',
+  1366→                'w_leave_enc': 'leave_encashment', 'w_bonus_enc': 'bonus_encashment',
+  1367→                'w_wash': 'washing_allowance', 'w_ot_rate': 'ot_rate'
+  1368→            }[fieldName];
+  1369→            if (originalKey && parseFloat($input.val()) != originalWages[originalKey]) {
+  1370→                $input.addClass('cell-changed');
+  1371→            } else {
+  1372→                $input.removeClass('cell-changed');
+  1373→            }
+  1374→        }
+  1375→    }
+  1376→
+  1377→    // ── Bind input events ───────────────────────────────────────
+  1378→    $(document).on('input change', '#payrollTable input', function() {
+  1379→        var $tr = $(this).closest('tr');
+  1380→        recalculateRow($tr);
+  1381→        markChanged(this);
+  1382→    });
+  1383→
+  1384→    // ── Initial recalculation on page load ───────────────────
+  1385→    $('#payrollTable tbody tr').each(function() {
+  1386→        recalculateRow(this);
+  1387→    });
+  1388→    updateTotals();
+  1389→
+  1390→    // ── Double-click on wage cells opens modal ──────────────────
+  1391→    $(document).on('dblclick', '.col-wage, .col-att', function(e) {
+  1392→        if ($(e.target).is('input')) return; // Don't double-trigger on input
+  1393→        var $tr = $(this).closest('tr');
+  1394→        openModalForRow($tr);
+  1395→    });
+  1396→
+  1397→    // ── Detail button opens modal ───────────────────────────────
+  1398→    $(document).on('click', '.btn-row-detail', function() {
+  1399→        var $tr = $(this).closest('tr');
+  1400→        openModalForRow($tr);
+  1401→    });
+  1402→
+  1403→    var modalCurrentRow = null;
+  1404→    var editModal = null;
+  1405→
+  1406→    function openModalForRow($tr) {
+  1407→        modalCurrentRow = $tr;
+  1408→        if (!editModal) editModal = new bootstrap.Modal(document.getElementById('editModal'));
+  1409→
+  1410→        // Populate modal fields from row inputs
+  1411→        $('#modalEmpName').text($tr.find('.sticky-col-2').text().trim());
+  1412→        $('#modalEmpCode').text('(' + $tr.find('.sticky-col-1').text().trim() + ')');
+  1413→
+  1414→        $('#modalAttPresent').val($tr.find('[name=att_present]').val());
+  1415→        $('#modalAttWO').val($tr.find('[name=att_wo]').val());
+  1416→        $('#modalAttExtra').val($tr.find('[name=att_extra]').val());
+  1417→        $('#modalOtHours').val($tr.find('[name=ot_hours]').val());
+  1418→
+  1419→        $('#modalWBasicDa').val($tr.find('[name=w_basic_da]').val());
+  1420→        $('#modalWHra').val($tr.find('[name=w_hra]').val());
+  1421→        $('#modalWLeaveEnc').val($tr.find('[name=w_leave_enc]').val());
+  1422→        $('#modalWBonusEnc').val($tr.find('[name=w_bonus_enc]').val());
+  1423→        $('#modalWWash').val($tr.find('[name=w_wash]').val());
+  1424→        $('#modalWOtRate').val($tr.find('[name=w_ot_rate]').val());
+  1425→
+  1426→        $('#modalPfApp').prop('checked', $tr.data('pf') === 1);
+  1427→        $('#modalEsiApp').prop('checked', $tr.data('esi') === 1);
+  1428→        $('#modalPtApp').prop('checked', $tr.data('pt') === 1);
+  1429→        $('#modalLwfApp').prop('checked', $tr.data('lwf') === 1);
+  1430→
+  1431→        $('#modalAdvance').val($tr.find('[name=advance]').val());
+  1432→        $('#modalOfficeDed').val($tr.find('[name=office_ded]').val());
+  1433→        $('#modalLoanEmi').val($tr.find('[name=loan_emi]').val());
+  1434→
+  1435→        // Preview calculation
+  1436→        previewModalCalc();
+  1437→
+  1438→        editModal.show();
+  1439→    }
+  1440→
+  1441→    function previewModalCalc() {
+  1442→        var totalDays = TOTAL_DAYS;
+  1443→        var attPresent = parseFloat($('#modalAttPresent').val()) || 0;
+  1444→        var attWO      = parseFloat($('#modalAttWO').val()) || 0;
+  1445→        var attExtra   = parseFloat($('#modalAttExtra').val()) || 0;
+  1446→        var otHours    = parseFloat($('#modalOtHours').val()) || 0;
+  1447→        var paidDays   = attPresent + attWO + attExtra;
+  1448→
+  1449→        var wBasicDa   = parseFloat($('#modalWBasicDa').val()) || 0;
+  1450→        var wHra       = parseFloat($('#modalWHra').val()) || 0;
+  1451→        var wLeaveEnc  = parseFloat($('#modalWLeaveEnc').val()) || 0;
+  1452→        var wBonusEnc  = parseFloat($('#modalWBonusEnc').val()) || 0;
+  1453→        var wWash      = parseFloat($('#modalWWash').val()) || 0;
+  1454→        var wOtRate    = parseFloat($('#modalWOtRate').val()) || 0;
+  1455→
+  1456→        var advance    = parseFloat($('#modalAdvance').val()) || 0;
+  1457→        var officeDed  = parseFloat($('#modalOfficeDed').val()) || 0;
+  1458→        var loanEmiM   = parseFloat($('#modalLoanEmi').val()) || 0;
+  1459→
+  1460→        if (totalDays === 0 || paidDays === 0) {
+  1461→            $('#modalPreviewGross').text('₹0.00');
+  1462→            $('#modalPreviewDed').text('₹0.00');
+  1463→            $('#modalPreviewNet').text('₹0.00');
+  1464→            return;
+  1465→        }
+  1466→
+  1467→        var pfApp   = $('#modalPfApp').is(':checked');
+  1468→        var esiApp  = $('#modalEsiApp').is(':checked');
+  1469→        var ptApp   = $('#modalPtApp').is(':checked');
+  1470→        var lwfApp  = $('#modalLwfApp').is(':checked');
+  1471→
+  1472→        var otMult  = modalCurrentRow ? (parseFloat(modalCurrentRow.data('ot-multiplier')) || 1) : 1;
+  1473→        var lwfAmt  = modalCurrentRow ? (parseFloat(modalCurrentRow.data('lwf-amount')) || 0) : 0;
+  1474→        var existGr = modalCurrentRow ? (parseFloat(modalCurrentRow.data('existing-gross')) || 0) : 0;
+  1475→
+  1476→        var basicDa  = round2(wBasicDa * paidDays / totalDays);
+  1477→        var hra      = round2(wHra * paidDays / totalDays);
+  1478→        var leaveEnc = round2(wLeaveEnc * paidDays / totalDays);
+  1479→        var bonusEnc = round2(wBonusEnc * paidDays / totalDays);
+  1480→        var wash     = round2(wWash * paidDays / totalDays);
+  1481→        var otAmt    = round2(wOtRate * otHours * otMult);
+  1482→
+  1483→        var gross = round2(basicDa + hra + leaveEnc + bonusEnc + wash + otAmt);
+  1484→        var pf    = pfApp ? round2(Math.min(basicDa, PF_WAGE_CEILING) * PF_EMPLOYEE_SHARE / 100) : 0;
+  1485→        var esiG  = existGr > 0 ? existGr : 0; // full monthly gross
+  1486→        var esi   = (esiApp && esiG > 0 && esiG <= ESI_WAGE_CEILING) ? round2(gross * ESI_EMPLOYEE_SHARE / 100) : 0;
+  1487→        var pt    = calculatePT(gross, ptApp);
+  1488→        var lwf   = lwfApp ? lwfAmt : 0;
+  1489→        var ded   = round2(pf + esi + pt + lwf + advance + officeDed + loanEmiM);
+  1490→        var net   = Math.round(gross - ded); // Round to nearest ₹.00
+  1491→
+  1492→        $('#modalPreviewGross').text(fmt(gross));
+  1493→        $('#modalPreviewDed').text(fmt(ded));
+  1494→        $('#modalPreviewNet').text(fmt(net));
+  1495→    }
+  1496→
+  1497→    // Modal input changes update preview
+  1498→    $(document).on('input change', '#editModal input, #editModal .form-check-input', function() {
+  1499→        previewModalCalc();
+  1500→    });
+  1501→
+  1502→    // Save from modal → write back to row and recalculate
+  1503→    function saveModalToRow() {
+  1504→        if (!modalCurrentRow) return;
+  1505→        var $tr = modalCurrentRow;
+  1506→
+  1507→        $tr.find('[name=att_present]').val($('#modalAttPresent').val()).trigger('change');
+  1508→        $tr.find('[name=att_wo]').val($('#modalAttWO').val()).trigger('change');
+  1509→        $tr.find('[name=att_extra]').val($('#modalAttExtra').val()).trigger('change');
+  1510→        $tr.find('[name=ot_hours]').val($('#modalOtHours').val()).trigger('change');
+  1511→
+  1512→        $tr.find('[name=w_basic_da]').val($('#modalWBasicDa').val()).trigger('change');
+  1513→        $tr.find('[name=w_hra]').val($('#modalWHra').val()).trigger('change');
+  1514→        $tr.find('[name=w_leave_enc]').val($('#modalWLeaveEnc').val()).trigger('change');
+  1515→        $tr.find('[name=w_bonus_enc]').val($('#modalWBonusEnc').val()).trigger('change');
+  1516→        $tr.find('[name=w_wash]').val($('#modalWWash').val()).trigger('change');
+  1517→        $tr.find('[name=w_ot_rate]').val($('#modalWOtRate').val()).trigger('change');
+  1518→
+  1519→        $tr.data('pf', $('#modalPfApp').is(':checked') ? 1 : 0);
+  1520→        $tr.data('esi', $('#modalEsiApp').is(':checked') ? 1 : 0);
+  1521→        $tr.data('pt', $('#modalPtApp').is(':checked') ? 1 : 0);
+  1522→        $tr.data('lwf', $('#modalLwfApp').is(':checked') ? 1 : 0);
+  1523→
+  1524→        $tr.find('[name=advance]').val($('#modalAdvance').val()).trigger('change');
+  1525→        $tr.find('[name=office_ded]').val($('#modalOfficeDed').val()).trigger('change');
+  1526→        $tr.find('[name=loan_emi]').val($('#modalLoanEmi').val()).trigger('change');
+  1527→
+  1528→        recalculateRow($tr);
+  1529→    }
+  1530→
+  1531→    // Modal: Save
+  1532→    $('#btnModalSave').on('click', function() {
+  1533→        saveModalToRow();
+  1534→        if (editModal) editModal.hide();
+  1535→    });
+  1536→
+  1537→    // Modal: Save & Next
+  1538→    $('#btnModalSaveNext').on('click', function() {
+  1539→        saveModalToRow();
+  1540→        var $next = modalCurrentRow.next('tr');
+  1541→        if ($next.length) {
+  1542→            openModalForRow($next);
+  1543→        } else {
+  1544→            if (editModal) editModal.hide();
+  1545→        }
+  1546→    });
+  1547→
+  1548→    // Modal: Previous
+  1549→    $('#btnModalPrev').on('click', function() {
+  1550→        saveModalToRow();
+  1551→        var $prev = modalCurrentRow.prev('tr');
+  1552→        if ($prev.length) {
+  1553→            openModalForRow($prev);
+  1554→        }
+  1555→    });
+  1556→
+  1557→    // ── Save a single row via AJAX ──────────────────────────────
+  1558→    function saveRow($tr) {
+  1559→        var calc = $tr.data('calc');
+  1560→        if (!calc) {
+  1561→            console.warn('No calculated data for row', $tr.data('row'));
+  1562→            return Promise.resolve(false);
+  1563→        }
+  1564→
+  1565→        $tr.addClass('saving-row');
+  1566→
+  1567→        var payload = {
+  1568→            employee_id: $tr.data('emp-id'),
+  1569→            employee_code: $tr.data('emp-code'),
+  1570→            month: MONTH,
+  1571→            year: YEAR,
+  1572→            unit_id: UNIT_ID,
+  1573→            pf_applicable: $tr.data('pf') === 1,
+  1574→            esi_applicable: $tr.data('esi') === 1,
+  1575→            pt_applicable: $tr.data('pt') === 1,
+  1576→            lwf_applicable: $tr.data('lwf') === 1,
+  1577→            wage_details: {
+  1578→                basic_da: parseFloat($tr.find('[name=w_basic_da]').val()) || 0,
+  1579→                hra: parseFloat($tr.find('[name=w_hra]').val()) || 0,
+  1580→                leave_encashment: parseFloat($tr.find('[name=w_leave_enc]').val()) || 0,
+  1581→                bonus_encashment: parseFloat($tr.find('[name=w_bonus_enc]').val()) || 0,
+  1582→                washing_allowance: parseFloat($tr.find('[name=w_wash]').val()) || 0,
+  1583→                gross_salary: parseFloat($tr.find('[name=w_basic_da]').val() || 0)
+  1584→                    + parseFloat($tr.find('[name=w_hra]').val() || 0)
+  1585→                    + parseFloat($tr.find('[name=w_leave_enc]').val() || 0)
+  1586→                    + parseFloat($tr.find('[name=w_bonus_enc]').val() || 0)
+  1587→                    + parseFloat($tr.find('[name=w_wash]').val() || 0)
+  1588→            },
+  1589→            attendance: {
+  1590→                total_present: parseFloat($tr.find('[name=att_present]').val()) || 0,
+  1591→                total_wo: parseFloat($tr.find('[name=att_wo]').val()) || 0,
+  1592→                total_extra: parseFloat($tr.find('[name=att_extra]').val()) || 0,
+  1593→                overtime_hours: parseFloat($tr.find('[name=ot_hours]').val()) || 0,
+  1594→                total_paid_days: calc.paid_days || 0
+  1595→            },
+  1596→            advances: {
+  1597→                advance: calc.salary_advance,
+  1598→                office_deduction: calc.office_deduction,
+  1599→                loan_emi: parseFloat($tr.find('[name=loan_emi]').val()) || 0
+  1600→            },
+  1601→            payroll: {
+  1602→                basic_da: calc.basic_da,
+  1603→                hra: calc.hra,
+  1604→                leave_encashment: calc.leave_encashment,
+  1605→                bonus_encashment: calc.bonus_encashment,
+  1606→                washing_allowance: calc.washing_allowance,
+  1607→                overtime_amount: calc.overtime_amount,
+  1608→                overtime_hours: calc.overtime_hours,
+  1609→                gross_earnings: calc.gross_earnings,
+  1610→                gross_salary: calc.gross_salary,
+  1611→                pf_employee: calc.pf_employee,
+  1612→                esi_employee: calc.esi_employee,
+  1613→                professional_tax: calc.professional_tax,
+  1614→                lwf_employee: calc.lwf_employee,
+  1615→                salary_advance: calc.salary_advance,
+  1616→                office_deduction: calc.office_deduction,
+  1617→                total_deductions: calc.total_deductions,
+  1618→                net_pay: calc.net_pay,
+  1619→                paid_days: calc.paid_days,
+  1620→                total_days: calc.total_days,
+  1621→                total_present: calc.total_present,
+  1622→                total_wo: calc.total_wo,
+  1623→                total_extra: calc.total_extra,
+  1624→                // Employer contributions (matching process.php)
+  1625→                pf_employer: calc.pf_employer,
+  1626→                eps_employer: calc.eps_employer,
+  1627→                edlis_employer: calc.edlis_employer,
+  1628→                epf_admin_charges: calc.epf_admin_charges,
+  1629→                esi_employer: calc.esi_employer,
+  1630→                total_employer_contribution: calc.total_employer_contribution,
+  1631→                ctc: calc.ctc
+  1632→            }
+  1633→        };
+  1634→
+  1635→        return fetch(SAVE_URL, {
+  1636→            method: 'POST',
+  1637→            headers: { 'Content-Type': 'application/json' },
+  1638→            body: JSON.stringify(payload)
+  1639→        })
+  1640→        .then(function(r) { return r.json(); })
+  1641→        .then(function(data) {
+  1642→            $tr.removeClass('saving-row');
+  1643→            if (data.success) {
+  1644→                // Clear changed highlights
+  1645→                $tr.find('.cell-changed').removeClass('cell-changed');
+  1646→                // Brief green flash
+  1647→                $tr.find('td').first().css('background-color', '#c8e6c9');
+  1648→                setTimeout(function() { $tr.find('td').first().css('background-color', ''); }, 1200);
+  1649→            } else {
+  1650→                alert('Error saving row: ' + (data.message || 'Unknown error'));
+  1651→            }
+  1652→            return data.success;
+  1653→        })
+  1654→        .catch(function(err) {
+  1655→            $tr.removeClass('saving-row');
+  1656→            alert('AJAX error: ' + err.message);
+  1657→            return false;
+  1658→        });
+  1659→    }
+  1660→
+  1661→    // ── Save All ────────────────────────────────────────────────
+  1662→    $('#btnSaveAll').on('click', function() {
+  1663→        var $rows = $('#payrollTable tbody tr');
+  1664→        var total = $rows.length;
+  1665→        var saved = 0;
+  1666→        var failed = 0;
+  1667→
+  1668→        if (!confirm('Save payroll for all ' + total + ' employees?')) return;
+  1669→
+  1670→        var $btn = $(this);
+  1671→        $btn.prop('disabled', true).html('<span class="save-spinner me-1"></span>Saving...');
+  1672→
+  1673→        var chain = Promise.resolve();
+  1674→        $rows.each(function(idx) {
+  1675→            chain = chain.then(function() {
+  1676→                return saveRow($(this));
+  1677→            }.bind($rows.eq(idx)));
+  1678→        });
+  1679→
+  1680→        chain.then(function() {
+  1681→            // Count results
+  1682→            $btn.prop('disabled', false).html('<i class="bi bi-floppy me-1"></i>Save All');
+  1683→            showToast('Payroll saved for ' + total + ' employees.', 'success');
+  1684→        });
+  1685→    });
+  1686→
+  1687→    // ── Toast ───────────────────────────────────────────────────
+  1688→    function showToast(msg, type) {
+  1689→        var $toast = $('#loadToast');
+  1690→        $toast.removeClass('text-bg-success text-bg-danger text-bg-warning').addClass('text-bg-' + (type || 'success'));
+  1691→        $('#toastBody').html(
+  1692→            '<i class="bi bi-' + (type === 'danger' ? 'x-circle' : 'check-circle') + ' me-1"></i>' + msg
+  1693→        );
+  1694→        var t = bootstrap.Toast.getOrCreateInstance($toast[0], { delay: 4000 });
+  1695→        t.show();
+  1696→    }
+  1697→
+  1698→    // ── Initial calculate all rows ──────────────────────────────
+  1699→    $('#payrollTable tbody tr').each(function() {
+  1700→        recalculateRow(this);
+  1701→    });
+  1702→
+  1703→    // ── Show load toast ─────────────────────────────────────────
+  1704→    var t = bootstrap.Toast.getOrCreateInstance(document.getElementById('loadToast'), { delay: 4000 });
+  1705→    t.show();
+  1706→
+  1707→    // ── Column Toggle ──────────────────────────────────────────
+  1708→    // Show toggle bar
+  1709→    document.getElementById('colToggleCard').style.display = '';
+  1710→
+  1711→    // Default hidden groups (wage is NOT active by default)
+  1712→    var hiddenGroups = { wage: true };
+  1713→
+  1714→    // Initialize: hide wage columns by default
+  1715→    Object.keys(hiddenGroups).forEach(function(g) {
+  1716→        if (hiddenGroups[g]) {
+  1717→            toggleColumnGroup(g, false);
+  1718→            var chip = document.querySelector('.col-toggle-chip[data-toggle-group="' + g + '"]');
+  1719→            if (chip) chip.classList.remove('active');
+  1720→        }
+  1721→    });
+  1722→
+  1723→    // Chip click handlers
+  1724→    document.querySelectorAll('.col-toggle-chip').forEach(function(chip) {
+  1725→        chip.addEventListener('click', function() {
+  1726→            var group = this.getAttribute('data-toggle-group');
+  1727→            var isActive = this.classList.contains('active');
+  1728→            toggleColumnGroup(group, !isActive);
+  1729→            this.classList.toggle('active');
+  1730→        });
+  1731→    });
+  1732→
+  1733→    function toggleColumnGroup(group, show) {
+  1734→        var cells = document.querySelectorAll('#payrollTable [data-col-group="' + group + '"]');
+  1735→        cells.forEach(function(cell) {
+  1736→            if (show) {
+  1737→                cell.classList.remove('col-hidden');
+  1738→            } else {
+  1739→                cell.classList.add('col-hidden');
+  1740→            }
+  1741→        });
+  1742→    }
+  1743→
+  1744→    // ── Excel-like Enter key navigation ───────────────────────
+  1745→    $(document).on('keydown', '#payrollTable .payroll-input', function(e) {
+  1746→        if (e.key === 'Enter') {
+  1747→            e.preventDefault();
+  1748→            var $input = $(this);
+  1749→            var $td = $input.closest('td');
+  1750→            var $tr = $td.closest('tr');
+  1751→            var colIndex = $tr.find('td').index($td);
+  1752→            var $nextRow = $tr.next('tr');
+  1753→
+  1754→            if ($nextRow.length) {
+  1755→                var $nextTd = $nextRow.find('td').eq(colIndex);
+  1756→                var $nextInput = $nextTd.find('.payroll-input');
+  1757→                if ($nextInput.length) {
+  1758→                    $nextInput.focus().select();
+  1759→                } else {
+  1760→                    // If no input in same column, find next input in the row
+  1761→                    var $firstInput = $nextRow.find('.payroll-input').first();
+  1762→                    if ($firstInput.length) {
+  1763→                        $firstInput.focus().select();
+  1764→                    }
+  1765→                }
+  1766→            }
+  1767→        }
+  1768→        // Tab key: default browser behavior moves to next input — let it work
+  1769→    });
+  1770→
+  1771→})();
+  1772→}); // end DOMContentLoaded
+  1773→</script>
+  1774→
+  1775→<?php endif; // employeeData not empty ?>
+  1776→<?php endif; // loaded ?>
+  1777→
+  1778→<?php
+  1779→// Client → Unit cascade JS — MUST be outside the loaded/employeeData conditionals
+  1780→// so it works even when no employees are loaded yet
+  1781→$extraJS = <<<'JS'
+  1782→<script>
+  1783→// Load units when client changes (always available on this page)
+  1784→document.getElementById('clientSelect').addEventListener('change', function() {
+  1785→    var clientId = this.value;
+  1786→    var unitSelect = document.getElementById('unitSelect');
+  1787→
+  1788→    unitSelect.innerHTML = '<option value="">Loading...</option>';
+  1789→
+  1790→    if (!clientId) {
+  1791→        unitSelect.innerHTML = '<option value="">-- Select --</option>';
+  1792→        return;
+  1793→    }
+  1794→
+  1795→    fetch('index.php?page=api/units&client_id=' + clientId)
+  1796→        .then(function(response) { return response.json(); })
+  1797→        .then(function(data) {
+  1798→            unitSelect.innerHTML = '<option value="">-- Select --</option>';
+  1799→            if (data && data.units) {
+  1800→                data.units.forEach(function(unit) {
+  1801→                    var option = document.createElement('option');
+  1802→                    option.value = unit.id;
+  1803→                    option.textContent = unit.name;
+  1804→                    unitSelect.appendChild(option);
+  1805→                });
+  1806→            }
+  1807→        })
+  1808→        .catch(function() {
+  1809→            unitSelect.innerHTML = '<option value="">Error loading units</option>';
+  1810→        });
+  1811→});
+  1812→</script>
+  1813→JS;
+  1814→?>
+  1815→
