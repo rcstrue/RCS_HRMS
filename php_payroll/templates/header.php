@@ -459,6 +459,7 @@
                             'compliance/pt-challan'=> 'PT Challan',
                             'compliance/minimum-wage-check'=> 'Min Wage Check',
                             'compliance/minimum-wages'=> 'Minimum Wages',
+                            'compliance/minimum-wage-sync'=> 'Wage Sync',
                             // Leave
                             'leave/apply'      => 'Apply Leave',
                             'leave/balance'    => 'Leave Balance',
