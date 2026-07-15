@@ -12,6 +12,8 @@ if (!defined('RCS_HRMS')) {
 // ============================================
 // Employee Status Constants
 // ============================================
+// Employee status in DB uses 'approved' for active/working employees.
+// NEVER use 'active' — it does not exist in the ENUM.
 define('STATUS_APPROVED', 'approved');
 define('STATUS_PENDING', 'pending');
 define('STATUS_PENDING_HR', 'pending_hr_verification');
@@ -19,8 +21,8 @@ define('STATUS_PENDING_DOC', 'pending_document_verification');
 define('STATUS_INACTIVE', 'inactive');
 define('STATUS_REMOVED', 'removed');
 define('STATUS_TERMINATED', 'terminated');
-// 'active' is now supported in DB ENUM (migration 001). Both 'approved' and 'active' are valid.
-define('STATUS_ACTIVE', 'active');
+// Legacy alias — DO NOT USE. Resolves to 'approved' for backward compat.
+define('STATUS_ACTIVE', 'approved');
 
 // ============================================
 // Message/Alert Types
@@ -122,6 +124,15 @@ define('ATTENDANCE_ABSENT', 'absent');
 define('ATTENDANCE_LEAVE', 'leave');
 define('ATTENDANCE_HOLIDAY', 'holiday');
 define('ATTENDANCE_HALF_DAY', 'half_day');
+
+// ============================================
+// Loan Status Constants
+// DB stores title-case: 'Active', 'Closed', 'Rejected', 'Future'
+// ============================================
+define('LOAN_STATUS_ACTIVE', 'Active');
+define('LOAN_STATUS_CLOSED', 'Closed');
+define('LOAN_STATUS_REJECTED', 'Rejected');
+define('LOAN_STATUS_FUTURE', 'Future');
 
 // ============================================
 // Expense Status Constants
