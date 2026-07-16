@@ -77,6 +77,21 @@ class MinimumWageSync {
     ];
 
     private $db;
+    private $mwColumns = null; // cached column list for minimum_wages table
+
+    // Column mapping: Simpliance JSON key → possible DB column names (checked in order)
+    const COLUMN_MAP = [
+        // VDA/DA — try both names since DB may use either
+        'vda_per_day'    => ['da_per_day', 'vda_per_day'],
+        'vda_per_month'  => ['da_per_month', 'vda_per_month'],
+        // HRA
+        'hra_per_month'  => ['special_allowance_per_month', 'hra_per_month'],
+        // Always present
+        'basic_per_day'       => ['basic_per_day'],
+        'basic_per_month'     => ['basic_per_month'],
+        'total_per_day'       => ['total_per_day'],
+        'total_per_month'     => ['total_per_month'],
+    ];
 
     public function __construct($db = null) {
         $this->db = $db;
@@ -297,6 +312,17 @@ class MinimumWageSync {
 
                 if (!$effectiveDate) continue;
 
+                // Build wage data map (Simpliance keys → values)
+                $wageData = [
+                    'basic_per_day'   => $basicPerDay,
+                    'basic_per_month' => $basicPerMonth,
+                    'vda_per_day'     => $vdaPerDay,
+                    'vda_per_month'   => $vdaPerMonth,
+                    'hra_per_month'   => $hraPerMonth,
+                    'total_per_day'   => $totalPerDay,
+                    'total_per_month' => $totalPerMonth,
+                ];
+
                 // Check for existing record
                 $existing = $this->db->fetchAll(
                     "SELECT id FROM minimum_wages
@@ -306,50 +332,14 @@ class MinimumWageSync {
                 );
 
                 if (!$dryRun) {
-                    if (!empty($existing)) {
-                        // UPDATE
-                        $this->db->query(
-                            "UPDATE minimum_wages SET
-                                basic_per_day = ?, basic_per_month = ?,
-                                da_per_day = ?, da_per_month = ?,
-                                special_allowance_per_month = ?,
-                                total_per_day = ?, total_per_month = ?,
-                                notification_number = ?,
-                                source = ?, version_id = ?, is_active = 1,
-                                updated_at = NOW()
-                             WHERE id = ?",
-                            [
-                                $basicPerDay, $basicPerMonth,
-                                $vdaPerDay, $vdaPerMonth,
-                                $hraPerMonth,
-                                $totalPerDay, $totalPerMonth,
-                                mb_substr($notificationName, 0, 100),
-                                'Simpliance', $version,
-                                $existing[0]['id'],
-                            ]
-                        );
+                    $existingId = !empty($existing) ? $existing[0]['id'] : null;
+                    $this->upsertWage(
+                        $state['id'], $workerCategory, $effectiveDate,
+                        $wageData, $version, $notificationName, $existingId
+                    );
+                    if ($existingId) {
                         $result['records_updated']++;
                     } else {
-                        // INSERT
-                        $this->db->query(
-                            "INSERT INTO minimum_wages
-                                (state_id, worker_category, basic_per_day, basic_per_month,
-                                 da_per_day, da_per_month, special_allowance_per_month,
-                                 total_per_day, total_per_month,
-                                 effective_from, notification_number,
-                                 source, version_id, is_active)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Simpliance', ?, 1)",
-                            [
-                                $state['id'], $workerCategory,
-                                $basicPerDay, $basicPerMonth,
-                                $vdaPerDay, $vdaPerMonth,
-                                $hraPerMonth,
-                                $totalPerDay, $totalPerMonth,
-                                $effectiveDate,
-                                mb_substr($notificationName, 0, 100),
-                                $version,
-                            ]
-                        );
                         $result['records_added']++;
                     }
                 } else {
@@ -378,11 +368,92 @@ class MinimumWageSync {
     }
 
     /**
-     * GET page — uses simple fetch, no cookies needed for state pages.
-     * (Cookies only needed for the POST /wages/filter endpoint which we no longer use.)
+     * GET page — uses simple fetch, no cookies needed.
      */
     private function fetchPage($url) {
         return $this->fetchUrl($url);
+    }
+
+    /**
+     * Detect which columns actually exist in minimum_wages table.
+     * Caches result for the request lifetime.
+     */
+    private function detectColumns() {
+        if ($this->mwColumns !== null) return $this->mwColumns;
+
+        $rows = $this->db->fetchAll(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'minimum_wages'"
+        );
+        $this->mwColumns = array_column($rows, 'COLUMN_NAME');
+        return $this->mwColumns;
+    }
+
+    /**
+     * Resolve a Simpliance field to the actual DB column name.
+     * Returns the first matching column that exists, or null.
+     */
+    private function resolveColumn($simplianceKey) {
+        $candidates = self::COLUMN_MAP[$simplianceKey] ?? [$simplianceKey];
+        $existing = $this->detectColumns();
+        foreach ($candidates as $col) {
+            if (in_array($col, $existing)) return $col;
+        }
+        return null;
+    }
+
+    /**
+     * Build dynamic INSERT or UPDATE SQL using only columns that exist.
+     * $data = ['basic_per_day' => 500, 'vda_per_day' => 60, ...]
+     */
+    private function upsertWage($stateId, $workerCategory, $effectiveDate, $data, $version, $notificationName, $existingId = null) {
+        $existing = $this->detectColumns();
+
+        // Build column→value map for columns that exist
+        $setCols = [];
+        $setVals = [];
+
+        // Always-included fields
+        if (in_array('state_id', $existing))        { $setCols[] = 'state_id';        $setVals[] = $stateId; }
+        if (in_array('worker_category', $existing))  { $setCols[] = 'worker_category';  $setVals[] = $workerCategory; }
+        if (in_array('effective_from', $existing))   { $setCols[] = 'effective_from';   $setVals[] = $effectiveDate; }
+        if (in_array('is_active', $existing))        { $setCols[] = 'is_active';        $setVals[] = 1; }
+        if (in_array('source', $existing))           { $setCols[] = 'source';           $setVals[] = 'Simpliance'; }
+        if (in_array('version_id', $existing))       { $setCols[] = 'version_id';       $setVals[] = $version; }
+
+        // Notification
+        if ($notificationName && in_array('notification_number', $existing)) {
+            $setCols[] = 'notification_number';
+            $setVals[] = mb_substr($notificationName, 0, 100);
+        }
+
+        // Dynamic wage columns
+        foreach ($data as $key => $val) {
+            $col = $this->resolveColumn($key);
+            if ($col && in_array($col, $existing)) {
+                $setCols[] = $col;
+                $setVals[] = $val;
+            }
+        }
+
+        if (empty($setCols)) return false;
+
+        if ($existingId) {
+            // UPDATE
+            if (in_array('updated_at', $existing)) {
+                $setCols[] = 'updated_at';
+                $setVals[] = date('Y-m-d H:i:s');
+            }
+            $setClause = implode(' = ?, ', $setCols) . ' = ?';
+            $setVals[] = $existingId;
+            $this->db->query("UPDATE minimum_wages SET $setClause WHERE id = ?", $setVals);
+        } else {
+            // INSERT
+            $placeholders = implode(', ', array_fill(0, count($setCols), '?'));
+            $colList = implode(', ', $setCols);
+            $this->db->query("INSERT INTO minimum_wages ($colList) VALUES ($placeholders)", $setVals);
+        }
+        return true;
     }
 
     // ── Run full sync ───────────────────────────────────────────────
