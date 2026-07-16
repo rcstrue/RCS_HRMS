@@ -209,7 +209,7 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
 
       {/* ── Photo Picker Bottom Sheet ──────────────────────── */}
       <Drawer open={pickerOpen} onOpenChange={setPickerOpen}>
-        <DrawerContent>
+        <DrawerContent onCloseAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader>
             <DrawerTitle>Choose Photo</DrawerTitle>
             <DrawerDescription>Select an option to attach a photo</DrawerDescription>
