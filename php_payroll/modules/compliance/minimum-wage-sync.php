@@ -1,7 +1,8 @@
 <?php
 /**
  * RCS HRMS Pro — Minimum Wage Sync Dashboard
- * Shows sync history and allows manual trigger from browser
+ * Shows sync history and allows manual trigger from browser.
+ * Pure PHP sync — no Node.js needed.
  */
 $pageTitle = 'Min Wage Sync';
 
@@ -16,12 +17,10 @@ try {
          ORDER BY s.state_name"
     )->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
-    // states table might not have slug column yet
     $states = [];
-    $slugMissing = true;
 }
 
-// Get states without slugs (for setup prompt)
+// Get states without slugs
 try {
     $statesNoSlug = $db->query(
         "SELECT id, state_name FROM states WHERE is_active = 1 AND (slug IS NULL OR slug = '') ORDER BY state_name"
@@ -65,11 +64,6 @@ try {
 } catch (Exception $e) {
     $lastSyncAll = ['last' => null];
 }
-
-// Check if Node.js is available (for showing/hiding buttons)
-$nodeAvailable = !empty(trim(shell_exec('which node 2>/dev/null') ?: ''));
-$scriptExists = file_exists(APP_ROOT . '/scripts/minimum-wage-sync/minimum-wage-sync.js');
-$canRunSync = $nodeAvailable && $scriptExists;
 ?>
 
 <div class="page-header">
@@ -82,49 +76,27 @@ $canRunSync = $nodeAvailable && $scriptExists;
                 </ol>
             </nav>
             <h1 class="page-title"><i class="bi bi-arrow-repeat me-2"></i>Minimum Wage Sync</h1>
-            <p class="text-muted">Auto-fetches minimum wages from Simpliance.in into HRMS</p>
+            <p class="text-muted">Fetches minimum wages from Simpliance.in and saves to HRMS database</p>
         </div>
-        <div class="col-auto d-flex gap-2 align-items-center flex-wrap">
+        <div class="col-auto">
             <span class="badge bg-secondary fs-6">
-                Last Full Sync: <?php echo $lastSyncAll['last'] ? formatDateTime($lastSyncAll['last']) : 'Never'; ?>
+                Last Sync: <?php echo $lastSyncAll['last'] ? formatDateTime($lastSyncAll['last']) : 'Never'; ?>
             </span>
         </div>
     </div>
 </div>
 
-<?php if (!$canRunSync): ?>
-<div class="alert alert-warning mb-4">
-    <i class="bi bi-exclamation-triangle me-2"></i>
-    <strong>Setup Required:</strong>
-    <?php if (!$nodeAvailable): ?>
-    Node.js is not installed on this server. Install it first:
-    <code>curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs</code>
-    <?php endif; ?>
-    <?php if ($scriptExists && !$nodeAvailable): ?>
-    <br>
-    <?php endif; ?>
-    <?php if (!$scriptExists): ?>
-    Sync script not found. Run <code>npm install</code> in the <code>scripts/minimum-wage-sync/</code> directory.
-    <?php endif; ?>
-</div>
-<?php endif; ?>
-
 <?php if (!empty($statesNoSlug) && empty($states)): ?>
 <div class="alert alert-info mb-4">
     <i class="bi bi-info-circle me-2"></i>
     <strong>No states have slugs configured.</strong> Slugs are needed to match HRMS states to Simpliance.in URLs.
-    <?php if ($canRunSync): ?>
     <button type="button" class="btn btn-sm btn-outline-primary ms-2" onclick="setupSlugs()">
         <i class="bi bi-magic me-1"></i>Auto-Setup Slugs
     </button>
-    <?php else: ?>
-    <br><small>Run <code>node minimum-wage-sync.js --add-slug</code> manually from SSH, or set up Node.js first.</small>
-    <?php endif; ?>
 </div>
 <?php endif; ?>
 
 <!-- Action Buttons -->
-<?php if ($canRunSync && !empty($states)): ?>
 <div class="card mb-4">
     <div class="card-body">
         <div class="d-flex flex-wrap gap-2 align-items-center">
@@ -136,19 +108,17 @@ $canRunSync = $nodeAvailable && $scriptExists;
             </button>
             <?php if (!empty($statesNoSlug)): ?>
             <button type="button" class="btn btn-outline-secondary" onclick="setupSlugs()">
-                <i class="bi bi-magic me-1"></i> Auto-Setup Missing Slugs
+                <i class="bi bi-magic me-1"></i> Auto-Setup Missing Slugs (<?php echo count($statesNoSlug); ?>)
             </button>
             <?php endif; ?>
             <div class="ms-auto text-muted small d-none" id="syncProgress">
-                <i class="bi bi-hourglass-split spinner-border spinner-border-sm me-1" role="status"></i>
+                <div class="spinner-border spinner-border-sm me-1" role="status"></div>
                 <span id="syncProgressText">Syncing...</span>
             </div>
         </div>
-        <!-- Results area (hidden until sync completes) -->
         <div id="syncResults" class="mt-3 d-none"></div>
     </div>
 </div>
-<?php endif; ?>
 
 <!-- Summary Cards -->
 <div class="row g-3 mb-4">
@@ -191,8 +161,7 @@ $canRunSync = $nodeAvailable && $scriptExists;
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="card-title mb-0"><i class="bi bi-geo-alt me-2"></i>State Coverage</h5>
         <div class="d-flex gap-2">
-            <?php if ($canRunSync && !empty($states)): ?>
-            <!-- Single state sync dropdown -->
+            <?php if (!empty($states)): ?>
             <div class="dropdown">
                 <button type="button" class="btn btn-outline-success btn-sm dropdown-toggle" data-bs-toggle="dropdown">
                     <i class="bi bi-cloud-download me-1"></i>Sync Single State
@@ -219,15 +188,13 @@ $canRunSync = $nodeAvailable && $scriptExists;
                         <th class="text-center">Rates Stored</th>
                         <th>Last Sync</th>
                         <th class="text-center">Status</th>
-                        <?php if ($canRunSync): ?>
                         <th class="text-center">Action</th>
-                        <?php endif; ?>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($states)): ?>
                     <tr>
-                        <td colspan="<?php echo $canRunSync ? 6 : 5; ?>" class="text-center py-4 text-muted">
+                        <td colspan="6" class="text-center py-4 text-muted">
                             No states with slugs configured. Click "Auto-Setup Slugs" above.
                         </td>
                     </tr>
@@ -253,13 +220,11 @@ $canRunSync = $nodeAvailable && $scriptExists;
                             <i class="bi bi-dash-circle text-muted"></i>
                             <?php endif; ?>
                         </td>
-                        <?php if ($canRunSync): ?>
                         <td class="text-center">
                             <button class="btn btn-sm btn-outline-success py-0 px-2" onclick="runSync('<?= htmlspecialchars($s['slug']) ?>')" title="Sync this state">
                                 <i class="bi bi-arrow-repeat"></i>
                             </button>
                         </td>
-                        <?php endif; ?>
                     </tr>
                     <?php endforeach; ?>
                     <?php endif; ?>
@@ -272,7 +237,7 @@ $canRunSync = $nodeAvailable && $scriptExists;
 <!-- Sync History -->
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="card-title mb-0"><i class="bi bi-clock-history me-2"></i>Sync History (Last 50 Runs)</h5>
+        <h5 class="card-title mb-0"><i class="bi bi-clock-history me-2"></i>Sync History (Last 50)</h5>
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="location.reload()">
             <i class="bi bi-arrow-clockwise me-1"></i>Refresh
         </button>
@@ -343,11 +308,10 @@ function runSync(state, dryRun) {
 
     // Show progress
     resultsDiv.classList.remove('d-none');
-    resultsDiv.innerHTML = '<div class="alert alert-info mb-0"><i class="bi bi-hourglass-split spinner-border spinner-border-sm me-2"></i>Sync in progress. This may take a minute per state. Please wait...</div>';
+    resultsDiv.innerHTML = '<div class="alert alert-info mb-0"><div class="spinner-border spinner-border-sm me-2"></div>Fetching from Simpliance.in — this may take a minute per state...</div>';
     progressDiv.classList.remove('d-none');
     progressText.textContent = state === 'all' ? 'Syncing all states...' : 'Syncing ' + state + '...';
 
-    // Disable buttons
     if (btnAll) btnAll.disabled = true;
     if (btnDry) btnDry.disabled = true;
 
@@ -371,31 +335,27 @@ function runSync(state, dryRun) {
 
         if (data.success && data.results) {
             let html = '<div class="alert ' + (data.total_added > 0 ? 'alert-success' : 'alert-warning') + ' mb-0">';
-            html += '<strong>Sync Complete!</strong> ';
+            html += '<strong>' + (data.dry_run ? 'Dry Run Complete!' : 'Sync Complete!') + '</strong> ';
             html += data.total_added + ' new rate(s) added, ' + data.total_skipped + ' skipped (already exist).';
-            html += '<hr class="my-2">';
-            html += '<table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr><th>State</th><th>Status</th><th>Added</th><th>Skipped</th><th>Error</th></tr></thead><tbody>';
-            data.results.forEach(function(r) {
-                const statusBadge = r.status === 'success' 
-                    ? '<span class="badge bg-success">OK</span>' 
-                    : r.status === 'partial' 
-                        ? '<span class="badge bg-warning text-dark">Partial</span>' 
-                        : '<span class="badge bg-danger">Error</span>';
-                html += '<tr>';
-                html += '<td>' + r.state + '</td>';
-                html += '<td class="text-center">' + statusBadge + '</td>';
-                html += '<td class="text-center"><strong>' + r.records_added + '</strong></td>';
-                html += '<td class="text-center text-muted">' + r.records_skipped + '</td>';
-                html += '<td class="text-danger small">' + (r.error_message || '-') + '</td>';
-                html += '</tr>';
-            });
-            html += '</tbody></table></div>';
+            if (data.results.length > 0) {
+                html += '<hr class="my-2"><table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr><th>State</th><th>Status</th><th>Added</th><th>Skipped</th><th>Error</th></tr></thead><tbody>';
+                data.results.forEach(function(r) {
+                    const badge = r.status === 'success' 
+                        ? '<span class="badge bg-success">OK</span>' 
+                        : r.status === 'partial' 
+                            ? '<span class="badge bg-warning text-dark">Partial</span>' 
+                            : '<span class="badge bg-danger">Error</span>';
+                    html += '<tr><td>' + r.state + '</td><td class="text-center">' + badge + '</td><td class="text-center"><strong>' + r.records_added + '</strong></td><td class="text-center text-muted">' + r.records_skipped + '</td><td class="text-danger small">' + (r.error_message || '-') + '</td></tr>';
+                });
+                html += '</tbody></table>';
+            }
+            html += '</div>';
             resultsDiv.innerHTML = html;
-
-            // Refresh the page after 3 seconds to update tables
-            setTimeout(function() { location.reload(); }, 3000);
+            if (!data.dry_run) {
+                setTimeout(function() { location.reload(); }, 3000);
+            }
         } else {
-            resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Sync Failed:</strong> ' + (data.message || 'Unknown error') + '</div>';
+            resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Failed:</strong> ' + (data.message || 'Unknown error') + '</div>';
         }
     })
     .catch(err => {
@@ -409,7 +369,7 @@ function runSync(state, dryRun) {
 function setupSlugs() {
     const resultsDiv = document.getElementById('syncResults');
     resultsDiv.classList.remove('d-none');
-    resultsDiv.innerHTML = '<div class="alert alert-info mb-0"><i class="bi bi-hourglass-split spinner-border spinner-border-sm me-2"></i>Setting up slugs...</div>';
+    resultsDiv.innerHTML = '<div class="alert alert-info mb-0"><div class="spinner-border spinner-border-sm me-2"></div>Setting up slugs...</div>';
 
     const params = new URLSearchParams({
         action: 'run-slug-setup',
@@ -424,7 +384,7 @@ function setupSlugs() {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            resultsDiv.innerHTML = '<div class="alert alert-success mb-0"><strong>Slug setup complete!</strong> <pre class="mb-0 mt-2 small">' + (data.output || '') + '</pre>Refresh the page to see updated states.</div>';
+            resultsDiv.innerHTML = '<div class="alert alert-success mb-0"><strong>Slug setup complete!</strong><pre class="mb-0 mt-2 small">' + (data.output || '') + '</pre>Refreshing...</div>';
             setTimeout(function() { location.reload(); }, 2000);
         } else {
             resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Slug setup failed:</strong> ' + (data.message || data.error || 'Unknown error') + '</div>';
