@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import type { ESSSession } from '@/lib/ess-types';
 import { getFileUrl, resetSessionExpiredGuard } from '@/lib/api/config';
+import { stopProactiveRefresh } from '@/lib/ess-auth';
 
 // Extracted modules
 import LoginScreen from './LoginScreen';
@@ -102,10 +103,14 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
   // ── Listen for session expiry (401 interceptor dispatches this) ──
   useEffect(() => {
     const handler = () => {
-      setSession(null);
-      setForcePinSession(null);
-      setCurrentPage('dashboard');
+      localStorage.removeItem('ess_employee');
+      localStorage.removeItem('ess_token');
+      stopProactiveRefresh();
       toast.error('Session expired. Please login again.');
+      // Hard reload to fetch latest app version
+      setTimeout(() => {
+        window.location.replace(window.location.href.split('#')[0] + '#ess');
+      }, 800);
     };
     window.addEventListener('ess:session-expired', handler);
     return () => window.removeEventListener('ess:session-expired', handler);
@@ -120,10 +125,10 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
   const clearSession = useCallback(() => {
     localStorage.removeItem('ess_employee');
     localStorage.removeItem('ess_token');
-    setSession(null);
-    setForcePinSession(null);
-    setCurrentPage('dashboard');
-    toast.success('Logged out successfully');
+    localStorage.removeItem('ess_login_attempts');
+    stopProactiveRefresh();
+    // Hard reload so browser fetches fresh index.html with latest JS bundles
+    window.location.replace(window.location.href.split('#')[0] + '#ess');
   }, []);
 
   const clearSessionAndAccess = useCallback(() => {
