@@ -12,8 +12,7 @@
  *   5. As a last resort (still too large), further reduce the resolution by
  *      10 % each round while keeping MIN_QUALITY.
  *
- * Returns a Blob so callers can construct a File and pass it to the normal
- * upload pipeline.
+ * Returns a File (JPEG) that is ≤ MAX_SIZE_KB.
  */
 
 export const MAX_DIMENSION = 1600;       // longest side in px
@@ -39,10 +38,34 @@ function loadImage(src: File | Blob | string): Promise<HTMLImageElement> {
 
 /** Measure the data-URL size in KB (base64 ≈ 3/4 of raw bytes). */
 function dataUrlSizeKB(dataUrl: string): number {
-  // "data:image/jpeg;base64," prefix → ignore the header part
   const commaIdx = dataUrl.indexOf(',');
   const base64 = dataUrl.substring(commaIdx + 1);
   return (base64.length * 3) / 4 / 1024;
+}
+
+/** Convert a data-URL to a File object. */
+function dataUrlToFile(dataUrl: string, originalName: string): File {
+  // Guard: if canvas returned an empty data URL, bail out
+  if (!dataUrl || dataUrl === 'data:,') {
+    throw new Error('Canvas produced an empty image — the file may be corrupted or in an unsupported format');
+  }
+
+  const commaIdx = dataUrl.indexOf(',');
+  const byteString = atob(dataUrl.substring(commaIdx + 1));
+  // Safely extract MIME type — handle unexpected data URL formats
+  const mimePart = dataUrl.substring(5, commaIdx);
+  const mimeString = mimePart.includes(':') ? (mimePart.split(':')[1]?.split(';')[0]) : 'image/jpeg';
+
+  const ab = new ArrayBuffer(byteString.length);
+  const ia = new Uint8Array(ab);
+  for (let i = 0; i < byteString.length; i++) {
+    ia[i] = byteString.charCodeAt(i);
+  }
+
+  const baseName = originalName.replace(/\.[^.]+$/, '') || 'photo';
+  const fileName = `${baseName}_hd.jpg`;
+
+  return new File([ab], fileName, { type: mimeString || 'image/jpeg' });
 }
 
 /**
@@ -57,6 +80,33 @@ export async function compressImageHD(
   const img = await loadImage(file);
   let { width, height } = img;
 
+  // Guard: zero-dimension images (corrupted file, undecodable format)
+  if (width === 0 || height === 0) {
+    throw new Error('Image has zero dimensions — the file may be corrupted or in an unsupported format');
+  }
+
+  // Fast path: if already under size limit, skip compression entirely
+  const originalSizeKB = file.size / 1024;
+  if (originalSizeKB <= MAX_SIZE_KB) {
+    // Return as JPEG File — if already JPEG, pass through; otherwise re-encode minimally
+    if (file.type === 'image/jpeg' && file instanceof File) {
+      return file;
+    }
+    // For non-JPEG small files, do a single canvas pass to convert to JPEG
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      // Canvas not available (Android WebView, private browsing) — return original
+      if (file instanceof File) return file;
+      return new File([file], 'image.jpg', { type: 'image/jpeg' });
+    }
+    canvas.width = width;
+    canvas.height = height;
+    ctx.drawImage(img, 0, 0, width, height);
+    const dataUrl = canvas.toDataURL('image/jpeg', QUALITY_START);
+    return dataUrlToFile(dataUrl, file instanceof File ? file.name : 'image.jpg');
+  }
+
   // Step 1: Fit inside MAX_DIMENSION box
   if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
     const ratio = Math.min(MAX_DIMENSION / width, MAX_DIMENSION / height);
@@ -65,7 +115,13 @@ export async function compressImageHD(
   }
 
   const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d');
+
+  // Guard: canvas context unavailable (some Android WebViews, private browsing)
+  if (!ctx) {
+    if (file instanceof File) return file;
+    return new File([file], 'image.jpg', { type: 'image/jpeg' });
+  }
 
   let quality = QUALITY_START;
 
@@ -105,24 +161,4 @@ export async function compressImageHD(
   // Extremely small image — just return whatever we have
   const finalUrl = canvas.toDataURL('image/jpeg', MIN_QUALITY);
   return dataUrlToFile(finalUrl, file instanceof File ? file.name : 'image.jpg');
-}
-
-/** Convert a data-URL to a File object. */
-function dataUrlToFile(dataUrl: string, originalName: string): File {
-  const commaIdx = dataUrl.indexOf(',');
-  const byteString = atob(dataUrl.substring(commaIdx + 1));
-  const mimeString = dataUrl.substring(5, commaIdx).split(':')[1].split(';')[0];
-
-  const ab = new ArrayBuffer(byteString.length);
-  const ia = new Uint8Array(ab);
-  for (let i = 0; i < byteString.length; i++) {
-    ia[i] = byteString.charCodeAt(i);
-  }
-
-  // Build a nice filename: "photo_1701234567890.jpg"
-  const ext = 'jpg';
-  const baseName = originalName.replace(/\.[^.]+$/, '') || 'photo';
-  const fileName = `${baseName}_hd.${ext}`;
-
-  return new File([ab], fileName, { type: mimeString || 'image/jpeg' });
 }

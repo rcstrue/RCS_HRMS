@@ -117,8 +117,10 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
 
   // ── Image handling: compress → upload ──────────────────────
   const processAndUpload = async (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      toast.error('Only image files are allowed (JPG, PNG, etc.)');
+    // Reject HEIC/HEIF and non-image files
+    const ext = file.name.toLowerCase().split('.').pop() || '';
+    if (!file.type.startsWith('image/') || ['heic', 'heif'].includes(ext)) {
+      toast.error('Unsupported format. Please choose a JPG or PNG image.');
       return;
     }
 
@@ -139,7 +141,8 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
       reader.readAsDataURL(compressed);
     } catch (err) {
       console.error('[Checklist] Upload error:', err);
-      toast.error('Failed to process image. Please try again.');
+      const msg = err instanceof Error ? err.message : 'Failed to process image. Please try again.';
+      toast.error(msg);
     } finally {
       setUploadingDoc(false);
     }
@@ -202,7 +205,7 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
       <input
         ref={galleryInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+        accept="image/jpeg,image/png,image/webp"
         className="hidden"
         onChange={handleGallerySelect}
       />
@@ -343,7 +346,7 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
                   <>
                     <Camera className="w-7 h-7 text-gray-400" />
                     <span className="text-sm text-gray-500">Tap to take photo or upload image</span>
-                    <span className="text-[10px] text-gray-400">JPG, PNG, HEIC — compressed to HD quality</span>
+                    <span className="text-[10px] text-gray-400">JPG, PNG — compressed to HD quality</span>
                   </>
                 )}
               </Button>
