@@ -533,9 +533,9 @@ class MinimumWageSync {
             if (!$dryRun) {
                 try {
                     $this->db->query(
-                        "INSERT INTO minimum_wage_sync_log (state, state_id, status, records_added, records_updated, records_skipped, error_message)
-                         VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        [$result['state'], $result['state_id'], $result['status'], $result['records_added'], $result['records_updated'], $result['records_skipped'], $result['error_message']]
+                        "INSERT INTO minimum_wage_sync_log (state, state_id, status, records_added, records_skipped, error_message)
+                         VALUES (?, ?, ?, ?, ?, ?)",
+                        [$result['state'], $result['state_id'], $result['status'], $result['records_added'], $result['records_skipped'], $result['error_message']]
                     );
                 } catch (Exception $e) {}
             }

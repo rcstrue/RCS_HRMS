@@ -77,5 +77,17 @@
                 </div>
             </a>
         </div>
+        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
+            <a href="index.php?page=compliance/minimum-wage-sync" class="text-decoration-none">
+                <div class="card module-card h-100">
+                    <div class="card-body">
+                        <div class="mod-icon bg-purple-soft"><i class="bi bi-arrow-repeat"></i></div>
+                        <div class="mod-title">MW Sync (Simpliance)</div>
+                        <div class="mod-desc">Fetch & sync minimum wages from Simpliance</div>
+                    </div>
+                    <i class="bi bi-arrow-right mod-arrow"></i>
+                </div>
+            </a>
+        </div>
     </div>
 </div>

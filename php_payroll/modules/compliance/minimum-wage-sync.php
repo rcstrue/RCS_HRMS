@@ -10,8 +10,9 @@
 
 // ── Handle AJAX POST requests (before any HTML output) ──────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
-    // Cannot send headers — template/header.php already output HTML.
-    // json_encode output is still valid JSON for the fetch() caller.
+    // Suppress warnings so they don't corrupt JSON response
+    $prevErrorReporting = error_reporting(E_ERROR | E_PARSE);
+    ob_start();
 
     // Auth
     if (!isset($_SESSION['user_id'])) {
@@ -40,15 +41,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         set_time_limit(300);
         $state = $_POST['state'] ?? null;
         $dryRun = !empty($_POST['dry_run']);
-        echo json_encode($sync->runSync($state, $dryRun));
+        $result = $sync->runSync($state, $dryRun);
+        ob_end_clean();
+        error_reporting($prevErrorReporting);
+        echo json_encode($result);
     } elseif ($action === 'run-slug-setup') {
         try {
             $output = $sync->ensureSlugs();
+            ob_end_clean();
+            error_reporting($prevErrorReporting);
             echo json_encode(['success' => true, 'message' => 'Slug setup completed.', 'output' => implode("\n", $output)]);
         } catch (Exception $e) {
+            ob_end_clean();
+            error_reporting($prevErrorReporting);
             echo json_encode(['success' => false, 'message' => 'Slug setup failed.', 'error' => $e->getMessage()]);
         }
     } else {
+        ob_end_clean();
+        error_reporting($prevErrorReporting);
         echo json_encode(['success' => false, 'message' => 'Unknown action.']);
     }
     exit;

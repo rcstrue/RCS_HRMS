@@ -129,10 +129,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <td><?php echo sanitize($w['state_name']); ?></td>
                                 <td><?php echo sanitize($w['zone_name'] ?? 'All'); ?></td>
                                 <td><span class="badge bg-info-soft"><?php echo sanitize($w['worker_category']); ?></span></td>
-                                <td><?php echo formatCurrency($w['basic_per_day']); ?></td>
-                                <td><?php echo formatCurrency($w['da_per_day']); ?></td>
-                                <td class="fw-bold"><?php echo formatCurrency($w['total_per_day']); ?></td>
-                                <td class="fw-bold text-primary"><?php echo formatCurrency($w['total_per_month']); ?></td>
+                                <td><?php echo formatCurrency($w['basic_per_day'] ?? 0); ?></td>
+                                <td><?php echo formatCurrency($w['da_per_day'] ?? $w['vda_per_day'] ?? 0); ?></td>
+                                <td class="fw-bold"><?php echo formatCurrency($w['total_per_day'] ?? 0); ?></td>
+                                <td class="fw-bold text-primary"><?php echo formatCurrency($w['total_per_month'] ?? 0); ?></td>
                                 <td><?php echo formatDate($w['effective_from']); ?></td>
                                 <td>
                                     <button type="button" class="btn btn-sm btn-outline-primary" 
@@ -314,7 +314,7 @@ $('#basic_per_day, #da_per_day').on('input', function() {
 window.editWage = function(data) {
     $('#edit_wage_id').val(data.id);
     $('#edit_basic_day').val(data.basic_per_day);
-    $('#edit_da_day').val(data.da_per_day);
+    $('#edit_da_day').val(data.da_per_day || data.vda_per_day || 0);
     $('#edit_total_day').val(data.total_per_day);
     $('#edit_total_month').val(data.total_per_month);
     $('#edit_effective_from').val(data.effective_from);
