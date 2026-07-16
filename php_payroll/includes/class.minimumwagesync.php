@@ -18,6 +18,8 @@ class MinimumWageSync {
 
     const BASE_URL   = 'https://www.simpliance.in/minimum-wages';
     const AJAX_URL   = 'https://www.simpliance.in/minimum-wages/ajax';
+    const MAX_RETRIES = 3;  // retries on 403/5xx
+    const RETRY_DELAY = 5;  // seconds (doubles each retry)
 
     // Simpliance state name → URL slug
     const STATE_SLUG_MAP = [
@@ -100,26 +102,67 @@ class MinimumWageSync {
         }
     }
 
-    // ── Simple cURL GET ─────────────────────────────────────────────
+    // ── Simple cURL GET with cookie jar + retry ───────────────────
     private function fetchUrl($url, $timeout = 30) {
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => $timeout,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
-            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        ]);
-        $body = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-        curl_close($ch);
+        $cookieFile = sys_get_temp_dir() . '/simpliance_cookies_' . md5($url) . '.txt';
 
-        if ($error) throw new Exception("cURL error: $error");
-        if ($httpCode !== 200) throw new Exception("HTTP $httpCode for $url");
-        return $body;
+        $lastError  = null;
+        $lastCode   = 0;
+
+        for ($attempt = 0; $attempt <= self::MAX_RETRIES; $attempt++) {
+            if ($attempt > 0) {
+                $delay = self::RETRY_DELAY * pow(2, $attempt - 1);
+                sleep($delay);
+            }
+
+            // Fresh cookie file for clean session each attempt
+            @unlink($cookieFile);
+
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL            => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => $timeout,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS      => 5,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => 0,
+                CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                CURLOPT_COOKIEJAR      => $cookieFile,
+                CURLOPT_COOKIEFILE     => $cookieFile,
+                CURLOPT_HTTPHEADER     => [
+                    'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language: en-US,en;q=0.5',
+                    'Connection: keep-alive',
+                ],
+            ]);
+            $body = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $error = curl_error($ch);
+            curl_close($ch);
+
+            $lastError = $error;
+            $lastCode  = $httpCode;
+
+            if ($error) {
+                $lastError = "cURL error: $error";
+                continue; // retry on cURL errors
+            }
+
+            if ($httpCode === 200) {
+                @unlink($cookieFile);
+                return $body;
+            }
+
+            // Only retry on 403 or 5xx — don't retry 404 etc.
+            if ($httpCode !== 403 && $httpCode < 500) break;
+
+            $lastError = "HTTP $httpCode for $url (attempt " . ($attempt + 1) . "/" . (self::MAX_RETRIES + 1) . ")";
+        }
+
+        @unlink($cookieFile);
+        if ($lastError) throw new Exception($lastError);
+        throw new Exception("HTTP $lastCode for $url");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -490,15 +533,16 @@ class MinimumWageSync {
             if (!$dryRun) {
                 try {
                     $this->db->query(
-                        "INSERT INTO minimum_wage_sync_log (state, state_id, status, records_added, records_skipped, error_message)
-                         VALUES (?, ?, ?, ?, ?, ?)",
-                        [$result['state'], $result['state_id'], $result['status'], $result['records_added'], $result['records_skipped'], $result['error_message']]
+                        "INSERT INTO minimum_wage_sync_log (state, state_id, status, records_added, records_updated, records_skipped, error_message)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        [$result['state'], $result['state_id'], $result['status'], $result['records_added'], $result['records_updated'], $result['records_skipped'], $result['error_message']]
                     );
                 } catch (Exception $e) {}
             }
 
             if (count($states) > 1) {
-                usleep(1500000); // 1.5s polite delay
+                // Random 2–4s delay to avoid rate-limit patterns
+                usleep(rand(2000000, 4000000));
             }
         }
 
