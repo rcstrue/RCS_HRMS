@@ -1,0 +1,851 @@
+     1→     1→<?php
+     2→     2→/**
+     3→     3→ * ESS API — Unit Visits Endpoint (Enhanced with Checklist)
+     4→     4→ * GET:    List/detail/dashboard unit visit submissions
+     5→     5→ * POST:   Submit a unit visit with checklist items
+     6→     6→ * PUT:    Approve/reject a visit
+     7→     7→ * DELETE: Delete a visit submission
+     8→     8→ */
+     9→     9→
+    10→    10→require_once __DIR__ . '/config.php';
+    11→    11→require_once __DIR__ . '/helpers.php';
+    12→    12→require_once __DIR__ . '/security-headers.php';
+    13→    13→
+    14→    14→$method = $_SERVER['REQUEST_METHOD'];
+    15→    15→
+    16→    16→try {
+    17→    17→    validateApiKey();
+    18→    18→
+    19→    19→    switch ($method) {
+    20→    20→        case 'GET':
+    21→    21→            _handleGet();
+    22→    22→            break;
+    23→    23→        case 'POST':
+    24→    24→            _handlePost();
+    25→    25→            break;
+    26→    26→        case 'PUT':
+    27→    27→            _handlePut();
+    28→    28→            break;
+    29→    29→        case 'DELETE':
+    30→    30→            _handleDelete();
+    31→    31→            break;
+    32→    32→        default:
+    33→    33→            jsonOutput(['success' => false, 'error' => 'Method not allowed'], 405);
+    34→    34→    }
+    35→    35→} catch (\Throwable $e) {
+    36→    36→    error_log('[ESS unit-visits] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    37→    37→    jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
+    38→    38→}
+    39→    39→
+    40→    40→// ══════════════════════════════════════════════════════════════════════════
+    41→    41→// Table Management
+    42→    42→// ══════════════════════════════════════════════════════════════════════════
+    43→    43→
+    44→    44→function _ensureTables(mysqli $conn): void
+    45→    45→{
+    46→    46→    // Main visits table
+    47→    47→    $conn->query("
+    48→    48→        CREATE TABLE IF NOT EXISTS ess_unit_visits (
+    49→    49→            id INT AUTO_INCREMENT PRIMARY KEY,
+    50→    50→            employee_id VARCHAR(50) NOT NULL,
+    51→    51→            unit_id INT NOT NULL,
+    52→    52→            visit_number TINYINT NOT NULL COMMENT '1=first visit, 2=second visit',
+    53→    53→            visit_month INT NOT NULL COMMENT '1-12',
+    54→    54→            visit_year INT NOT NULL,
+    55→    55→            document_url VARCHAR(500) DEFAULT '',
+    56→    56→            document_type VARCHAR(20) DEFAULT 'image' COMMENT 'image or pdf',
+    57→    57→            notes TEXT DEFAULT NULL,
+    58→    58→            status ENUM('submitted','approved','rejected') DEFAULT 'submitted',
+    59→    59→            rejection_reason TEXT DEFAULT NULL,
+    60→    60→            approved_by VARCHAR(50) DEFAULT NULL,
+    61→    61→            approved_at DATETIME DEFAULT NULL,
+    62→    62→            total_score DECIMAL(8,2) DEFAULT 0,
+    63→    63→            max_score DECIMAL(8,2) DEFAULT 0,
+    64→    64→            score_percent DECIMAL(5,2) DEFAULT 0,
+    65→    65→            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    66→    66→            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    67→    67→            INDEX idx_employee_month (employee_id, visit_month, visit_year),
+    68→    68→            INDEX idx_unit_month (unit_id, visit_month, visit_year),
+    69→    69→            INDEX idx_status (status)
+    70→    70→        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    71→    71→    ");
+    72→    72→
+    73→    73→    // Add columns that may not exist in old schema
+    74→    74→    $cols = $conn->query("SHOW COLUMNS FROM ess_unit_visits LIKE 'rejection_reason'")->num_rows;
+    75→    75→    if ($cols == 0) {
+    76→    76→        $conn->query("ALTER TABLE ess_unit_visits ADD COLUMN rejection_reason TEXT DEFAULT NULL AFTER status");
+    77→    77→        $conn->query("ALTER TABLE ess_unit_visits ADD COLUMN approved_by VARCHAR(50) DEFAULT NULL AFTER rejection_reason");
+    78→    78→        $conn->query("ALTER TABLE ess_unit_visits ADD COLUMN approved_at DATETIME DEFAULT NULL AFTER approved_by");
+    79→    79→        $conn->query("ALTER TABLE ess_unit_visits ADD COLUMN total_score DECIMAL(8,2) DEFAULT 0 AFTER approved_at");
+    80→    80→        $conn->query("ALTER TABLE ess_unit_visits ADD COLUMN max_score DECIMAL(8,2) DEFAULT 0 AFTER total_score");
+    81→    81→        $conn->query("ALTER TABLE ess_unit_visits ADD COLUMN score_percent DECIMAL(5,2) DEFAULT 0 AFTER max_score");
+    82→    82→        $conn->query("ALTER TABLE ess_unit_visits ADD INDEX idx_status (status)");
+    83→    83→    }
+    84→    84→
+    85→    85→    // Drop old unique key if exists and recreate
+    86→    86→    try {
+    87→    87→        $conn->query("ALTER TABLE ess_unit_visits DROP INDEX uk_visit");
+    88→    88→    } catch (\Throwable $e) { /* index may not exist */ }
+    89→    89→    try {
+    90→    90→        $conn->query("ALTER TABLE ess_unit_visits ADD UNIQUE KEY uk_visit (employee_id, unit_id, visit_month, visit_year, visit_number)");
+    91→    91→    } catch (\Throwable $e) { /* may already exist */ }
+    92→    92→
+    93→    93→    // Checklist items table
+    94→    94→    $conn->query("
+    95→    95→        CREATE TABLE IF NOT EXISTS ess_visit_checklist_items (
+    96→    96→            id INT AUTO_INCREMENT PRIMARY KEY,
+    97→    97→            visit_id INT NOT NULL,
+    98→    98→            checklist_item_id INT NOT NULL,
+    99→    99→            category_id INT NOT NULL,
+   100→   100→            status ENUM('yes','no','na') DEFAULT 'yes',
+   101→   101→            remarks TEXT DEFAULT NULL,
+   102→   102→            photo_url VARCHAR(500) DEFAULT NULL,
+   103→   103→            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+   104→   104→            INDEX idx_visit (visit_id)
+   105→   105→        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+   106→   106→    ");
+   107→   107→
+   108→   108→    // Audit log table
+   109→   109→    $conn->query("
+   110→   110→        CREATE TABLE IF NOT EXISTS ess_visit_audit_log (
+   111→   111→            id INT AUTO_INCREMENT PRIMARY KEY,
+   112→   112→            visit_id INT NOT NULL,
+   113→   113→            action VARCHAR(50) NOT NULL,
+   114→   114→            performed_by VARCHAR(50) NOT NULL,
+   115→   115→            details TEXT DEFAULT NULL,
+   116→   116→            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+   117→   117→            INDEX idx_visit (visit_id),
+   118→   118→            INDEX idx_action (action)
+   119→   119→        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+   120→   120→    ");
+   121→   121→}
+   122→   122→
+   123→   123→// ══════════════════════════════════════════════════════════════════════════
+   124→   124→// Score Calculation
+   125→   125→// ══════════════════════════════════════════════════════════════════════════
+   126→   126→
+   127→   127→function _calculateScore(mysqli $conn, int $visitId): array
+   128→   128→{
+   129→   129→    $stmt = $conn->prepare('
+   130→   130→        SELECT vci.status, ci.weight
+   131→   131→        FROM ess_visit_checklist_items vci
+   132→   132→        JOIN ess_checklist_items ci ON ci.id = vci.checklist_item_id
+   133→   133→        WHERE vci.visit_id = ?
+   134→   134→    ');
+   135→   135→    $stmt->bind_param('i', $visitId);
+   136→   136→    $stmt->execute();
+   137→   137→    $result = $stmt->get_result();
+   138→   138→
+   139→   139→    $total = 0;
+   140→   140→    $max = 0;
+   141→   141→    while ($row = $result->fetch_assoc()) {
+   142→   142→        $w = (float)($row['weight'] ?? 1);
+   143→   143→        if ($row['status'] !== 'na') {
+   144→   144→            $max += $w;
+   145→   145→            if ($row['status'] === 'yes') {
+   146→   146→                $total += $w;
+   147→   147→            }
+   148→   148→        }
+   149→   149→    }
+   150→   150→    $stmt->close();
+   151→   151→
+   152→   152→    $percent = $max > 0 ? round(($total / $max) * 100, 2) : 0;
+   153→   153→
+   154→   154→    // Update visit record
+   155→   155→    $upd = $conn->prepare('UPDATE ess_unit_visits SET total_score = ?, max_score = ?, score_percent = ? WHERE id = ?');
+   156→   156→    $upd->bind_param('dddi', $total, $max, $percent, $visitId);
+   157→   157→    $upd->execute();
+   158→   158→    $upd->close();
+   159→   159→
+   160→   160→    return ['total' => $total, 'max' => $max, 'percent' => $percent];
+   161→   161→}
+   162→   162→
+   163→   163→// ══════════════════════════════════════════════════════════════════════════
+   164→   164→// Audit Logging
+   165→   165→// ══════════════════════════════════════════════════════════════════════════
+   166→   166→
+   167→   167→function _logAudit(mysqli $conn, int $visitId, string $action, string $performedBy, ?string $details = null): void
+   168→   168→{
+   169→   169→    $stmt = $conn->prepare('INSERT INTO ess_visit_audit_log (visit_id, action, performed_by, details) VALUES (?, ?, ?, ?)');
+   170→   170→    $d = $details ?? null;
+   171→   171→    $stmt->bind_param('isss', $visitId, $action, $performedBy, $d);
+   172→   172→    $stmt->execute();
+   173→   173→    $stmt->close();
+   174→   174→}
+   175→   175→
+   176→   176→// ══════════════════════════════════════════════════════════════════════════
+   177→   177→// Helpers
+   178→   178→// ══════════════════════════════════════════════════════════════════════════
+   179→   179→
+   180→   180→function _visitLabel(int $num): string {
+   181→   181→    return $num === 1 ? 'First Visit' : 'Second Visit';
+   182→   182→}
+   183→   183→
+   184→   184→function _monthName(int $month): string {
+   185→   185→    $months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+   186→   186→               'July', 'August', 'September', 'October', 'November', 'December'];
+   187→   187→    return $months[$month] ?? '';
+   188→   188→}
+   189→   189→
+   190→   190→// ══════════════════════════════════════════════════════════════════════════
+   191→   191→// GET: List / Detail / Dashboard
+   192→   192→// ══════════════════════════════════════════════════════════════════════════
+   193→   193→
+   194→   194→function _handleGet(): void
+   195→   195→{
+   196→   196→    $authId = requireAuth();
+   197→   197→    $conn = getDbConnection();
+   198→   198→    _ensureTables($conn);
+   199→   199→
+   200→   200→    $view = $_GET['view'] ?? '';
+   201→   201→
+   202→   202→    if ($view === 'detail') {
+   203→   203→        _handleGetDetail($conn, $authId);
+   204→   204→    } elseif ($view === 'dashboard') {
+   205→   205→        _handleGetDashboard($conn, $authId);
+   206→   206→    } else {
+   207→   207→        _handleGetList($conn, $authId);
+   208→   208→    }
+   209→   209→}
+   210→   210→
+   211→   211→function _handleGetList(mysqli $conn, string $authId): void
+   212→   212→{
+   213→   213→    $employeeId = $_GET['employee_id'] ?? $authId;
+   214→   214→    $month = (int)($_GET['month'] ?? 0);
+   215→   215→    $year = (int)($_GET['year'] ?? 0);
+   216→   216→    $unitId = (int)($_GET['unit_id'] ?? 0);
+   217→   217→    $status = $_GET['status'] ?? '';
+   218→   218→    $includeChecklist = ($_GET['include_checklist'] ?? '') === '1';
+   219→   219→    [$page, $limit, $offset] = getPaginationParams();
+   220→   220→
+   221→   221→    // Build where
+   222→   222→    $where = 'WHERE v.employee_id = ?';
+   223→   223→    $types = 's';
+   224→   224→    $params = [$employeeId];
+   225→   225→
+   226→   226→    if ($month > 0) { $where .= ' AND v.visit_month = ?'; $types .= 'i'; $params[] = $month; }
+   227→   227→    if ($year > 0) { $where .= ' AND v.visit_year = ?'; $types .= 'i'; $params[] = $year; }
+   228→   228→    if ($unitId > 0) { $where .= ' AND v.unit_id = ?'; $types .= 'i'; $params[] = $unitId; }
+   229→   229→    if ($status) { $where .= ' AND v.status = ?'; $types .= 's'; $params[] = $status; }
+   230→   230→
+   231→   231→    // Count
+   232→   232→    $countStmt = $conn->prepare("SELECT COUNT(*) AS total FROM ess_unit_visits v {$where}");
+   233→   233→    bindDynamicParams($countStmt, $types, $params);
+   234→   234→    $countStmt->execute();
+   235→   235→    $total = (int)$countStmt->get_result()->fetch_assoc()['total'];
+   236→   236→    $countStmt->close();
+   237→   237→
+   238→   238→    // Fetch
+   239→   239→    $dataQuery = "
+   240→   240→        SELECT v.id, v.employee_id, v.unit_id, v.visit_number, v.visit_month, v.visit_year,
+   241→   241→               v.document_url, v.document_type, v.notes, v.status, v.rejection_reason,
+   242→   242→               v.approved_by, v.approved_at, v.total_score, v.max_score, v.score_percent,
+   243→   243→               v.created_at, v.updated_at,
+   244→   244→               u.name AS unit_name, c.name AS client_name,
+   245→   245→               e.full_name AS employee_name, e.employee_code
+   246→   246→        FROM ess_unit_visits v
+   247→   247→        LEFT JOIN units u ON u.id = v.unit_id
+   248→   248→        LEFT JOIN clients c ON c.id = u.client_id
+   249→   249→        LEFT JOIN employees e ON e.id = v.employee_id
+   250→   250→        {$where}
+   251→   251→        ORDER BY v.visit_year DESC, v.visit_month DESC, v.created_at DESC
+   252→   252→        LIMIT ? OFFSET ?
+   253→   253→    ";
+   254→   254→    $dataTypes = $types . 'ii';
+   255→   255→    $dataParams = [...$params, $limit, $offset];
+   256→   256→
+   257→   257→    $stmt = $conn->prepare($dataQuery);
+   258→   258→    bindDynamicParams($stmt, $dataTypes, $dataParams);
+   259→   259→    $stmt->execute();
+   260→   260→    $result = $stmt->get_result();
+   261→   261→
+   262→   262→    $visits = [];
+   263→   263→    while ($row = $result->fetch_assoc()) {
+   264→   264→        $visit = [
+   265→   265→            'id' => (int)$row['id'],
+   266→   266→            'employee_id' => (int)$row['employee_id'],
+   267→   267→            'employee_name' => $row['employee_name'] ?? '',
+   268→   268→            'employee_code' => $row['employee_code'] ?? '',
+   269→   269→            'unit_id' => (int)$row['unit_id'],
+   270→   270→            'unit_name' => $row['unit_name'] ?? '',
+   271→   271→            'client_name' => $row['client_name'] ?? '',
+   272→   272→            'visit_number' => (int)$row['visit_number'],
+   273→   273→            'visit_month' => (int)$row['visit_month'],
+   274→   274→            'visit_year' => (int)$row['visit_year'],
+   275→   275→            'document_url' => $row['document_url'] ?? '',
+   276→   276→            'document_type' => $row['document_type'] ?? 'image',
+   277→   277→            'notes' => $row['notes'] ?? '',
+   278→   278→            'status' => $row['status'] ?? 'submitted',
+   279→   279→            'rejection_reason' => $row['rejection_reason'] ?? '',
+   280→   280→            'approved_by' => $row['approved_by'] ? (int)$row['approved_by'] : null,
+   281→   281→            'approved_at' => $row['approved_at'] ?? null,
+   282→   282→            'total_score' => (float)($row['total_score'] ?? 0),
+   283→   283→            'max_score' => (float)($row['max_score'] ?? 0),
+   284→   284→            'score_percent' => (float)($row['score_percent'] ?? 0),
+   285→   285→            'created_at' => $row['created_at'] ?? '',
+   286→   286→            'updated_at' => $row['updated_at'] ?? '',
+   287→   287→        ];
+   288→   288→
+   289→   289→        if ($includeChecklist) {
+   290→   290→            $visit['checklist_items'] = _fetchChecklistItems($conn, (int)$row['id']);
+   291→   291→        }
+   292→   292→
+   293→   293→        $visits[] = $visit;
+   294→   294→    }
+   295→   295→    $stmt->close();
+   296→   296→    $conn->close();
+   297→   297→
+   298→   298→    jsonOutput([
+   299→   299→        'success' => true,
+   300→   300→        'data' => [
+   301→   301→            'items' => $visits,
+   302→   302→            ...buildPagination($total, $page, $limit)
+   303→   303→        ]
+   304→   304→    ]);
+   305→   305→}
+   306→   306→
+   307→   307→function _handleGetDetail(mysqli $conn, string $authId): void
+   308→   308→{
+   309→   309→    $visitId = (int)($_GET['id'] ?? 0);
+   310→   310→    if ($visitId <= 0) {
+   311→   311→        jsonOutput(['success' => false, 'error' => 'Visit ID is required'], 400);
+   312→   312→    }
+   313→   313→
+   314→   314→    $stmt = $conn->prepare("
+   315→   315→        SELECT v.*, u.name AS unit_name, c.name AS client_name,
+   316→   316→               e.full_name AS employee_name, e.employee_code, e.mobile_number AS employee_mobile
+   317→   317→        FROM ess_unit_visits v
+   318→   318→        LEFT JOIN units u ON u.id = v.unit_id
+   319→   319→        LEFT JOIN clients c ON c.id = u.client_id
+   320→   320→        LEFT JOIN employees e ON e.id = v.employee_id
+   321→   321→        WHERE v.id = ?
+   322→   322→    ");
+   323→   323→    $stmt->bind_param('i', $visitId);
+   324→   324→    $stmt->execute();
+   325→   325→    $row = $stmt->get_result()->fetch_assoc();
+   326→   326→    $stmt->close();
+   327→   327→
+   328→   328→    if (!$row) {
+   329→   329→        $conn->close();
+   330→   330→        jsonOutput(['success' => false, 'error' => 'Visit not found'], 404);
+   331→   331→    }
+   332→   332→
+   333→   333→    // Recalculate score to ensure it's current
+   334→   334→    $scores = _calculateScore($conn, $visitId);
+   335→   335→
+   336→   336→    $visit = [
+   337→   337→        'id' => (int)$row['id'],
+   338→   338→        'employee_id' => (int)$row['employee_id'],
+   339→   339→        'employee_name' => $row['employee_name'] ?? '',
+   340→   340→        'employee_code' => $row['employee_code'] ?? '',
+   341→   341→        'employee_mobile' => $row['employee_mobile'] ?? '',
+   342→   342→        'unit_id' => (int)$row['unit_id'],
+   343→   343→        'unit_name' => $row['unit_name'] ?? '',
+   344→   344→        'client_name' => $row['client_name'] ?? '',
+   345→   345→        'visit_number' => (int)$row['visit_number'],
+   346→   346→        'visit_month' => (int)$row['visit_month'],
+   347→   347→        'visit_year' => (int)$row['visit_year'],
+   348→   348→        'document_url' => $row['document_url'] ?? '',
+   349→   349→        'document_type' => $row['document_type'] ?? 'image',
+   350→   350→        'notes' => $row['notes'] ?? '',
+   351→   351→        'status' => $row['status'] ?? 'submitted',
+   352→   352→        'rejection_reason' => $row['rejection_reason'] ?? '',
+   353→   353→        'approved_by' => $row['approved_by'] ? (int)$row['approved_by'] : null,
+   354→   354→        'approved_at' => $row['approved_at'] ?? null,
+   355→   355→        'total_score' => $scores['total'],
+   356→   356→        'max_score' => $scores['max'],
+   357→   357→        'score_percent' => $scores['percent'],
+   358→   358→        'checklist_items' => _fetchChecklistItems($conn, $visitId),
+   359→   359→        'created_at' => $row['created_at'] ?? '',
+   360→   360→        'updated_at' => $row['updated_at'] ?? '',
+   361→   361→    ];
+   362→   362→
+   363→   363→    // Fetch audit log
+   364→   364→    $auditStmt = $conn->prepare('SELECT * FROM ess_visit_audit_log WHERE visit_id = ? ORDER BY created_at ASC');
+   365→   365→    $auditStmt->bind_param('i', $visitId);
+   366→   366→    $auditStmt->execute();
+   367→   367→    $auditResult = $auditStmt->get_result();
+   368→   368→    $auditLog = [];
+   369→   369→    while ($aRow = $auditResult->fetch_assoc()) {
+   370→   370→        $auditLog[] = [
+   371→   371→            'id' => (int)$aRow['id'],
+   372→   372→            'action' => $aRow['action'],
+   373→   373→            'performed_by' => $aRow['performed_by'],
+   374→   374→            'details' => $aRow['details'] ?? '',
+   375→   375→            'created_at' => $aRow['created_at'],
+   376→   376→        ];
+   377→   377→    }
+   378→   378→    $auditStmt->close();
+   379→   379→    $visit['audit_log'] = $auditLog;
+   380→   380→
+   381→   381→    $conn->close();
+   382→   382→    jsonOutput(['success' => true, 'data' => $visit]);
+   383→   383→}
+   384→   384→
+   385→   385→function _handleGetDashboard(mysqli $conn, string $authId): void
+   386→   386→{
+   387→   387→    $employeeId = (int)($_GET['employee_id'] ?? $authId);
+   388→   388→    $now = new \DateTime('now', new \DateTimeZone('Asia/Kolkata'));
+   389→   389→    $currentMonth = (int)$now->format('n');
+   390→   390→    $currentYear = (int)$now->format('Y');
+   391→   391→
+   392→   392→    // Basic counts
+   393→   393→    $counts = $conn->query("
+   394→   394→        SELECT
+   395→   395→            COUNT(*) AS total_visits,
+   396→   396→            SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) AS pending_visits,
+   397→   397→            SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved_visits,
+   398→   398→            SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected_visits,
+   399→   399→            SUM(CASE WHEN visit_month = {$currentMonth} AND visit_year = {$currentYear} THEN 1 ELSE 0 END) AS this_month_visits
+   400→   400→        FROM ess_unit_visits WHERE employee_id = {$employeeId}
+   401→   401→    ")->fetch_assoc();
+   402→   402→
+   403→   403→    // This month avg score
+   404→   404→    $monthAvg = $conn->query("
+   405→   405→        SELECT AVG(score_percent) AS avg_score
+   406→   406→        FROM ess_unit_visits
+   407→   407→        WHERE employee_id = {$employeeId} AND visit_month = {$currentMonth} AND visit_year = {$currentYear}
+   408→   408→            AND status IN ('approved','submitted') AND max_score > 0
+   409→   409→    ")->fetch_assoc();
+   410→   410→
+   411→   411→    // Score trend - last 6 months
+   412→   412→    $trend = [];
+   413→   413→    for ($i = 5; $i >= 0; $i--) {
+   414→   414→        $d = clone $now;
+   415→   415→        $d->modify("-{$i} months");
+   416→   416→        $m = (int)$d->format('n');
+   417→   417→        $y = (int)$d->format('Y');
+   418→   418→        $label = $d->format('M Y');
+   419→   419→        $avgRow = $conn->query("
+   420→   420→            SELECT AVG(score_percent) AS avg_score
+   421→   421→            FROM ess_unit_visits
+   422→   422→            WHERE employee_id = {$employeeId} AND visit_month = {$m} AND visit_year = {$y}
+   423→   423→                AND status IN ('approved','submitted') AND max_score > 0
+   424→   424→        ")->fetch_assoc();
+   425→   425→        $trend[] = ['month' => $label, 'avg_score' => round((float)($avgRow['avg_score'] ?? 0), 1)];
+   426→   426→    }
+   427→   427→
+   428→   428→    // Category scores
+   429→   429→    $catScores = $conn->query("
+   430→   430→        SELECT cc.name AS category, AVG(
+   431→   431→            CASE WHEN vci.status = 'yes' THEN ci.weight ELSE 0 END
+   432→   432→        ) / NULLIF(AVG(CASE WHEN vci.status != 'na' THEN ci.weight ELSE NULL END), 0) * 100 AS avg_score
+   433→   433→        FROM ess_visit_checklist_items vci
+   434→   434→        JOIN ess_checklist_items ci ON ci.id = vci.checklist_item_id
+   435→   435→        JOIN ess_checklist_categories cc ON cc.id = ci.category_id
+   436→   436→        JOIN ess_unit_visits v ON v.id = vci.visit_id
+   437→   437→        WHERE v.employee_id = {$employeeId} AND v.status IN ('approved','submitted')
+   438→   438→        GROUP BY cc.id, cc.name
+   439→   439→        ORDER BY cc.display_order
+   440→   440→    ");
+   441→   441→    $categoryScores = [];
+   442→   442→    while ($cr = $catScores->fetch_assoc()) {
+   443→   443→        $categoryScores[] = [
+   444→   444→            'category' => $cr['category'] ?? '',
+   445→   445→            'avg_score' => round((float)($cr['avg_score'] ?? 0), 1),
+   446→   446→        ];
+   447→   447→    }
+   448→   448→
+   449→   449→    // Unit compliance
+   450→   450→    $unitComp = $conn->query("
+   451→   451→        SELECT u.name AS unit_name, AVG(v.score_percent) AS score, COUNT(*) AS visits
+   452→   452→        FROM ess_unit_visits v
+   453→   453→        JOIN units u ON u.id = v.unit_id
+   454→   454→        WHERE v.employee_id = {$employeeId} AND v.status IN ('approved','submitted') AND v.max_score > 0
+   455→   455→        GROUP BY v.unit_id, u.name
+   456→   456→        ORDER BY score DESC
+   457→   457→        LIMIT 10
+   458→   458→    ");
+   459→   459→    $unitCompliance = [];
+   460→   460→    while ($ur = $unitComp->fetch_assoc()) {
+   461→   461→        $unitCompliance[] = [
+   462→   462→            'unit_name' => $ur['unit_name'] ?? '',
+   463→   463→            'score' => round((float)($ur['score'] ?? 0), 1),
+   464→   464→            'visits' => (int)$ur['visits'],
+   465→   465→        ];
+   466→   466→    }
+   467→   467→
+   468→   468→    $conn->close();
+   469→   469→
+   470→   470→    jsonOutput([
+   471→   471→        'success' => true,
+   472→   472→        'data' => [
+   473→   473→            'total_visits' => (int)($counts['total_visits'] ?? 0),
+   474→   474→            'pending_visits' => (int)($counts['pending_visits'] ?? 0),
+   475→   475→            'approved_visits' => (int)($counts['approved_visits'] ?? 0),
+   476→   476→            'rejected_visits' => (int)($counts['rejected_visits'] ?? 0),
+   477→   477→            'this_month_visits' => (int)($counts['this_month_visits'] ?? 0),
+   478→   478→            'this_month_score_avg' => round((float)($monthAvg['avg_score'] ?? 0), 1),
+   479→   479→            'score_trend' => $trend,
+   480→   480→            'category_scores' => $categoryScores,
+   481→   481→            'unit_compliance' => $unitCompliance,
+   482→   482→        ]
+   483→   483→    ]);
+   484→   484→}
+   485→   485→
+   486→   486→// ══════════════════════════════════════════════════════════════════════════
+   487→   487→// Fetch checklist items for a visit (with category/item names)
+   488→   488→// ══════════════════════════════════════════════════════════════════════════
+   489→   489→
+   490→   490→function _fetchChecklistItems(mysqli $conn, int $visitId): array
+   491→   491→{
+   492→   492→    $stmt = $conn->prepare("
+   493→   493→        SELECT vci.id, vci.visit_id, vci.checklist_item_id, vci.category_id,
+   494→   494→               vci.status, vci.remarks, vci.photo_url,
+   495→   495→               ci.name AS item_name, ci.weight,
+   496→   496→               cc.name AS category_name
+   497→   497→        FROM ess_visit_checklist_items vci
+   498→   498→        JOIN ess_checklist_items ci ON ci.id = vci.checklist_item_id
+   499→   499→        JOIN ess_checklist_categories cc ON cc.id = vci.category_id
+   500→   500→        WHERE vci.visit_id = ?
+   501→   501→        ORDER BY cc.display_order, ci.display_order
+   502→   502→    ");
+   503→   503→    $stmt->bind_param('i', $visitId);
+   504→   504→    $stmt->execute();
+   505→   505→    $result = $stmt->get_result();
+   506→   506→    $items = [];
+   507→   507→    while ($row = $result->fetch_assoc()) {
+   508→   508→        $items[] = [
+   509→   509→            'id' => (int)$row['id'],
+   510→   510→            'visit_id' => (int)$row['visit_id'],
+   511→   511→            'checklist_item_id' => (int)$row['checklist_item_id'],
+   512→   512→            'category_id' => (int)$row['category_id'],
+   513→   513→            'category_name' => $row['category_name'] ?? '',
+   514→   514→            'item_name' => $row['item_name'] ?? '',
+   515→   515→            'weight' => (float)($row['weight'] ?? 1),
+   516→   516→            'status' => $row['status'] ?? 'yes',
+   517→   517→            'remarks' => $row['remarks'] ?? '',
+   518→   518→            'photo_url' => $row['photo_url'] ?? '',
+   519→   519→        ];
+   520→   520→    }
+   521→   521→    $stmt->close();
+   522→   522→    return $items;
+   523→   523→}
+   524→   524→
+   525→   525→// ══════════════════════════════════════════════════════════════════════════
+   526→   526→// POST: Create Visit
+   527→   527→// ══════════════════════════════════════════════════════════════════════════
+   528→   528→
+   529→   529→function _handlePost(): void
+   530→   530→{
+   531→   531→    $employeeId = requireAuth();
+   532→   532→    $input = getInput();
+   533→   533→    $conn = getDbConnection();
+   534→   534→    _ensureTables($conn);
+   535→   535→
+   536→   536→    // Email action — send visit report email
+   537→   537→    if (($input['action'] ?? '') === 'send_email') {
+   538→   538→        $visitId = (int)($input['visit_id'] ?? 0);
+   539→   539→        if ($visitId <= 0) {
+   540→   540→            jsonOutput(['success' => false, 'error' => 'Visit ID required'], 400);
+   541→   541→        }
+   542→   542→        _logAudit($conn, $visitId, 'email_sent', $employeeId, 'Report email requested');
+   543→   543→
+   544→   544→        // Attempt to send email (best-effort)
+   545→   545→        try {
+   546→   546→            $emailSent = _sendVisitEmailInline($conn, $visitId);
+   547→   547→        } catch (\Throwable $e) {
+   548→   548→            $emailSent = false;
+   549→   549→        }
+   550→   550→        $conn->close();
+   551→   551→
+   552→   552→        jsonOutput(['success' => true, 'message' => $emailSent ? 'Report email sent successfully' : 'Email will be sent shortly']);
+   553→   553→        return;
+   554→   554→    }
+   555→   555→
+   556→   556→    // Validate
+   557→   557→    $unitId = (int)($input['unit_id'] ?? 0);
+   558→   558→    $visitMonth = (int)($input['visit_month'] ?? 0);
+   559→   559→    $visitYear = (int)($input['visit_year'] ?? 0);
+   560→   560→    $visitNumber = (int)($input['visit_number'] ?? 0);
+   561→   561→    $documentUrl = trim($input['document_url'] ?? '');
+   562→   562→    $documentType = trim($input['document_type'] ?? 'image');
+   563→   563→    $notes = trim($input['notes'] ?? '');
+   564→   564→    $checklistItems = $input['checklist_items'] ?? [];
+   565→   565→
+   566→   566→    if ($unitId <= 0) jsonOutput(['success' => false, 'error' => 'Unit is required'], 400);
+   567→   567→    if ($visitMonth < 1 || $visitMonth > 12) jsonOutput(['success' => false, 'error' => 'Invalid month (1-12 required)'], 400);
+   568→   568→    if ($visitYear < 2020 || $visitYear > 2099) jsonOutput(['success' => false, 'error' => 'Invalid year'], 400);
+   569→   569→    if ($visitNumber < 1 || $visitNumber > 2) jsonOutput(['success' => false, 'error' => 'Visit number must be 1 or 2'], 400);
+   570→   570→    if (empty($documentUrl)) jsonOutput(['success' => false, 'error' => 'Document (JPG/PDF) is required'], 400);
+   571→   571→
+   572→   572→    // Duplicate check
+   573→   573→    $dupStmt = $conn->prepare('
+   574→   574→        SELECT id FROM ess_unit_visits
+   575→   575→        WHERE employee_id = ? AND unit_id = ? AND visit_month = ? AND visit_year = ? AND visit_number = ?
+   576→   576→    ');
+   577→   577→    $dupStmt->bind_param('siiii', $employeeId, $unitId, $visitMonth, $visitYear, $visitNumber);
+   578→   578→    $dupStmt->execute();
+   579→   579→    $existing = $dupStmt->get_result()->fetch_assoc();
+   580→   580→    $dupStmt->close();
+   581→   581→
+   582→   582→    if ($existing) {
+   583→   583→        jsonOutput([
+   584→   584→            'success' => false,
+   585→   585→            'error' => 'A ' . _visitLabel($visitNumber) . ' for this unit in ' . _monthName($visitMonth) . ' ' . $visitYear . ' already exists',
+   586→   586→            'existing_id' => (int)$existing['id']
+   587→   587→        ], 409);
+   588→   588→    }
+   589→   589→
+   590→   590→    // Insert visit
+   591→   591→    $stmt = $conn->prepare('
+   592→   592→        INSERT INTO ess_unit_visits (employee_id, unit_id, visit_number, visit_month, visit_year, document_url, document_type, notes, status)
+   593→   593→        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+   594→   594→    ');
+   595→   595→    bindDynamicParams($stmt, 'siiiissss', [
+   596→   596→        $employeeId, $unitId, $visitNumber, $visitMonth, $visitYear,
+   597→   597→        $documentUrl, $documentType, $notes, 'submitted'
+   598→   598→    ]);
+   599→   599→    $stmt->execute();
+   600→   600→    $newId = $stmt->insert_id;
+   601→   601→    $stmt->close();
+   602→   602→
+   603→   603→    // Insert checklist items
+   604→   604→    if (is_array($checklistItems) && count($checklistItems) > 0) {
+   605→   605→        $insStmt = $conn->prepare('
+   606→   606→            INSERT INTO ess_visit_checklist_items (visit_id, checklist_item_id, category_id, status, remarks, photo_url)
+   607→   607→            VALUES (?, ?, ?, ?, ?, ?)
+   608→   608→        ');
+   609→   609→        foreach ($checklistItems as $item) {
+   610→   610→            $itemId = (int)($item['checklist_item_id'] ?? 0);
+   611→   611→            $catId = (int)($item['category_id'] ?? 0);
+   612→   612→            $status = in_array($item['status'] ?? '', ['yes', 'no', 'na']) ? $item['status'] : 'yes';
+   613→   613→            $remarks = trim($item['remarks'] ?? '');
+   614→   614→            $photoUrl = trim($item['photo_url'] ?? '');
+   615→   615→            $insStmt->bind_param('iiisss', $newId, $itemId, $catId, $status, $remarks, $photoUrl);
+   616→   616→            $insStmt->execute();
+   617→   617→        }
+   618→   618→        $insStmt->close();
+   619→   619→    }
+   620→   620→
+   621→   621→    // Calculate score
+   622→   622→    $scores = _calculateScore($conn, $newId);
+   623→   623→
+   624→   624→    // Audit log
+   625→   625→    _logAudit($conn, $newId, 'created', $employeeId, "Visit submitted with {$scores['percent']}% score");
+   626→   626→
+   627→   627→    // Fetch unit info for response
+   628→   628→    $unitStmt = $conn->prepare('SELECT u.name AS unit_name, c.name AS client_name FROM units u LEFT JOIN clients c ON c.id = u.client_id WHERE u.id = ?');
+   629→   629→    $unitStmt->bind_param('i', $unitId);
+   630→   630→    $unitStmt->execute();
+   631→   631→    $unitInfo = $unitStmt->get_result()->fetch_assoc();
+   632→   632→    $unitStmt->close();
+   633→   633→
+   634→   634→    // Fetch employee info
+   635→   635→    $empStmt = $conn->prepare('SELECT full_name, employee_code FROM employees WHERE id = ?');
+   636→   636→    $empStmt->bind_param('s', $employeeId);
+   637→   637→    $empStmt->execute();
+   638→   638→    $empInfo = $empStmt->get_result()->fetch_assoc();
+   639→   639→    $empStmt->close();
+   640→   640→    $conn->close();
+   641→   641→
+   642→   642→    jsonOutput([
+   643→   643→        'success' => true,
+   644→   644→        'data' => [
+   645→   645→            'id' => $newId,
+   646→   646→            'employee_id' => (int)$employeeId,
+   647→   647→            'employee_name' => $empInfo['full_name'] ?? '',
+   648→   648→            'employee_code' => $empInfo['employee_code'] ?? '',
+   649→   649→            'unit_id' => $unitId,
+   650→   650→            'unit_name' => $unitInfo['unit_name'] ?? '',
+   651→   651→            'client_name' => $unitInfo['client_name'] ?? '',
+   652→   652→            'visit_number' => $visitNumber,
+   653→   653→            'visit_month' => $visitMonth,
+   654→   654→            'visit_year' => $visitYear,
+   655→   655→            'document_url' => $documentUrl,
+   656→   656→            'document_type' => $documentType,
+   657→   657→            'notes' => $notes,
+   658→   658→            'status' => 'submitted',
+   659→   659→            'total_score' => $scores['total'],
+   660→   660→            'max_score' => $scores['max'],
+   661→   661→            'score_percent' => $scores['percent'],
+   662→   662→            'message' => 'Unit visit ' . _visitLabel($visitNumber) . ' submitted successfully'
+   663→   663→        ]
+   664→   664→    ]);
+   665→   665→}
+   666→   666→
+   667→   667→// ══════════════════════════════════════════════════════════════════════════
+   668→   668→// PUT: Approve / Reject
+   669→   669→// ══════════════════════════════════════════════════════════════════════════
+   670→   670→
+   671→   671→function _handlePut(): void
+   672→   672→{
+   673→   673→    $employeeId = requireAuth();
+   674→   674→    $input = getInput();
+   675→   675→    $conn = getDbConnection();
+   676→   676→    _ensureTables($conn);
+   677→   677→
+   678→   678→    $visitId = (int)($input['id'] ?? 0);
+   679→   679→    $action = $input['action'] ?? '';
+   680→   680→
+   681→   681→    if ($visitId <= 0) jsonOutput(['success' => false, 'error' => 'Visit ID is required'], 400);
+   682→   682→    if (!in_array($action, ['approve', 'reject'])) jsonOutput(['success' => false, 'error' => 'Action must be approve or reject'], 400);
+   683→   683→
+   684→   684→    // Verify visit exists
+   685→   685→    $checkStmt = $conn->prepare('SELECT id, status, employee_id FROM ess_unit_visits WHERE id = ?');
+   686→   686→    $checkStmt->bind_param('i', $visitId);
+   687→   687→    $checkStmt->execute();
+   688→   688→    $visit = $checkStmt->get_result()->fetch_assoc();
+   689→   689→    $checkStmt->close();
+   690→   690→
+   691→   691→    if (!$visit) { $conn->close(); jsonOutput(['success' => false, 'error' => 'Visit not found'], 404); }
+   692→   692→    if ($visit['status'] !== 'submitted') { $conn->close(); jsonOutput(['success' => false, 'error' => 'Only submitted visits can be ' . $action . 'd'], 400); }
+   693→   693→
+   694→   694→    if ($action === 'approve') {
+   695→   695→        $stmt = $conn->prepare('UPDATE ess_unit_visits SET status = ?, approved_by = ?, approved_at = NOW() WHERE id = ?');
+   696→   696→        $stmt->bind_param('ssi', 'approved', $employeeId, $visitId);
+   697→   697→        $stmt->execute();
+   698→   698→        $stmt->close();
+   699→   699→        _logAudit($conn, $visitId, 'approved', $employeeId);
+   700→   700→    } else {
+   701→   701→        $rejectionReason = trim($input['rejection_reason'] ?? '');
+   702→   702→        $stmt = $conn->prepare('UPDATE ess_unit_visits SET status = ?, rejection_reason = ?, approved_by = ?, approved_at = NOW() WHERE id = ?');
+   703→   703→        $stmt->bind_param('sssi', 'rejected', $rejectionReason, $employeeId, $visitId);
+   704→   704→        $stmt->execute();
+   705→   705→        $stmt->close();
+   706→   706→        _logAudit($conn, $visitId, 'rejected', $employeeId, $rejectionReason);
+   707→   707→    }
+   708→   708→
+   709→   709→    // Fetch updated visit
+   710→   710→    $fetchStmt = $conn->prepare("
+   711→   711→        SELECT v.*, u.name AS unit_name, c.name AS client_name,
+   712→   712→               e.full_name AS employee_name, e.employee_code
+   713→   713→        FROM ess_unit_visits v
+   714→   714→        LEFT JOIN units u ON u.id = v.unit_id
+   715→   715→        LEFT JOIN clients c ON c.id = u.client_id
+   716→   716→        LEFT JOIN employees e ON e.id = v.employee_id
+   717→   717→        WHERE v.id = ?
+   718→   718→    ");
+   719→   719→    $fetchStmt->bind_param('i', $visitId);
+   720→   720→    $fetchStmt->execute();
+   721→   721→    $row = $fetchStmt->get_result()->fetch_assoc();
+   722→   722→    $fetchStmt->close();
+   723→   723→    $conn->close();
+   724→   724→
+   725→   725→    jsonOutput([
+   726→   726→        'success' => true,
+   727→   727→        'data' => [
+   728→   728→            'id' => (int)$row['id'],
+   729→   729→            'status' => $row['status'],
+   730→   730→            'message' => 'Visit ' . $action . 'd successfully'
+   731→   731→        ]
+   732→   732→    ]);
+   733→   733→}
+   734→   734→
+   735→   735→// ══════════════════════════════════════════════════════════════════════════
+   736→   736→// DELETE: Delete Visit
+   737→   737→// ══════════════════════════════════════════════════════════════════════════
+   738→   738→
+   739→   739→function _handleDelete(): void
+   740→   740→{
+   741→   741→    $employeeId = requireAuth();
+   742→   742→    $input = getInput();
+   743→   743→    $conn = getDbConnection();
+   744→   744→    _ensureTables($conn);
+   745→   745→
+   746→   746→    $visitId = (int)($input['id'] ?? 0);
+   747→   747→    if ($visitId <= 0) jsonOutput(['success' => false, 'error' => 'Visit ID is required'], 400);
+   748→   748→
+   749→   749→    $checkStmt = $conn->prepare('SELECT id, employee_id, status FROM ess_unit_visits WHERE id = ?');
+   750→   750→    $checkStmt->bind_param('i', $visitId);
+   751→   751→    $checkStmt->execute();
+   752→   752→    $visit = $checkStmt->get_result()->fetch_assoc();
+   753→   753→    $checkStmt->close();
+   754→   754→
+   755→   755→    if (!$visit) { $conn->close(); jsonOutput(['success' => false, 'error' => 'Visit not found'], 404); }
+   756→   756→    if ((string)$visit['employee_id'] !== $employeeId) { $conn->close(); jsonOutput(['success' => false, 'error' => 'You can only delete your own visits'], 403); }
+   757→   757→    if ($visit['status'] !== 'submitted') { $conn->close(); jsonOutput(['success' => false, 'error' => 'Only submitted visits can be deleted'], 400); }
+   758→   758→
+   759→   759→    _logAudit($conn, $visitId, 'deleted', $employeeId);
+   760→   760→
+   761→   761→    $delStmt = $conn->prepare('DELETE FROM ess_visit_checklist_items WHERE visit_id = ?');
+   762→   762→    $delStmt->bind_param('i', $visitId);
+   763→   763→    $delStmt->execute();
+   764→   764→    $delStmt->close();
+   765→   765→
+   766→   766→    $delStmt2 = $conn->prepare('DELETE FROM ess_unit_visits WHERE id = ?');
+   767→   767→    $delStmt2->bind_param('i', $visitId);
+   768→   768→    $delStmt2->execute();
+   769→   769→    $delStmt2->close();
+   770→   770→    $conn->close();
+   771→   771→
+   772→   772→    jsonOutput(['success' => true, 'data' => ['id' => $visitId, 'message' => 'Visit deleted successfully']]);
+   773→   773→}
+   774→   774→
+   775→   775→// ══════════════════════════════════════════════════════════════════════════
+   776→   776→// Email Helper (inline)
+   777→   777→// ══════════════════════════════════════════════════════════════════════════
+   778→   778→
+   779→   779→function _sendVisitEmailInline(mysqli $conn, int $visitId): bool
+   780→   780→{
+   781→   781→    // Fetch visit with employee email
+   782→   782→    $stmt = $conn->prepare("
+   783→   783→        SELECT v.*, u.name AS unit_name, c.name AS client_name,
+   784→   784→               e.full_name AS employee_name, e.employee_code, e.email AS employee_email
+   785→   785→        FROM ess_unit_visits v
+   786→   786→        LEFT JOIN units u ON u.id = v.unit_id
+   787→   787→        LEFT JOIN clients c ON c.id = u.client_id
+   788→   788→        LEFT JOIN employees e ON e.id = v.employee_id
+   789→   789→        WHERE v.id = ?
+   790→   790→    ");
+   791→   791→    $stmt->bind_param('i', $visitId);
+   792→   792→    $stmt->execute();
+   793→   793→    $visit = $stmt->get_result()->fetch_assoc();
+   794→   794→    $stmt->close();
+   795→   795→
+   796→   796→    if (!$visit || empty($visit['employee_email'])) return false;
+   797→   797→
+   798→   798→    // Fetch checklist items
+   799→   799→    $itemsStmt = $conn->prepare('
+   800→   800→        SELECT ci.status, ci.remarks,
+   801→   801→               cmi.name AS item_name, cmc.name AS category_name
+   802→   802→        FROM ess_visit_checklist_items ci
+   803→   803→        LEFT JOIN ess_checklist_items cmi ON cmi.id = ci.checklist_item_id
+   804→   804→        LEFT JOIN ess_checklist_categories cmc ON cmc.id = ci.category_id
+   805→   805→        WHERE ci.visit_id = ?
+   806→   806→        ORDER BY cmc.display_order ASC, cmi.display_order ASC
+   807→   807→    ');
+   808→   808→    $itemsStmt->bind_param('i', $visitId);
+   809→   809→    $itemsStmt->execute();
+   810→   810→    $itemsResult = $itemsStmt->get_result();
+   811→   811→    $items = [];
+   812→   812→    while ($row = $itemsResult->fetch_assoc()) {
+   813→   813→        $items[] = $row;
+   814→   814→    }
+   815→   815→    $itemsResult->free();
+   816→   816→    $itemsStmt->close();
+   817→   817→
+   818→   818→    $score = (int)($visit['score_percent'] ?? 0);
+   819→   819→    $subject = sprintf('Unit Visit Report: %s - %s %s (%d%%)',
+   820→   820→        $visit['unit_name'] ?? 'Unknown',
+   821→   821→        _monthName((int)$visit['visit_month']),
+   822→   822→        $visit['visit_year'],
+   823→   823→        $score
+   824→   824→    );
+   825→   825→
+   826→   826→    // Build plain text email
+   827→   827→    $text = "UNIT VISIT CHECKLIST REPORT\nRCS TRUE FACILITIES PVT LTD\n" . str_repeat('=', 50) . "\n\n";
+   828→   828→    $text .= "Employee: " . ($visit['employee_name'] ?? '') . "\n";
+   829→   829→    $text .= "Client/Unit: " . ($visit['client_name'] ?? '') . " / " . ($visit['unit_name'] ?? '') . "\n";
+   830→   830→    $text .= "Visit: " . ((int)$visit['visit_number'] === 1 ? 'First' : 'Second') . " Visit - " . _monthName((int)$visit['visit_month']) . " " . $visit['visit_year'] . "\n";
+   831→   831→    $text .= "Score: {$score}% (" . ($visit['total_score'] ?? 0) . "/" . ($visit['max_score'] ?? 0) . " points)\n\n";
+   832→   832→
+   833→   833→    $grouped = [];
+   834→   834→    foreach ($items as $item) {
+   835→   835→        $cat = $item['category_name'] ?? 'Unknown';
+   836→   836→        if (!isset($grouped[$cat])) $grouped[$cat] = [];
+   837→   837→        $status = $item['status'] === 'na' ? 'N/A' : ($item['status'] === 'yes' ? '[YES]' : '[NO]');
+   838→   838→        $line = "  {$status} " . ($item['item_name'] ?? '');
+   839→   839→        if (!empty($item['remarks'])) $line .= " - " . $item['remarks'];
+   840→   840→        $grouped[$cat][] = $line;
+   841→   841→    }
+   842→   842→    foreach ($grouped as $cat => $lines) {
+   843→   843→        $text .= "\n--- " . strtoupper($cat) . " ---\n" . implode("\n", $lines) . "\n";
+   844→   844→    }
+   845→   845→
+   846→   846→    if (!empty($visit['notes'])) $text .= "\nNOTES: " . $visit['notes'] . "\n";
+   847→   847→
+   848→   848→    $headers = "From: RCS ESS Portal <noreply@rcsfacility.com>\r\nReply-To: support@rcsfacility.com\r\nX-Mailer: RCS-ESS/2.0";
+   849→   849→    return mail($visit['employee_email'], $subject, $text, $headers, '-fnoreply@rcsfacility.com');
+   850→   850→}
+   851→   851→
