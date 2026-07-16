@@ -345,9 +345,10 @@ try {
 </div>
 
 <?php
-$extraJS = <<<'JS'
+$syncNonce = hash('sha256', session_id() . '|' . floor(time() / 300));
+$extraJS = <<<JS
 <script>
-const SYNC_NONCE = '<?php echo hash('sha256', session_id() . '|' . floor(time() / 300)); ?>';
+const SYNC_NONCE = '{$syncNonce}';
 // POST to THIS page (inline handler at top) to avoid COMODO WAF blocking separate API endpoint
 const SYNC_URL = 'index.php?page=compliance/minimum-wage-sync';
 
@@ -385,18 +386,18 @@ function runSync(state, dryRun) {
         progressDiv.classList.add('d-none');
 
         if (data.success && data.results) {
-            let html = '<div class="alert ' + (data.total_added > 0 ? 'alert-success' : 'alert-warning') + ' mb-0">';
+            let html = '<div class="alert ' + ((data.total_added > 0 || data.total_updated > 0) ? 'alert-success' : 'alert-warning') + ' mb-0">';
             html += '<strong>' + (data.dry_run ? 'Dry Run Complete!' : 'Sync Complete!') + '</strong> ';
-            html += data.total_added + ' new rate(s) added, ' + data.total_skipped + ' skipped (already exist).';
+            html += data.total_added + ' added, ' + data.total_updated + ' updated, ' + data.total_skipped + ' skipped.';
             if (data.results.length > 0) {
-                html += '<hr class="my-2"><table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr><th>State</th><th>Status</th><th>Added</th><th>Skipped</th><th>Error</th></tr></thead><tbody>';
+                html += '<hr class="my-2"><table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr><th>State</th><th>Status</th><th>Added</th><th>Updated</th><th>Skipped</th><th>Error</th></tr></thead><tbody>';
                 data.results.forEach(function(r) {
                     const badge = r.status === 'success' 
                         ? '<span class="badge bg-success">OK</span>' 
                         : r.status === 'partial' 
                             ? '<span class="badge bg-warning text-dark">Partial</span>' 
                             : '<span class="badge bg-danger">Error</span>';
-                    html += '<tr><td>' + r.state + '</td><td class="text-center">' + badge + '</td><td class="text-center"><strong>' + r.records_added + '</strong></td><td class="text-center text-muted">' + r.records_skipped + '</td><td class="text-danger small">' + (r.error_message || '-') + '</td></tr>';
+                    html += '<tr><td>' + r.state + '</td><td class="text-center">' + badge + '</td><td class="text-center"><strong>' + (r.records_added||0) + '</strong></td><td class="text-center text-info">' + (r.records_updated||0) + '</td><td class="text-center text-muted">' + (r.records_skipped||0) + '</td><td class="text-danger small">' + (r.error_message || '-') + '</td></tr>';
                 });
                 html += '</tbody></table>';
             }
