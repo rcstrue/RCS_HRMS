@@ -3,7 +3,53 @@
  * RCS HRMS Pro — Minimum Wage Sync Dashboard
  * Shows sync history and allows manual trigger from browser.
  * Pure PHP sync — no Node.js needed.
+ * 
+ * Handles AJAX POST requests (sync/slug-setup) directly in this file
+ * to avoid COMODO WAF blocking separate API endpoints.
  */
+
+// ── Handle AJAX POST requests (before any HTML output) ──────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
+    header('Content-Type: application/json');
+
+    // Auth
+    if (!isset($_SESSION['user_id'])) {
+        echo json_encode(['success' => false, 'message' => 'Authentication required']);
+        exit;
+    }
+    if (!isset($_SESSION['role_code']) || $_SESSION['role_code'] !== 'admin') {
+        echo json_encode(['success' => false, 'message' => 'Access denied. Admin only.']);
+        exit;
+    }
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        echo json_encode(['success' => false, 'message' => 'Invalid request. Please refresh the page.']);
+        exit;
+    }
+
+    require_once APP_ROOT . '/includes/class.minimumwagesync.php';
+    $sync = new MinimumWageSync($db);
+
+    $action = $_POST['ajax_action'];
+
+    if ($action === 'run-sync') {
+        set_time_limit(300);
+        $state = $_POST['state'] ?? null;
+        $dryRun = !empty($_POST['dry_run']);
+        echo json_encode($sync->runSync($state, $dryRun));
+    } elseif ($action === 'run-slug-setup') {
+        try {
+            $output = $sync->ensureSlugs();
+            echo json_encode(['success' => true, 'message' => 'Slug setup completed.', 'output' => implode("\n", $output)]);
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => 'Slug setup failed.', 'error' => $e->getMessage()]);
+        }
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Unknown action.']);
+    }
+    exit;
+}
+
+// ── Normal page rendering below ─────────────────────────────────
 $pageTitle = 'Min Wage Sync';
 
 // Get states with slugs configured
@@ -298,6 +344,8 @@ try {
 $extraJS = <<<'JS'
 <script>
 const CSRF_TOKEN = '<?php echo generateCSRFToken(); ?>';
+// POST to THIS page (not a separate API file) to avoid COMODO WAF blocking
+const SYNC_URL = 'index.php?page=compliance/minimum-wage-sync';
 
 function runSync(state, dryRun) {
     const resultsDiv = document.getElementById('syncResults');
@@ -306,7 +354,6 @@ function runSync(state, dryRun) {
     const btnAll = document.getElementById('btnSyncAll');
     const btnDry = document.getElementById('btnSyncDryRun');
 
-    // Show progress
     resultsDiv.classList.remove('d-none');
     resultsDiv.innerHTML = '<div class="alert alert-info mb-0"><div class="spinner-border spinner-border-sm me-2"></div>Fetching from Simpliance.in — this may take a minute per state...</div>';
     progressDiv.classList.remove('d-none');
@@ -316,13 +363,13 @@ function runSync(state, dryRun) {
     if (btnDry) btnDry.disabled = true;
 
     const params = new URLSearchParams({
-        action: 'run-sync',
+        ajax_action: 'run-sync',
         csrf_token: CSRF_TOKEN
     });
     if (state !== 'all') params.set('state', state);
     if (dryRun) params.set('dry_run', '1');
 
-    fetch('index.php?page=api/minimum-wage-sync', {
+    fetch(SYNC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString()
@@ -372,11 +419,11 @@ function setupSlugs() {
     resultsDiv.innerHTML = '<div class="alert alert-info mb-0"><div class="spinner-border spinner-border-sm me-2"></div>Setting up slugs...</div>';
 
     const params = new URLSearchParams({
-        action: 'run-slug-setup',
+        ajax_action: 'run-slug-setup',
         csrf_token: CSRF_TOKEN
     });
 
-    fetch('index.php?page=api/minimum-wage-sync', {
+    fetch(SYNC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString()
