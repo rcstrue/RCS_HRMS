@@ -135,20 +135,20 @@ class MinimumWageSync {
     public function ensureSlugs() {
         $output = [];
 
-        // Check if slug column exists
+        // Check if simpliance_slug column exists
         $cols = $this->db->fetchAll(
             "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'states' AND COLUMN_NAME = 'slug'"
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'states' AND COLUMN_NAME = 'simpliance_slug'"
         );
 
         if (empty($cols)) {
-            $this->db->query("ALTER TABLE states ADD COLUMN slug VARCHAR(100) DEFAULT NULL AFTER state_name");
-            $output[] = 'Added slug column to states table.';
+            $this->db->query("ALTER TABLE states ADD COLUMN simpliance_slug VARCHAR(100) DEFAULT NULL AFTER state_name");
+            $output[] = 'Added simpliance_slug column to states table.';
         }
 
         // Find states without slugs
         $rows = $this->db->fetchAll(
-            "SELECT id, state_name FROM states WHERE is_active = 1 AND (slug IS NULL OR slug = '')"
+            "SELECT id, state_name FROM states WHERE is_active = 1 AND (simpliance_slug IS NULL OR simpliance_slug = '')"
         );
 
         if (!empty($rows)) {
@@ -156,7 +156,7 @@ class MinimumWageSync {
             foreach ($rows as $row) {
                 $slug = $this->slugifyState($row['state_name']);
                 if ($slug) {
-                    $this->db->query("UPDATE states SET slug = ? WHERE id = ?", [$slug, $row['id']]);
+                    $this->db->query("UPDATE states SET simpliance_slug = ? WHERE id = ?", [$slug, $row['id']]);
                     $output[] = "{$row['state_name']} → $slug";
                     $updated++;
                 } else {
@@ -165,7 +165,7 @@ class MinimumWageSync {
             }
             $output[] = "Slugs populated: $updated/" . count($rows);
         } else {
-            $output[] = 'All active states already have slugs.';
+            $output[] = 'All active states already have simpliance slugs.';
         }
 
         return $output;
@@ -174,19 +174,19 @@ class MinimumWageSync {
     // ── Get states ready for sync ───────────────────────────────────
     private function getSyncStates($stateFilter = null) {
         $rows = $this->db->fetchAll(
-            "SELECT id, state_name, slug FROM states WHERE is_active = 1 ORDER BY state_name"
+            "SELECT id, state_name, simpliance_slug FROM states WHERE is_active = 1 ORDER BY state_name"
         );
 
         $states = [];
         foreach ($rows as $row) {
-            if (empty($row['slug'])) {
-                $row['slug'] = $this->slugifyState($row['state_name']);
+            if (empty($row['simpliance_slug'])) {
+                $row['simpliance_slug'] = $this->slugifyState($row['state_name']);
             }
-            if ($row['slug']) {
+            if ($row['simpliance_slug']) {
                 if ($stateFilter === null) {
                     $states[] = $row;
                 } elseif (
-                    strtolower($row['slug']) === strtolower($stateFilter) ||
+                    strtolower($row['simpliance_slug']) === strtolower($stateFilter) ||
                     stripos($row['state_name'], $stateFilter) !== false
                 ) {
                     $states[] = $row;
@@ -198,7 +198,7 @@ class MinimumWageSync {
 
     // ── Fetch single state from Simpliance ─────────────────────────
     private function fetchState($state, $dryRun = false) {
-        $url = self::BASE_URL . '/' . $state['slug'];
+        $url = self::BASE_URL . '/' . $state['simpliance_slug'];
         $result = [
             'state' => $state['state_name'],
             'state_id' => (int)$state['id'],

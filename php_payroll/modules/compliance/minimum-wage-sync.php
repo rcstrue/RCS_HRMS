@@ -21,8 +21,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         echo json_encode(['success' => false, 'message' => 'Access denied. Admin only.']);
         exit;
     }
-    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
-        echo json_encode(['success' => false, 'message' => 'Invalid request. Please refresh the page.']);
+    // Validate request with nonce (not CSRF token — COMODO WAF Rule 211220 blocks '<?' in POST args)
+    $nonce = $_POST['sync_nonce'] ?? '';
+    $validWindow = 300;
+    $expected = hash('sha256', session_id() . '|' . floor(time() / $validWindow));
+    if (!hash_equals($expected, $nonce)) {
+        echo json_encode(['success' => false, 'message' => 'Invalid or expired request. Please refresh the page and try again.']);
         exit;
     }
 
@@ -55,11 +59,11 @@ $pageTitle = 'Min Wage Sync';
 // Get states with slugs configured
 try {
     $states = $db->query(
-        "SELECT s.id, s.state_name, s.slug,
+        "SELECT s.id, s.state_name, s.simpliance_slug,
                 (SELECT COUNT(*) FROM minimum_wages mw WHERE mw.state_id = s.id AND mw.is_active = 1) as rate_count,
                 (SELECT MAX(sync_date) FROM minimum_wage_sync_log l WHERE l.state_id = s.id AND l.status = 'success') as last_sync
          FROM states s
-         WHERE s.is_active = 1 AND s.slug IS NOT NULL AND s.slug != ''
+         WHERE s.is_active = 1 AND s.simpliance_slug IS NOT NULL AND s.simpliance_slug != ''
          ORDER BY s.state_name"
     )->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
@@ -69,7 +73,7 @@ try {
 // Get states without slugs
 try {
     $statesNoSlug = $db->query(
-        "SELECT id, state_name FROM states WHERE is_active = 1 AND (slug IS NULL OR slug = '') ORDER BY state_name"
+        "SELECT id, state_name FROM states WHERE is_active = 1 AND (simpliance_slug IS NULL OR simpliance_slug = '') ORDER BY state_name"
     )->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
     $statesNoSlug = [];
@@ -214,7 +218,7 @@ try {
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                     <?php foreach ($states as $s): ?>
-                    <li><a class="dropdown-item" href="javascript:void(0)" onclick="runSync('<?= htmlspecialchars($s['slug']) ?>')"><?= htmlspecialchars($s['state_name']) ?></a></li>
+                    <li><a class="dropdown-item" href="javascript:void(0)" onclick="runSync('<?= htmlspecialchars($s['simpliance_slug']) ?>')"><?= htmlspecialchars($s['state_name']) ?></a></li>
                     <?php endforeach; ?>
                 </ul>
             </div>
@@ -248,7 +252,7 @@ try {
                     <?php foreach ($states as $s): ?>
                     <tr>
                         <td><strong><?php echo sanitize($s['state_name']); ?></strong></td>
-                        <td><code><?php echo sanitize($s['slug']); ?></code></td>
+                        <td><code><?php echo sanitize($s['simpliance_slug']); ?></code></td>
                         <td class="text-center">
                             <?php if ($s['rate_count'] > 0): ?>
                             <span class="badge bg-primary"><?php echo $s['rate_count']; ?></span>
@@ -267,7 +271,7 @@ try {
                             <?php endif; ?>
                         </td>
                         <td class="text-center">
-                            <button class="btn btn-sm btn-outline-success py-0 px-2" onclick="runSync('<?= htmlspecialchars($s['slug']) ?>')" title="Sync this state">
+                            <button class="btn btn-sm btn-outline-success py-0 px-2" onclick="runSync('<?= htmlspecialchars($s['simpliance_slug']) ?>')" title="Sync this state">
                                 <i class="bi bi-arrow-repeat"></i>
                             </button>
                         </td>
@@ -343,8 +347,8 @@ try {
 <?php
 $extraJS = <<<'JS'
 <script>
-const CSRF_TOKEN = '<?php echo generateCSRFToken(); ?>';
-// POST to THIS page (not a separate API file) to avoid COMODO WAF blocking
+const SYNC_NONCE = '<?php echo hash('sha256', session_id() . '|' . floor(time() / 300)); ?>';
+// POST to THIS page (inline handler at top) to avoid COMODO WAF blocking separate API endpoint
 const SYNC_URL = 'index.php?page=compliance/minimum-wage-sync';
 
 function runSync(state, dryRun) {
@@ -364,7 +368,7 @@ function runSync(state, dryRun) {
 
     const params = new URLSearchParams({
         ajax_action: 'run-sync',
-        csrf_token: CSRF_TOKEN
+        sync_nonce: SYNC_NONCE
     });
     if (state !== 'all') params.set('state', state);
     if (dryRun) params.set('dry_run', '1');
@@ -420,7 +424,7 @@ function setupSlugs() {
 
     const params = new URLSearchParams({
         ajax_action: 'run-slug-setup',
-        csrf_token: CSRF_TOKEN
+        sync_nonce: SYNC_NONCE
     });
 
     fetch(SYNC_URL, {

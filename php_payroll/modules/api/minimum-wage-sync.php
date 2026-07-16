@@ -24,10 +24,13 @@ if (!isset($_SESSION['role_code']) || $_SESSION['role_code'] !== 'admin') {
     exit;
 }
 
-// Validate CSRF
-$csrfToken = $_POST['csrf_token'] ?? $_GET['csrf_token'] ?? '';
-if (!validateCSRFToken($csrfToken)) {
-    echo json_encode(['success' => false, 'message' => 'Invalid request. Please refresh the page.']);
+// Validate request integrity (simple hash-based nonce, not CSRF token
+// because COMODO WAF Rule 211220 blocks POST args containing '<?')
+$nonce = $_POST['sync_nonce'] ?? '';
+$validWindow = 300; // 5 minutes
+$expected = hash('sha256', session_id() . '|' . floor(time() / $validWindow));
+if (!hash_equals($expected, $nonce)) {
+    echo json_encode(['success' => false, 'message' => 'Invalid or expired request. Please refresh the page and try again.']);
     exit;
 }
 
