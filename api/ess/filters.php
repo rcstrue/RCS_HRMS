@@ -87,7 +87,7 @@ function _handleProfile(): void
         FROM employees e
         LEFT JOIN ess_employee_cache ec ON ec.employee_id = CAST(e.id AS CHAR COLLATE utf8mb4_unicode_ci)
         LEFT JOIN units u ON u.id = e.unit_id
-        WHERE e.id = ? AND e.status IN ('approved', 'active')
+        WHERE e.id = ? AND e.status = 'approved'
     ");
     $intId = (int)$employeeId;
     $stmt->bind_param('i', $intId);
@@ -121,8 +121,8 @@ function _handleProfile(): void
 
     // ─── Leave Balances ───────────────────────────────────────────────────
     $lbStmt = $conn->prepare('
-        SELECT leave_type, total, used, balance, year
-        FROM ess_leave_balances
+        SELECT leave_type, opening_balance AS total, used, closing_balance AS balance, year
+        FROM leave_balances
         WHERE employee_id = ? AND year = ?
         ORDER BY leave_type
     ');
@@ -351,8 +351,8 @@ function _handleBalance(): void
     $year = $_GET['year'] ?? date('Y');
 
     $stmt = $conn->prepare('
-        SELECT leave_type, total, used, balance, year
-        FROM ess_leave_balances
+        SELECT leave_type, opening_balance AS total, used, closing_balance AS balance, year
+        FROM leave_balances
         WHERE employee_id = ? AND year = ?
         ORDER BY leave_type
     ');
@@ -389,7 +389,7 @@ function _handleEmployeeDirectory(): void
     [$page, $limit, $offset] = getPaginationParams();
 
     // Build base query with table aliases to avoid ambiguity
-    $whereClause = "WHERE e.status IN ('approved', 'active')";
+    $whereClause = "WHERE e.status = 'approved'";
     $types = '';
     $params = [];
 
