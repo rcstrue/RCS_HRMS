@@ -5,23 +5,19 @@
  * Fetches state-wise minimum wage data from Simpliance.in
  * and inserts/updates the `minimum_wages` table.
  *
- * Simpliance loads wage data via AJAX POST to /wages/filter.
- * This class:
- *   1. GETs the state page (follows redirect from short URL)
- *   2. Extracts stateId, _token, and latest version from HTML
- *   3. POSTs to /wages/filter with session cookies
- *   4. Parses the JSON response (HTML table with dynamic columns)
- *   5. INSERTs or UPDATEs rows in minimum_wages
+ * Uses the direct JSON API: /minimum-wages/ajax/{stateId}/{version}
+ * which returns clean structured JSON — no cookies, CSRF, or POST needed.
  *
- * Uses cURL with cookie jar. Works with existing HRMS Database connection.
+ * Flow:
+ *   1. GET state page → extract Simpliance stateId + version from JS
+ *   2. GET /minimum-wages/ajax/{stateId}/{version} → JSON
+ *   3. Parse JSON rows → INSERT or UPDATE minimum_wages
  */
 
 class MinimumWageSync {
 
-    // Short URL — redirects to long URL, curl follows automatically
-    const BASE_URL = 'https://www.simpliance.in/minimum-wages';
-
-    const FILTER_URL = 'https://www.simpliance.in/wages/filter';
+    const BASE_URL   = 'https://www.simpliance.in/minimum-wages';
+    const AJAX_URL   = 'https://www.simpliance.in/minimum-wages/ajax';
 
     // Simpliance state name → URL slug
     const STATE_SLUG_MAP = [
@@ -66,7 +62,7 @@ class MinimumWageSync {
         'pondicherry'                  => 'puducherry',
     ];
 
-    // Simpliance category → HRMS worker_category (ENUM values)
+    // Simpliance class_of_employment → HRMS worker_category ENUM
     const CATEGORY_MAP = [
         'unskilled'      => 'Unskilled',
         'semi-skilled'   => 'Semi-Skilled',
@@ -89,12 +85,8 @@ class MinimumWageSync {
         }
     }
 
-    // ── cURL with cookie jar ────────────────────────────────────────
-    /**
-     * GET a URL with cookie jar support (needed for Simpliance session + CSRF).
-     * Returns [html, cookieFile].
-     */
-    private function fetchPage($url, $cookieFile, $timeout = 30) {
+    // ── Simple cURL GET ─────────────────────────────────────────────
+    private function fetchUrl($url, $timeout = 30) {
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL            => $url,
@@ -104,78 +96,26 @@ class MinimumWageSync {
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => 0,
             CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            CURLOPT_COOKIEJAR      => $cookieFile,
-            CURLOPT_COOKIEFILE     => $cookieFile,
-            CURLOPT_HEADER         => false,
-        ]);
-        $html = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-        curl_close($ch);
-
-        if ($error) throw new Exception("cURL GET error: $error");
-        if ($httpCode !== 200) throw new Exception("HTTP $httpCode for $url");
-        return $html;
-    }
-
-    /**
-     * POST to a URL with cookies (for the wages/filter AJAX endpoint).
-     * Returns decoded JSON response.
-     */
-    private function postJson($url, $postData, $cookieFile, $referer, $timeout = 30) {
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => $timeout,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => http_build_query($postData),
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
-            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            CURLOPT_COOKIEJAR      => $cookieFile,
-            CURLOPT_COOKIEFILE     => $cookieFile,
-            CURLOPT_HTTPHEADER     => [
-                'X-Requested-With: XMLHttpRequest',
-                'Content-Type: application/x-www-form-urlencoded',
-                'Referer: ' . $referer,
-            ],
         ]);
         $body = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
         curl_close($ch);
 
-        if ($error) throw new Exception("cURL POST error: $error");
-        if ($httpCode === 419) throw new Exception('CSRF token expired (HTTP 419). Simpliance session issue.');
-        if ($httpCode !== 200) throw new Exception("HTTP $httpCode from wages/filter API");
-
-        $json = json_decode($body, true);
-        if (!$json || empty($json['html'])) {
-            throw new Exception('Invalid JSON response from wages/filter');
-        }
-        return $json;
+        if ($error) throw new Exception("cURL error: $error");
+        if ($httpCode !== 200) throw new Exception("HTTP $httpCode for $url");
+        return $body;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
-    private function parseDate($txt) {
-        if (empty($txt)) return null;
-        // "1st Apr, 2026" → "2026-04-01"
-        $cleaned = preg_replace('/(\d+)(st|nd|rd|th)/i', '$1', trim($txt));
-        $d = strtotime($cleaned);
-        if ($d === false) return null;
-        return date('Y-m-d', $d);
+    private function parseAmount($val) {
+        if ($val === null || $val === '' || $val === '-') return 0;
+        return round(floatval($val), 2);
     }
 
     private function mapCategory($raw) {
         $lower = strtolower(trim($raw ?: ''));
         return self::CATEGORY_MAP[$lower] ?? $raw;
-    }
-
-    private function parseAmount($str) {
-        if (empty($str)) return 0;
-        $num = floatval(preg_replace('/[₹,\s]/u', '', (string)$str));
-        return ($num == 0 && $str !== '0') ? 0 : round($num, 2);
     }
 
     private function slugifyState($stateName) {
@@ -187,7 +127,6 @@ class MinimumWageSync {
     public function ensureSlugs() {
         $output = [];
 
-        // Check if simpliance_slug column exists
         $cols = $this->db->fetchAll(
             "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'states' AND COLUMN_NAME = 'simpliance_slug'"
@@ -198,7 +137,6 @@ class MinimumWageSync {
             $output[] = 'Added simpliance_slug column to states table.';
         }
 
-        // Find states without slugs
         $rows = $this->db->fetchAll(
             "SELECT id, state_name FROM states WHERE is_active = 1 AND (simpliance_slug IS NULL OR simpliance_slug = '')"
         );
@@ -250,199 +188,116 @@ class MinimumWageSync {
 
     // ── Fetch single state from Simpliance ─────────────────────────
     private function fetchState($state, $dryRun = false) {
-        $slug = $state['simpliance_slug'];
+        $slug    = $state['simpliance_slug'];
         $pageUrl = self::BASE_URL . '/' . $slug;
 
         $result = [
-            'state'            => $state['state_name'],
-            'state_id'         => (int)$state['id'],
-            'status'           => 'error',
-            'records_added'    => 0,
-            'records_updated'  => 0,
-            'records_skipped'  => 0,
-            'error_message'    => null,
+            'state'           => $state['state_name'],
+            'state_id'        => (int)$state['id'],
+            'status'          => 'error',
+            'records_added'   => 0,
+            'records_updated' => 0,
+            'records_skipped' => 0,
+            'error_message'   => null,
         ];
 
-        // Temp cookie file for this state's session
-        $cookieFile = sys_get_temp_dir() . '/simpliance_' . $slug . '.txt';
-
         try {
-            // ── Step 1: GET the state page (follows redirect) ──
-            $html = $this->fetchPage($pageUrl, $cookieFile, 30);
+            // ── Step 1: GET state page → extract stateId + version ──
+            $html = $this->fetchPage($pageUrl);
 
-            // ── Step 2: Extract stateId, _token, latest version ──
+            // Extract stateId from JS: "let stateId = 19;"
             $stateId = null;
-            $token   = null;
-            $version = null;
-
             if (preg_match('/stateId\s*=\s*(\d+)/', $html, $m)) {
                 $stateId = $m[1];
             }
-            if (preg_match('/_token:\s*"([^"]+)"/', $html, $m)) {
-                $token = $m[1];
-            }
 
-            // Extract first version option value (latest = first option)
-            if (preg_match('/<option[^>]*value="(\d+)"[^>]*>For the period/', $html, $m)) {
+            // Extract version from JS: "let version = 23;"
+            $version = null;
+            if (preg_match('/version\s*=\s*(\d+)/', $html, $m)) {
                 $version = $m[1];
             }
 
-            if (!$stateId || !$token || !$version) {
-                $result['error_message'] = "Could not extract stateId/token/version from page (stateId=$stateId, version=$version)";
-                // Save debug HTML
-                $debugPath = sys_get_temp_dir() . '/simpliance_debug_' . $slug . '.html';
-                @file_put_contents($debugPath, $html);
-                $result['error_message'] .= " [debug saved: $debugPath]";
+            if (!$stateId || !$version) {
+                $result['error_message'] = "Could not extract stateId/version from page (stateId=$stateId, version=$version)";
+                @file_put_contents(sys_get_temp_dir() . "/simpliance_debug_{$slug}.html", $html);
                 return $result;
             }
 
-            // ── Step 3: POST to wages/filter API ──
-            $postData = [
-                'state_id'   => $stateId,
-                'industryId' => 1,  // Shops and Establishment (first/default industry)
-                'version'    => $version,
-                '_token'     => $token,
-            ];
+            // ── Step 2: GET direct JSON API ──
+            $apiUrl  = self::AJAX_URL . '/' . $stateId . '/' . $version;
+            $jsonRaw = $this->fetchUrl($apiUrl);
+            $apiData = json_decode($jsonRaw, true);
 
-            // Use the final redirect URL as referer
-            $ch = curl_init();
-            curl_setopt_array($ch, [
-                CURLOPT_URL            => $pageUrl,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_NOBODY         => true,
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            ]);
-            curl_exec($ch);
-            $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-            curl_close($ch);
-
-            $apiResponse = $this->postJson(self::FILTER_URL, $postData, $cookieFile, $finalUrl);
-            $tableHtml  = $apiResponse['html'];
-
-            // ── Step 4: Parse the response HTML ──
-
-            // Extract effective date
-            $effectiveDate = null;
-            if (preg_match('/Effective from Date:.*?<strong>(.*?)<\/strong>/s', $tableHtml, $m)) {
-                $effectiveDate = $this->parseDate($m[1]);
-            }
-
-            if (!$effectiveDate) {
-                $result['error_message'] = 'Could not parse effective date from API response';
+            if (!$apiData || empty($apiData['data'])) {
+                $result['error_message'] = 'Invalid or empty JSON from API: ' . $apiUrl;
                 return $result;
             }
 
-            // Parse column headers from <th> elements — titles tell us what each column is
-            $doc = new DOMDocument();
-            @$doc->loadHTML('<?xml encoding="UTF-8">' . $tableHtml);
-            $xpath = new DOMXPath($doc);
-
-            // Build column index map from <th title="...">
-            $colMap = [];
-            $thElements = $xpath->query('//table[@id="wagesTable"]//thead//th');
-            $colIndex = 0;
-            foreach ($thElements as $th) {
-                $title = strtolower(trim($th->getAttribute('title')));
-                if ($title) {
-                    $colMap[$colIndex] = $title;
-                }
-                $colIndex++;
-            }
-
-            // Parse table rows
-            $trElements = $xpath->query('//table[@id="wagesTable"]//tbody//tr');
-            $wageRows = [];
-
-            foreach ($trElements as $tr) {
-                $tds = [];
-                foreach ($tr->getElementsByTagName('td') as $td) {
-                    $tds[] = trim($td->textContent);
-                }
-
-                if (count($tds) < 3) continue;
-
-                // Extract values using column map
-                $row = [
-                    'category'         => $tds[0] ?? '',
-                    'zone'             => '',
-                    'basic_per_day'    => 0,
-                    'basic_per_month'  => 0,
-                    'hra_per_month'    => 0,
-                    'vda_per_day'      => 0,
-                    'vda_per_month'    => 0,
-                    'total_per_day'    => 0,
-                    'total_per_month'  => 0,
-                ];
-
-                foreach ($colMap as $idx => $title) {
-                    $val = isset($tds[$idx]) ? $this->parseAmount($tds[$idx]) : 0;
-                    $text = isset($tds[$idx]) ? trim($tds[$idx]) : '';
-
-                    if (strpos($title, 'zone') !== false) {
-                        $row['zone'] = $text;
-                    } elseif (strpos($title, 'basic per day') !== false) {
-                        $row['basic_per_day'] = $val;
-                    } elseif (strpos($title, 'basic per month') !== false) {
-                        $row['basic_per_month'] = $val;
-                    } elseif (strpos($title, 'hra per month') !== false) {
-                        $row['hra_per_month'] = $val;
-                    } elseif (strpos($title, 'vda per day') !== false || strpos($title, 'da per day') !== false) {
-                        $row['vda_per_day'] = $val;
-                    } elseif (strpos($title, 'vda per month') !== false || strpos($title, 'da per month') !== false) {
-                        $row['vda_per_month'] = $val;
-                    } elseif (strpos($title, 'total per day') !== false) {
-                        $row['total_per_day'] = $val;
-                    } elseif (strpos($title, 'total per month') !== false) {
-                        $row['total_per_month'] = $val;
+            // ── Step 3: Collect all rows across all industries ──
+            $allRows = [];
+            foreach ($apiData['data'] as $industryId => $rows) {
+                if (is_array($rows)) {
+                    foreach ($rows as $row) {
+                        $allRows[] = $row;
                     }
                 }
-
-                // Derive missing values: if only per-month given, calculate per-day (÷26)
-                if ($row['basic_per_month'] > 0 && $row['basic_per_day'] == 0) {
-                    $row['basic_per_day'] = round($row['basic_per_month'] / 26, 2);
-                }
-                if ($row['basic_per_day'] > 0 && $row['basic_per_month'] == 0) {
-                    $row['basic_per_month'] = round($row['basic_per_day'] * 26, 2);
-                }
-                if ($row['vda_per_month'] > 0 && $row['vda_per_day'] == 0) {
-                    $row['vda_per_day'] = round($row['vda_per_month'] / 26, 2);
-                }
-                if ($row['vda_per_day'] > 0 && $row['vda_per_month'] == 0) {
-                    $row['vda_per_month'] = round($row['vda_per_day'] * 26, 2);
-                }
-                if ($row['total_per_month'] > 0 && $row['total_per_day'] == 0) {
-                    $row['total_per_day'] = round($row['total_per_month'] / 26, 2);
-                }
-                if ($row['total_per_day'] > 0 && $row['total_per_month'] == 0) {
-                    $row['total_per_month'] = round($row['total_per_day'] * 26, 2);
-                }
-
-                $wageRows[] = $row;
             }
 
-            if (empty($wageRows)) {
-                $result['error_message'] = 'Parsed 0 wage rows from API response';
-                // Save for debugging
-                $debugPath = sys_get_temp_dir() . '/simpliance_debug_' . $slug . '_api.html';
-                @file_put_contents($debugPath, $tableHtml);
-                $result['error_message'] .= " [API HTML saved: $debugPath]";
+            if (empty($allRows)) {
+                $result['error_message'] = 'API returned 0 wage rows';
                 return $result;
             }
 
-            // ── Step 5: Insert or Update into DB ──
-            foreach ($wageRows as $row) {
-                $workerCategory = $this->mapCategory($row['category']);
+            // ── Step 4: Parse and INSERT or UPDATE ──
+            $effectiveDate = null;
+            $validCategories = ['Unskilled', 'Semi-Skilled', 'Skilled', 'Highly Skilled', 'Supervisor', 'Clerical'];
 
-                // Skip if category doesn't match ENUM values
-                $validCategories = ['Unskilled', 'Semi-Skilled', 'Skilled', 'Highly Skilled', 'Supervisor', 'Clerical'];
+            foreach ($allRows as $r) {
+                // Effective date from first row (all rows in same response share it)
+                if (!$effectiveDate && !empty($r['effective_date'])) {
+                    $effectiveDate = $r['effective_date'];
+                }
+
+                $workerCategory = $this->mapCategory($r['class_of_employment'] ?? '');
+
+                // Skip if category doesn't match ENUM
                 if (!in_array($workerCategory, $validCategories)) {
                     $result['records_skipped']++;
                     continue;
                 }
 
-                // Check for existing record (unique: state_id + worker_category + zone + effective_from)
+                // Parse amounts (JSON API uses numeric or '-' for missing)
+                $basicPerDay    = $this->parseAmount($r['basic_per_day'] ?? null);
+                $basicPerMonth  = $this->parseAmount($r['basic_per_month'] ?? null);
+                $vdaPerDay      = $this->parseAmount($r['vda_per_day'] ?? null);
+                $vdaPerMonth    = $this->parseAmount($r['vda_per_month'] ?? null);
+                $hraPerMonth    = $this->parseAmount($r['hra_per_month'] ?? null);
+                $totalPerDay    = $this->parseAmount($r['total_per_day'] ?? null);
+                $totalPerMonth  = $this->parseAmount($r['total_per_month'] ?? null);
+
+                // Derive missing values (day ↔ month, ×26)
+                if ($basicPerMonth > 0 && $basicPerDay == 0) {
+                    $basicPerDay = round($basicPerMonth / 26, 2);
+                } elseif ($basicPerDay > 0 && $basicPerMonth == 0) {
+                    $basicPerMonth = round($basicPerDay * 26, 2);
+                }
+                if ($vdaPerMonth > 0 && $vdaPerDay == 0) {
+                    $vdaPerDay = round($vdaPerMonth / 26, 2);
+                } elseif ($vdaPerDay > 0 && $vdaPerMonth == 0) {
+                    $vdaPerMonth = round($vdaPerDay * 26, 2);
+                }
+                if ($totalPerMonth > 0 && $totalPerDay == 0) {
+                    $totalPerDay = round($totalPerMonth / 26, 2);
+                } elseif ($totalPerDay > 0 && $totalPerMonth == 0) {
+                    $totalPerMonth = round($totalPerDay * 26, 2);
+                }
+
+                // Notification name
+                $notificationName = trim($r['name'] ?? '');
+
+                if (!$effectiveDate) continue;
+
+                // Check for existing record
                 $existing = $this->db->fetchAll(
                     "SELECT id FROM minimum_wages
                      WHERE state_id = ? AND worker_category = ? AND effective_from = ?
@@ -452,57 +307,52 @@ class MinimumWageSync {
 
                 if (!$dryRun) {
                     if (!empty($existing)) {
-                        // UPDATE existing record
+                        // UPDATE
                         $this->db->query(
                             "UPDATE minimum_wages SET
                                 basic_per_day = ?, basic_per_month = ?,
                                 da_per_day = ?, da_per_month = ?,
                                 special_allowance_per_month = ?,
                                 total_per_day = ?, total_per_month = ?,
+                                notification_number = ?,
                                 source = ?, version_id = ?, is_active = 1,
                                 updated_at = NOW()
                              WHERE id = ?",
                             [
-                                $row['basic_per_day'],
-                                $row['basic_per_month'],
-                                $row['vda_per_day'],
-                                $row['vda_per_month'],
-                                $row['hra_per_month'],
-                                $row['total_per_day'],
-                                $row['total_per_month'],
-                                'Simpliance',
-                                $version,
+                                $basicPerDay, $basicPerMonth,
+                                $vdaPerDay, $vdaPerMonth,
+                                $hraPerMonth,
+                                $totalPerDay, $totalPerMonth,
+                                mb_substr($notificationName, 0, 100),
+                                'Simpliance', $version,
                                 $existing[0]['id'],
                             ]
                         );
                         $result['records_updated']++;
                     } else {
-                        // INSERT new record
+                        // INSERT
                         $this->db->query(
                             "INSERT INTO minimum_wages
                                 (state_id, worker_category, basic_per_day, basic_per_month,
                                  da_per_day, da_per_month, special_allowance_per_month,
                                  total_per_day, total_per_month,
-                                 effective_from, source, version_id, is_active)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Simpliance', ?, 1)",
+                                 effective_from, notification_number,
+                                 source, version_id, is_active)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Simpliance', ?, 1)",
                             [
-                                $state['id'],
-                                $workerCategory,
-                                $row['basic_per_day'],
-                                $row['basic_per_month'],
-                                $row['vda_per_day'],
-                                $row['vda_per_month'],
-                                $row['hra_per_month'],
-                                $row['total_per_day'],
-                                $row['total_per_month'],
+                                $state['id'], $workerCategory,
+                                $basicPerDay, $basicPerMonth,
+                                $vdaPerDay, $vdaPerMonth,
+                                $hraPerMonth,
+                                $totalPerDay, $totalPerMonth,
                                 $effectiveDate,
+                                mb_substr($notificationName, 0, 100),
                                 $version,
                             ]
                         );
                         $result['records_added']++;
                     }
                 } else {
-                    // Dry run — count what would happen
                     if (!empty($existing)) {
                         $result['records_updated']++;
                     } else {
@@ -513,31 +363,30 @@ class MinimumWageSync {
 
             $result['status'] = 'success';
 
-            // Update last_scraped_at on states table (column may not exist — catch error)
+            // Update last_scraped_at (silent fail if column missing)
             if (!$dryRun) {
                 try {
-                    $this->db->query(
-                        "UPDATE states SET last_scraped_at = NOW() WHERE id = ?",
-                        [$state['id']]
-                    );
-                } catch (Exception $e) {
-                    // Column may not exist — ignore silently
-                }
+                    $this->db->query("UPDATE states SET last_scraped_at = NOW() WHERE id = ?", [$state['id']]);
+                } catch (Exception $e) {}
             }
 
         } catch (Exception $e) {
             $result['error_message'] = mb_substr($e->getMessage(), 0, 500);
-        } finally {
-            // Clean up cookie file
-            @unlink($cookieFile);
         }
 
         return $result;
     }
 
+    /**
+     * GET page — uses simple fetch, no cookies needed for state pages.
+     * (Cookies only needed for the POST /wages/filter endpoint which we no longer use.)
+     */
+    private function fetchPage($url) {
+        return $this->fetchUrl($url);
+    }
+
     // ── Run full sync ───────────────────────────────────────────────
     public function runSync($stateFilter = null, $dryRun = false) {
-        // Ensure simpliance_slug column exists
         $this->ensureSlugs();
 
         $states = $this->getSyncStates($stateFilter);
@@ -555,19 +404,18 @@ class MinimumWageSync {
             ];
         }
 
-        $results       = [];
-        $totalAdded    = 0;
-        $totalUpdated  = 0;
-        $totalSkipped  = 0;
+        $results      = [];
+        $totalAdded   = 0;
+        $totalUpdated = 0;
+        $totalSkipped = 0;
 
         foreach ($states as $state) {
             $result = $this->fetchState($state, $dryRun);
             $results[]      = $result;
-            $totalAdded    += $result['records_added'];
-            $totalUpdated  += $result['records_updated'];
-            $totalSkipped  += $result['records_skipped'];
+            $totalAdded   += $result['records_added'];
+            $totalUpdated += $result['records_updated'];
+            $totalSkipped += $result['records_skipped'];
 
-            // Log to DB
             if (!$dryRun) {
                 try {
                     $this->db->query(
@@ -575,14 +423,11 @@ class MinimumWageSync {
                          VALUES (?, ?, ?, ?, ?, ?)",
                         [$result['state'], $result['state_id'], $result['status'], $result['records_added'], $result['records_skipped'], $result['error_message']]
                     );
-                } catch (Exception $e) {
-                    // Log table might not exist — ignore
-                }
+                } catch (Exception $e) {}
             }
 
-            // Polite delay between states
             if (count($states) > 1) {
-                usleep(1500000); // 1.5 seconds
+                usleep(1500000); // 1.5s polite delay
             }
         }
 

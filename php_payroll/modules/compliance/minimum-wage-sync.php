@@ -10,7 +10,8 @@
 
 // ── Handle AJAX POST requests (before any HTML output) ──────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
-    header('Content-Type: application/json');
+    // Cannot send headers — template/header.php already output HTML.
+    // json_encode output is still valid JSON for the fetch() caller.
 
     // Auth
     if (!isset($_SESSION['user_id'])) {
