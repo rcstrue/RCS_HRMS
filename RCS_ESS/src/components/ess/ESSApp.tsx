@@ -127,8 +127,12 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
     localStorage.removeItem('ess_token');
     localStorage.removeItem('ess_login_attempts');
     stopProactiveRefresh();
-    // Hard reload so browser fetches fresh index.html with latest JS bundles
-    window.location.replace(window.location.href.split('#')[0] + '#ess');
+    // Clear PWA caches so stale data isn't served after reload
+    if ('caches' in window) {
+      caches.keys().then(names => Promise.all(names.map(n => caches.delete(n)))).catch(() => {});
+    }
+    // Force full page reload (hash-only change doesn't reload in SPA)
+    window.location.reload();
   }, []);
 
   const clearSessionAndAccess = useCallback(() => {
