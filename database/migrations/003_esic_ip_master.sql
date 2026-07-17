@@ -19,8 +19,9 @@ CREATE TABLE IF NOT EXISTS `esic_ip_master` (
     `bank_account_status` VARCHAR(50) DEFAULT NULL,
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY `uk_ip_number` (`ip_number`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    UNIQUE KEY `uk_ip_number` (`ip_number`),
+    INDEX `idx_uan` (`uan`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
   COMMENT='ESIC Insured Person master data — merged from multiple CSV imports';
 
 -- 2. Import error log (per-row errors)
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS `esic_import_errors` (
     `reason` VARCHAR(500) NOT NULL,
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_import_id` (`import_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
   COMMENT='Row-level errors from ESIC CSV imports';
 
 -- 3. Import history (per-upload-session audit)
@@ -49,5 +50,5 @@ CREATE TABLE IF NOT EXISTS `esic_import_history` (
     `ip_address` VARCHAR(45) DEFAULT NULL,
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_created_at` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
   COMMENT='Audit log for ESIC IP import sessions';

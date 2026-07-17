@@ -32,8 +32,9 @@ $db->exec("CREATE TABLE IF NOT EXISTS `esic_ip_master` (
     `bank_account_status` VARCHAR(50) DEFAULT NULL,
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY `uk_ip_number` (`ip_number`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    UNIQUE KEY `uk_ip_number` (`ip_number`),
+    INDEX `idx_uan` (`uan`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
 $db->exec("CREATE TABLE IF NOT EXISTS `esic_import_errors` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -44,7 +45,7 @@ $db->exec("CREATE TABLE IF NOT EXISTS `esic_import_errors` (
     `reason` VARCHAR(500) NOT NULL,
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_import_id` (`import_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
 $db->exec("CREATE TABLE IF NOT EXISTS `esic_import_history` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -58,7 +59,21 @@ $db->exec("CREATE TABLE IF NOT EXISTS `esic_import_history` (
     `ip_address` VARCHAR(45) DEFAULT NULL,
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_created_at` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+// ── Fix existing tables: collation + index (one-time migration) ──
+try {
+    $db->exec("ALTER TABLE esic_ip_master CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci");
+} catch (\Throwable $e) {}
+try {
+    $db->exec("ALTER TABLE esic_import_errors CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci");
+} catch (\Throwable $e) {}
+try {
+    $db->exec("ALTER TABLE esic_import_history CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci");
+} catch (\Throwable $e) {}
+try {
+    $db->exec("ALTER TABLE esic_ip_master ADD INDEX idx_uan (uan)");
+} catch (\Throwable $e) {}
 
 // ── Fetch recent import history ──
 $recentImports = $db->fetchAll(
