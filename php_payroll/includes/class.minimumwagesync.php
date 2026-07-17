@@ -210,6 +210,10 @@ class MinimumWageSync {
             );
             if (empty($cols)) {
                 $this->db->query("ALTER TABLE minimum_wages ADD COLUMN zone_id INT DEFAULT NULL AFTER state_id");
+            } else {
+                // Fix existing column: change default to NULL and convert 0 → NULL
+                $this->db->query("ALTER TABLE minimum_wages MODIFY COLUMN zone_id INT DEFAULT NULL");
+                $this->db->query("UPDATE minimum_wages SET zone_id = NULL WHERE zone_id = 0");
             }
         } catch (Exception $e) {}
     }
@@ -553,7 +557,7 @@ class MinimumWageSync {
 
         // Always-included fields
         if (in_array('state_id', $existing))        { $setCols[] = 'state_id';        $setVals[] = $stateId; }
-        if (in_array('zone_id', $existing) && $zoneId !== null) { $setCols[] = 'zone_id'; $setVals[] = $zoneId; }
+        if (in_array('zone_id', $existing)) { $setCols[] = 'zone_id'; $setVals[] = $zoneId; } // null = no zone (all zones)
         if (in_array('worker_category', $existing))  { $setCols[] = 'worker_category';  $setVals[] = $workerCategory; }
         if (in_array('effective_from', $existing))   { $setCols[] = 'effective_from';   $setVals[] = $effectiveDate; }
         if (in_array('is_active', $existing))        { $setCols[] = 'is_active';        $setVals[] = 1; }
@@ -598,6 +602,10 @@ class MinimumWageSync {
     // ── Run full sync ───────────────────────────────────────────────
     public function runSync($stateFilter = null, $dryRun = false) {
         $this->ensureSlugs();
+
+        // Ensure zone schema exists BEFORE processing any states
+        $this->ensureZonesTable();
+        $this->ensureZoneIdColumn();
 
         $states = $this->getSyncStates($stateFilter);
 
