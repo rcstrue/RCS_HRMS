@@ -183,6 +183,38 @@ class MinimumWageSync {
     }
 
     /**
+     * Ensure the zones table exists. Creates it if missing.
+     */
+    private function ensureZonesTable() {
+        try {
+            $this->db->query("CREATE TABLE IF NOT EXISTS zones (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                state_id INT NOT NULL,
+                zone_name VARCHAR(100) NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_state_zone (state_id, zone_name),
+                INDEX idx_state (state_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        } catch (Exception $e) {}
+    }
+
+    /**
+     * Ensure minimum_wages table has a zone_id column.
+     */
+    private function ensureZoneIdColumn() {
+        try {
+            $cols = $this->db->fetchAll(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'minimum_wages' AND COLUMN_NAME = 'zone_id'"
+            );
+            if (empty($cols)) {
+                $this->db->query("ALTER TABLE minimum_wages ADD COLUMN zone_id INT DEFAULT NULL AFTER state_id");
+            }
+        } catch (Exception $e) {}
+    }
+
+    /**
      * Resolve a Simpliance zone name (e.g. "Zone I", "Zone II", "-")
      * to a zone_id in the HRMS zones table.
      * Returns null for no zone / dash.
@@ -196,6 +228,10 @@ class MinimumWageSync {
         // Normalize: "Zone I" → look for exact match in zones table
         $zoneName = trim($simplianceZone);
 
+        // Ensure zones table exists before any operations
+        $this->ensureZonesTable();
+        $this->ensureZoneIdColumn();
+
         // Try to find existing zone
         try {
             $existing = $this->db->fetchAll(
@@ -207,27 +243,25 @@ class MinimumWageSync {
             }
         } catch (Exception $e) {}
 
-        // Create the zone if table exists
+        // Create the zone row (INSERT IGNORE to handle race condition / duplicate)
         try {
-            // Check if zones table has required columns
-            $cols = $this->db->fetchAll(
-                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'zones'"
-            );
-            $colNames = array_column($cols, 'COLUMN_NAME');
-            if (!in_array('zone_name', $colNames)) {
-                return null; // zones table missing expected columns
-            }
-
             $this->db->query(
-                "INSERT INTO zones (state_id, zone_name, is_active, created_at)
+                "INSERT IGNORE INTO zones (state_id, zone_name, is_active, created_at)
                  VALUES (?, ?, 1, NOW())",
                 [$stateId, $zoneName]
             );
-            return (int)$this->db->lastInsertId();
-        } catch (Exception $e) {
-            return null;
-        }
+
+            // Fetch the id back (whether just inserted or already existed)
+            $row = $this->db->fetchAll(
+                "SELECT id FROM zones WHERE state_id = ? AND zone_name = ? AND is_active = 1 LIMIT 1",
+                [$stateId, $zoneName]
+            );
+            if (!empty($row)) {
+                return (int)$row[0]['id'];
+            }
+        } catch (Exception $e) {}
+
+        return null;
     }
 
     // ── Ensure simpliance_slug column + populate ─────────────────────
