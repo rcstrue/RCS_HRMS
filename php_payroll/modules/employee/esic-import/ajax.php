@@ -6,8 +6,8 @@
  * and upserts into esic_ip_master using batch prepared statements.
  *
  * Column mapping (position-based, headers ignored):
- *   Col 1  = Serial No.        (IGNORE)
- *   Col 2  = IP Number
+ *   Col 1  = IP Number
+ *   Col 2  = IP Number        (IGNORE — sometimes empty)
  *   Col 3  = IP Name
  *   Col 4  = Employer Code
  *   Col 5  = Employer Name
@@ -183,16 +183,16 @@ foreach ($csvFiles as $fileInfo) {
             continue;
         }
 
-        // ── Skip header-like rows ──
+        // ── Skip header-like rows (col 1 = IP Number, header would say 'IP No' etc) ──
         $col1 = trim($row[0] ?? '');
-        if (stripos($col1, 'sr') !== false || stripos($col1, 'serial') !== false || stripos($col1, 's.no') !== false) {
+        if (!is_numeric($col1) && (stripos($col1, 'ip') !== false || stripos($col1, 'insured') !== false || stripos($col1, 'serial') !== false)) {
             $rowsSkipped++;
-            $errorRows[] = [$importId, $fileName, $fileRowNumber, null, 'Duplicate header row'];
+            $errorRows[] = [$importId, $fileName, $fileRowNumber, null, 'Header row'];
             continue;
         }
 
-        // ── Extract and clean fields by position ──
-        $ipNumber = isset($row[1]) ? trim($row[1]) : '';
+        // ── Extract IP Number from Col 1 (Col 2 is duplicate, sometimes empty) ──
+        $ipNumber = $col1;
 
         // ── IP Number is required ──
         if ($ipNumber === '') {
@@ -208,7 +208,7 @@ foreach ($csvFiles as $fileInfo) {
             continue;
         }
 
-        // ── Extract remaining fields ──
+        // ── Extract remaining fields (col 2 = duplicate IP, skip to col 3) ──
         $ipName            = isset($row[2]) ? trim($row[2]) : '';
         $employerCode     = isset($row[3]) ? trim($row[3]) : '';
         $employerName     = isset($row[4]) ? trim($row[4]) : '';
