@@ -183,89 +183,30 @@ class MinimumWageSync {
     }
 
     /**
-     * Ensure the zones table exists. Creates it if missing.
+     * Ensure minimum_wages table has a zone VARCHAR column.
+     * Stores zone name directly (e.g. "Zone I", "Zone II") or NULL for all-zone states.
      */
-    private function ensureZonesTable() {
-        try {
-            $this->db->query("CREATE TABLE IF NOT EXISTS zones (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                state_id INT NOT NULL,
-                zone_name VARCHAR(100) NOT NULL,
-                is_active TINYINT(1) NOT NULL DEFAULT 1,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY uk_state_zone (state_id, zone_name),
-                INDEX idx_state (state_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-        } catch (Exception $e) {}
-    }
-
-    /**
-     * Ensure minimum_wages table has a zone_id column.
-     */
-    private function ensureZoneIdColumn() {
+    private function ensureZoneColumn() {
         try {
             $cols = $this->db->fetchAll(
                 "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'minimum_wages' AND COLUMN_NAME = 'zone_id'"
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'minimum_wages' AND COLUMN_NAME = 'zone'"
             );
             if (empty($cols)) {
-                $this->db->query("ALTER TABLE minimum_wages ADD COLUMN zone_id INT DEFAULT NULL AFTER state_id");
-            } else {
-                // Fix existing column: change default to NULL and convert 0 → NULL
-                $this->db->query("ALTER TABLE minimum_wages MODIFY COLUMN zone_id INT DEFAULT NULL");
-                $this->db->query("UPDATE minimum_wages SET zone_id = NULL WHERE zone_id = 0");
+                $this->db->query("ALTER TABLE minimum_wages ADD COLUMN zone VARCHAR(50) DEFAULT NULL AFTER state_id");
             }
         } catch (Exception $e) {}
     }
 
     /**
-     * Resolve a Simpliance zone name (e.g. "Zone I", "Zone II", "-")
-     * to a zone_id in the HRMS zones table.
-     * Returns null for no zone / dash.
-     * Creates the zone row if it doesn't exist.
+     * Get zone name from Simpliance row.
+     * Returns null for no zone / dash (means all zones).
      */
-    private function resolveZoneId($stateId, $simplianceZone) {
-        if (empty($simplianceZone) || $simplianceZone === '-') {
+    private function resolveZone($simplianceZone) {
+        if (empty($simplianceZone) || trim($simplianceZone) === '-') {
             return null;
         }
-
-        // Normalize: "Zone I" → look for exact match in zones table
-        $zoneName = trim($simplianceZone);
-
-        // Ensure zones table exists before any operations
-        $this->ensureZonesTable();
-        $this->ensureZoneIdColumn();
-
-        // Try to find existing zone
-        try {
-            $existing = $this->db->fetchAll(
-                "SELECT id FROM zones WHERE state_id = ? AND zone_name = ? AND is_active = 1 LIMIT 1",
-                [$stateId, $zoneName]
-            );
-            if (!empty($existing)) {
-                return (int)$existing[0]['id'];
-            }
-        } catch (Exception $e) {}
-
-        // Create the zone row (INSERT IGNORE to handle race condition / duplicate)
-        try {
-            $this->db->query(
-                "INSERT IGNORE INTO zones (state_id, zone_name, is_active, created_at)
-                 VALUES (?, ?, 1, NOW())",
-                [$stateId, $zoneName]
-            );
-
-            // Fetch the id back (whether just inserted or already existed)
-            $row = $this->db->fetchAll(
-                "SELECT id FROM zones WHERE state_id = ? AND zone_name = ? AND is_active = 1 LIMIT 1",
-                [$stateId, $zoneName]
-            );
-            if (!empty($row)) {
-                return (int)$row[0]['id'];
-            }
-        } catch (Exception $e) {}
-
-        return null;
+        return trim($simplianceZone);
     }
 
     // ── Ensure simpliance_slug column + populate ─────────────────────
@@ -440,8 +381,8 @@ class MinimumWageSync {
                 // Notification name
                 $notificationName = trim($r['name'] ?? '');
 
-                // Resolve zone
-                $zoneId = $this->resolveZoneId($state['id'], $r['zone'] ?? '-');
+                // Resolve zone (direct name, not FK)
+                $zone = $this->resolveZone($r['zone'] ?? '-');
 
                 if (!$effectiveDate) continue;
 
@@ -456,18 +397,18 @@ class MinimumWageSync {
                     'total_per_month' => $totalPerMonth,
                 ];
 
-                // Check for existing record (include zone_id in lookup)
-                if ($zoneId) {
+                // Check for existing record (include zone in lookup)
+                if ($zone) {
                     $existing = $this->db->fetchAll(
                         "SELECT id FROM minimum_wages
-                         WHERE state_id = ? AND worker_category = ? AND effective_from = ? AND zone_id = ?
+                         WHERE state_id = ? AND worker_category = ? AND effective_from = ? AND zone = ?
                          LIMIT 1",
-                        [$state['id'], $workerCategory, $effectiveDate, $zoneId]
+                        [$state['id'], $workerCategory, $effectiveDate, $zone]
                     );
                 } else {
                     $existing = $this->db->fetchAll(
                         "SELECT id FROM minimum_wages
-                         WHERE state_id = ? AND worker_category = ? AND effective_from = ? AND zone_id IS NULL
+                         WHERE state_id = ? AND worker_category = ? AND effective_from = ? AND zone IS NULL
                          LIMIT 1",
                         [$state['id'], $workerCategory, $effectiveDate]
                     );
@@ -477,7 +418,7 @@ class MinimumWageSync {
                     $existingId = !empty($existing) ? $existing[0]['id'] : null;
                     $this->upsertWage(
                         $state['id'], $workerCategory, $effectiveDate,
-                        $wageData, $version, $notificationName, $existingId, $zoneId
+                        $wageData, $version, $notificationName, $existingId, $zone
                     );
                     if ($existingId) {
                         $result['records_updated']++;
@@ -548,7 +489,7 @@ class MinimumWageSync {
      * Build dynamic INSERT or UPDATE SQL using only columns that exist.
      * $data = ['basic_per_day' => 500, 'vda_per_day' => 60, ...]
      */
-    private function upsertWage($stateId, $workerCategory, $effectiveDate, $data, $version, $notificationName, $existingId = null, $zoneId = null) {
+    private function upsertWage($stateId, $workerCategory, $effectiveDate, $data, $version, $notificationName, $existingId = null, $zone = null) {
         $existing = $this->detectColumns();
 
         // Build column→value map for columns that exist
@@ -557,7 +498,7 @@ class MinimumWageSync {
 
         // Always-included fields
         if (in_array('state_id', $existing))        { $setCols[] = 'state_id';        $setVals[] = $stateId; }
-        if (in_array('zone_id', $existing)) { $setCols[] = 'zone_id'; $setVals[] = $zoneId; } // null = no zone (all zones)
+        if (in_array('zone', $existing))            { $setCols[] = 'zone';            $setVals[] = $zone; }
         if (in_array('worker_category', $existing))  { $setCols[] = 'worker_category';  $setVals[] = $workerCategory; }
         if (in_array('effective_from', $existing))   { $setCols[] = 'effective_from';   $setVals[] = $effectiveDate; }
         if (in_array('is_active', $existing))        { $setCols[] = 'is_active';        $setVals[] = 1; }
@@ -602,10 +543,7 @@ class MinimumWageSync {
     // ── Run full sync ───────────────────────────────────────────────
     public function runSync($stateFilter = null, $dryRun = false) {
         $this->ensureSlugs();
-
-        // Ensure zone schema exists BEFORE processing any states
-        $this->ensureZonesTable();
-        $this->ensureZoneIdColumn();
+        $this->ensureZoneColumn();
 
         $states = $this->getSyncStates($stateFilter);
 

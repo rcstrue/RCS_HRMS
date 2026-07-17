@@ -242,10 +242,9 @@ class Compliance {
 
     // Get minimum wages by state
     public function getMinimumWages($stateId = null, $zoneId = null) {
-        $sql = "SELECT mw.*, s.state_name, z.zone_name
+        $sql = "SELECT mw.*, s.state_name, mw.zone as zone_name
                 FROM minimum_wages mw
                 JOIN states s ON mw.state_id = s.id
-                LEFT JOIN zones z ON mw.zone_id = z.id
                 WHERE mw.is_active = 1";
         $params = [];
 
@@ -255,8 +254,8 @@ class Compliance {
         }
 
         if ($zoneId) {
-            $sql .= " AND mw.zone_id = :zone_id";
-            $params['zone_id'] = $zoneId;
+            $sql .= " AND mw.zone = :zone";
+            $params['zone'] = $zoneId;
         }
 
         $sql .= " ORDER BY s.state_name, mw.effective_from DESC";
@@ -278,8 +277,8 @@ class Compliance {
         ];
 
         if ($zoneId) {
-            $sql .= " AND zone_id = :zone_id";
-            $params['zone_id'] = $zoneId;
+            $sql .= " AND mw.zone = :zone";
+            $params['zone'] = $zoneId;
         }
 
         $sql .= " ORDER BY effective_from DESC LIMIT 1";

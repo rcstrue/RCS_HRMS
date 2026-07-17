@@ -52,7 +52,7 @@ $sql = "SELECT
             mw.total_per_month as minimum_wage,
             mw.total_per_day as min_daily_wage,
             st.state_name as mw_state,
-            z.zone_name as zone,
+            mw.zone as zone,
             mw.effective_from as mw_effective
         FROM employees e
         LEFT JOIN clients c ON e.client_id = c.id
@@ -74,7 +74,6 @@ $sql = "SELECT
             AND mw2.effective_from <= CURDATE()
             AND (mw2.effective_to IS NULL OR mw2.effective_to >= CURDATE())
         ) mw ON mw.state_id = st.id AND mw.worker_category = e.worker_category AND mw.rn = 1
-        LEFT JOIN zones z ON mw.zone_id = z.id
         WHERE e.status = 'approved'";
 
 $params = [];

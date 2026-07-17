@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'add') {
         $data = [
             'state_id' => (int)$_POST['state_id'],
-            'zone_id' => !empty($_POST['zone_id']) ? (int)$_POST['zone_id'] : null,
+            'zone' => !empty($_POST['zone']) ? sanitize($_POST['zone']) : null,
             'industry_id' => !empty($_POST['industry_id']) ? (int)$_POST['industry_id'] : null,
             'worker_category' => sanitize($_POST['worker_category']),
             'basic_per_day' => floatval($_POST['basic_per_day']),
@@ -174,9 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Zone</label>
-                            <select class="form-select" name="zone_id" id="wage_zone_id">
-                                <option value="">All Zones</option>
-                            </select>
+                            <input type="text" class="form-control" name="zone" id="wage_zone" placeholder="e.g. Zone I, Zone II (leave blank for All)">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Industry</label>
@@ -321,21 +319,6 @@ window.editWage = function(data) {
     new bootstrap.Modal('#editWageModal').show();
 };
 
-// Load zones based on state
-$('#wage_state_id').on('change', function() {
-    const stateId = $(this).val();
-    if (stateId) {
-        $.ajax({
-            url: 'index.php?page=api/zones&state_id=' + stateId,
-            success: function(data) {
-                let options = '<option value="">All Zones</option>';
-                data.forEach(function(zone) {
-                    options += '<option value="' + zone.id + '">' + zone.zone_name + '</option>';
-                });
-                $('#wage_zone_id').html(options);
-            }
-        });
-    }
-});
+
 JS;
 ?>
