@@ -123,6 +123,12 @@
                         <li><a href="index.php?page=client/index" class="<?php echo strpos($page,'client') === 0 ? 'active' : ''; ?>">
                             <i class="bi bi-building me-1"></i>Clients & Units
                         </a></li>
+                        <?php if (in_array($roleCode ?? '', ['admin','hr','hr_executive'])): ?>
+                        <li><a href="index.php?page=employee/esic-import" class="<?php echo $page === 'employee/esic-import' ? 'active' : ''; ?>">
+                            <i class="bi bi-file-earmark-spreadsheet me-1"></i>ESIC
+                            <i class="bi bi-chevron-right ms-1 small"></i> <small>Import ESIC Data</small>
+                        </a></li>
+                        <?php endif; ?>
                     </ul>
                 </li>
                 <?php endif; ?>
@@ -423,6 +429,7 @@
                             'employee/id-card'  => 'ID Card',
                             'employee/id-card-fixed' => 'ID Card',
                             'employee/designation'=> 'Designations',
+                            'employee/esic-import'=> 'Import ESIC IP Data',
                             // Attendance
                             'attendance/add'    => 'Add Attendance',
                             'attendance/upload' => 'Upload Attendance',
