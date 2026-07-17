@@ -189,6 +189,7 @@ if (strpos($page, 'api/') === 0) {
         'units'           => 'unit',
         'whatsapp-salary' => 'payroll',
         'zones'           => 'unit',
+        'minimum-wage-sync' => 'compliance',
     ];
     $effectiveModule = $apiModuleMap[$apiModule] ?? $apiModule;
 

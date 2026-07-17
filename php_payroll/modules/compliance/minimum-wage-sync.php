@@ -1,70 +1,14 @@
 <?php
 /**
  * RCS HRMS Pro — Minimum Wage Sync Dashboard
- * Shows sync history and allows manual trigger from browser.
- * Pure PHP sync — no Node.js needed.
- * 
- * Handles AJAX POST requests (sync/slug-setup) directly in this file
- * to avoid COMODO WAF blocking separate API endpoints.
+ *
+ * Display-only page. All AJAX calls go to:
+ *   index.php?page=api/minimum-wage-sync
+ *
+ * The framework routes api/ pages BEFORE loading header/footer templates,
+ * so the API endpoint returns pure JSON with no HTML wrapper.
  */
 
-// ── Handle AJAX POST requests (before any HTML output) ──────────
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
-    // Suppress warnings so they don't corrupt JSON response
-    $prevErrorReporting = error_reporting(E_ERROR | E_PARSE);
-    ob_start();
-
-    // Auth
-    if (!isset($_SESSION['user_id'])) {
-        echo json_encode(['success' => false, 'message' => 'Authentication required']);
-        exit;
-    }
-    if (!isset($_SESSION['role_code']) || $_SESSION['role_code'] !== 'admin') {
-        echo json_encode(['success' => false, 'message' => 'Access denied. Admin only.']);
-        exit;
-    }
-    // Validate request with nonce (not CSRF token — COMODO WAF Rule 211220 blocks '<?' in POST args)
-    $nonce = $_POST['sync_nonce'] ?? '';
-    $validWindow = 300;
-    $expected = hash('sha256', session_id() . '|' . floor(time() / $validWindow));
-    if (!hash_equals($expected, $nonce)) {
-        echo json_encode(['success' => false, 'message' => 'Invalid or expired request. Please refresh the page and try again.']);
-        exit;
-    }
-
-    require_once APP_ROOT . '/includes/class.minimumwagesync.php';
-    $sync = new MinimumWageSync($db);
-
-    $action = $_POST['ajax_action'];
-
-    if ($action === 'run-sync') {
-        set_time_limit(300);
-        $state = $_POST['state'] ?? null;
-        $dryRun = !empty($_POST['dry_run']);
-        $result = $sync->runSync($state, $dryRun);
-        ob_end_clean();
-        error_reporting($prevErrorReporting);
-        echo json_encode($result);
-    } elseif ($action === 'run-slug-setup') {
-        try {
-            $output = $sync->ensureSlugs();
-            ob_end_clean();
-            error_reporting($prevErrorReporting);
-            echo json_encode(['success' => true, 'message' => 'Slug setup completed.', 'output' => implode("\n", $output)]);
-        } catch (Exception $e) {
-            ob_end_clean();
-            error_reporting($prevErrorReporting);
-            echo json_encode(['success' => false, 'message' => 'Slug setup failed.', 'error' => $e->getMessage()]);
-        }
-    } else {
-        ob_end_clean();
-        error_reporting($prevErrorReporting);
-        echo json_encode(['success' => false, 'message' => 'Unknown action.']);
-    }
-    exit;
-}
-
-// ── Normal page rendering below ─────────────────────────────────
 $pageTitle = 'Min Wage Sync';
 
 // Get states with slugs configured
@@ -360,15 +304,14 @@ $syncNonce = hash('sha256', session_id() . '|' . floor(time() / 300));
 $extraJS = <<<JS
 <script>
 const SYNC_NONCE = '{$syncNonce}';
-// POST to THIS page (inline handler at top) to avoid COMODO WAF blocking separate API endpoint
-const SYNC_URL = 'index.php?page=compliance/minimum-wage-sync';
+const SYNC_API = 'index.php?page=api/minimum-wage-sync';
 
 function runSync(state, dryRun) {
-    const resultsDiv = document.getElementById('syncResults');
-    const progressDiv = document.getElementById('syncProgress');
-    const progressText = document.getElementById('syncProgressText');
-    const btnAll = document.getElementById('btnSyncAll');
-    const btnDry = document.getElementById('btnSyncDryRun');
+    var resultsDiv = document.getElementById('syncResults');
+    var progressDiv = document.getElementById('syncProgress');
+    var progressText = document.getElementById('syncProgressText');
+    var btnAll = document.getElementById('btnSyncAll');
+    var btnDry = document.getElementById('btnSyncDryRun');
 
     resultsDiv.classList.remove('d-none');
     resultsDiv.innerHTML = '<div class="alert alert-info mb-0"><div class="spinner-border spinner-border-sm me-2"></div>Fetching from Simpliance.in — this may take a minute per state...</div>';
@@ -378,50 +321,72 @@ function runSync(state, dryRun) {
     if (btnAll) btnAll.disabled = true;
     if (btnDry) btnDry.disabled = true;
 
-    const params = new URLSearchParams({
+    var params = new URLSearchParams({
         ajax_action: 'run-sync',
         sync_nonce: SYNC_NONCE
     });
     if (state !== 'all') params.set('state', state);
     if (dryRun) params.set('dry_run', '1');
 
-    fetch(SYNC_URL, {
+    fetch(SYNC_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString()
     })
-    .then(r => r.json())
-    .then(data => {
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
         if (btnAll) btnAll.disabled = false;
         if (btnDry) btnDry.disabled = false;
         progressDiv.classList.add('d-none');
 
         if (data.success && data.results) {
-            let html = '<div class="alert ' + ((data.total_added > 0 || data.total_updated > 0) ? 'alert-success' : 'alert-warning') + ' mb-0">';
-            html += '<strong>' + (data.dry_run ? 'Dry Run Complete!' : 'Sync Complete!') + '</strong> ';
-            html += data.total_added + ' added, ' + data.total_updated + ' updated, ' + data.total_skipped + ' skipped.';
-            if (data.results.length > 0) {
-                html += '<hr class="my-2"><table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr><th>State</th><th>Status</th><th>Added</th><th>Updated</th><th>Skipped</th><th>Error</th></tr></thead><tbody>';
-                data.results.forEach(function(r) {
-                    const badge = r.status === 'success' 
-                        ? '<span class="badge bg-success">OK</span>' 
-                        : r.status === 'partial' 
-                            ? '<span class="badge bg-warning text-dark">Partial</span>' 
-                            : '<span class="badge bg-danger">Error</span>';
-                    html += '<tr><td>' + r.state + '</td><td class="text-center">' + badge + '</td><td class="text-center"><strong>' + (r.records_added||0) + '</strong></td><td class="text-center text-info">' + (r.records_updated||0) + '</td><td class="text-center text-muted">' + (r.records_skipped||0) + '</td><td class="text-danger small">' + (r.error_message || '-') + '</td></tr>';
-                });
-                html += '</tbody></table>';
-            }
+            var hasChanges = (data.total_added > 0 || data.total_updated > 0);
+            var alertClass = hasChanges ? 'alert-success' : 'alert-warning';
+            var title = dryRun ? 'Dry Run Complete' : 'Minimum Wage Sync Completed';
+
+            var html = '<div class="alert ' + alertClass + ' mb-0">';
+            html += '<h6 class="alert-heading">' + title + '</h6>';
+            html += '<div class="row mb-2">';
+            html += '<div class="col-auto"><strong>States Processed:</strong> ' + data.results.length + '</div>';
+            html += '<div class="col-auto"><strong>Added:</strong> ' + data.total_added + '</div>';
+            html += '<div class="col-auto"><strong>Updated:</strong> ' + data.total_updated + '</div>';
+            html += '<div class="col-auto"><strong>Skipped:</strong> ' + data.total_skipped + '</div>';
+            html += '</div>';
+
+            html += '<table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr>';
+            html += '<th>State</th><th class="text-center">Status</th><th class="text-center">Added</th><th class="text-center">Updated</th><th class="text-center">Skipped</th><th>Error</th>';
+            html += '</tr></thead><tbody>';
+
+            data.results.forEach(function(r) {
+                var icon, badge;
+                if (r.status === 'success') {
+                    icon = '<i class="bi bi-check-circle-fill text-success me-1"></i>';
+                } else {
+                    icon = '<i class="bi bi-x-circle-fill text-danger me-1"></i>';
+                }
+                html += '<tr>';
+                html += '<td>' + icon + r.state + '</td>';
+                html += '<td class="text-center">' + (r.status === 'success' ? '<span class="badge bg-success">OK</span>' : '<span class="badge bg-danger">Error</span>') + '</td>';
+                html += '<td class="text-center"><strong>' + (r.records_added||0) + '</strong></td>';
+                html += '<td class="text-center text-info">' + (r.records_updated||0) + '</td>';
+                html += '<td class="text-center text-muted">' + (r.records_skipped||0) + '</td>';
+                html += '<td class="text-danger small">' + (r.error_message || '-') + '</td>';
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            html += '<div class="mt-2 text-muted small">Last Sync: ' + (data.timestamp || '-') + '</div>';
             html += '</div>';
             resultsDiv.innerHTML = html;
-            if (!data.dry_run) {
-                setTimeout(function() { location.reload(); }, 3000);
+
+            if (!dryRun && hasChanges) {
+                setTimeout(function() { location.reload(); }, 4000);
             }
         } else {
             resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Failed:</strong> ' + (data.message || 'Unknown error') + '</div>';
         }
     })
-    .catch(err => {
+    .catch(function(err) {
         if (btnAll) btnAll.disabled = false;
         if (btnDry) btnDry.disabled = false;
         progressDiv.classList.add('d-none');
@@ -430,22 +395,22 @@ function runSync(state, dryRun) {
 }
 
 function setupSlugs() {
-    const resultsDiv = document.getElementById('syncResults');
+    var resultsDiv = document.getElementById('syncResults');
     resultsDiv.classList.remove('d-none');
     resultsDiv.innerHTML = '<div class="alert alert-info mb-0"><div class="spinner-border spinner-border-sm me-2"></div>Setting up slugs...</div>';
 
-    const params = new URLSearchParams({
+    var params = new URLSearchParams({
         ajax_action: 'run-slug-setup',
         sync_nonce: SYNC_NONCE
     });
 
-    fetch(SYNC_URL, {
+    fetch(SYNC_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString()
     })
-    .then(r => r.json())
-    .then(data => {
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
         if (data.success) {
             resultsDiv.innerHTML = '<div class="alert alert-success mb-0"><strong>Slug setup complete!</strong><pre class="mb-0 mt-2 small">' + (data.output || '') + '</pre>Refreshing...</div>';
             setTimeout(function() { location.reload(); }, 2000);
@@ -453,7 +418,7 @@ function setupSlugs() {
             resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Slug setup failed:</strong> ' + (data.message || data.error || 'Unknown error') + '</div>';
         }
     })
-    .catch(err => {
+    .catch(function(err) {
         resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Request Failed:</strong> ' + err.message + '</div>';
     });
 }
