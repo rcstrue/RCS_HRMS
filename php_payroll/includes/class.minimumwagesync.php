@@ -65,15 +65,16 @@ class MinimumWageSync {
     ];
 
     // Simpliance class_of_employment → HRMS worker_category ENUM
+    // Must match ENUM('Unskilled','Semi-Skilled','Skilled','Highly Skilled','Supervisor','Clerical')
     const CATEGORY_MAP = [
         'unskilled'      => 'Unskilled',
         'semi-skilled'   => 'Semi-Skilled',
         'semi skilled'   => 'Semi-Skilled',
         'skilled'        => 'Skilled',
-        'highly skilled' => 'Skilled',
-        'highly-skilled' => 'Skilled',
+        'highly skilled' => 'Highly Skilled',
+        'highly-skilled' => 'Highly Skilled',
         'supervisor'     => 'Supervisor',
-        'clerical'       => 'Supervisor',
+        'clerical'       => 'Clerical',
         'watchmen'       => 'Unskilled',
         'sweeper'        => 'Unskilled',
     ];
@@ -179,6 +180,54 @@ class MinimumWageSync {
     private function slugifyState($stateName) {
         $lower = strtolower(trim($stateName));
         return self::STATE_SLUG_MAP[$lower] ?? null;
+    }
+
+    /**
+     * Resolve a Simpliance zone name (e.g. "Zone I", "Zone II", "-")
+     * to a zone_id in the HRMS zones table.
+     * Returns null for no zone / dash.
+     * Creates the zone row if it doesn't exist.
+     */
+    private function resolveZoneId($stateId, $simplianceZone) {
+        if (empty($simplianceZone) || $simplianceZone === '-') {
+            return null;
+        }
+
+        // Normalize: "Zone I" → look for exact match in zones table
+        $zoneName = trim($simplianceZone);
+
+        // Try to find existing zone
+        try {
+            $existing = $this->db->fetchAll(
+                "SELECT id FROM zones WHERE state_id = ? AND zone_name = ? AND is_active = 1 LIMIT 1",
+                [$stateId, $zoneName]
+            );
+            if (!empty($existing)) {
+                return (int)$existing[0]['id'];
+            }
+        } catch (Exception $e) {}
+
+        // Create the zone if table exists
+        try {
+            // Check if zones table has required columns
+            $cols = $this->db->fetchAll(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'zones'"
+            );
+            $colNames = array_column($cols, 'COLUMN_NAME');
+            if (!in_array('zone_name', $colNames)) {
+                return null; // zones table missing expected columns
+            }
+
+            $this->db->query(
+                "INSERT INTO zones (state_id, zone_name, is_active, created_at)
+                 VALUES (?, ?, 1, NOW())",
+                [$stateId, $zoneName]
+            );
+            return (int)$this->db->lastInsertId();
+        } catch (Exception $e) {
+            return null;
+        }
     }
 
     // ── Ensure simpliance_slug column + populate ─────────────────────
@@ -353,6 +402,9 @@ class MinimumWageSync {
                 // Notification name
                 $notificationName = trim($r['name'] ?? '');
 
+                // Resolve zone
+                $zoneId = $this->resolveZoneId($state['id'], $r['zone'] ?? '-');
+
                 if (!$effectiveDate) continue;
 
                 // Build wage data map (Simpliance keys → values)
@@ -366,19 +418,28 @@ class MinimumWageSync {
                     'total_per_month' => $totalPerMonth,
                 ];
 
-                // Check for existing record
-                $existing = $this->db->fetchAll(
-                    "SELECT id FROM minimum_wages
-                     WHERE state_id = ? AND worker_category = ? AND effective_from = ?
-                     LIMIT 1",
-                    [$state['id'], $workerCategory, $effectiveDate]
-                );
+                // Check for existing record (include zone_id in lookup)
+                if ($zoneId) {
+                    $existing = $this->db->fetchAll(
+                        "SELECT id FROM minimum_wages
+                         WHERE state_id = ? AND worker_category = ? AND effective_from = ? AND zone_id = ?
+                         LIMIT 1",
+                        [$state['id'], $workerCategory, $effectiveDate, $zoneId]
+                    );
+                } else {
+                    $existing = $this->db->fetchAll(
+                        "SELECT id FROM minimum_wages
+                         WHERE state_id = ? AND worker_category = ? AND effective_from = ? AND zone_id IS NULL
+                         LIMIT 1",
+                        [$state['id'], $workerCategory, $effectiveDate]
+                    );
+                }
 
                 if (!$dryRun) {
                     $existingId = !empty($existing) ? $existing[0]['id'] : null;
                     $this->upsertWage(
                         $state['id'], $workerCategory, $effectiveDate,
-                        $wageData, $version, $notificationName, $existingId
+                        $wageData, $version, $notificationName, $existingId, $zoneId
                     );
                     if ($existingId) {
                         $result['records_updated']++;
@@ -449,7 +510,7 @@ class MinimumWageSync {
      * Build dynamic INSERT or UPDATE SQL using only columns that exist.
      * $data = ['basic_per_day' => 500, 'vda_per_day' => 60, ...]
      */
-    private function upsertWage($stateId, $workerCategory, $effectiveDate, $data, $version, $notificationName, $existingId = null) {
+    private function upsertWage($stateId, $workerCategory, $effectiveDate, $data, $version, $notificationName, $existingId = null, $zoneId = null) {
         $existing = $this->detectColumns();
 
         // Build column→value map for columns that exist
@@ -458,6 +519,7 @@ class MinimumWageSync {
 
         // Always-included fields
         if (in_array('state_id', $existing))        { $setCols[] = 'state_id';        $setVals[] = $stateId; }
+        if (in_array('zone_id', $existing) && $zoneId !== null) { $setCols[] = 'zone_id'; $setVals[] = $zoneId; }
         if (in_array('worker_category', $existing))  { $setCols[] = 'worker_category';  $setVals[] = $workerCategory; }
         if (in_array('effective_from', $existing))   { $setCols[] = 'effective_from';   $setVals[] = $effectiveDate; }
         if (in_array('is_active', $existing))        { $setCols[] = 'is_active';        $setVals[] = 1; }
