@@ -105,21 +105,23 @@ for ($i = 0; $i < $fileCount; $i++) {
     ];
 }
 
-// ── Prepare upsert statements ──
+// ── Prepare upsert statement ──
+// Uses VALUES(col) in ON DUPLICATE KEY UPDATE to reference the INSERT value.
+// This avoids duplicate named params which breaks with EMULATE_PREPARES=false.
 $insertStmt = $db->prepare(
     "INSERT INTO esic_ip_master (ip_number, ip_name, employer_code, employer_name, mobile, uan, account_number, bank_name, branch_name, ifsc_code, bank_account_status)
      VALUES (:ip_number, :ip_name, :employer_code, :employer_name, :mobile, :uan, :account_number, :bank_name, :branch_name, :ifsc_code, :bank_account_status)
      ON DUPLICATE KEY UPDATE
-        ip_name            = IF(:ip_name_upd IS NOT NULL AND :ip_name_upd != '', ip_name, ip_name),
-        employer_code      = IF(:employer_code_upd IS NOT NULL AND :employer_code_upd != '', employer_code, employer_code),
-        employer_name      = IF(:employer_name_upd IS NOT NULL AND :employer_name_upd != '', employer_name, employer_name),
-        mobile             = IF(:mobile_upd IS NOT NULL AND :mobile_upd != '', mobile, mobile),
-        uan                = IF(:uan_upd IS NOT NULL AND :uan_upd != '', uan, uan),
-        account_number     = IF(:account_number_upd IS NOT NULL AND :account_number_upd != '', account_number, account_number),
-        bank_name          = IF(:bank_name_upd IS NOT NULL AND :bank_name_upd != '', bank_name, bank_name),
-        branch_name        = IF(:branch_name_upd IS NOT NULL AND :branch_name_upd != '', branch_name, branch_name),
-        ifsc_code          = IF(:ifsc_code_upd IS NOT NULL AND :ifsc_code_upd != '', ifsc_code, ifsc_code),
-        bank_account_status = IF(:bank_account_status_upd IS NOT NULL AND :bank_account_status_upd != '', bank_account_status, bank_account_status)"
+        ip_name             = IF(VALUES(ip_name) IS NOT NULL AND VALUES(ip_name) != '', VALUES(ip_name), ip_name),
+        employer_code       = IF(VALUES(employer_code) IS NOT NULL AND VALUES(employer_code) != '', VALUES(employer_code), employer_code),
+        employer_name       = IF(VALUES(employer_name) IS NOT NULL AND VALUES(employer_name) != '', VALUES(employer_name), employer_name),
+        mobile              = IF(VALUES(mobile) IS NOT NULL AND VALUES(mobile) != '', VALUES(mobile), mobile),
+        uan                 = IF(VALUES(uan) IS NOT NULL AND VALUES(uan) != '', VALUES(uan), uan),
+        account_number      = IF(VALUES(account_number) IS NOT NULL AND VALUES(account_number) != '', VALUES(account_number), account_number),
+        bank_name           = IF(VALUES(bank_name) IS NOT NULL AND VALUES(bank_name) != '', VALUES(bank_name), bank_name),
+        branch_name         = IF(VALUES(branch_name) IS NOT NULL AND VALUES(branch_name) != '', VALUES(branch_name), branch_name),
+        ifsc_code           = IF(VALUES(ifsc_code) IS NOT NULL AND VALUES(ifsc_code) != '', VALUES(ifsc_code), ifsc_code),
+        bank_account_status  = IF(VALUES(bank_account_status) IS NOT NULL AND VALUES(bank_account_status) != '', VALUES(bank_account_status), bank_account_status)"
 );
 
 // ── Counters ──
@@ -163,7 +165,7 @@ foreach ($csvFiles as $fileInfo) {
 
     $fileRowNumber = 0;
 
-    while (($row = fgetcsv($handle, 0, ',')) !== false) {
+    while (($row = fgetcsv($handle, 0, ',', '"', '')) !== false) {
         $fileRowNumber++;
         $rowsRead++;
 
@@ -261,17 +263,6 @@ foreach ($csvFiles as $fileInfo) {
                 ':branch_name'           => $branchName ?: null,
                 ':ifsc_code'             => $ifscCode ?: null,
                 ':bank_account_status'   => $bankAccountStatus ?: null,
-                // UPDATE params (must be present for IF() evaluation)
-                ':ip_name_upd'           => $ipName,
-                ':employer_code_upd'     => $employerCode,
-                ':employer_name_upd'     => $employerName,
-                ':mobile_upd'            => $mobile,
-                ':uan_upd'               => $uan,
-                ':account_number_upd'    => $accountNumber,
-                ':bank_name_upd'         => $bankName,
-                ':branch_name_upd'       => $branchName,
-                ':ifsc_code_upd'         => $ifscCode,
-                ':bank_account_status_upd' => $bankAccountStatus,
             ]);
         } catch (\Throwable $e) {
             error_log('[esic-import] DB error on IP ' . $ipNumber . ': ' . $e->getMessage());
@@ -315,7 +306,7 @@ logActivity(
     'esic_import',
     'esic_import_history',
     $importId,
-    "Imported {$csvFiles} CSV files: {$rowsInserted} inserted, {$rowsUpdated} updated, {$rowsSkipped} skipped"
+    "Imported " . count($csvFiles) . " CSV files: {$rowsInserted} inserted, {$rowsUpdated} updated, {$rowsSkipped} skipped"
 );
 
 // ── Response ──
