@@ -1,15 +1,12 @@
 <?php
 /**
  * RCS HRMS Pro - Employee Portal Logout
+ * Note: Included by index.php BEFORE any HTML output, so header() works.
+ * Session is already started by the framework.
  */
 
-session_start();
-
-// Log the logout action
+// Log the logout action (before destroying session)
 if (isset($_SESSION['employee_portal'])) {
-    require_once '../../config/config.php';
-    require_once '../../includes/database.php';
-    
     try {
         $db = Database::getInstance();
         $db->insert('activity_log', [
@@ -25,10 +22,16 @@ if (isset($_SESSION['employee_portal'])) {
     }
 }
 
-// Destroy session
-unset($_SESSION['employee_portal']);
+// Destroy entire session
+$_SESSION = [];
+if (ini_get('session.use_cookies')) {
+    $p = session_get_cookie_params();
+    setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
+}
 session_destroy();
 
-// Redirect to login
-header('Location: index.php?page=portal/login');
+// Cache-busting redirect
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Pragma: no-cache');
+header('Location: index.php?page=portal/login&t=' . time());
 exit;

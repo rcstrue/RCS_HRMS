@@ -400,6 +400,19 @@ if ($page === 'employee/id-card' && $isLoggedIn && (isset($_GET['generate']) || 
     exit;
 }
 
+// Handle logout pages BEFORE HTML template is included (otherwise header() fails)
+if ($page === 'auth/logout' || $page === 'portal/logout') {
+    $logoutPath = getSafeModulePath($page);
+    if ($logoutPath !== null) {
+        include $logoutPath;
+    } else {
+        // Fallback: destroy session and redirect
+        session_start();
+        session_destroy();
+    }
+    exit;
+}
+
 // API routes: include directly without HTML wrapper, require login
 if ($isLoggedIn && strpos($page, 'api/') === 0) {
     $apiPath = getSafeModulePath($page);
