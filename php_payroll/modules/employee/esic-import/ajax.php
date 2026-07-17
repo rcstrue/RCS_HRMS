@@ -46,7 +46,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'download_errors') {
     $out = fopen('php://output', 'w');
     // BOM for Excel UTF-8
     fwrite($out, "\xEF\xBB\xBF");
-    fputcsv($out, ['Import Date', 'File Name', 'Row Number', 'IP Number', 'Reason']);
+    fputcsv($out, ['Import Date', 'File Name', 'Row Number', 'IP Number', 'Reason'], ',', '"', '');
 
     foreach ($errors as $e) {
         fputcsv($out, [
@@ -55,7 +55,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'download_errors') {
             $e['row_number'],
             $e['ip_number'],
             $e['reason']
-        ]);
+        ], ',', '"', '');
     }
     fclose($out);
     exit;
