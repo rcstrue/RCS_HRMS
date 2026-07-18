@@ -419,6 +419,7 @@
                             'employee/id-card-fixed' => 'ID Card',
                             'employee/designation'=> 'Designations',
                             'employee/esic-import'=> 'Import ESIC IP Data',
+                            'employee/data-sync' => 'Data Matching',
                             // Attendance
                             'attendance/add'    => 'Add Attendance',
                             'attendance/upload' => 'Upload Attendance',

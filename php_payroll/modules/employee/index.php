@@ -103,6 +103,18 @@
             </a>
         </div>
         <?php endif; ?>
+        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
+            <a href="index.php?page=employee/data-sync" class="text-decoration-none">
+                <div class="card module-card h-100">
+                    <div class="card-body">
+                        <div class="mod-icon bg-indigo-soft"><i class="bi bi-arrow-left-right"></i></div>
+                        <div class="mod-title">Data Matching</div>
+                        <div class="mod-desc">Match & sync EPFO, ESIC data</div>
+                    </div>
+                    <i class="bi bi-arrow-right mod-arrow"></i>
+                </div>
+            </a>
+        </div>
 
     </div>
 </div>
