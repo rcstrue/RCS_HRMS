@@ -110,164 +110,172 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_salary'])) {
 
 // Handle confirm import
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import'])) {
-    $filePath = $_POST['file_path'] ?? '';
+    $submittedPath = $_POST['file_path'] ?? '';
     $clientId = (int)($_POST['client_id'] ?? 0);
     $unitId = (int)($_POST['unit_id'] ?? 0);
     $effectiveFrom = sanitize($_POST['effective_from'] ?? date('Y-m-01'));
     $revisionReason = sanitize($_POST['reason'] ?? 'Bulk Salary Update');
-    
-    if (!file_exists($filePath)) {
-        $error = 'File not found. Please upload again.';
+
+    $uploadDir = APP_ROOT . '/uploads/bulk_salary/';
+    $uploadBase = realpath($uploadDir);
+    $filePath = realpath($submittedPath);
+
+    if ($uploadBase === false || $filePath === false || strpos($filePath, $uploadBase . DIRECTORY_SEPARATOR) !== 0 || !is_file($filePath)) {
+        $error = 'Invalid upload reference. Please upload again.';
     } else {
         $fileExt = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
-        
-        try {
-            if ($fileExt === 'csv') {
-                $data = parseCSV($filePath);
-            } else {
-                $data = parseExcel($filePath);
-            }
-            
-            // Create upload log
-            $logId = $db->insert('bulk_upload_logs', [
-                'upload_type' => 'salary_update',
-                'file_name' => basename($filePath),
-                'file_path' => $filePath,
-                'total_rows' => count($data) - 1,
-                'processed_rows' => 0,
-                'error_rows' => 0,
-                'status' => 'processing',
-                'client_id' => $clientId ?: null,
-                'unit_id' => $unitId ?: null,
-                'uploaded_by' => $_SESSION['user_id'],
-                'started_at' => date('Y-m-d H:i:s')
-            ]);
-            
-            $processed = 0;
-            $errors = 0;
-            $errorDetails = [];
-            
-            $db->beginTransaction();
-            
-            // Skip header row
-            // Columns: Emp Code, Basic+DA, HRA, Leave Encashment, Bonus Encashment, Washing, Other Allowance
-            for ($i = 1; $i < count($data); $i++) {
-                $row = $data[$i];
-                
-                $empCode = trim($row[0] ?? '');
-                $basicDA = floatval($row[1] ?? 0);
-                $hra = floatval($row[2] ?? 0);
-                $leaveEncashment = floatval($row[3] ?? 0);
-                $bonusEncashment = floatval($row[4] ?? 0);
-                $washing = floatval($row[5] ?? 0);
-                // Row columns: Emp Code, Basic+DA, HRA, Leave Encashment, Bonus Encashment, Washing Allowance
-                
-                if (empty($empCode)) {
-                    continue;
+
+        if (!in_array($fileExt, ['xlsx', 'xls', 'csv'], true)) {
+            $error = 'Only Excel (.xlsx, .xls) or CSV files are allowed.';
+        } else {
+            try {
+                if ($fileExt === 'csv') {
+                    $data = parseCSV($filePath);
+                } else {
+                    $data = parseExcel($filePath);
                 }
                 
-                // Get employee - Note: employee_salary_structures has basic_da column
-                $emp = $db->fetch(
-                    "SELECT e.id, e.employee_code, ess.id as salary_id, 
-                            ess.basic_da,
-                            ess.hra, 
-                            ess.leave_encashment, ess.bonus_encashment,
-                            ess.washing_allowance, ess.gross_salary
-                     FROM employees e
-                     LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
-                        AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
-                     WHERE e.employee_code = :code",
-                    ['code' => $empCode]
-                );
+                // Create upload log
+                $logId = $db->insert('bulk_upload_logs', [
+                    'upload_type' => 'salary_update',
+                    'file_name' => basename($filePath),
+                    'file_path' => $filePath,
+                    'total_rows' => count($data) - 1,
+                    'processed_rows' => 0,
+                    'error_rows' => 0,
+                    'status' => 'processing',
+                    'client_id' => $clientId ?: null,
+                    'unit_id' => $unitId ?: null,
+                    'uploaded_by' => $_SESSION['user_id'],
+                    'started_at' => date('Y-m-d H:i:s')
+                ]);
                 
-                if (!$emp) {
-                    $errors++;
-                    $errorDetails[] = "Row " . ($i + 1) . ": Employee code '$empCode' not found.";
-                    continue;
-                }
+                $processed = 0;
+                $errors = 0;
+                $errorDetails = [];
                 
-                // Filter by client/unit if specified
-                if ($clientId || $unitId) {
-                    $empClientUnit = $db->fetch(
-                        "SELECT client_id, unit_id FROM employees WHERE id = :id",
-                        ['id' => $emp['id']]
+                $db->beginTransaction();
+                
+                // Skip header row
+                // Columns: Emp Code, Basic+DA, HRA, Leave Encashment, Bonus Encashment, Washing, Other Allowance
+                for ($i = 1; $i < count($data); $i++) {
+                    $row = $data[$i];
+                    
+                    $empCode = trim($row[0] ?? '');
+                    $basicDA = floatval($row[1] ?? 0);
+                    $hra = floatval($row[2] ?? 0);
+                    $leaveEncashment = floatval($row[3] ?? 0);
+                    $bonusEncashment = floatval($row[4] ?? 0);
+                    $washing = floatval($row[5] ?? 0);
+                    // Row columns: Emp Code, Basic+DA, HRA, Leave Encashment, Bonus Encashment, Washing Allowance
+                    
+                    if (empty($empCode)) {
+                        continue;
+                    }
+                    
+                    // Get employee - Note: employee_salary_structures has basic_da column
+                    $emp = $db->fetch(
+                        "SELECT e.id, e.employee_code, ess.id as salary_id, 
+                                ess.basic_da,
+                                ess.hra, 
+                                ess.leave_encashment, ess.bonus_encashment,
+                                ess.washing_allowance, ess.gross_salary
+                         FROM employees e
+                         LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
+                            AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+                         WHERE e.employee_code = :code",
+                        ['code' => $empCode]
                     );
-                    if ($clientId && $empClientUnit['client_id'] != $clientId) {
+                    
+                    if (!$emp) {
+                        $errors++;
+                        $errorDetails[] = "Row " . ($i + 1) . ": Employee code '$empCode' not found.";
                         continue;
                     }
-                    if ($unitId && $empClientUnit['unit_id'] != $unitId) {
-                        continue;
+                    
+                    // Filter by client/unit if specified
+                    if ($clientId || $unitId) {
+                        $empClientUnit = $db->fetch(
+                            "SELECT client_id, unit_id FROM employees WHERE id = :id",
+                            ['id' => $emp['id']]
+                        );
+                        if ($clientId && $empClientUnit['client_id'] != $clientId) {
+                            continue;
+                        }
+                        if ($unitId && $empClientUnit['unit_id'] != $unitId) {
+                            continue;
+                        }
                     }
+                    
+                    $newGross = $basicDA + $hra + $leaveEncashment + $bonusEncashment + $washing;
+                    
+                    // Log revision history
+                    $db->insert('salary_revisions', [
+                        'employee_id' => $emp['id'],
+                        'old_basic_da' => $emp['basic_da'] ?? 0,
+                        'new_basic_da' => $basicDA,
+                        'old_hra' => $emp['hra'] ?? 0,
+                        'new_hra' => $hra,
+                        'old_leave_encashment' => $emp['leave_encashment'] ?? 0,
+                        'new_leave_encashment' => $leaveEncashment,
+                        'old_bonus_encashment' => $emp['bonus_encashment'] ?? 0,
+                        'new_bonus_encashment' => $bonusEncashment,
+                        'old_washing' => $emp['washing_allowance'] ?? 0,
+                        'new_washing' => $washing,
+    
+                        'old_gross' => $emp['gross_salary'] ?? 0,
+                        'new_gross' => $newGross,
+                        'revision_type' => 'bulk_update',
+                        'effective_from' => $effectiveFrom,
+                        'reason' => $revisionReason,
+                        'bulk_upload_id' => $logId,
+                        'revision_by' => $_SESSION['user_id']
+                    ]);
+                    
+                    // Close old salary structure if exists
+                    if (!empty($emp['salary_id'])) {
+                        $db->update('employee_salary_structures', [
+                            'effective_to' => date('Y-m-d', strtotime($effectiveFrom . ' -1 day'))
+                        ], 'id = :id', ['id' => $emp['salary_id']]);
+                    }
+                    
+                    // Insert new salary structure
+                    $db->insert('employee_salary_structures', [
+                        'employee_id' => $emp['id'],
+                        'effective_from' => $effectiveFrom,
+                        'basic_da' => $basicDA,
+                        'hra' => $hra,
+                        'leave_encashment' => $leaveEncashment,
+                        'bonus_encashment' => $bonusEncashment,
+                        'washing_allowance' => $washing,
+    
+                        'gross_salary' => $newGross,
+                        'pf_applicable' => 1,
+                        'esi_applicable' => 1,
+                        'pt_applicable' => 1,
+                        'created_by' => $_SESSION['user_id']
+                    ]);
+                    
+                    $processed++;
                 }
                 
-                $newGross = $basicDA + $hra + $leaveEncashment + $bonusEncashment + $washing;
+                $db->commit();
                 
-                // Log revision history
-                $db->insert('salary_revisions', [
-                    'employee_id' => $emp['id'],
-                    'old_basic_da' => $emp['basic_da'] ?? 0,
-                    'new_basic_da' => $basicDA,
-                    'old_hra' => $emp['hra'] ?? 0,
-                    'new_hra' => $hra,
-                    'old_leave_encashment' => $emp['leave_encashment'] ?? 0,
-                    'new_leave_encashment' => $leaveEncashment,
-                    'old_bonus_encashment' => $emp['bonus_encashment'] ?? 0,
-                    'new_bonus_encashment' => $bonusEncashment,
-                    'old_washing' => $emp['washing_allowance'] ?? 0,
-                    'new_washing' => $washing,
-
-                    'old_gross' => $emp['gross_salary'] ?? 0,
-                    'new_gross' => $newGross,
-                    'revision_type' => 'bulk_update',
-                    'effective_from' => $effectiveFrom,
-                    'reason' => $revisionReason,
-                    'bulk_upload_id' => $logId,
-                    'revision_by' => $_SESSION['user_id']
-                ]);
+                // Update log
+                $db->update('bulk_upload_logs', [
+                    'processed_rows' => $processed,
+                    'error_rows' => $errors,
+                    'status' => 'completed',
+                    'completed_at' => date('Y-m-d H:i:s')
+                ], 'id = :id', ['id' => $logId]);
                 
-                // Close old salary structure if exists
-                if (!empty($emp['salary_id'])) {
-                    $db->update('employee_salary_structures', [
-                        'effective_to' => date('Y-m-d', strtotime($effectiveFrom . ' -1 day'))
-                    ], 'id = :id', ['id' => $emp['salary_id']]);
-                }
+                setFlash('success', "Import completed! $processed records updated, $errors errors.");
+                redirect('index.php?page=bulk-upload/salary');
                 
-                // Insert new salary structure
-                $db->insert('employee_salary_structures', [
-                    'employee_id' => $emp['id'],
-                    'effective_from' => $effectiveFrom,
-                    'basic_da' => $basicDA,
-                    'hra' => $hra,
-                    'leave_encashment' => $leaveEncashment,
-                    'bonus_encashment' => $bonusEncashment,
-                    'washing_allowance' => $washing,
-
-                    'gross_salary' => $newGross,
-                    'pf_applicable' => 1,
-                    'esi_applicable' => 1,
-                    'pt_applicable' => 1,
-                    'created_by' => $_SESSION['user_id']
-                ]);
-                
-                $processed++;
+            } catch (Exception $e) {
+                $db->rollBack();
+                $error = 'Import failed: ' . $e->getMessage();
             }
-            
-            $db->commit();
-            
-            // Update log
-            $db->update('bulk_upload_logs', [
-                'processed_rows' => $processed,
-                'error_rows' => $errors,
-                'status' => 'completed',
-                'completed_at' => date('Y-m-d H:i:s')
-            ], 'id = :id', ['id' => $logId]);
-            
-            setFlash('success', "Import completed! $processed records updated, $errors errors.");
-            redirect('index.php?page=bulk-upload/salary');
-            
-        } catch (Exception $e) {
-            $db->rollBack();
-            $error = 'Import failed: ' . $e->getMessage();
         }
     }
 }

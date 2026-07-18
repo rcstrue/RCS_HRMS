@@ -29,15 +29,14 @@ if (isset($_GET['export'])) {
                 ORDER BY e.state, e.employee_code
             ", [$month, $year]);
 
-            $sno = 1;
-            foreach ($csvRows as $r) {
-                fputcsv($output, [
-                    $sno++, $r['employee_code'], $r['full_name'], $r['designation'],
-                    $r['unit_name'] ?? '', $r['state'] ?? '', $r['gross_earnings'],
-                    getPTSlab($r['state'], $r['gross_earnings']),
-                    $r['professional_tax']
-                ]);
-            }
+        $sno = 1;
+        foreach ($csvRows as $r) {
+            fputcsv($output, [
+                $sno++, $r['employee_code'], $r['full_name'], $r['designation'],
+                $r['unit_name'] ?? '', $r['state'] ?? '', $r['gross_earnings'],
+                getPTSlab($r['state'], $r['gross_earnings']),
+                $r['professional_tax']
+            ]);
         }
     } catch (Exception $e) {
         fputcsv($output, ['Error:', $e->getMessage()]);

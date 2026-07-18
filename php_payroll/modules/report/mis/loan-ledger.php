@@ -25,6 +25,7 @@ if ($clientId > 0) {
 }
 
 $whereClause = implode(' AND ', $where);
+$whereSql = $whereClause ? 'WHERE ' . $whereClause : '';
 $rows = [];
 
 try {
@@ -34,7 +35,7 @@ try {
         FROM employee_loans el
         JOIN employees e ON e.id = el.employee_id
         LEFT JOIN clients c ON c.id = e.client_id
-        {$whereClause ? 'WHERE ' . $whereClause : ''}
+        $whereSql
         ORDER BY el.status, e.employee_code
     ", $params);
 } catch (Exception $e) {
