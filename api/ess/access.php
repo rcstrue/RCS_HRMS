@@ -53,7 +53,7 @@ try {
     $cacheStmt->close();
 
     // Also get app_role and employee_role from the employees table (authoritative)
-    $empStmt = $conn->prepare('SELECT app_role, employee_role, designation, unit_id, worker_category FROM employees WHERE id = ?');
+    $empStmt = $conn->prepare('SELECT employee_code, app_role, employee_role, designation, unit_id, worker_category FROM employees WHERE id = ?');
     $intId = (int)$employeeId;
     $empStmt->bind_param('i', $intId);
     $empStmt->execute();

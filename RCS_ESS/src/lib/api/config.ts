@@ -32,7 +32,7 @@ async function tryRefreshToken(): Promise<string | null> {
       if (!token) token = localStorage.getItem('ess_token');
       if (!token) return null;
 
-      const resp = await fetch(`${API_BASE_URL}/api/ess/refresh`, {
+      const resp = await fetch(`${API_BASE_URL}/api/ess/refresh.php`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
         body: JSON.stringify({ token }),
