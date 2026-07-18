@@ -45,8 +45,10 @@ $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_ignore` (
     INDEX `idx_source` (`source`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
-// ── Helper: JSON response ──
+// ── Helper: JSON response (clears buffered HTML from header.php) ──
 function jsonResponse($data, $code = 200) {
+    // Discard any HTML already buffered by header.php so the response is pure JSON
+    while (ob_get_level()) ob_end_clean();
     http_response_code($code);
     header('Content-Type: application/json');
     echo json_encode($data);
@@ -1080,7 +1082,9 @@ $clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER
 </div>
 
 <?php
-$inlineJS = <<<"JSEOF"
+// Use $extraJS (not $inlineJS) so functions are in global scope — footer.php places
+// $extraJS BEFORE the $(document).ready() wrapper, making onclick handlers work.
+$_jsCode = <<<"JSEOF"
 // ── Global vars ──
 var dataTable = null;
 var selectedIds = [];
@@ -1570,6 +1574,43 @@ function unignore(empId, source) {
     });
 }
 
+// ── Switch EPFO/ESIC record in view modal ──
+function switchEpfoRecord(empId, idx) {
+    $.ajax({
+        url: 'index.php?page=employee/data-sync',
+        type: 'POST',
+        data: { action: 'view', employee_id: empId },
+        dataType: 'json',
+        success: function(res) {
+            if (!res.success) return;
+            // Replace epfo first with selected index
+            if (res.epfo && res.epfo[idx]) {
+                var tmp = res.epfo[0];
+                res.epfo[0] = res.epfo[idx];
+                res.epfo[idx] = tmp;
+            }
+            renderView(res, empId);
+        }
+    });
+}
+function switchEsicRecord(empId, idx) {
+    $.ajax({
+        url: 'index.php?page=employee/data-sync',
+        type: 'POST',
+        data: { action: 'view', employee_id: empId },
+        dataType: 'json',
+        success: function(res) {
+            if (!res.success) return;
+            if (res.esic && res.esic[idx]) {
+                var tmp = res.esic[0];
+                res.esic[0] = res.esic[idx];
+                res.esic[idx] = tmp;
+            }
+            renderView(res, empId);
+        }
+    });
+}
+
 // ── Export ──
 function exportData(format) {
     var status = $('#filterStatus').val();
@@ -1597,4 +1638,5 @@ $(document).ready(function() {
     initClientUnitDropdown();
 });
 JSEOF;
+$extraJS = '<script>' . $_jsCode . '</script>';
 ?>
