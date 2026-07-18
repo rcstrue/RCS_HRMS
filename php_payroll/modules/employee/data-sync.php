@@ -799,17 +799,18 @@ if (isset($_GET['action']) && $_GET['action'] === 'export') {
         $params
     );
 
+    // Return CSV as JSON (frontend will trigger Blob download)
     if ($format === 'csv') {
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename=employee_data_sync_' . date('Y-m-d') . '.csv');
-        $output = fopen('php://output', 'w');
-        fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM for Excel UTF-8
-        fputcsv($output, ['Employee Code', 'Name', 'Mobile', 'UAN', 'ESIC', 'Client', 'Unit']);
+        $csv = chr(0xEF).chr(0xBB).chr(0xBF); // BOM for Excel UTF-8
+        $fp = fopen('php://temp', 'r+');
+        fputcsv($fp, ['Employee Code', 'Name', 'Mobile', 'UAN', 'ESIC', 'Client', 'Unit'], '', '');
         foreach ($rows as $r) {
-            fputcsv($output, [$r['employee_code'], $r['full_name'], $r['mobile_number'], $r['uan_number'], $r['esic_number'], $r['client_name'] ?? '', $r['unit_name'] ?? '']);
+            fputcsv($fp, [$r['employee_code'], $r['full_name'], $r['mobile_number'], $r['uan_number'], $r['esic_number'], $r['client_name'] ?? '', $r['unit_name'] ?? ''], '', '');
         }
-        fclose($output);
-        exit;
+        rewind($fp);
+        $csv .= stream_get_contents($fp);
+        fclose($fp);
+        jsonResponse(['success' => true, 'csv' => $csv, 'filename' => 'employee_data_sync_' . date('Y-m-d') . '.csv']);
     }
 
     jsonResponse(['success' => false, 'error' => 'Unsupported format'], 400);
@@ -1078,7 +1079,8 @@ $clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER
     </div>
 </div>
 
-<script>
+<?php
+$inlineJS = <<<"JSEOF"
 // ── Global vars ──
 var dataTable = null;
 var selectedIds = [];
@@ -1174,18 +1176,24 @@ function resetFilters() {
 }
 
 // ── Client-Unit dependency ──
-$('#filterClient').on('change', function() {
-    var clientId = $(this).val();
-    var unitSel = $('#filterUnit');
-    unitSel.html('<option value="">All Units</option>');
-    if (!clientId) return;
-    $.getJSON('index.php?page=api/units&client_id=' + clientId, function(res) {
-        if (!res.units) return;
-        res.units.forEach(function(u) {
-            unitSel.append('<option value="' + u.id + '">' + u.name + '</option>');
+function initClientUnitDropdown() {
+    $('#filterClient').on('change', function() {
+        var clientId = $(this).val();
+        var unitSel = $('#filterUnit');
+        unitSel.html('<option value="">All Units</option>');
+        if (!clientId) return;
+        $.getJSON('index.php?page=api/units&client_id=' + clientId, function(res) {
+            if (!res.units) return;
+            res.units.forEach(function(u) {
+                unitSel.append('<option value="' + u.id + '">' + u.name + '</option>');
+            });
         });
     });
-});
+    $('#checkAll').on('change', function() {
+        $('.emp-check').prop('checked', this.checked);
+        toggleBulkBar();
+    });
+}
 
 // ── Bulk actions ──
 function toggleBulkBar() {
@@ -1198,10 +1206,6 @@ function toggleBulkBar() {
         $('#bulkBar').addClass('d-none');
     }
 }
-$('#checkAll').on('change', function() {
-    $('.emp-check').prop('checked', this.checked);
-    toggleBulkBar();
-});
 
 function bulkAction(fieldType) {
     if (selectedIds.length === 0) { alert('No employees selected.'); return; }
@@ -1569,12 +1573,28 @@ function unignore(empId, source) {
 // ── Export ──
 function exportData(format) {
     var status = $('#filterStatus').val();
-    window.open('index.php?page=employee/data-sync&action=export&format=' + format + '&filter_status=' + status, '_blank');
+    $.ajax({
+        url: 'index.php?page=employee/data-sync',
+        type: 'GET',
+        data: { action: 'export', format: format, filter_status: status },
+        dataType: 'json',
+        success: function(res) {
+            if (!res.success) { showToast('error', res.error || 'Export failed.'); return; }
+            var blob = new Blob([res.csv], { type: 'text/csv;charset=utf-8;' });
+            var link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = res.filename;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        }
+    });
 }
 
 // ── Init ──
 $(document).ready(function() {
     loadDashboard();
     initTable();
+    initClientUnitDropdown();
 });
-</script>
+JSEOF;
+?>
