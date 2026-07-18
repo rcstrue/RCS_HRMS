@@ -63,8 +63,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             SELECT ep.id as emp_id, ep.uan_number as old_uan, em.uan as new_uan,
                    ep.full_name, ep.employee_code
             FROM employees ep
-            JOIN epfo_members em ON ep.mobile_number = em.mobile
-                AND RIGHT(ep.aadhaar_number, 4) = RIGHT(em.aadhaar, 4)
+            JOIN epfo_members em ON ep.mobile_number COLLATE utf8mb4_unicode_ci = em.mobile COLLATE utf8mb4_unicode_ci
+                AND RIGHT(ep.aadhaar_number, 4) COLLATE utf8mb4_unicode_ci = RIGHT(em.aadhaar, 4) COLLATE utf8mb4_unicode_ci
             WHERE ep.id IN ($placeholders)
         ", $ids);
 
@@ -277,8 +277,8 @@ $matchedRecords = $db->fetchAll("
            ep.aadhaar_number, ep.uan_number as current_uan,
            em.uan as epfo_uan, em.aadhaar as epfo_aadhaar, em.name as epfo_name
     FROM employees ep
-    JOIN epfo_members em ON ep.mobile_number = em.mobile
-        AND RIGHT(ep.aadhaar_number, 4) = RIGHT(em.aadhaar, 4)
+    JOIN epfo_members em ON ep.mobile_number COLLATE utf8mb4_unicode_ci = em.mobile COLLATE utf8mb4_unicode_ci
+        AND RIGHT(ep.aadhaar_number, 4) COLLATE utf8mb4_unicode_ci = RIGHT(em.aadhaar, 4) COLLATE utf8mb4_unicode_ci
     WHERE ep.aadhaar_number IS NOT NULL AND ep.aadhaar_number != ''
     ORDER BY ep.full_name
 ");
