@@ -98,38 +98,27 @@
                 $entryModules = ['attendance','advance','leave','loan','entry','expense','timesheet'];
                 $complianceModules = ['compliance','forms'];
                 $reportModules = ['report','settlement','billing','ratecard','contract'];
-                $employeeModules = ['employee','client','unit'];
+                $employeeModules = ['employee'];
+                $clientModules = ['client','unit'];
                 $helpdeskModules = ['helpdesk','feedback'];
                 $settingsModules = ['settings','assets','audit','announcement','notifications'];
                 ?>
 
+                <!-- CLIENTS -->
+                <?php if (showMenu($auth, 'employee')): ?>
+                <li class="sidebar-item <?php echo in_array($pageRoot, $clientModules) ? 'active' : ''; ?>">
+                    <a href="index.php?page=client/index" class="sidebar-link">
+                        <i class="bi bi-building"></i><span>Clients</span>
+                    </a>
+                </li>
+                <?php endif; ?>
+
                 <!-- EMPLOYEES -->
                 <?php if (showMenu($auth, 'employee')): ?>
-                <li class="sidebar-item has-submenu <?php echo in_array($pageRoot, $employeeModules) ? 'open' : ''; ?>">
-                    <a href="#" class="sidebar-link">
+                <li class="sidebar-item <?php echo in_array($pageRoot, $employeeModules) ? 'active' : ''; ?>">
+                    <a href="index.php?page=employee/index" class="sidebar-link">
                         <i class="bi bi-people"></i><span>Employees</span>
-                        <i class="bi bi-chevron-down ms-auto sub-arrow"></i>
                     </a>
-                    <ul class="sidebar-submenu">
-                        <li><a href="index.php?page=employee/list" class="<?php echo $page === 'employee/list' ? 'active' : ''; ?>">
-                            <i class="bi bi-list-ul me-1"></i>Employee List
-                        </a></li>
-                        <li><a href="index.php?page=employee/add" class="<?php echo $page === 'employee/add' ? 'active' : ''; ?>">
-                            <i class="bi bi-person-plus me-1"></i>Add Employee
-                        </a></li>
-                        <li><a href="index.php?page=employee/index" class="<?php echo $page === 'employee/index' ? 'active' : ''; ?>">
-                            <i class="bi bi-grid me-1"></i>Employee Hub
-                        </a></li>
-                        <li><a href="index.php?page=client/index" class="<?php echo strpos($page,'client') === 0 ? 'active' : ''; ?>">
-                            <i class="bi bi-building me-1"></i>Clients & Units
-                        </a></li>
-                        <?php if (in_array($roleCode ?? '', ['admin','hr','hr_executive'])): ?>
-                        <li><a href="index.php?page=employee/esic-import" class="<?php echo $page === 'employee/esic-import' ? 'active' : ''; ?>">
-                            <i class="bi bi-file-earmark-spreadsheet me-1"></i>ESIC
-                            <i class="bi bi-chevron-right ms-1 small"></i> <small>Import ESIC Data</small>
-                        </a></li>
-                        <?php endif; ?>
-                    </ul>
                 </li>
                 <?php endif; ?>
 
@@ -385,7 +374,7 @@
                             'entry'       => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
                             'expense'     => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
                             'timesheet'   => ['label' => 'Monthly Entry', 'link' => 'index.php?page=attendance/index'],
-                            'client'      => ['label' => 'Employees', 'link' => 'index.php?page=employee/index'],
+
                             'compliance'  => ['label' => 'Compliance', 'link' => 'index.php?page=compliance/index'],
                             'forms'       => ['label' => 'Compliance', 'link' => 'index.php?page=compliance/index'],
                             'settlement'  => ['label' => 'Reports', 'link' => 'index.php?page=report/index'],

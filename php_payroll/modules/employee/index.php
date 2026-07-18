@@ -89,18 +89,20 @@
                 </div>
             </a>
         </div>
+        <?php if (in_array($roleCode ?? '', ['admin','hr','hr_executive'])): ?>
         <div class="col-lg-3 col-md-4 col-sm-6 col-6">
-            <a href="index.php?page=client/index" class="text-decoration-none">
+            <a href="index.php?page=employee/esic-import" class="text-decoration-none">
                 <div class="card module-card h-100">
                     <div class="card-body">
-                        <div class="mod-icon bg-cyan-soft"><i class="bi bi-building"></i></div>
-                        <div class="mod-title">Clients & Units</div>
-                        <div class="mod-desc">Manage clients and deployment units</div>
+                        <div class="mod-icon bg-teal-soft"><i class="bi bi-file-earmark-spreadsheet"></i></div>
+                        <div class="mod-title">Import ESIC</div>
+                        <div class="mod-desc">Import ESIC IP master data from CSV</div>
                     </div>
                     <i class="bi bi-arrow-right mod-arrow"></i>
                 </div>
             </a>
         </div>
+        <?php endif; ?>
 
     </div>
 </div>
