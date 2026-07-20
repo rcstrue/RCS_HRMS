@@ -80,8 +80,54 @@ function buildFilterUrl($overrides = []) {
 }
 
 // ── Fetch visit checklists ───
+$perPage = 50;
+$currentPage = max(1, (int)($_GET['pg'] ?? 1));
+
+// Build WHERE clause once, reuse for count + data queries
+$whereSQL = "1=1";
+$params = [];
+
+if ($filterClient > 0) {
+    $whereSQL .= " AND u.client_id = ?";
+    $params[] = $filterClient;
+}
+if ($filterUnit > 0) {
+    $whereSQL .= " AND v.unit_id = ?";
+    $params[] = $filterUnit;
+}
+if ($filterMonth > 0) {
+    $whereSQL .= " AND v.visit_month = ?";
+    $params[] = $filterMonth;
+}
+if ($filterYear > 0) {
+    $whereSQL .= " AND v.visit_year = ?";
+    $params[] = $filterYear;
+}
+if ($filterStatus !== '') {
+    $whereSQL .= " AND v.status = ?";
+    $params[] = $filterStatus;
+}
+if ($filterEmployee > 0) {
+    $whereSQL .= " AND v.employee_id = ?";
+    $params[] = $filterEmployee;
+}
+
+// Total count
+$totalRecords = (int)$db->fetchColumn(
+    "SELECT COUNT(*) FROM ess_unit_visits v
+     LEFT JOIN employees e ON v.employee_id = e.id
+     LEFT JOIN units u ON v.unit_id = u.id
+     LEFT JOIN clients c ON u.client_id = c.id
+     WHERE $whereSQL", $params
+) ?: 0;
+$totalPages = (int)ceil($totalRecords / $perPage);
+if ($currentPage > $totalPages && $totalPages > 0) $currentPage = $totalPages;
+$offset = ($currentPage - 1) * $perPage;
+
 $query = "
-    SELECT v.*,
+    SELECT v.id, v.document_url, v.document_type, v.visit_number, v.status,
+           v.visit_month, v.visit_year, v.created_at, v.notes,
+           v.employee_id, v.unit_id,
            e.employee_code, e.full_name as employee_name, e.designation,
            u.name as unit_name, u.unit_code,
            c.name as client_name
@@ -89,37 +135,29 @@ $query = "
     LEFT JOIN employees e ON v.employee_id = e.id
     LEFT JOIN units u ON v.unit_id = u.id
     LEFT JOIN clients c ON u.client_id = c.id
-    WHERE 1=1";
-$params = [];
-
-if ($filterClient > 0) {
-    $query .= " AND u.client_id = ?";
-    $params[] = $filterClient;
-}
-if ($filterUnit > 0) {
-    $query .= " AND v.unit_id = ?";
-    $params[] = $filterUnit;
-}
-if ($filterMonth > 0) {
-    $query .= " AND v.visit_month = ?";
-    $params[] = $filterMonth;
-}
-if ($filterYear > 0) {
-    $query .= " AND v.visit_year = ?";
-    $params[] = $filterYear;
-}
-if ($filterStatus !== '') {
-    $query .= " AND v.status = ?";
-    $params[] = $filterStatus;
-}
-if ($filterEmployee > 0) {
-    $query .= " AND v.employee_id = ?";
-    $params[] = $filterEmployee;
-}
-
-$query .= " ORDER BY v.created_at DESC";
-
+    WHERE $whereSQL
+    ORDER BY v.created_at DESC
+    LIMIT $perPage OFFSET $offset";
 $visits = $db->fetchAll($query, $params);
+
+// Pagination URL helper
+function paginationUrl($page) {
+    $base = 'index.php?page=client/visit-checklist';
+    $parts = [];
+    $pairs = [
+        'client_id' => $GLOBALS['filterClient'] ?? 0,
+        'unit_id' => $GLOBALS['filterUnit'] ?? 0,
+        'month' => $GLOBALS['filterMonth'] ?? 0,
+        'year' => $GLOBALS['filterYear'] ?? 0,
+        'status' => $GLOBALS['filterStatus'] ?? '',
+        'employee_id' => $GLOBALS['filterEmployee'] ?? 0,
+    ];
+    foreach ($pairs as $k => $v) {
+        if ($v !== '' && $v !== 0) $parts[] = $k . '=' . urlencode($v);
+    }
+    if ($page > 1) $parts[] = 'pg=' . $page;
+    return $base . ($parts ? '&' . implode('&', $parts) : '');
+}
 
 // ── View single image ───
 $viewVisit = null;
@@ -133,7 +171,7 @@ if ($viewImage > 0) {
 
 // ── Stats ───
 $stats = [
-    'total'     => count($visits),
+    'total'     => $totalRecords,
     'submitted' => 0,
     'reviewed'  => 0,
     'approved'  => 0,
@@ -344,6 +382,31 @@ $monthNames = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',
     <small>Checklists are uploaded by managers via the ESS app during unit visits.</small>
 </div>
 <?php else: ?>
+
+<?php if ($totalPages > 1): ?>
+<nav aria-label="Page navigation" class="mb-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <small class="text-muted">Showing <?= min($perPage, $totalRecords) ?> of <?= $totalRecords ?> records (Page <?= $currentPage ?>/<?= $totalPages ?>)</small>
+        <ul class="pagination pagination-sm mb-0">
+            <?php if ($currentPage > 1): ?>
+            <li class="page-item"><a class="page-link" href="<?= paginationUrl($currentPage - 1) ?>">Previous</a></li>
+            <?php endif; ?>
+            <?php
+            $startP = max(1, $currentPage - 2);
+            $endP = min($totalPages, $currentPage + 2);
+            if ($startP > 1) echo '<li class="page-item"><a class="page-link" href="' . paginationUrl(1) . '">1</a></li><li class="page-item disabled"><span class="page-link">...</span></li>';
+            for ($p = $startP; $p <= $endP; $p++):
+            ?>
+            <li class="page-item <?= $p === $currentPage ? 'active' : '' ?>"><a class="page-link" href="<?= paginationUrl($p) ?>"><?= $p ?></a></li>
+            <?php endfor; ?>
+            <?php if ($endP < $totalPages) echo '<li class="page-item disabled"><span class="page-link">...</span></li><li class="page-item"><a class="page-link" href="' . paginationUrl($totalPages) . '">' . $totalPages . '</a></li>'; ?>
+            <?php if ($currentPage < $totalPages): ?>
+            <li class="page-item"><a class="page-link" href="<?= paginationUrl($currentPage + 1) ?>">Next</a></li>
+            <?php endif; ?>
+        </ul>
+    </div>
+</nav>
+<?php endif; ?>
 
 <!-- ═════════════════ GRID VIEW ═══════════════ -->
 <div id="gridView" class="row g-3">
