@@ -817,4 +817,108 @@ if (isset($_GET['action']) && $_GET['action'] === 'export') {
 
     jsonResponse(['success' => false, 'error' => 'Unsupported format'], 400);
 }
+
+// ── AJAX: IP Sync — list employees with ESIC matches ──
+if (isset($_GET['action']) && $_GET['action'] === 'ip_sync_list') {
+    $query = "
+        SELECT e.id AS employee_id, e.employee_code, e.full_name, e.mobile_number,
+               e.alternate_mobile, e.uan_number, e.esic_number AS current_esic,
+               ip.id AS esic_id, ip.ip_number, ip.ip_name, ip.mobile AS esic_mobile, ip.uan AS esic_uan,
+               CASE
+                   WHEN e.uan_number IS NOT NULL AND e.uan_number != '' AND ip.uan = e.uan_number THEN 'UAN'
+                   WHEN e.mobile_number IS NOT NULL AND e.mobile_number != '' AND ip.mobile = e.mobile_number THEN 'Mobile'
+                   WHEN e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '' AND ip.mobile = e.alternate_mobile THEN 'Alt Mobile'
+                   ELSE ''
+               END AS match_method
+        FROM employees e
+        INNER JOIN esic_ip_master ip ON (
+            (e.uan_number IS NOT NULL AND e.uan_number != '' AND ip.uan = e.uan_number)
+            OR (e.mobile_number IS NOT NULL AND e.mobile_number != '' AND ip.mobile = e.mobile_number)
+            OR (e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '' AND ip.mobile = e.alternate_mobile)
+        )
+        WHERE e.status = 'approved'
+        ORDER BY e.full_name, ip.ip_number";
+
+    $rows = $db->fetchAll($query);
+
+    // Group by employee
+    $grouped = [];
+    foreach ($rows as $r) {
+        $eid = $r['employee_id'];
+        if (!isset($grouped[$eid])) {
+            $grouped[$eid] = [
+                'employee_id' => $eid,
+                'employee_code' => $r['employee_code'],
+                'full_name' => $r['full_name'],
+                'mobile_number' => $r['mobile_number'],
+                'alternate_mobile' => $r['alternate_mobile'],
+                'uan_number' => $r['uan_number'],
+                'current_esic' => $r['current_esic'],
+                'matches' => [],
+            ];
+        }
+        $grouped[$eid]['matches'][] = [
+            'esic_id' => $r['esic_id'],
+            'ip_number' => $r['ip_number'],
+            'ip_name' => $r['ip_name'],
+            'esic_mobile' => $r['esic_mobile'],
+            'esic_uan' => $r['esic_uan'],
+            'match_method' => $r['match_method'],
+            'is_new_ip' => ($r['current_esic'] !== $r['ip_number']),
+            'needs_uan' => (empty($r['esic_uan']) && !empty($r['uan_number'])),
+        ];
+    }
+    jsonResponse(['success' => true, 'employees' => array_values($grouped), 'total' => count($grouped)]);
+}
+
+// ── AJAX: IP Sync — approve selected matches ──
+if (isset($_POST['action']) && $_POST['action'] === 'ip_sync_approve') {
+    $items = json_decode($_POST['items'] ?? '[]', true);
+    if (empty($items)) jsonResponse(['success' => false, 'error' => 'No items selected'], 400);
+
+    $userId = $_SESSION['first_name'] ?? 'unknown';
+    $ip = getClientIp();
+    $updated = 0;
+    $details = [];
+
+    foreach ($items as $item) {
+        $empId = (int)($item['employee_id'] ?? 0);
+        $esicId = (int)($item['esic_id'] ?? 0);
+        if (!$empId || !$esicId) continue;
+
+        // Get employee and ESIC record
+        $emp = $db->fetch("SELECT id, uan_number, esic_number FROM employees WHERE id = ?", [$empId]);
+        $esic = $db->fetch("SELECT id, ip_number, uan FROM esic_ip_master WHERE id = ?", [$esicId]);
+        if (!$emp || !$esic) continue;
+
+        // 1. Update employee.esic_number from ESIC ip_number
+        if ($emp['esic_number'] !== $esic['ip_number']) {
+            $db->query("UPDATE employees SET esic_number = ? WHERE id = ?", [$esic['ip_number'], $empId]);
+            $db->insert('employee_data_sync_logs', [
+                'employee_id' => $empId,
+                'field_name' => 'esic_number',
+                'old_value' => $emp['esic_number'],
+                'new_value' => $esic['ip_number'],
+                'source_table' => 'esic_ip_master',
+                'source_record_id' => $esic['ip_number'],
+                'updated_by' => $userId,
+                'ip_address' => $ip,
+                'remarks' => 'IP sync approved',
+            ]);
+            $details[] = ['employee_id' => $empId, 'action' => 'Updated ESIC/IP to ' . $esic['ip_number']];
+            $updated++;
+        }
+
+        // 2. Update ESIC uan from employee uan_number (if ESIC uan is empty and employee has UAN)
+        if (!empty($emp['uan_number']) && empty($esic['uan'])) {
+            $db->query("UPDATE esic_ip_master SET uan = ? WHERE id = ?", [$emp['uan_number'], $esicId]);
+            $details[] = ['employee_id' => $empId, 'action' => 'Updated ESIC UAN to ' . $emp['uan_number']];
+            $updated++;
+        }
+    }
+
+    logActivity('ip_sync_approve', 'employees', 0, "IP sync approved: $updated updates for " . count($items) . " items");
+    jsonResponse(['success' => true, 'updated' => $updated, 'details' => $details]);
+}
+
 ?>

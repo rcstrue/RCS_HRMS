@@ -31,7 +31,7 @@ $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_logs` (
     INDEX `idx_employee_id` (`employee_id`),
     INDEX `idx_updated_at` (`updated_at`),
     INDEX `idx_source_table` (`source_table`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_ignore` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -43,7 +43,7 @@ $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_ignore` (
     `ignored_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY `uk_emp_source` (`employee_id`, `source`),
     INDEX `idx_source` (`source`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 
 // HTML PAGE (no AJAX action)
@@ -70,6 +70,24 @@ $clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
 </div>
 <?php endif; ?>
+
+<!-- Tab Navigation -->
+<ul class="nav nav-tabs mb-3" id="mainTabs">
+    <li class="nav-item">
+        <a class="nav-link active" data-bs-toggle="tab" href="#tabMatching">
+            <i class="bi bi-arrow-left-right me-1"></i>Data Matching
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-bs-toggle="tab" href="#tabIpSync">
+            <i class="bi bi-hospital me-1"></i>IP Number Sync
+            <span class="badge bg-danger ms-1" id="ipSyncBadge" style="display:none">0</span>
+        </a>
+    </li>
+</ul>
+<div class="tab-content">
+<!-- Tab 1: Data Matching -->
+<div class="tab-pane fade show active" id="tabMatching">
 
 <!-- Dashboard Cards -->
 <div class="row g-3 mb-4">
@@ -249,6 +267,46 @@ $clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER
         </div>
     </div>
 </div>
+
+</div><!-- end tabMatching -->
+
+<!-- Tab 2: IP Number Sync -->
+<div class="tab-pane fade" id="tabIpSync">
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold"><i class="bi bi-hospital me-2"></i>ESIC IP Number Sync</span>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-primary" onclick="loadIpSync()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+            <button class="btn btn-sm btn-success" id="ipApproveBtn" onclick="approveIpSync()" disabled><i class="bi bi-check2-circle me-1"></i>Approve Selected</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 70vh; overflow-y: auto;">
+            <table class="table table-sm table-hover align-middle mb-0" id="ipSyncTable">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th style="width:40px"><input type="checkbox" class="form-check-input" id="ipCheckAll"></th>
+                        <th>Emp Code</th>
+                        <th>Employee Name</th>
+                        <th>Mobile</th>
+                        <th>Employee UAN</th>
+                        <th>Current ESIC#</th>
+                        <th>Matched IP#</th>
+                        <th>IP Name</th>
+                        <th>ESIC Mobile</th>
+                        <th>ESIC UAN</th>
+                        <th>Match</th>
+                    </tr>
+                </thead>
+                <tbody id="ipSyncBody">
+                    <tr><td colspan="11" class="text-center text-muted py-4">Click <strong>Refresh</strong> to load ESIC matches</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div><!-- end tabIpSync -->
+</div><!-- end tab-content -->
 
 <!-- View Modal (Offcanvas) -->
 <div class="offcanvas offcanvas-end" id="viewOffcanvas" tabindex="-1" style="width: 75vw; max-width: 900px;">
@@ -857,6 +915,121 @@ function exportData(format) {
         }
     });
 }
+
+
+// ── IP Number Sync ──
+var ipSyncData = [];
+var ipSelectedItems = [];
+
+function loadIpSync() {
+    $('#ipSyncBody').html('<tr><td colspan="11" class="text-center py-4"><div class="spinner-border spinner-border-sm" role="status"></div> Loading matches...</td></tr>');
+    $.getJSON('index.php?page=employee/data-sync&ajax=1&action=ip_sync_list', function(res) {
+        if (!res.success) { showToast('error', res.error || 'Failed to load'); return; }
+        ipSyncData = res.employees;
+        $('#ipSyncBadge').text(res.total).toggle(res.total > 0);
+        renderIpSyncTable();
+    });
+}
+
+function renderIpSyncTable() {
+    if (!ipSyncData.length) {
+        $('#ipSyncBody').html('<tr><td colspan="11" class="text-center text-muted py-4">No ESIC matches found</td></tr>');
+        return;
+    }
+    var html = '';
+    ipSyncData.forEach(function(emp, ei) {
+        emp.matches.forEach(function(m, mi) {
+            var isAlready = (emp.current_esic === m.ip_number);
+            var isNew = m.is_new_ip;
+            var needsUan = m.needs_uan;
+            var itemId = emp.employee_id + '_' + m.esic_id;
+            var rowClass = '';
+            if (isAlready) rowClass = 'table-secondary';
+            else if (isNew) rowClass = 'table-success';
+            if (needsUan) rowClass = isNew ? 'table-warning' : 'table-info';
+
+            var badge = isAlready
+                ? '<span class="badge bg-secondary">Already Synced</span>'
+                : (isNew
+                    ? '<span class="badge bg-success">New IP</span>'
+                    : '<span class="badge bg-light border">Same IP</span>');
+            if (needsUan && !isAlready) badge += ' <span class="badge bg-info">Needs UAN</span>';
+
+            html += '<tr class="' + rowClass + '">';
+            html += '<td>' + (isAlready ? '' : '<input type="checkbox" class="form-check-input ip-sync-check" data-emp="' + emp.employee_id + '" data-esic="' + m.esic_id + '" value="' + itemId + '">') + '</td>';
+            html += '<td class="small">' + esc(emp.employee_code) + '</td>';
+            html += '<td class="small fw-medium">' + esc(emp.full_name) + '</td>';
+            html += '<td class="small">' + esc(emp.mobile_number) + '</td>';
+            html += '<td class="small">' + esc(emp.uan_number || '-') + '</td>';
+            html += '<td class="small">' + esc(emp.current_esic || '-') + '</td>';
+            html += '<td class="small fw-semibold">' + esc(m.ip_number) + '</td>';
+            html += '<td class="small">' + esc(m.ip_name || '-') + '</td>';
+            html += '<td class="small">' + esc(m.esic_mobile || '-') + '</td>';
+            html += '<td class="small">' + esc(m.esic_uan || '-') + '</td>';
+            html += '<td><span class="badge bg-light border">' + esc(m.match_method) + '</span> ' + badge + '</td>';
+            html += '</tr>';
+        });
+    });
+    $('#ipSyncBody').html(html);
+    updateIpApproveBtn();
+}
+
+function esc(s) { return s ? $('<span>').text(s).html() : ''; }
+
+$('#ipCheckAll').on('change', function() {
+    $('.ip-sync-check').prop('checked', this.checked);
+    updateIpApproveBtn();
+});
+
+$(document).on('change', '.ip-sync-check', updateIpApproveBtn);
+
+function updateIpApproveBtn() {
+    var count = $('.ip-sync-check:checked').length;
+    $('#ipApproveBtn').prop('disabled', count === 0).find('span, text').remove();
+    if (count > 0) {
+        $('#ipApproveBtn').append(' Approve (' + count + ')');
+    }
+}
+
+function approveIpSync() {
+    var items = [];
+    $('.ip-sync-check:checked').each(function() {
+        items.push({
+            employee_id: $(this).data('emp'),
+            esic_id: $(this).data('esic')
+        });
+    });
+    if (!items.length) return;
+    if (!confirm('Approve ' + items.length + ' match(es)?\n\nThis will:\n1. Update employee ESIC/IP number\n2. Update ESIC UAN (if missing)')) return;
+
+    $('#ipApproveBtn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>Processing...');
+    $.ajax({
+        url: 'index.php?page=employee/data-sync&ajax=1',
+        type: 'POST',
+        data: { action: 'ip_sync_approve', items: JSON.stringify(items) },
+        dataType: 'json',
+        success: function(res) {
+            if (res.success) {
+                showToast('success', 'Approved ' + items.length + ' match(es) — ' + res.updated + ' field(s) updated.');
+                loadIpSync();
+                if (dataTable) dataTable.ajax.reload();
+                loadDashboard();
+            } else {
+                showToast('error', res.error || 'Approval failed.');
+            }
+            $('#ipApproveBtn').prop('disabled', false).html('<i class="bi bi-check2-circle me-1"></i>Approve Selected');
+        },
+        error: function() {
+            showToast('error', 'Server error.');
+            $('#ipApproveBtn').prop('disabled', false).html('<i class="bi bi-check2-circle me-1"></i>Approve Selected');
+        }
+    });
+}
+
+// Auto-load IP sync on tab switch
+$('a[href="#tabIpSync"]').on('shown.bs.tab', function() {
+    if (!ipSyncData.length) loadIpSync();
+});
 
 // ── Init ──
 $(document).ready(function() {
