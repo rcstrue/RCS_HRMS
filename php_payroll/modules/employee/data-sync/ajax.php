@@ -76,9 +76,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'dashboard') {
         "SELECT COUNT(DISTINCT e.id) FROM employees e
          WHERE e.status = 'approved'
          AND (
-           EXISTS (SELECT 1 FROM epfo_members em WHERE em.uan = e.uan_number AND e.uan_number IS NOT NULL AND e.uan_number != '')
-           OR EXISTS (SELECT 1 FROM epfo_members em WHERE em.mobile = e.mobile_number AND e.mobile_number IS NOT NULL AND e.mobile_number != '')
-           OR EXISTS (SELECT 1 FROM epfo_members em WHERE em.mobile = e.alternate_mobile AND e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '')
+           EXISTS (SELECT 1 FROM epfo_members em WHERE em.uan = e.uan_number COLLATE utf8mb4_unicode_ci AND e.uan_number IS NOT NULL AND e.uan_number != '')
+           OR EXISTS (SELECT 1 FROM epfo_members em WHERE em.mobile = e.mobile_number COLLATE utf8mb4_unicode_ci AND e.mobile_number IS NOT NULL AND e.mobile_number != '')
+           OR EXISTS (SELECT 1 FROM epfo_members em WHERE em.mobile = e.alternate_mobile COLLATE utf8mb4_unicode_ci AND e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '')
          )"
     ) ?: 0;
 
@@ -86,9 +86,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'dashboard') {
         "SELECT COUNT(DISTINCT e.id) FROM employees e
          WHERE e.status = 'approved'
          AND (
-           EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.uan = e.uan_number AND e.uan_number IS NOT NULL AND e.uan_number != '')
-           OR EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.mobile = e.mobile_number AND e.mobile_number IS NOT NULL AND e.mobile_number != '')
-           OR EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.mobile = e.alternate_mobile AND e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '')
+           EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.uan = e.uan_number COLLATE utf8mb4_unicode_ci AND e.uan_number IS NOT NULL AND e.uan_number != '')
+           OR EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.mobile = e.mobile_number COLLATE utf8mb4_unicode_ci AND e.mobile_number IS NOT NULL AND e.mobile_number != '')
+           OR EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.mobile = e.alternate_mobile COLLATE utf8mb4_unicode_ci AND e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '')
          )"
     ) ?: 0;
 
@@ -105,8 +105,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'dashboard') {
          WHERE e.status = 'approved'
          AND NOT EXISTS (SELECT 1 FROM employee_data_sync_ignore si WHERE si.employee_id = e.id)
          AND (
-           (e.uan_number IS NOT NULL AND e.uan_number != '' AND EXISTS (SELECT 1 FROM epfo_members em WHERE em.uan = e.uan_number AND (em.mobile != e.mobile_number OR em.father_husband_name != e.father_name OR em.bank_account != e.account_number OR em.ifsc_code != e.ifsc_code)))
-           OR (e.esic_number IS NOT NULL AND e.esic_number != '' AND EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.ip_number = e.esic_number AND (es.mobile != e.mobile_number OR es.account_number != e.account_number OR es.ifsc_code != e.ifsc_code)))
+           (e.uan_number IS NOT NULL AND e.uan_number != '' AND EXISTS (SELECT 1 FROM epfo_members em WHERE em.uan = e.uan_number COLLATE utf8mb4_unicode_ci AND (em.mobile != e.mobile_number COLLATE utf8mb4_unicode_ci OR em.father_husband_name != e.father_name COLLATE utf8mb4_unicode_ci OR em.bank_account != e.account_number COLLATE utf8mb4_unicode_ci OR em.ifsc_code != e.ifsc_code COLLATE utf8mb4_unicode_ci)))
+           OR (e.esic_number IS NOT NULL AND e.esic_number != '' AND EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.ip_number = e.esic_number COLLATE utf8mb4_unicode_ci AND (es.mobile != e.mobile_number COLLATE utf8mb4_unicode_ci OR es.account_number != e.account_number COLLATE utf8mb4_unicode_ci OR es.ifsc_code != e.ifsc_code COLLATE utf8mb4_unicode_ci)))
          )"
     ) ?: 0;
 
@@ -780,12 +780,12 @@ if (isset($_GET['action']) && $_GET['action'] === 'export') {
     $params = [];
 
     if ($filterStatus === 'not_matched') {
-        $where[] = "NOT EXISTS (SELECT 1 FROM epfo_members em WHERE em.uan = e.uan_number AND e.uan_number IS NOT NULL AND e.uan_number != '')";
-        $where[] = "NOT EXISTS (SELECT 1 FROM epfo_members em WHERE em.mobile = e.mobile_number AND e.mobile_number IS NOT NULL AND e.mobile_number != '')";
-        $where[] = "NOT EXISTS (SELECT 1 FROM epfo_members em WHERE em.mobile = e.alternate_mobile AND e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '')";
-        $where[] = "NOT EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.uan = e.uan_number AND e.uan_number IS NOT NULL AND e.uan_number != '')";
-        $where[] = "NOT EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.mobile = e.mobile_number AND e.mobile_number IS NOT NULL AND e.mobile_number != '')";
-        $where[] = "NOT EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.mobile = e.alternate_mobile AND e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '')";
+        $where[] = "NOT EXISTS (SELECT 1 FROM epfo_members em WHERE em.uan = e.uan_number COLLATE utf8mb4_unicode_ci AND e.uan_number IS NOT NULL AND e.uan_number != '')";
+        $where[] = "NOT EXISTS (SELECT 1 FROM epfo_members em WHERE em.mobile = e.mobile_number COLLATE utf8mb4_unicode_ci AND e.mobile_number IS NOT NULL AND e.mobile_number != '')";
+        $where[] = "NOT EXISTS (SELECT 1 FROM epfo_members em WHERE em.mobile = e.alternate_mobile COLLATE utf8mb4_unicode_ci AND e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '')";
+        $where[] = "NOT EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.uan = e.uan_number COLLATE utf8mb4_unicode_ci AND e.uan_number IS NOT NULL AND e.uan_number != '')";
+        $where[] = "NOT EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.mobile = e.mobile_number COLLATE utf8mb4_unicode_ci AND e.mobile_number IS NOT NULL AND e.mobile_number != '')";
+        $where[] = "NOT EXISTS (SELECT 1 FROM esic_ip_master es WHERE es.mobile = e.alternate_mobile COLLATE utf8mb4_unicode_ci AND e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '')";
     }
 
     $whereSQL = implode(' AND ', $where);
@@ -825,16 +825,16 @@ if (isset($_GET['action']) && $_GET['action'] === 'ip_sync_list') {
                e.alternate_mobile, e.uan_number, e.esic_number AS current_esic,
                ip.id AS esic_id, ip.ip_number, ip.ip_name, ip.mobile AS esic_mobile, ip.uan AS esic_uan,
                CASE
-                   WHEN e.uan_number IS NOT NULL AND e.uan_number != '' AND ip.uan = e.uan_number THEN 'UAN'
-                   WHEN e.mobile_number IS NOT NULL AND e.mobile_number != '' AND ip.mobile = e.mobile_number THEN 'Mobile'
-                   WHEN e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '' AND ip.mobile = e.alternate_mobile THEN 'Alt Mobile'
+                   WHEN e.uan_number IS NOT NULL AND e.uan_number != '' AND ip.uan = e.uan_number COLLATE utf8mb4_unicode_ci THEN 'UAN'
+                   WHEN e.mobile_number IS NOT NULL AND e.mobile_number != '' AND ip.mobile = e.mobile_number COLLATE utf8mb4_unicode_ci THEN 'Mobile'
+                   WHEN e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '' AND ip.mobile = e.alternate_mobile COLLATE utf8mb4_unicode_ci THEN 'Alt Mobile'
                    ELSE ''
                END AS match_method
         FROM employees e
         INNER JOIN esic_ip_master ip ON (
-            (e.uan_number IS NOT NULL AND e.uan_number != '' AND ip.uan = e.uan_number)
-            OR (e.mobile_number IS NOT NULL AND e.mobile_number != '' AND ip.mobile = e.mobile_number)
-            OR (e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '' AND ip.mobile = e.alternate_mobile)
+            (e.uan_number IS NOT NULL AND e.uan_number != '' AND ip.uan = e.uan_number COLLATE utf8mb4_unicode_ci)
+            OR (e.mobile_number IS NOT NULL AND e.mobile_number != '' AND ip.mobile = e.mobile_number COLLATE utf8mb4_unicode_ci)
+            OR (e.alternate_mobile IS NOT NULL AND e.alternate_mobile != '' AND ip.mobile = e.alternate_mobile COLLATE utf8mb4_unicode_ci)
         )
         WHERE e.status = 'approved'
         ORDER BY e.full_name, ip.ip_number";
