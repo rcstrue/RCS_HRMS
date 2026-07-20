@@ -12,6 +12,9 @@ if (!in_array($roleCode, ['admin', 'hr', 'hr_executive'])) {
     exit;
 }
 
+// Increase memory for heavy lookups — remove once table sizes are manageable
+ini_set('memory_limit', '256M');
+
 // ── Self-heal: ensure tables exist ──
 $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_logs` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -28,7 +31,7 @@ $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_logs` (
     INDEX `idx_employee_id` (`employee_id`),
     INDEX `idx_updated_at` (`updated_at`),
     INDEX `idx_source_table` (`source_table`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_ignore` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -40,7 +43,7 @@ $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_ignore` (
     `ignored_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY `uk_emp_source` (`employee_id`, `source`),
     INDEX `idx_source` (`source`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 // ── Helper: JSON response (clears buffered HTML from header.php) ──
 function jsonResponse($data, $code = 200) {
@@ -180,7 +183,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'getData') {
     ) ?: 0;
 
     // ── Preload ALL EPFO records into lookup maps ──
-    $allEpfo = $db->fetchAll("SELECT * FROM epfo_members");
+    $allEpfo = $db->fetchAll("SELECT uan, mobile, father_husband_name, bank_account, ifsc_code FROM epfo_members");
     $epfoByUan = [];
     $epfoByMobile = [];
     foreach ($allEpfo as $r) {
@@ -189,7 +192,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'getData') {
     }
 
     // ── Preload ALL ESIC records into lookup maps ──
-    $allEsic = $db->fetchAll("SELECT * FROM esic_ip_master");
+    $allEsic = $db->fetchAll("SELECT uan, mobile, ip_number, account_number, bank_name, ifsc_code FROM esic_ip_master");
     $esicByUan = [];
     $esicByMobile = [];
     foreach ($allEsic as $r) {
@@ -389,13 +392,13 @@ if (isset($_POST['action']) && $_POST['action'] === 'view') {
     if (!$employee) jsonResponse(['success' => false, 'error' => 'Employee not found'], 404);
 
     // Preload lookups
-    $allEpfo = $db->fetchAll("SELECT * FROM epfo_members");
+    $allEpfo = $db->fetchAll("SELECT uan, mobile, member_id, name, gender, dob, doj, father_husband_name, email, aadhaar, pan, bank_account, ifsc_code FROM epfo_members");
     $epfoByUan = []; $epfoByMobile = [];
     foreach ($allEpfo as $r) {
         if (!empty($r['uan'])) $epfoByUan[$r['uan']][] = $r;
         if (!empty($r['mobile'])) $epfoByMobile[$r['mobile']][] = $r;
     }
-    $allEsic = $db->fetchAll("SELECT * FROM esic_ip_master");
+    $allEsic = $db->fetchAll("SELECT uan, mobile, ip_number, ip_name, employer_code, employer_name, account_number, bank_name, branch_name, ifsc_code, bank_account_status FROM esic_ip_master");
     $esicByUan = []; $esicByMobile = [];
     foreach ($allEsic as $r) {
         if (!empty($r['uan'])) $esicByUan[$r['uan']][] = $r;
@@ -502,9 +505,9 @@ if (isset($_POST['action']) && $_POST['action'] === 'update') {
 
     // Fetch source record
     if ($source === 'epfo') {
-        $sourceRecord = $db->fetch("SELECT * FROM epfo_members WHERE uan = ?", [$sourceId]);
+        $sourceRecord = $db->fetch("SELECT uan, mobile, father_husband_name, email, bank_account, ifsc_code, aadhaar, bank_name FROM epfo_members WHERE uan = ?", [$sourceId]);
     } else {
-        $sourceRecord = $db->fetch("SELECT * FROM esic_ip_master WHERE ip_number = ?", [$sourceId]);
+        $sourceRecord = $db->fetch("SELECT uan, mobile, ip_number, account_number, bank_name, ifsc_code FROM esic_ip_master WHERE ip_number = ?", [$sourceId]);
     }
     if (!$sourceRecord) jsonResponse(['success' => false, 'error' => 'Source record not found'], 404);
 
@@ -650,13 +653,13 @@ if (isset($_POST['action']) && $_POST['action'] === 'bulk_update') {
     }
 
     // Preload lookups
-    $allEpfo = $db->fetchAll("SELECT * FROM epfo_members");
+    $allEpfo = $db->fetchAll("SELECT uan, mobile, bank_account, ifsc_code, bank_name FROM epfo_members");
     $epfoByUan = []; $epfoByMobile = [];
     foreach ($allEpfo as $r) {
         if (!empty($r['uan'])) $epfoByUan[$r['uan']][] = $r;
         if (!empty($r['mobile'])) $epfoByMobile[$r['mobile']][] = $r;
     }
-    $allEsic = $db->fetchAll("SELECT * FROM esic_ip_master");
+    $allEsic = $db->fetchAll("SELECT uan, mobile, ip_number, account_number, bank_name, ifsc_code FROM esic_ip_master");
     $esicByUan = []; $esicByMobile = [];
     foreach ($allEsic as $r) {
         if (!empty($r['uan'])) $esicByUan[$r['uan']][] = $r;
