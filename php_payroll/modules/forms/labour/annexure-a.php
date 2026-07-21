@@ -20,6 +20,11 @@ $showPreview = false;
 $appData = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $showPreview = true;
     $appData = [
         'licensing_authority' => sanitize($_POST['licensing_authority'] ?? ''),
@@ -206,6 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         <div class="card-body">
             <form method="POST" action="">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="page" value="forms/labour/annexure-a">
 
                 <!-- Licensing Authority -->

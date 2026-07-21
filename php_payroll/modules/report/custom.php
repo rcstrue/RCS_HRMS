@@ -93,6 +93,11 @@ $filters = [];
 $reportTitle = 'Custom Report';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? 'generate';
     
     if ($action === 'generate') {
@@ -206,6 +211,7 @@ $clients = $db->query("SELECT DISTINCT c.name as client_name FROM clients c WHER
             </div>
             <div class="card-body">
                 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="action" value="generate">
                     
                     <div class="mb-3">

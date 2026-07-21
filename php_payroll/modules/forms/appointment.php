@@ -19,6 +19,11 @@ if ($employeeId) {
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $employeeId = $_POST['employee_id'];
     $employeeData = $employee->getById($employeeId);
 }

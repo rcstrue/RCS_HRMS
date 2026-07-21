@@ -52,6 +52,11 @@ function ensureOwnUnitAllocated($db, $empCode, $unitName) {
 
 // ─── POST Handlers ───
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? '';
     $empCode = sanitize($_POST['employee_code'] ?? '');
     
@@ -199,6 +204,7 @@ foreach ($allocations as $a) {
             </div>
             
             <form method="POST" id="allocForm">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="save_allocations">
                 <input type="hidden" name="employee_code" id="hiddenEmpCode" value="<?php echo htmlspecialchars($selectedCode, ENT_QUOTES); ?>">
                 

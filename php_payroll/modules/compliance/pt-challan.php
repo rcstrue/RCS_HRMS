@@ -22,7 +22,11 @@ $ptRegNo = $company['pt_registration_number'] ?? '';
 
 // Handle PT calculation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     if ($_POST['action'] === 'calculate') {
         $state = sanitize($_POST['state']);
         $month = intval($_POST['month']);
@@ -272,6 +276,7 @@ $states = $db->fetchAll(
                 </h5>
                 <div>
                     <form method="POST" class="d-inline">
+            <?php echo getCSRFTokenField(); ?>
                         <input type="hidden" name="action" value="save_challan">
                         <button type="submit" class="btn btn-success btn-sm">
                             <i class="bi bi-check-lg me-1"></i>Generate Challan
@@ -414,6 +419,7 @@ $states = $db->fetchAll(
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="calculate">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-calculator me-2"></i>Calculate Professional Tax</h5>
@@ -472,6 +478,7 @@ $states = $db->fetchAll(
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="mark_paid">
                 <input type="hidden" name="challan_id" id="paid_challan_id">
                 <div class="modal-header">

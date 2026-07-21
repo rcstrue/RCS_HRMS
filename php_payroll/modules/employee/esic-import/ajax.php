@@ -68,6 +68,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+// CSRF check (Round 9) — AJAX endpoint, accepts token via header or POST field
+if (!validateCSRFToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'Invalid CSRF token. Please refresh the page.']);
+    exit;
+}
+
 // ── Validate file uploads ──
 if (!isset($_FILES['csv_files']) || empty($_FILES['csv_files']['name'][0])) {
     echo json_encode(['success' => false, 'error' => 'No files uploaded']);

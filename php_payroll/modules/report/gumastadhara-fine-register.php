@@ -64,6 +64,11 @@ try {
 
 // Handle POST - Add/Edit fine entry
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     try {
         $fineDate = sanitize($_POST['fine_date'] ?? '');
         $employeeId = (int)($_POST['employee_id'] ?? 0);
@@ -268,6 +273,7 @@ $successMsg = isset($_GET['msg']) ? sanitize($_GET['msg']) : '';
             </div>
             <div class="card-body py-2">
                 <form method="POST" class="row g-2 align-items-end">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="action" value="<?php echo $editRecord ? 'edit' : 'add'; ?>">
                     <?php if ($editRecord): ?>
                     <input type="hidden" name="edit_id" value="<?php echo $editRecord['id']; ?>">

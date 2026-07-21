@@ -77,6 +77,11 @@ try {
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $section = $_POST['section'] ?? '';
     
     if ($section === 'company') {
@@ -160,6 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <div class="card-body">
                 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="section" value="company">
                     
                     <h6 class="text-primary mb-3">Provident Fund (PF)</h6>
@@ -394,6 +400,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="section" value="pf_rate">
                 <div class="modal-header">
                     <h5 class="modal-title">Add PF Rate</h5>
@@ -443,6 +450,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="section" value="esi_rate">
                 <div class="modal-header">
                     <h5 class="modal-title">Add ESI Rate</h5>

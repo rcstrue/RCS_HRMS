@@ -11,7 +11,11 @@ require_once __DIR__ . '/expense-setup.php';
 // ─── POST Actions ────────────────────────────────────────────────────────────────
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = sanitize($_POST['action']);
 
     // 1. Approve single entry

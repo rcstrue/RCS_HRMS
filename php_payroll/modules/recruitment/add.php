@@ -40,6 +40,11 @@ $requisitions = $db->query("SELECT r.id, r.requisition_number, r.designation, c.
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $applicant['full_name'] = sanitize($_POST['full_name']);
     $applicant['father_name'] = sanitize($_POST['father_name'] ?? '');
     $applicant['date_of_birth'] = sanitize($_POST['date_of_birth'] ?? '');
@@ -157,6 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <?php endif; ?>
 
 <form method="POST" enctype="multipart/form-data">
+            <?php echo getCSRFTokenField(); ?>
     <div class="row">
         <div class="col-lg-8">
             <!-- Personal Details -->

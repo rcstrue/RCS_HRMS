@@ -9,6 +9,11 @@ $pageTitle = 'Clients';
 
 // Handle add/edit/delete
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? '';
 
     if ($action === 'add') {
@@ -135,6 +140,7 @@ $clients = $client->getAll(false);
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="add">
                 <div class="modal-header">
                     <h5 class="modal-title">Add New Client</h5>
@@ -202,6 +208,7 @@ $clients = $client->getAll(false);
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" name="client_id" id="edit_client_id">
                 <div class="modal-header">
@@ -267,6 +274,7 @@ $clients = $client->getAll(false);
 
 <!-- Delete Form -->
 <form method="POST" id="deleteForm">
+            <?php echo getCSRFTokenField(); ?>
     <input type="hidden" name="action" value="delete">
     <input type="hidden" name="client_id" id="delete_client_id">
 </form>

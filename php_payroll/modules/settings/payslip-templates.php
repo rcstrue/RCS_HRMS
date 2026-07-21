@@ -12,6 +12,11 @@ $templates = $db->query(
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? '';
     
     if ($action === 'add' || $action === 'edit') {
@@ -203,6 +208,7 @@ $defaultTemplateHtml = '<!DOCTYPE html>
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="add">
                 <div class="modal-header">
                     <h5 class="modal-title">Add New Template</h5>
@@ -251,6 +257,7 @@ $defaultTemplateHtml = '<!DOCTYPE html>
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" name="template_id" id="edit_template_id">
                 <div class="modal-header">
@@ -297,6 +304,7 @@ $defaultTemplateHtml = '<!DOCTYPE html>
 
 <!-- Delete Form -->
 <form method="POST" id="deleteForm">
+            <?php echo getCSRFTokenField(); ?>
     <input type="hidden" name="action" value="delete">
     <input type="hidden" name="template_id" id="delete_template_id">
 </form>

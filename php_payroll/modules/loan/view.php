@@ -22,6 +22,11 @@ $pageTitle = 'Loan Statement - ' . sanitize($loan['full_name']);
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? '';
 
     // Record manual EMI payment
@@ -434,6 +439,7 @@ CSS;
                         <td class="text-center no-print">
                             <?php if (in_array($sched['status'], ['Pending', 'Current'])): ?>
                             <form method="POST" style="display:inline;">
+            <?php echo getCSRFTokenField(); ?>
                                 <input type="hidden" name="action" value="record_payment">
                                 <input type="hidden" name="month" value="<?php echo $sched['month']; ?>">
                                 <input type="hidden" name="year" value="<?php echo $sched['year']; ?>">
@@ -478,6 +484,7 @@ CSS;
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="record_payment">
                 <div class="modal-header bg-success text-white">
                     <h5 class="modal-title"><i class="bi bi-cash-coin me-2"></i>Record Payment</h5>
@@ -524,6 +531,7 @@ CSS;
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="settle_loan">
                 <div class="modal-header bg-warning">
                     <h5 class="modal-title"><i class="bi bi-check-circle me-2"></i>Settle Loan</h5>
@@ -552,6 +560,7 @@ CSS;
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="add_amount">
                 <div class="modal-header bg-primary text-white">
                     <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Add Amount</h5>

@@ -39,6 +39,11 @@ $clients = $db->query("SELECT id, name, client_code FROM clients WHERE is_active
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $ratecard['client_id'] = !empty($_POST['client_id']) ? (int)$_POST['client_id'] : null;
     $ratecard['unit_id'] = !empty($_POST['unit_id']) ? (int)$_POST['unit_id'] : null;
     $ratecard['contract_id'] = !empty($_POST['contract_id']) ? (int)$_POST['contract_id'] : null;
@@ -131,6 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <?php endif; ?>
 
 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
     <div class="row">
         <div class="col-lg-8">
             <!-- Applicability -->

@@ -139,6 +139,11 @@ if ($selectedUnit && $_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['load']
 
 // Handle save (attendance + advances in one transaction)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_advance'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $unitId = (int)$_POST['unit_id'];
     $month = (int)$_POST['month'];
     $year = (int)$_POST['year'];
@@ -368,6 +373,7 @@ if (!empty($employees)) {
                 </div>
                 <?php else: ?>
                 <form method="POST" id="advanceForm">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="unit_id" value="<?php echo $selectedUnit; ?>">
                     <input type="hidden" name="month" value="<?php echo $selectedMonth; ?>">
                     <input type="hidden" name="year" value="<?php echo $selectedYear; ?>">

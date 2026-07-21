@@ -21,7 +21,11 @@ $bonusWageCeiling = floatval($db->fetchColumn("SELECT setting_value FROM setting
 
 // Handle bonus calculation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     if ($_POST['action'] === 'calculate_all') {
         $financialYear = sanitize($_POST['financial_year']); // Format: 2023-2024
         
@@ -339,6 +343,7 @@ $preview = $_SESSION['bonus_preview'] ?? null;
                 </h5>
                 <div>
                     <form method="POST" class="d-inline">
+            <?php echo getCSRFTokenField(); ?>
                         <input type="hidden" name="action" value="save_bonus">
                         <button type="submit" class="btn btn-success btn-sm">
                             <i class="bi bi-check-lg me-1"></i>Save Bonus Records
@@ -456,6 +461,7 @@ $preview = $_SESSION['bonus_preview'] ?? null;
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="calculate_all">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-calculator me-2"></i>Calculate Annual Bonus</h5>
@@ -513,6 +519,7 @@ $preview = $_SESSION['bonus_preview'] ?? null;
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="disburse">
                 <input type="hidden" name="bonus_id" id="disburse_bonus_id">
                 <div class="modal-header">

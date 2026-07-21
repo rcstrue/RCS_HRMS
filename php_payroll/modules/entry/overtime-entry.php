@@ -29,6 +29,11 @@ if ($clientFilter) {
 
 // Handle POST save overtime
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_ot'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $unitId = (int)($_POST['unit_id'] ?? 0);
     $month = (int)($_POST['month'] ?? $monthFilter);
     $year = (int)($_POST['year'] ?? $yearFilter);
@@ -78,6 +83,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_ot'])) {
 
 // Handle AJAX single-row save
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_ot_save'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     header('Content-Type: application/json');
     $empId = (int)$_POST['emp_id'];
     $otHours = (float)($_POST['overtime_hours'] ?? 0);
@@ -371,6 +381,7 @@ $months = [
         
         <!-- OT Entry Form -->
         <form method="POST" id="otForm">
+            <?php echo getCSRFTokenField(); ?>
             <input type="hidden" name="month" value="<?php echo $monthFilter; ?>">
             <input type="hidden" name="year" value="<?php echo $yearFilter; ?>">
             <input type="hidden" name="unit_id" value="<?php echo $unitFilter; ?>">

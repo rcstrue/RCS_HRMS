@@ -87,6 +87,11 @@ $totalImports = (int)$db->fetchColumn("SELECT COUNT(*) FROM esic_import_history"
 
 // ── Handle ESIC merge (update esic_number in employees) ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_esic' && !empty($_POST['selected_ids'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $ids = array_map('intval', $_POST['selected_ids']);
     $placeholders = implode(',', array_fill(0, count($ids), '?'));
 
@@ -290,6 +295,7 @@ try {
             </div>
         <?php else: ?>
         <form method="POST" id="esicMergeForm">
+            <?php echo getCSRFTokenField(); ?>
             <input type="hidden" name="action" value="update_esic">
 
             <div class="d-flex gap-2 mb-3 align-items-center flex-wrap">

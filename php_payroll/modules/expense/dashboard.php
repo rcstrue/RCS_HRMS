@@ -29,6 +29,11 @@ $monthShort = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',7=>'Jul',8=
 // ============================================================================
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = sanitize($_POST['action']);
 
     // ── Allocate Advance ──────────────────────────────────────────
@@ -855,6 +860,7 @@ try {
                     </div>
                     <div class="exp-card-body">
                         <form method="POST" action="" class="exp-form" id="allocateForm">
+            <?php echo getCSRFTokenField(); ?>
                             <input type="hidden" name="action" value="allocate_advance">
 
                             <div class="mb-3">
@@ -989,6 +995,7 @@ try {
                                         <td><?= htmlspecialchars($row['remarks']??'-') ?><?php if ($cf > 0): ?><br><small style="color:#059669;">incl. &#8377;<?= number_format($cf,2) ?> from <?= $monthNames[(int)($row['carry_forward_from_month']??0)] ?? '' ?> <?= $row['carry_forward_from_year']??'' ?></small><?php endif; ?></td>
                                         <td class="text-center">
                                             <form method="POST" action="" class="d-inline" onsubmit="return confirm('Delete?');">
+            <?php echo getCSRFTokenField(); ?>
                                                 <input type="hidden" name="action" value="delete_allocation">
                                                 <input type="hidden" name="alloc_id" value="<?= (int)$row['id'] ?>">
                                                 <button type="submit" class="exp-btn exp-btn-danger exp-btn-sm"><i class="bi bi-trash"></i></button>
@@ -1019,6 +1026,7 @@ try {
                     </div>
                     <div class="exp-card-body">
                         <form method="POST" action="" class="exp-form" id="addExpenseForm">
+            <?php echo getCSRFTokenField(); ?>
                             <input type="hidden" name="action" value="add_expense">
 
                             <div class="mb-3">

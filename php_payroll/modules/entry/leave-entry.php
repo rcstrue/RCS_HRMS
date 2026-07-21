@@ -41,6 +41,11 @@ $statusColors = ['pending' => 'warning', 'approved' => 'success', 'rejected' => 
 
 // Handle POST - Add Leave
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_leave'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $empId = (int)($_POST['employee_id'] ?? 0);
     $leaveType = sanitize($_POST['leave_type'] ?? '');
     $fromDate = sanitize($_POST['from_date'] ?? '');
@@ -235,6 +240,7 @@ $months = [
                     </div>
                     <div class="card-body">
                         <form method="POST" id="leaveForm">
+            <?php echo getCSRFTokenField(); ?>
                             <div class="row g-2">
                                 <div class="col-12">
                                     <label class="form-label">Employee <span class="text-danger">*</span></label>
@@ -465,6 +471,7 @@ $months = [
                                         <td class="text-center">
                                             <form method="POST" class="d-inline" 
                                                   onsubmit="return confirm('Delete this leave entry?')">
+            <?php echo getCSRFTokenField(); ?>
                                                 <input type="hidden" name="leave_id" value="<?php echo $entry['id']; ?>">
                                                 <button type="submit" name="delete_leave" class="btn btn-outline-danger btn-sm py-0 px-1" 
                                                         title="Delete">

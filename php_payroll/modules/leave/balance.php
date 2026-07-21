@@ -27,6 +27,11 @@ try {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     try {
         $employeeId = (int)$_POST['employee_id'];
         $leaveType = sanitize($_POST['leave_type']);
@@ -161,6 +166,7 @@ $leaveTypes = ['CL'=>'Casual Leave','PL'=>'Privilege Leave','SL'=>'Sick Leave','
     <div class="modal-dialog"><div class="modal-content">
         <div class="modal-header"><h5 class="modal-title">Add/Update Leave Balance</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
             <div class="modal-body">
                 <input type="hidden" name="employee_id" id="modalEmployeeId">
                 <div class="row g-3">

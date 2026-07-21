@@ -11,6 +11,11 @@ if (isset($_GET['id'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $data = [
         'title' => sanitize($_POST['title']),
         'content' => sanitize($_POST['content']),
@@ -46,6 +51,7 @@ $types = ['general'=>'General','holiday'=>'Holiday','policy'=>'Policy','event'=>
             <div class="card-header"><h5 class="mb-0"><i class="bi bi-megaphone me-2"></i><?php echo $isEdit ? 'Edit' : 'New'; ?> Announcement</h5></div>
             <div class="card-body">
                 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                     <div class="row g-3">
                         <div class="col-md-8">
                             <label class="form-label required">Title</label>

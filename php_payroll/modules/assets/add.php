@@ -70,6 +70,11 @@ try {
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $asset['asset_code'] = strtoupper(trim($_POST['asset_code'] ?? ''));
     $asset['asset_name'] = trim($_POST['asset_name'] ?? '');
     $asset['asset_type'] = $_POST['asset_type'] ?? 'other';
@@ -177,6 +182,7 @@ $assetTypes = [
 <?php endif; ?>
 
 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
     <div class="row">
         <div class="col-lg-8">
             <div class="card mb-4">

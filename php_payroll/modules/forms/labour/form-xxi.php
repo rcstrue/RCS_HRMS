@@ -39,6 +39,11 @@ $message = '';
 $messageType = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = sanitize($_POST['action'] ?? '');
 
     if ($action === 'add' || $action === 'edit') {
@@ -184,6 +189,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
         </div>
         <div class="card-body">
             <form method="POST" action="?page=forms/labour/form-xxi">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="<?= $editRecord ? 'edit' : 'add' ?>">
                 <?php if ($editRecord): ?>
                     <input type="hidden" name="id" value="<?= $editRecord['id'] ?>">
@@ -317,6 +323,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
                                         <i class="bi bi-pencil-square"></i></a>
                                     <form method="POST" action="?page=forms/labour/form-xxi" class="d-inline"
                                           onsubmit="return confirm('Delete this deduction record?')">
+            <?php echo getCSRFTokenField(); ?>
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="id" value="<?= $d['id'] ?>">
                                         <button type="submit" class="btn btn-outline-danger btn-xs py-0 px-1" title="Delete">

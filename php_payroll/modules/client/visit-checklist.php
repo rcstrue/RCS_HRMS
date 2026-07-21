@@ -39,6 +39,11 @@ $monthNames = [1=>'January',2=>'February',3=>'March',4=>'April',5=>'May',6=>'Jun
 
 // -- Handle status update --
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = sanitize($_POST['action']);
     
     if ($action === 'update_status' && isset($_POST['visit_id'])) {
@@ -451,6 +456,7 @@ foreach ($visits as $v) {
                             <li><hr class="dropdown-divider"></li>
                             <li>
                                 <form method="POST" class="d-inline" onsubmit="return confirm('Mark as Approved?')">
+            <?php echo getCSRFTokenField(); ?>
                                     <input type="hidden" name="action" value="update_status">
                                     <input type="hidden" name="visit_id" value="<?= $v['id'] ?>">
                                     <input type="hidden" name="new_status" value="approved">
@@ -461,6 +467,7 @@ foreach ($visits as $v) {
                             </li>
                             <li>
                                 <form method="POST" class="d-inline" onsubmit="return confirm('Mark as Rejected?')">
+            <?php echo getCSRFTokenField(); ?>
                                     <input type="hidden" name="action" value="update_status">
                                     <input type="hidden" name="visit_id" value="<?= $v['id'] ?>">
                                     <input type="hidden" name="new_status" value="rejected">
@@ -473,6 +480,7 @@ foreach ($visits as $v) {
                             <?php if ($status !== 'submitted'): ?>
                             <li>
                                 <form method="POST" class="d-inline">
+            <?php echo getCSRFTokenField(); ?>
                                     <input type="hidden" name="action" value="update_status">
                                     <input type="hidden" name="visit_id" value="<?= $v['id'] ?>">
                                     <input type="hidden" name="new_status" value="submitted">
@@ -485,6 +493,7 @@ foreach ($visits as $v) {
                             <li><hr class="dropdown-divider"></li>
                             <li>
                                 <form method="POST" class="d-inline" onsubmit="return confirm('Delete this checklist permanently?')">
+            <?php echo getCSRFTokenField(); ?>
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="visit_id" value="<?= $v['id'] ?>">
                                     <button type="submit" class="dropdown-item text-danger">
@@ -570,6 +579,7 @@ foreach ($visits as $v) {
                                     <?php endif; ?>
                                     <?php if ($status === 'submitted' || $status === 'reviewed'): ?>
                                     <form method="POST" class="d-inline" onsubmit="return confirm('Approve?')">
+            <?php echo getCSRFTokenField(); ?>
                                         <input type="hidden" name="action" value="update_status">
                                         <input type="hidden" name="visit_id" value="<?= $v['id'] ?>">
                                         <input type="hidden" name="new_status" value="approved">
@@ -610,6 +620,7 @@ foreach ($visits as $v) {
                     </a>
                     <?php if ($viewVisit && ($viewVisit['status'] ?? '') !== 'approved'): ?>
                     <form method="POST" class="d-inline" onsubmit="return confirm('Approve this checklist?')">
+            <?php echo getCSRFTokenField(); ?>
                         <input type="hidden" name="action" value="update_status">
                         <input type="hidden" name="visit_id" value="<?= $viewVisit['id'] ?? 0 ?>">
                         <input type="hidden" name="new_status" value="approved">

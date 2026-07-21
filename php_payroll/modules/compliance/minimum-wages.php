@@ -19,6 +19,11 @@ $wages = $compliance->getMinimumWages($stateId);
 
 // Handle add/update
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? '';
     
     if ($action === 'add') {
@@ -156,6 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="add">
                 <div class="modal-header">
                     <h5 class="modal-title">Add Minimum Wage</h5>
@@ -258,6 +264,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="update">
                 <input type="hidden" name="wage_id" id="edit_wage_id">
                 <div class="modal-header">

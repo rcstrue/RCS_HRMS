@@ -43,6 +43,11 @@ $dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // Handle POST save muster data (when in filled mode with manual entry)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_muster'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $unitId = (int)($_POST['unit_id'] ?? 0);
     $month = (int)($_POST['month'] ?? $monthFilter);
     $year = (int)($_POST['year'] ?? $yearFilter);
@@ -380,6 +385,7 @@ $months = [
         <!-- Muster Roll -->
         <?php if ($mode === 'filled'): ?>
         <form method="POST" id="musterForm">
+            <?php echo getCSRFTokenField(); ?>
             <input type="hidden" name="month" value="<?php echo $monthFilter; ?>">
             <input type="hidden" name="year" value="<?php echo $yearFilter; ?>">
             <input type="hidden" name="unit_id" value="<?php echo $unitFilter; ?>">

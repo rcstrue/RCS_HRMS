@@ -28,6 +28,11 @@ if ($selectedYear < 2000 || $selectedYear > 2099) $selectedYear = (int)date('Y')
 // ─── POST Handlers ────────────────────────────────────────────────────────────
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = sanitize($_POST['action'] ?? '');
 
     // ── Allocate Advance (Month-wise) ─────────────────────────────────────
@@ -369,6 +374,7 @@ $flashType = $flashType ?? 'success';
                 </div>
                 <div class="card-body">
                     <form method="POST" action="" id="allocateForm" novalidate>
+            <?php echo getCSRFTokenField(); ?>
                         <input type="hidden" name="action" value="allocate_advance">
                         <input type="hidden" name="alloc_month" value="<?php echo $selectedMonth; ?>">
                         <input type="hidden" name="alloc_year" value="<?php echo $selectedYear; ?>">
@@ -612,6 +618,7 @@ $flashType = $flashType ?? 'success';
                                     <i class="bi bi-pencil"></i>
                                 </button>
                                 <form method="POST" action="" class="d-inline" onsubmit="return confirm('Delete this allocation?');">
+            <?php echo getCSRFTokenField(); ?>
                                     <input type="hidden" name="action" value="delete_allocation">
                                     <input type="hidden" name="alloc_id" value="<?php echo (int)$row['id']; ?>">
                                     <button type="submit" class="btn btn-danger btn-sm py-0 px-1" title="Delete">
@@ -640,6 +647,7 @@ $flashType = $flashType ?? 'success';
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="edit_allocation">
                 <input type="hidden" name="alloc_id" value="<?php echo (int)$row['id']; ?>">
                 <div class="modal-body">
