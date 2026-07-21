@@ -1,14 +1,24 @@
 <?php
 /**
  * RCS HRMS Pro - Employee Self-Service Portal Login
- * Employees can login using their mobile number and employee code
+ * Employees can login using their mobile number OR employee code, plus a PIN.
+ *
+ * SECURITY (Round 3 hardening):
+ *   - CSRF token required on POST (was missing).
+ *   - DB-backed lockout: 5/10/20 failures → 15min/1h/24h (was none).
+ *   - session_regenerate_id(true) on successful login (was missing → fixation).
+ *   - Birth-year PIN fallback REMOVED (was 4-digit brute-force). Employees with
+ *     no PIN set must contact HR to set one via the ESS app/admin.
+ *   - Plaintext PINs are transparently upgraded to bcrypt on successful login.
+ *   - $_SESSION['csrf_token'] rotated after login.
  */
 
 $pageTitle = 'Employee Portal - Login';
 $showHeader = false;
 $showFooter = false;
 
-// Redirect if already logged in
+// Redirect if already logged in (session_start is handled by config.php,
+// but we call it here for the early redirect path before config loads).
 session_start();
 if (isset($_SESSION['employee_portal']) && $_SESSION['employee_portal']['logged_in']) {
     header('Location: index.php?page=portal/dashboard');
@@ -17,113 +27,132 @@ if (isset($_SESSION['employee_portal']) && $_SESSION['employee_portal']['logged_
 
 require_once '../../config/config.php';
 require_once '../../includes/database.php';
+require_once '../../includes/portal-security.php';
 
 $error = '';
 $success = '';
+$lockoutWarning = '';
 
 // Handle login
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $mobileNumber = trim($_POST['mobile_number'] ?? '');
-    $employeeCode = trim($_POST['employee_code'] ?? '');
-    
-    if (empty($mobileNumber) && empty($employeeCode)) {
-        $error = 'Please enter either Mobile Number or Employee Code';
+    // ── CSRF validation ──────────────────────────────────────────────────
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        $error = 'Invalid request. Please refresh the page and try again.';
     } else {
-        try {
-            $db = Database::getInstance();
-            
-            // Build query based on provided credentials
-            $sql = "SELECT e.id, e.employee_code, e.full_name, e.father_name, e.mobile_number,
-                           e.email, e.designation, e.department, e.date_of_joining,
-                           e.worker_category, e.status, e.profile_pic_url,
-                           e.uan_number, e.esic_number, e.date_of_birth,
-                           c.name as client_name,
-                           u.name as unit_name,
-                           ess.basic_da, ess.hra, ess.gross_salary
-                    FROM employees e
-                    LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id
-                        AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
-                    LEFT JOIN clients c ON e.client_id = c.id
-                    LEFT JOIN units u ON e.unit_id = u.id
-                    WHERE e.status = 'approved'";
-            
-            $params = [];
-            
-            if (!empty($mobileNumber)) {
-                $sql .= " AND e.mobile_number = :mobile_number";
-                $params['mobile_number'] = $mobileNumber;
-            }
-            
-            if (!empty($employeeCode)) {
-                $sql .= " AND e.employee_code = :employee_code";
-                $params['employee_code'] = $employeeCode;
-            }
-            
-            $sql .= " LIMIT 1";
-            
-            $employee = $db->fetch($sql, $params);
-            
-            // Require PIN for portal access
-            $pin = trim($_POST['pin'] ?? '');
-            if (empty($pin)) {
-                $error = 'Please enter your PIN.';
-                $employee = null;
-            }
+        $mobileNumber = trim($_POST['mobile_number'] ?? '');
+        $employeeCode = trim($_POST['employee_code'] ?? '');
+        $pin          = trim($_POST['pin'] ?? '');
 
-            if ($employee) {
-                // Verify PIN against ess_employee_cache
-                $cache = $db->fetch(
-                    "SELECT pin FROM ess_employee_cache WHERE employee_id = ?",
-                    [$employee['id']]
-                );
-                $storedPin = $cache['pin'] ?? null;
-                $pinValid = false;
-                if ($storedPin) {
-                    $pinValid = (strpos($storedPin, '$2y$') === 0)
-                        ? password_verify($pin, $storedPin)
-                        : ($storedPin === $pin);
+        // Require at least one identifier AND the PIN.
+        if ((empty($mobileNumber) && empty($employeeCode)) || empty($pin)) {
+            $error = 'Please enter your Employee Code or Mobile Number, plus your PIN.';
+        } else {
+            try {
+                $db = Database::getInstance();
+                $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+                // ── Lockout check (before any DB lookup) ──────────────────
+                $lockMsg = portal_check_lockout($db, $mobileNumber, $employeeCode, $ip);
+                if ($lockMsg) {
+                    $error = $lockMsg;
+                    $lockoutWarning = $lockMsg;
                 } else {
-                    // Default: birth year
-                    $birthYear = date('Y', strtotime($employee['date_of_birth'] ?? ''));
-                    $pinValid = ($pin === $birthYear);
-                }
-                if (!$pinValid) {
-                    $error = 'Invalid PIN. Please try again.';
-                    $employee = null;
-                }
-            }
+                    // Build query based on provided credentials
+                    $sql = "SELECT e.id, e.employee_code, e.full_name, e.father_name, e.mobile_number,
+                                   e.email, e.designation, e.department, e.date_of_joining,
+                                   e.worker_category, e.status, e.profile_pic_url,
+                                   e.uan_number, e.esic_number, e.date_of_birth,
+                                   c.name as client_name,
+                                   u.name as unit_name,
+                                   ess.basic_da, ess.hra, ess.gross_salary
+                            FROM employees e
+                            LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id
+                                AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+                            LEFT JOIN clients c ON e.client_id = c.id
+                            LEFT JOIN units u ON e.unit_id = u.id
+                            WHERE e.status = 'approved'";
 
-            if ($employee) {
-                // Set session
-                $_SESSION['employee_portal'] = [
-                    'logged_in' => true,
-                    'employee_id' => $employee['id'],
-                    'employee_code' => $employee['employee_code'],
-                    'full_name' => $employee['full_name'],
-                    'designation' => $employee['designation'],
-                    'client_name' => $employee['client_name'],
-                    'unit_name' => $employee['unit_name'],
-                    'photo_path' => $employee['profile_pic_url'],
-                    'login_time' => time()
-                ];
-                
-                // Log the login — activity_log table does not exist, use audit_log instead
-                $db->insert('audit_log', [
-                    'user_id'    => $employee['id'],
-                    'action'     => 'employee_portal_login',
-                    'details'    => json_encode(['employee_code' => $employee['employee_code']]),
-                    'ip_address' => $_SERVER['REMOTE_ADDR'] ?? '',
-                    'created_at' => date('Y-m-d H:i:s')
-                ]);
-                
-                header('Location: index.php?page=portal/dashboard');
-                exit;
-            } else {
-                $error = 'Employee not found or not active. Please check your details.';
+                    $params = [];
+
+                    if (!empty($mobileNumber)) {
+                        $sql .= " AND e.mobile_number = :mobile_number";
+                        $params['mobile_number'] = $mobileNumber;
+                    }
+
+                    if (!empty($employeeCode)) {
+                        $sql .= " AND e.employee_code = :employee_code";
+                        $params['employee_code'] = $employeeCode;
+                    }
+
+                    $sql .= " LIMIT 1";
+
+                    $employee = $db->fetch($sql, $params);
+
+                    // Verify PIN via the hardened helper (no birth-year fallback)
+                    $pinValid = false;
+                    if ($employee) {
+                        $pinValid = portal_verify_pin($db, (int) $employee['id'], $pin);
+                    }
+
+                    if ($employee && $pinValid) {
+                        // ── Success: regenerate session ID (prevents fixation) ──
+                        session_regenerate_id(true);
+
+                        $_SESSION['employee_portal'] = [
+                            'logged_in'     => true,
+                            'employee_id'   => $employee['id'],
+                            'employee_code' => $employee['employee_code'],
+                            'full_name'     => $employee['full_name'],
+                            'designation'   => $employee['designation'],
+                            'client_name'   => $employee['client_name'],
+                            'unit_name'     => $employee['unit_name'],
+                            'photo_path'    => $employee['profile_pic_url'],
+                            'login_time'    => time(),
+                        ];
+
+                        // Rotate the CSRF token for the new session.
+                        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+
+                        // Clear any failed-login counter for this identifier+IP.
+                        portal_clear_lockout($db, $mobileNumber, $employeeCode, $ip);
+
+                        // Audit log (consistent table + column names with admin login).
+                        try {
+                            $db->insert('audit_log', [
+                                'user_id'    => $employee['id'],
+                                'action'     => 'employee_portal_login',
+                                'details'    => json_encode([
+                                    'employee_code' => $employee['employee_code'],
+                                    'ip'            => $ip,
+                                ]),
+                                'ip_address' => $ip,
+                                'created_at' => date('Y-m-d H:i:s'),
+                            ]);
+                        } catch (Exception $logEx) {
+                            error_log('portal login audit_log insert failed: ' . $logEx->getMessage());
+                        }
+
+                        header('Location: index.php?page=portal/dashboard');
+                        exit;
+                    } else {
+                        // ── Failure: record the attempt + apply lockout if needed ──
+                        portal_record_failed_login($db, $mobileNumber, $employeeCode, $ip);
+
+                        // Re-check lockout so we can show the lockout message immediately
+                        // once the threshold is crossed.
+                        $lockMsg2 = portal_check_lockout($db, $mobileNumber, $employeeCode, $ip);
+                        if ($lockMsg2) {
+                            $error = $lockMsg2;
+                            $lockoutWarning = $lockMsg2;
+                        } else {
+                            $error = 'Invalid credentials. Please try again.';
+                        }
+                    }
+                }
+            } catch (Exception $e) {
+                $error = 'An error occurred. Please try again.';
+                error_log('Employee portal login error: ' . $e->getMessage());
             }
-        } catch (Exception $e) {
-            $error = 'An error occurred. Please try again.';
-            error_log('Employee portal login error: ' . $e->getMessage());
         }
     }
 }
@@ -238,6 +267,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             text-decoration: none;
             font-weight: 500;
         }
+        .lockout-banner {
+            background: #fff3cd;
+            border: 1px solid #ffe69c;
+            border-radius: 10px;
+            padding: 12px 15px;
+            margin-bottom: 15px;
+            color: #664d03;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .security-footer {
+            text-align: center;
+            margin-top: 15px;
+            font-size: 11px;
+            color: #999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+        .security-footer .badge-sec {
+            background: #e8eaf6;
+            color: #3f51b5;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -261,33 +319,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
             <?php endif; ?>
-            
+
+            <?php if ($lockoutWarning): ?>
+            <div class="lockout-banner">
+                <i class="bi bi-shield-lock-exclamation"></i>
+                <span><?php echo htmlspecialchars($lockoutWarning, ENT_QUOTES, 'UTF-8'); ?></span>
+            </div>
+            <?php endif; ?>
+
             <form method="POST" action="">
+                <?php echo getCSRFTokenField(); ?>
                 <div class="form-floating">
                     <input type="text" class="form-control" id="employee_code" name="employee_code" 
-                           placeholder="Employee Code" value="<?php echo htmlspecialchars($_POST['employee_code'] ?? ''); ?>">
+                           placeholder="Employee Code" value="<?php echo htmlspecialchars($_POST['employee_code'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
+                           autocomplete="username">
                     <label for="employee_code"><i class="bi bi-person-badge me-2"></i>Employee Code</label>
                 </div>
                 
                 <div class="form-floating">
                     <input type="password" class="form-control" id="pin" name="pin"
-                           placeholder="PIN" maxlength="10" required>
+                           placeholder="PIN" maxlength="10" required
+                           autocomplete="current-password" inputmode="numeric" pattern="[0-9]*">
                     <label for="pin"><i class="bi bi-lock me-2"></i>PIN</label>
                 </div>
                 
                 <div class="divider">
-                    <span>OR</span>
+                    <span>OR use mobile</span>
                 </div>
                 
                 <div class="form-floating">
                     <input type="tel" class="form-control" id="mobile_number" name="mobile_number" 
                            placeholder="Mobile Number" pattern="[0-9]{10}" maxlength="10"
-                           value="<?php echo htmlspecialchars($_POST['mobile_number'] ?? ''); ?>">
+                           value="<?php echo htmlspecialchars($_POST['mobile_number'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
+                           autocomplete="tel">
                     <label for="mobile_number"><i class="bi bi-phone me-2"></i>Mobile Number</label>
                 </div>
                 
-                <button type="submit" class="btn btn-primary btn-login w-100 mt-3">
-                    <i class="bi bi-box-arrow-in-right me-2"></i>Login to Portal
+                <button type="submit" class="btn btn-primary btn-login w-100 mt-3" <?php echo $lockoutWarning ? 'disabled' : ''; ?>>
+                    <i class="bi bi-box-arrow-in-right me-2"></i><?php echo $lockoutWarning ? 'Account Locked' : 'Login to Portal'; ?>
                 </button>
             </form>
             
@@ -297,8 +366,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div>
                         <strong>How to Login?</strong>
                         <p class="mb-0 small text-muted">
-                            Enter your Employee Code OR Mobile Number to access your portal. 
-                            Contact HR if you don't know your employee code.
+                            Enter your Employee Code (or Mobile Number) and your PIN.
+                            Don't have a PIN? Please contact HR to set one.
                         </p>
                     </div>
                 </div>
@@ -308,6 +377,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <a href="index.php?page=auth/login">
                     <i class="bi bi-shield-lock me-1"></i>Admin Login
                 </a>
+            </div>
+            <div class="security-footer">
+                <i class="bi bi-lock-fill"></i>
+                <span>Protected by</span>
+                <span class="badge-sec">CSRF · Lockout · Secure PIN</span>
             </div>
         </div>
     </div>

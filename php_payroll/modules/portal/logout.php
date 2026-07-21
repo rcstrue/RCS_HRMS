@@ -3,22 +3,31 @@
  * RCS HRMS Pro - Employee Portal Logout
  * Note: Included by index.php BEFORE any HTML output, so header() works.
  * Session is already started by the framework.
+ *
+ * SECURITY (Round 3): use audit_log (consistent with portal/login.php) instead
+ * of activity_log which does not exist in the schema. Include ip_address +
+ * employee_code in the audit detail for traceability.
  */
 
 // Log the logout action (before destroying session)
 if (isset($_SESSION['employee_portal'])) {
     try {
         $db = Database::getInstance();
-        $db->insert('activity_log', [
-            'user_id' => null,
-            'action' => 'employee_portal_logout',
-            'module' => 'portal',
-            'description' => "Employee {$_SESSION['employee_portal']['employee_code']} logged out",
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
-            'created_at' => date('Y-m-d H:i:s')
+        $empCode = $_SESSION['employee_portal']['employee_code'] ?? '';
+        $empId   = $_SESSION['employee_portal']['employee_id'] ?? null;
+        $db->insert('audit_log', [
+            'user_id'    => $empId,
+            'action'     => 'employee_portal_logout',
+            'details'    => json_encode([
+                'employee_code' => $empCode,
+                'ip'            => $_SERVER['REMOTE_ADDR'] ?? '',
+            ]),
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? '',
+            'created_at' => date('Y-m-d H:i:s'),
         ]);
     } catch (Exception $e) {
-        // Ignore errors on logout
+        // Ignore errors on logout — don't block the user from logging out.
+        error_log('portal logout audit_log insert failed: ' . $e->getMessage());
     }
 }
 

@@ -1,8 +1,21 @@
 // API Configuration - direct calls to backend server
-const API_BASE_URL = 'https://join.rcsfacility.com';
+//
+// SECURITY (Round 3): API_BASE_URL and API_KEY are now EXPORTED so other modules
+// (e.g. ess-auth.ts proactive refresh) can reuse the same single source of truth
+// instead of hardcoding their own copy + a dangerous fallback secret.
+//
+// VITE_API_URL: set in .env for the target backend. Falls back to the production
+//   host so the app works out-of-the-box for the live deployment.
+// VITE_API_KEY: set in .env (build-time). Falls back to EMPTY STRING — never a
+//   hardcoded secret. The server validates via hash_equals; an empty key will be
+//   rejected, which is the safe failure mode.
+export const API_BASE_URL =
+  (import.meta as Record<string, Record<string, string>>).env?.VITE_API_URL
+  || 'https://join.rcsfacility.com';
 
-// API Key for server-side validation (Vite uses import.meta.env)
-const API_KEY = (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY ?? '';
+export const API_KEY =
+  (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY
+  || '';
 
 // Guard against duplicate session-expired toasts
 let _sessionExpiredFired = false;

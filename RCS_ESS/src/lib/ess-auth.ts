@@ -1,6 +1,19 @@
 // ══════════════════════════════════════════════════════════════
 // ESS Token Manager — JWT token lifecycle management
 // ══════════════════════════════════════════════════════════════
+//
+// SECURITY (Round 3): the proactive refresh previously hardcoded both the API
+// base URL ('https://join.rcsfacility.com') AND a fallback API key
+// ('RCS_HRMS_SECURE_KEY_982374982374') directly in this file. The fallback key
+// was shipped to every browser in the JS bundle, making it public. Both are now
+// imported from the centralized api/config.ts which reads VITE_API_URL and
+// VITE_API_KEY env vars (with empty-string fallback — never a hardcoded secret).
+//
+// Note: tryRefreshToken() in config.ts is the canonical refresh path (used by
+// apiRequest on 401). proactiveRefresh() here is the timer-driven path; both
+// now share the same API_KEY constant.
+
+import { API_BASE_URL, API_KEY } from './api/config';
 
 const ESS_TOKEN_KEY = 'ess_token';
 const ESS_SESSION_KEY = 'ess_employee';
@@ -206,12 +219,7 @@ export async function proactiveRefresh(): Promise<boolean> {
   if (!isTokenExpired(token)) return true; // still fresh
 
   try {
-    const API_BASE = 'https://join.rcsfacility.com';
-    const API_KEY = typeof import.meta !== 'undefined' && (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY
-      ? (import.meta as Record<string, Record<string, string>>).env.VITE_API_KEY
-      : 'RCS_HRMS_SECURE_KEY_982374982374';
-
-    const resp = await fetch(`${API_BASE}/api/ess/refresh.php`, {
+    const resp = await fetch(`${API_BASE_URL}/api/ess/refresh.php`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
       body: JSON.stringify({ token }),

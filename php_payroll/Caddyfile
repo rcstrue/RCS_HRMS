@@ -12,6 +12,23 @@
 
 	encode gzip zstd
 
+	# ── Direct-access protection ───────────────────────────────────────────
+	# Block direct URL access to internal PHP source directories. LiteSpeed
+	# would normally honour .htaccess deny rules, but the repo ships none and
+	# Caddy ignores .htaccess entirely. These matchers ensure that even if the
+	# webserver tries to serve these paths, they return 403.
+	@blocked {
+		path /includes/* /config/* /modules/* /tmp_sessions/*
+		# Standalone scripts that should never be hit directly
+		path /download_salary_template.php
+		# Also block dotfiles and editor cruft
+		path_regexp \.(git|env|sql|md|log|swp|swo)$
+		path /.git* /.env*
+	}
+	respond @blocked 403 {
+		close
+	}
+
 	handle {
 		reverse_proxy localhost:3000 {
 			header_up Host {host}
