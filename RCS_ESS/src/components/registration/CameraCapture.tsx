@@ -3,6 +3,7 @@ import { Camera, RotateCcw, FlipHorizontal, Loader2, ImagePlus, X, ShieldAlert, 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getFileUrl } from '@/lib/api/config';
+import { logger } from "@/lib/logger";
 
 type PermissionState = 'idle' | 'prompt' | 'denied' | 'granted' | 'unavailable';
 
@@ -89,14 +90,14 @@ export function CameraCapture({
             setIsLoading(false);
             setPermissionState('granted');
           }).catch((err) => {
-            console.error('Error playing video:', err);
+            logger.error('Error playing video:', err);
             setIsLoading(false);
             setPermissionState('denied');
           });
         };
       }
     } catch (error: unknown) {
-      console.error('Error accessing camera:', error);
+      logger.error('Error accessing camera:', error);
       setIsLoading(false);
 
       // Determine the type of error

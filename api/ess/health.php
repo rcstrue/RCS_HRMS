@@ -72,6 +72,9 @@ $response = [
         'session_idle_timeout_8h'  => true,  // was 4 days, now 8 hours (r6)
         'config_example_hardened'  => true,  // config.local.example.php ships APP_ENV=production (r6)
         'spa_ts_strict'            => true,  // tsconfig strict:true + all any usages removed (r6)
+        'spa_logger_added'         => true,  // logger.ts: console.log/info/debug no-op in prod (r7)
+        'react_query_removed'      => true,  // unused @tanstack/react-query removed (r7)
+        'remember_me_removed'      => true,  // decorative "Remember me" checkbox removed (r7)
     ],
 ];
 

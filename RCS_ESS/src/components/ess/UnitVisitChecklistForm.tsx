@@ -22,6 +22,7 @@ import {
   DrawerClose,
 } from '@/components/ui/drawer';
 import {
+import { logger } from "@/lib/logger";
   Loader2, X, CheckCircle2, MapPin, Camera, ImagePlus,
 } from 'lucide-react';
 
@@ -129,7 +130,7 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
       // WhatsApp HD-style compression (max 1600px, ≤ 1 MB JPEG)
       const compressed = await compressImageHD(file);
       const sizeKB = Math.round(compressed.size / 1024);
-      console.log(`[Checklist] Image compressed: ${(file.size / 1024).toFixed(0)}KB → ${sizeKB}KB`);
+      logger.log(`[Checklist] Image compressed: ${(file.size / 1024).toFixed(0)}KB → ${sizeKB}KB`);
 
       const { url, error } = await uploadFile(compressed, 'unit-visits');
       if (error) { toast.error(error); return; }
@@ -140,7 +141,7 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
       reader.onload = () => setDocPreview(reader.result as string);
       reader.readAsDataURL(compressed);
     } catch (err) {
-      console.error('[Checklist] Upload error:', err);
+      logger.error('[Checklist] Upload error:', err);
       const msg = err instanceof Error ? err.message : 'Failed to process image. Please try again.';
       toast.error(msg);
     } finally {

@@ -7,6 +7,7 @@ import { fetchLeaveBalance, fetchLeaves, fetchExpenses, fetchTasks } from '@/lib
 import type { AttendanceRecord, LeaveBalance, EmployeeRole, ESSSession } from '@/lib/ess-types';
 import { todayDateString, requestGeolocation } from '../helpers';
 import type { DashboardData } from '../types';
+import { logger } from "@/lib/logger";
 
 // ══════════════════════════════════════════════════════════════
 // useDashboard - Manages dashboard data loading
@@ -59,7 +60,7 @@ export function useDashboard(session: ESSSession | null) {
         pendingTasks: tasksData?.pagination?.total ?? tasksData?.items?.length ?? 0,
       });
     } catch (err) {
-      console.error('Failed to load dashboard data:', err);
+      logger.error('Failed to load dashboard data:', err);
     } finally {
       setLoading(false);
     }

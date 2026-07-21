@@ -9,6 +9,7 @@ import type { CertificateData } from '@/lib/ess-api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, FileText, Award, BadgeCheck, Download, ShieldCheck } from 'lucide-react';
+import { logger } from "@/lib/logger";
 
 // ── Certificate card config ───────────────────────────────────
 
@@ -59,7 +60,7 @@ export default function CertificatesPage({ employeeId, employeeName }: Props) {
         toast.error('Please allow pop-ups in your browser to download certificates.');
       } else {
         toast.error('Failed to generate PDF. Please try again.');
-        console.error('Certificate generation error:', err);
+        logger.error('Certificate generation error:', err);
       }
     } finally {
       setGenerating(null);

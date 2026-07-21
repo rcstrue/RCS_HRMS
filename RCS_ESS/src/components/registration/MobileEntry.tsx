@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { ProfilePhotoCapture } from '@/components/registration/ProfilePhotoCapture';
 import { uploadBase64Image, getFileUrl } from '@/lib/api/config';
 import { toast } from 'sonner';
+import { logger } from "@/lib/logger";
 
 interface MobileEntryProps {
   onMobileSubmit: (mobile: string, profilePicUrl?: string) => void;
@@ -89,7 +90,7 @@ export function MobileEntry({ onMobileSubmit, onLoginSubmit, checkMobileExists }
       setProfilePicUrl(url);
       toast.success('Profile photo captured successfully.');
     } catch (err) {
-      console.error('MobileEntry - upload error:', err);
+      logger.error('MobileEntry - upload error:', err);
       toast.error('Upload failed. Please try again.');
     } finally {
       setIsUploadingProfile(false);

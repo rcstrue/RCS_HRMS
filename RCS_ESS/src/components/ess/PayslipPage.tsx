@@ -17,6 +17,7 @@ import PageHeader from './PageHeader';
 import { fetchPayslipPeriods, fetchPayslipData } from '@/lib/ess-api';
 import { generatePayslipPDF } from '@/lib/pdf/generatePayslipPDF';
 import type { PayslipData } from '@/lib/pdf/generatePayslipPDF';
+import { logger } from "@/lib/logger";
 
 // ══════════════════════════════════════════════════════════════
 // PayslipPage — View payslip in HTML, download as PDF on demand
@@ -182,7 +183,7 @@ export default function PayslipPage({ employeeId, employeeName }: PayslipPagePro
       // Print window opened — user handles save from browser dialog
       toast.success('Print dialog opened! Use "Save as PDF" to download.');
     } catch (err) {
-      console.error('PDF generation failed:', err);
+      logger.error('PDF generation failed:', err);
       const msg = err instanceof Error ? err.message : 'Failed to open payslip for printing.';
       toast.error(msg);
     } finally {

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 // API Configuration - direct calls to backend server
 //
 // SECURITY (Round 3): API_BASE_URL and API_KEY are now EXPORTED so other modules
@@ -165,15 +166,15 @@ export async function apiRequest<T>(
       try {
         data = JSON.parse(responseText);
       } catch {
-        console.error(`Failed to parse JSON response for ${endpoint} (status ${response.status}):`, responseText.substring(0, 200));
+        logger.error(`Failed to parse JSON response for ${endpoint} (status ${response.status}):`, responseText.substring(0, 200));
         return { data: null, error: 'Invalid server response. Please try again.' };
       }
     } else {
       // Response is HTML or something else
-      console.error('Non-JSON response received:', responseText.substring(0, 500));
-      console.error('Response status:', response.status);
-      console.error('Content-Type:', contentType);
-      console.error('Endpoint:', endpoint);
+      logger.error('Non-JSON response received:', responseText.substring(0, 500));
+      logger.error('Response status:', response.status);
+      logger.error('Content-Type:', contentType);
+      logger.error('Endpoint:', endpoint);
       
       if (response.status === 404) {
         return { data: null, error: 'API endpoint not found. Please contact support.' };
@@ -251,7 +252,7 @@ export async function apiRequest<T>(
 
     return { data: data as T, error: null };
   } catch (error) {
-    console.error('API Error:', error);
+    logger.error('API Error:', error);
     return { data: null, error: 'Network error. Please check your connection.' };
   }
 }
@@ -266,7 +267,7 @@ export async function uploadFile(
     return uploadBase64Image(base64Data, file.name, folder);
 
   } catch (error) {
-    console.error('Upload Error:', error);
+    logger.error('Upload Error:', error);
     return { url: null, error: 'Upload failed. Please try again.' };
   }
 }
@@ -310,12 +311,12 @@ export async function uploadBase64Image(
       try {
         data = JSON.parse(responseText);
       } catch {
-        console.error(`Failed to parse JSON response for /upload/base64 (status ${response.status}):`, responseText.substring(0, 200));
+        logger.error(`Failed to parse JSON response for /upload/base64 (status ${response.status}):`, responseText.substring(0, 200));
         return { url: null, error: 'Invalid server response. Please try again.' };
       }
     } else {
       // Response is HTML or something else
-      console.error('Non-JSON response from upload:', responseText.substring(0, 500));
+      logger.error('Non-JSON response from upload:', responseText.substring(0, 500));
       return { url: null, error: 'Server error. Please try again later.' };
     }
 
@@ -325,7 +326,7 @@ export async function uploadBase64Image(
 
     return { url: data?.url || null, error: null };
   } catch (error) {
-    console.error('Upload Error:', error);
+    logger.error('Upload Error:', error);
     return { url: null, error: 'Upload failed. Please try again.' };
   }
 }

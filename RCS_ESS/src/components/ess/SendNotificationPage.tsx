@@ -32,6 +32,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
 import PageHeader from './PageHeader';
+import { logger } from "@/lib/logger";
 
 // ══════════════════════════════════════════════════════════════
 // Types
@@ -365,7 +366,7 @@ function ComposeTab({ onSent }: { onSent: () => void }) {
       // Switch to sent tab
       onSent();
     } catch (err) {
-      console.error('Failed to send notification:', err);
+      logger.error('Failed to send notification:', err);
       toast.error('Failed to send notification');
     } finally {
       setSending(false);
@@ -901,7 +902,7 @@ function SentTab() {
       }
       setBroadcasts(data?.items ? (Array.isArray(data.items) ? data.items : []) : []);
     } catch (err) {
-      console.error('Failed to fetch broadcasts:', err);
+      logger.error('Failed to fetch broadcasts:', err);
       setError('Failed to load sent notifications');
       toast.error('Failed to load sent notifications');
     } finally {

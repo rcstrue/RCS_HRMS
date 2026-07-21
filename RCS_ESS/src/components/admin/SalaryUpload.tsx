@@ -32,6 +32,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { apiRequest } from '@/lib/api/config';
+import { logger } from "@/lib/logger";
 
 // ──────────────────────────────────────────────
 // Types
@@ -335,7 +336,7 @@ export function SalaryUpload() {
           toast.success(`Successfully parsed ${rows.length} rows.`);
         }
       } catch (err) {
-        console.error('Parse error:', err);
+        logger.error('Parse error:', err);
         setParseError('Failed to parse the uploaded file. Please ensure it is a valid XLSX.');
         toast.error('Failed to parse the file.');
       }

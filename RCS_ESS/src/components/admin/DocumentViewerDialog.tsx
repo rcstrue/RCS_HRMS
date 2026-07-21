@@ -10,6 +10,7 @@ import { ZoomIn, ZoomOut, RotateCw, Download, Upload, Loader2 } from 'lucide-rea
 import { uploadFile } from '@/lib/api/config';
 import { updateEmployee } from '@/lib/api/employees';
 import { toast } from 'sonner';
+import { logger } from "@/lib/logger";
 
 interface DocumentViewerDialogProps {
   imageUrl: string | null;
@@ -67,7 +68,7 @@ export function DocumentViewerDialog({
       const { url: newUrl, error: uploadError } = await uploadFile(file, `employees/${employeeId}`);
 
       if (uploadError || !newUrl) {
-        console.error('Upload error:', uploadError);
+        logger.error('Upload error:', uploadError);
         toast.error('Failed to upload document');
         return;
       }
@@ -85,7 +86,7 @@ export function DocumentViewerDialog({
       });
 
       if (updateError) {
-        console.error('Update error:', updateError);
+        logger.error('Update error:', updateError);
         toast.error('Failed to update record');
         return;
       }
@@ -93,7 +94,7 @@ export function DocumentViewerDialog({
       toast.success('Document updated successfully');
       onDocumentUpdated?.(newUrl);
     } catch (error) {
-      console.error('Error uploading:', error);
+      logger.error('Error uploading:', error);
       toast.error('Upload failed');
     } finally {
       setIsUploading(false);

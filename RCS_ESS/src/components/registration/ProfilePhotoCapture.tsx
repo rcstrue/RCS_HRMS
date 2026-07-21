@@ -3,6 +3,7 @@ import { Camera, RotateCcw, FlipHorizontal, Loader2, ImagePlus, X, Check } from 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getFileUrl } from '@/lib/api/config';
+import { logger } from "@/lib/logger";
 
 interface ProfilePhotoCaptureProps {
   onCapture: (imageData: string) => void;
@@ -44,13 +45,13 @@ export function ProfilePhotoCapture({
             setIsStreaming(true);
             setIsLoading(false);
           }).catch((err) => {
-            console.error('Error playing video:', err);
+            logger.error('Error playing video:', err);
             setIsLoading(false);
           });
         };
       }
     } catch (error) {
-      console.error('Error accessing camera:', error);
+      logger.error('Error accessing camera:', error);
       alert('Unable to access camera. Please ensure camera permissions are granted.');
       setIsLoading(false);
     }
@@ -114,13 +115,13 @@ export function ProfilePhotoCapture({
             setIsStreaming(true);
             setIsLoading(false);
           }).catch((err) => {
-            console.error('Error playing video:', err);
+            logger.error('Error playing video:', err);
             setIsLoading(false);
           });
         };
       }
     } catch (error) {
-      console.error('Error switching camera:', error);
+      logger.error('Error switching camera:', error);
       setIsLoading(false);
     }
   }, [facingMode, stopCamera]);
@@ -168,7 +169,7 @@ export function ProfilePhotoCapture({
         resolve(result);
       };
       img.onerror = () => {
-        console.error('Failed to load image for compression');
+        logger.error('Failed to load image for compression');
         resolve(dataUrl);
       };
       img.src = dataUrl;

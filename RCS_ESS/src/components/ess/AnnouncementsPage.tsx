@@ -33,6 +33,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import {
+import { logger } from "@/lib/logger";
   Select,
   SelectContent,
   SelectItem,
@@ -126,7 +127,7 @@ export default function AnnouncementsPage({
       }
       setAnnouncements(Array.isArray(res) ? res : []);
     } catch (err) {
-      console.error('Failed to fetch announcements:', err);
+      logger.error('Failed to fetch announcements:', err);
       setError('Failed to load announcements. Please try again.');
       toast.error('Failed to load announcements');
     } finally {
@@ -179,7 +180,7 @@ export default function AnnouncementsPage({
       resetForm();
       loadAnnouncements();
     } catch (err) {
-      console.error('Failed to create announcement:', err);
+      logger.error('Failed to create announcement:', err);
       toast.error('Failed to post announcement');
     } finally {
       setSubmitting(false);

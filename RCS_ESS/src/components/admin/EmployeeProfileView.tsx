@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, User, Phone, Mail, MapPin, Building, Calendar, FileText, Users, Loader2 } from 'lucide-react';
 import { apiRequest } from '@/lib/api/config';
+import { logger } from "@/lib/logger";
 
 interface EmployeeProfileViewProps {
   employeeId: number;
@@ -61,7 +62,7 @@ export const EmployeeProfileView: React.FC<EmployeeProfileViewProps> = ({ employ
         setError(result.error || result.data?.message || 'Failed to fetch employee details');
       }
     } catch (err) {
-      console.error('Error fetching employee:', err);
+      logger.error('Error fetching employee:', err);
       setError('Failed to load employee details');
     } finally {
       setLoading(false);

@@ -10,6 +10,7 @@ import { Step7ClientUnit } from './steps/Step7ClientUnit';
 import { Step8Review } from './steps/Step8Review';
 import { createEmployee, updateEmployee } from '@/lib/api/employees';
 import type { 
+import { logger } from "@/lib/logger";
   RegistrationStep, 
   RegistrationData, 
   BasicInfo, 
@@ -375,7 +376,7 @@ export function RegistrationWizard({
       // Don't call onComplete() here - let Step8Review show SuccessPage first
       // onComplete will be called by SuccessPage after WhatsApp redirect
     } catch (error) {
-      console.error('Error saving registration:', error);
+      logger.error('Error saving registration:', error);
       throw error;
     }
   }, [data, existingEmployeeId]);

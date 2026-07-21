@@ -62,17 +62,10 @@ $flash = getFlash();
             
             <div class="form-group mb-3">
                 <label for="password" class="form-label">Password</label>
-                <input type="password" class="form-control" id="password" name="password" 
+                <input type="password" class="form-control" id="password" name="password"
                        placeholder="Enter your password" required>
             </div>
-            
-            <div class="form-group mb-3">
-                <div class="form-check">
-                    <input type="checkbox" class="form-check-input" id="remember" name="remember">
-                    <label class="form-check-label" for="remember">Remember me</label>
-                </div>
-            </div>
-            
+
             <button type="submit" class="btn btn-primary w-100">
                 <i class="bi bi-box-arrow-in-right me-2"></i>Sign In
             </button>
