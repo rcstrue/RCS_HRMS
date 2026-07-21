@@ -1,7 +1,8 @@
 <?php
 /**
  * RCS HRMS Pro - Role Management
- * Updated: Syncs permissions to role_menu_permissions for sidebar visibility
+ * Manages roles and their permissions.
+ * Permissions are mapped 1:1 with sidebar menu modules.
  * Company: RCS TRUE FACILITIES PVT LTD
  */
 
@@ -10,67 +11,66 @@ $pageTitle = 'Manage Roles';
 // Get all roles
 $roles = $db->fetchAll("SELECT * FROM roles ORDER BY level DESC");
 
-// Define available permissions
+/**
+ * Available permissions - mapped to sidebar menu modules.
+ * When a module has 'view' permission, its sidebar menu item becomes visible.
+ * Sub-actions (add, edit, delete, etc.) control button-level access within pages.
+ *
+ * To add a new module: add an entry below AND add the sidebar menu item in header.php.
+ */
 $availablePermissions = [
-    'dashboard' => ['view' => 'View Dashboard'],
+    'dashboard' => [
+        'view' => 'View Dashboard',
+    ],
     'employee' => [
-        'view' => 'View Employees',
-        'add' => 'Add Employee',
-        'edit' => 'Edit Employee',
+        'view'   => 'View Employees',
+        'add'    => 'Add Employee',
+        'edit'   => 'Edit Employee',
         'delete' => 'Delete Employee',
         'import' => 'Import Employees',
-        'export' => 'Export Employees'
+        'export' => 'Export Employees',
     ],
     'attendance' => [
-        'view' => 'View Attendance',
-        'add' => 'Add Attendance',
-        'edit' => 'Edit Attendance',
+        'view'   => 'View Attendance',
+        'add'    => 'Add Attendance',
+        'edit'   => 'Edit Attendance',
         'import' => 'Import Attendance',
-        'export' => 'Export Attendance'
+        'export' => 'Export Attendance',
     ],
     'payroll' => [
-        'view' => 'View Payroll',
+        'view'    => 'View Payroll',
         'process' => 'Process Payroll',
         'approve' => 'Approve Payroll',
-        'export' => 'Export Payroll'
+        'export'  => 'Export Payroll',
     ],
     'client' => [
-        'view' => 'View Clients',
-        'add' => 'Add Client',
-        'edit' => 'Edit Client',
-        'delete' => 'Delete Client'
+        'view'   => 'View Clients',
+        'add'    => 'Add Client',
+        'edit'   => 'Edit Client',
+        'delete' => 'Delete Client',
     ],
     'unit' => [
-        'view' => 'View Units',
-        'add' => 'Add Unit',
-        'edit' => 'Edit Unit',
-        'delete' => 'Delete Unit'
+        'view'   => 'View Units',
+        'add'    => 'Add Unit',
+        'edit'   => 'Edit Unit',
+        'delete' => 'Delete Unit',
     ],
-    'compliance' => [
-        'view' => 'View Compliance',
-        'manage' => 'Manage Compliance',
-        'file' => 'File Returns'
+    'forms' => [
+        'view'   => 'View Statutory Forms',
+        'manage' => 'Manage Forms',
     ],
-    'reports' => [
-        'view' => 'View Reports',
-        'export' => 'Export Reports'
+    'leave' => [
+        'view'   => 'View Leave',
+        'manage' => 'Manage Leave',
+    ],
+    'report' => [
+        'view'   => 'View Reports',
+        'export' => 'Export Reports',
     ],
     'settings' => [
-        'view' => 'View Settings',
-        'manage' => 'Manage Settings'
+        'view'   => 'View Settings',
+        'manage' => 'Manage Settings',
     ],
-    'users' => [
-        'view' => 'View Users',
-        'add' => 'Add User',
-        'edit' => 'Edit User',
-        'delete' => 'Delete User'
-    ],
-    'roles' => [
-        'view' => 'View Roles',
-        'add' => 'Add Role',
-        'edit' => 'Edit Role',
-        'delete' => 'Delete Role'
-    ]
 ];
 
 /**
@@ -88,91 +88,87 @@ if (!function_exists('menuPermissionsTableExists')) {
 }
 
 /**
- * Sync permissions to role_menu_permissions table
- * This ensures sidebar shows/hides menus correctly
+ * Sync role permissions to role_menu_permissions table for sidebar visibility.
+ * Maps each permission module to its corresponding sidebar menu key.
  */
 if (!function_exists('syncMenuPermissions')) {
     function syncMenuPermissions($db, $roleId, $permissions) {
-    // Check if table exists first
-    if (!menuPermissionsTableExists($db)) {
-        return false;
-    }
-    
-    // Map permission modules to menu keys
-    $menuMap = [
-        'dashboard' => 'dashboard',
-        'employee' => 'employee',
-        'client' => 'client',
-        'attendance' => 'attendance',
-        'payroll' => 'payroll',
-        'compliance' => 'compliance',
-        'reports' => 'report',
-        'settings' => 'settings',
-    ];
-    
-    // Get all menus from auth
-    global $auth;
-    $menus = $auth ? $auth->getAllMenus() : [];
-    
-    if (empty($menus)) {
-        return false;
-    }
-    
-    try {
-        // Clear existing permissions for this role
-        $db->query("DELETE FROM role_menu_permissions WHERE role_id = :role_id", ['role_id' => $roleId]);
-        
-        // Insert new permissions
-        foreach ($menus as $menuKey => $menuInfo) {
-            $isVisible = 0;
-            
-            // Check if user has view permission for this menu's module
-            foreach ($menuMap as $permModule => $menuMatch) {
-                if (strpos($menuKey, $menuMatch) !== false || $menuKey === $menuMatch) {
-                    if (isset($permissions[$permModule]['view']) && $permissions[$permModule]['view']) {
-                        $isVisible = 1;
-                    }
-                    break;
-                }
-            }
-            
-            // Insert menu permission
-            $db->insert('role_menu_permissions', [
-                'role_id' => $roleId,
-                'menu_key' => $menuKey,
-                'submenu_key' => null,
-                'is_visible' => $isVisible,
-                'can_view' => $isVisible,
-                'can_add' => isset($permissions[$menuKey]['add']) ? 1 : 0,
-                'can_edit' => isset($permissions[$menuKey]['edit']) ? 1 : 0,
-                'can_delete' => isset($permissions[$menuKey]['delete']) ? 1 : 0
-            ]);
-            
-            // Handle submenus
-            if (!empty($menuInfo['submenus'])) {
-                foreach ($menuInfo['submenus'] as $submenuKey => $submenuInfo) {
-                    // Submenu visible if parent is visible
-                    $subVisible = $isVisible;
-                    
-                    $db->insert('role_menu_permissions', [
-                        'role_id' => $roleId,
-                        'menu_key' => $menuKey,
-                        'submenu_key' => $submenuKey,
-                        'is_visible' => $subVisible,
-                        'can_view' => $subVisible,
-                        'can_add' => 0,
-                        'can_edit' => 0,
-                        'can_delete' => 0
-                    ]);
-                }
-            }
+        if (!menuPermissionsTableExists($db)) {
+            return false;
         }
-        return true;
-    } catch (Exception $e) {
-        error_log('syncMenuPermissions error: ' . $e->getMessage());
-        return false;
+        
+        // Map permission module keys to sidebar menu keys
+        $menuMap = [
+            'dashboard'  => 'dashboard',
+            'employee'   => 'employee',
+            'attendance' => 'attendance',
+            'payroll'    => 'payroll',
+            'client'     => 'client',
+            'unit'       => 'unit',
+            'forms'      => 'forms',
+            'leave'      => 'leave',
+            'report'     => 'report',
+            'settings'   => 'settings',
+        ];
+        
+        // Get all menus from auth
+        global $auth;
+        $menus = $auth ? $auth->getAllMenus() : [];
+        
+        if (empty($menus)) {
+            return false;
+        }
+        
+        try {
+            // Clear existing permissions for this role
+            $db->query("DELETE FROM role_menu_permissions WHERE role_id = :role_id", ['role_id' => $roleId]);
+            
+            foreach ($menus as $menuKey => $menuInfo) {
+                $isVisible = 0;
+                
+                // Check if user has view permission for this menu's module
+                foreach ($menuMap as $permModule => $menuMatch) {
+                    if (strpos($menuKey, $menuMatch) !== false || $menuKey === $menuMatch) {
+                        if (isset($permissions[$permModule]['view']) && $permissions[$permModule]['view']) {
+                            $isVisible = 1;
+                        }
+                        break;
+                    }
+                }
+                
+                $db->insert('role_menu_permissions', [
+                    'role_id'     => $roleId,
+                    'menu_key'    => $menuKey,
+                    'submenu_key' => null,
+                    'is_visible'  => $isVisible,
+                    'can_view'    => $isVisible,
+                    'can_add'     => isset($permissions[$menuKey]['add']) ? 1 : 0,
+                    'can_edit'    => isset($permissions[$menuKey]['edit']) ? 1 : 0,
+                    'can_delete'  => isset($permissions[$menuKey]['delete']) ? 1 : 0,
+                ]);
+                
+                // Handle submenus
+                if (!empty($menuInfo['submenus'])) {
+                    foreach ($menuInfo['submenus'] as $submenuKey => $submenuInfo) {
+                        $db->insert('role_menu_permissions', [
+                            'role_id'     => $roleId,
+                            'menu_key'    => $menuKey,
+                            'submenu_key' => $submenuKey,
+                            'is_visible'  => $isVisible,
+                            'can_view'    => $isVisible,
+                            'can_add'     => 0,
+                            'can_edit'    => 0,
+                            'can_delete'  => 0,
+                        ]);
+                    }
+                }
+            }
+            return true;
+        } catch (Exception $e) {
+            error_log('syncMenuPermissions error: ' . $e->getMessage());
+            return false;
+        }
     }
-}
 }
 
 // Handle form submissions
@@ -186,7 +182,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $level = (int)$_POST['level'];
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         
-        // Collect permissions
         $permissions = [];
         foreach ($availablePermissions as $module => $perms) {
             foreach ($perms as $perm => $label) {
@@ -198,26 +193,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $permissionsJson = json_encode($permissions);
         
-        // Check if role_code already exists
         $existing = $db->fetch("SELECT id FROM roles WHERE role_code = :code", ['code' => $roleCode]);
         
         if ($existing) {
             setFlash('error', 'Role code already exists!');
         } else {
             $db->insert('roles', [
-                'role_name' => $roleName,
-                'role_code' => $roleCode,
+                'role_name'   => $roleName,
+                'role_code'   => $roleCode,
                 'description' => $description,
                 'permissions' => $permissionsJson,
-                'level' => $level,
-                'is_active' => $isActive
+                'level'       => $level,
+                'is_active'   => $isActive,
             ]);
             
             $roleId = $db->lastInsertId();
-            
-            // Sync to menu permissions
             syncMenuPermissions($db, $roleId, $permissions);
-            
             logActivity('create', 'roles', $roleId, "Created role: $roleName");
             setFlash('success', 'Role created successfully!');
         }
@@ -231,7 +222,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $level = (int)$_POST['level'];
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         
-        // Collect permissions
         $permissions = [];
         foreach ($availablePermissions as $module => $perms) {
             foreach ($perms as $perm => $label) {
@@ -244,16 +234,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $permissionsJson = json_encode($permissions);
         
         $db->update('roles', [
-            'role_name' => $roleName,
+            'role_name'   => $roleName,
             'description' => $description,
             'permissions' => $permissionsJson,
-            'level' => $level,
-            'is_active' => $isActive
+            'level'       => $level,
+            'is_active'   => $isActive,
         ], 'id = :id', ['id' => $roleId]);
         
-        // Sync to menu permissions
         syncMenuPermissions($db, $roleId, $permissions);
-        
         logActivity('update', 'roles', $roleId, "Updated role: $roleName");
         setFlash('success', 'Role updated successfully!');
         redirect('index.php?page=settings/roles');
@@ -261,25 +249,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if ($action === 'delete' && isset($_POST['role_id'])) {
         $roleId = (int)$_POST['role_id'];
-        
-        // Check if role is assigned to any user
         $userCount = $db->fetch("SELECT COUNT(*) as count FROM users WHERE role_id = :id", ['id' => $roleId]);
         
         if ($userCount['count'] > 0) {
             setFlash('error', 'Cannot delete role. It is assigned to ' . $userCount['count'] . ' user(s).');
         } else {
-            // Delete role menu permissions first (if table exists)
             try {
                 if (menuPermissionsTableExists($db)) {
                     $db->query("DELETE FROM role_menu_permissions WHERE role_id = :id", ['id' => $roleId]);
                 }
-            } catch (Exception $e) {
-                // Ignore if table doesn't exist
-            }
+            } catch (Exception $e) {}
             
-            // Delete role
             $db->delete('roles', 'id = :id', ['id' => $roleId]);
-            
             logActivity('delete', 'roles', $roleId, "Deleted role");
             setFlash('success', 'Role deleted successfully!');
         }
@@ -298,12 +279,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('index.php?page=settings/roles');
     }
 }
+
+// Module icons for the permission display
+$moduleIcons = [
+    'dashboard'  => 'bi-speedometer2',
+    'employee'   => 'bi-people',
+    'attendance' => 'bi-calendar-check',
+    'payroll'    => 'bi-cash-stack',
+    'client'     => 'bi-building',
+    'unit'       => 'bi-geo-alt',
+    'forms'      => 'bi-file-earmark-text',
+    'leave'      => 'bi-calendar-x',
+    'report'     => 'bi-graph-up',
+    'settings'   => 'bi-gear',
+];
 ?>
 
 <div class="row">
     <div class="col-12">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h4 class="mb-0"><i class="bi bi-shield-lock me-2"></i>Manage Roles</h4>
+            <div>
+                <h4 class="mb-0"><i class="bi bi-shield-lock me-2"></i>Manage Roles</h4>
+                <small class="text-muted">Permissions map directly to sidebar menu modules</small>
+            </div>
             <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addRoleModal">
                 <i class="bi bi-plus-lg me-1"></i>Add Role
             </button>
@@ -352,6 +350,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <td><?php echo sanitize($role['description'] ?? '-'); ?></td>
                                 <td>
                                     <span class="badge bg-primary"><?php echo $permCount; ?> permissions</span>
+                                    <?php 
+                                    $moduleCount = 0;
+                                    foreach ($perms as $module => $actions) {
+                                        if (isset($actions['view'])) $moduleCount++;
+                                    }
+                                    if ($moduleCount > 0): ?>
+                                    <small class="text-muted d-block mt-1"><?php echo $moduleCount; ?> module(s) accessible</small>
+                                    <?php endif; ?>
                                 </td>
                                 <td><?php echo $role['level']; ?></td>
                                 <td>
@@ -384,6 +390,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     </div>
 </div>
+
+<?php
+// Helper to render permission checkboxes (reused in add + edit modals)
+function renderPermissionCheckboxes($availablePermissions, $moduleIcons, $prefix = 'perm') {
+    foreach ($availablePermissions as $module => $perms):
+        $icon = $moduleIcons[$module] ?? 'bi-box';
+?>
+        <div class="mb-3">
+            <div class="d-flex align-items-center mb-1">
+                <i class="bi <?php echo $icon; ?> me-2 text-primary"></i>
+                <strong class="text-uppercase small"><?php echo ucfirst($module); ?></strong>
+                <button type="button" class="btn btn-link btn-sm p-0 ms-auto" 
+                        onclick="toggleModulePerms('<?php echo $prefix; ?>', '<?php echo $module; ?>')">
+                    Toggle All
+                </button>
+            </div>
+            <div class="row ms-3">
+                <?php foreach ($perms as $perm => $label): ?>
+                <div class="col-lg-4 col-md-6 col-sm-6 mb-1">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input <?php echo $prefix; ?>-<?php echo $module; ?>" 
+                               name="permissions[<?php echo $module; ?>_<?php echo $perm; ?>]" 
+                               id="<?php echo $prefix; ?>_<?php echo $module; ?>_<?php echo $perm; ?>">
+                        <label class="form-check-label small" for="<?php echo $prefix; ?>_<?php echo $module; ?>_<?php echo $perm; ?>">
+                            <?php echo $label; ?>
+                        </label>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+<?php endforeach;
+}
+?>
 
 <!-- Add Role Modal -->
 <div class="modal fade" id="addRoleModal" tabindex="-1">
@@ -426,23 +466,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         
                         <div class="col-12">
-                            <label class="form-label"><strong>Permissions</strong></label>
-                            <div class="border rounded p-3" style="max-height: 300px; overflow-y: auto;">
-                                <?php foreach ($availablePermissions as $module => $perms): ?>
-                                <div class="mb-3">
-                                    <strong class="text-primary text-uppercase"><?php echo $module; ?></strong>
-                                    <div class="row ms-2 mt-1">
-                                        <?php foreach ($perms as $perm => $label): ?>
-                                        <div class="col-md-4">
-                                            <div class="form-check">
-                                                <input type="checkbox" class="form-check-input" name="permissions[<?php echo $module; ?>_<?php echo $perm; ?>]" id="perm_<?php echo $module; ?>_<?php echo $perm; ?>">
-                                                <label class="form-check-label" for="perm_<?php echo $module; ?>_<?php echo $perm; ?>"><?php echo $label; ?></label>
-                                            </div>
-                                        </div>
-                                        <?php endforeach; ?>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
+                            <label class="form-label fw-bold"><i class="bi bi-key me-1"></i>Permissions</label>
+                            <small class="text-muted d-block mb-2">Each module maps to a sidebar menu. "View" controls sidebar visibility; other actions control button-level access.</small>
+                            <div class="border rounded p-3" style="max-height: 350px; overflow-y: auto;">
+                                <?php renderPermissionCheckboxes($availablePermissions, $moduleIcons, 'perm'); ?>
                             </div>
                         </div>
                     </div>
@@ -497,23 +524,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         
                         <div class="col-12">
-                            <label class="form-label"><strong>Permissions</strong></label>
-                            <div class="border rounded p-3" style="max-height: 300px; overflow-y: auto;">
-                                <?php foreach ($availablePermissions as $module => $perms): ?>
-                                <div class="mb-3">
-                                    <strong class="text-primary text-uppercase"><?php echo $module; ?></strong>
-                                    <div class="row ms-2 mt-1">
-                                        <?php foreach ($perms as $perm => $label): ?>
-                                        <div class="col-md-4">
-                                            <div class="form-check">
-                                                <input type="checkbox" class="form-check-input edit-perm" name="permissions[<?php echo $module; ?>_<?php echo $perm; ?>]" id="edit_perm_<?php echo $module; ?>_<?php echo $perm; ?>">
-                                                <label class="form-check-label" for="edit_perm_<?php echo $module; ?>_<?php echo $perm; ?>"><?php echo $label; ?></label>
-                                            </div>
-                                        </div>
-                                        <?php endforeach; ?>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
+                            <label class="form-label fw-bold"><i class="bi bi-key me-1"></i>Permissions</label>
+                            <div class="border rounded p-3" style="max-height: 350px; overflow-y: auto;">
+                                <?php renderPermissionCheckboxes($availablePermissions, $moduleIcons, 'edit_perm'); ?>
                             </div>
                         </div>
                     </div>
@@ -562,18 +575,13 @@ function editRole(role) {
     document.getElementById('edit_level').value = role.level || 1;
     document.getElementById('edit_is_active').checked = role.is_active == 1;
     
-    // Parse permissions and check boxes
-    const perms = JSON.parse(role.permissions || '{}');
+    var perms = JSON.parse(role.permissions || '{}');
+    document.querySelectorAll('[id^="edit_perm_"]').forEach(function(cb) { cb.checked = false; });
     
-    // Uncheck all first
-    document.querySelectorAll('.edit-perm').forEach(cb => cb.checked = false);
-    
-    // Check based on permissions
-    for (const [module, actions] of Object.entries(perms)) {
-        for (const [action, enabled] of Object.entries(actions)) {
-            const key = `${module}_${action}`;
-            const cb = document.getElementById(`edit_perm_${module}_${action}`);
-            if (cb) cb.checked = enabled;
+    for (var mod in perms) {
+        for (var action in perms[mod]) {
+            var cb = document.getElementById('edit_perm_' + mod + '_' + action);
+            if (cb) cb.checked = perms[mod][action];
         }
     }
     
@@ -584,6 +592,12 @@ function deleteRole(id, name) {
     document.getElementById('delete_role_id').value = id;
     document.getElementById('delete_role_name').textContent = name;
     new bootstrap.Modal(document.getElementById('deleteRoleModal')).show();
+}
+
+function toggleModulePerms(prefix, module) {
+    var boxes = document.querySelectorAll('.' + prefix + '-' + module);
+    var allChecked = Array.from(boxes).every(function(cb) { return cb.checked; });
+    boxes.forEach(function(cb) { cb.checked = !allChecked; });
 }
 
 $(document).ready(function() {
