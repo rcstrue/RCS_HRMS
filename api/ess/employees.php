@@ -14,6 +14,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/security-headers.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     jsonOutput(array('success' => false, 'error' => 'Method not allowed. Use GET.'), 405);
@@ -37,6 +38,13 @@ try {
     $unitIds = isset($_GET['unit_ids']) ? array_map('intval', explode(',', $_GET['unit_ids'])) : array();
     // Filter out zeros
     $unitIds = array_values(array_filter($unitIds, function($v) { return $v > 0; }));
+
+    // SECURITY (IDOR): previously, omitting unit_ids returned the ENTIRE employee
+    // directory (WHERE 1=1) to any caller. Now: if no unit_ids are provided the
+    // caller must be admin/regional_manager; otherwise the request is rejected.
+    if (empty($unitIds)) {
+        requireRole(ESS_GUARD_ROLES_ADMIN, $conn);
+    }
 
     // ─── Build Base Query ─────────────────────────────────────────────────
     if ($statusFilter === 'all') {

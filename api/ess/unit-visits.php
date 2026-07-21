@@ -10,6 +10,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -329,6 +330,11 @@ function _handleGetDetail(mysqli $conn, string $authId): void
         $conn->close();
         jsonOutput(['success' => false, 'error' => 'Visit not found'], 404);
     }
+
+    // SECURITY (ownership): previously any authenticated user could read ANY
+    // visit detail (photos, mobile, audit log) by passing ?id=N. Now: only
+    // the visit submitter or a supervisor+ role may view it.
+    requireOwnershipOrRole($authId, (string)($row['employee_id'] ?? ''), ESS_GUARD_ROLES_SUPERVISOR, $conn);
 
     // Recalculate score to ensure it's current
     $scores = _calculateScore($conn, $visitId);
@@ -674,6 +680,10 @@ function _handlePut(): void
     $input = getInput();
     $conn = getDbConnection();
     _ensureTables($conn);
+
+    // SECURITY: approving/rejecting a unit visit is a manager+ action.
+    // Previously any authenticated employee could approve/reject ANY visit.
+    requireRole(ESS_GUARD_ROLES_MANAGER, $conn);
 
     $visitId = (int)($input['id'] ?? 0);
     $action = $input['action'] ?? '';

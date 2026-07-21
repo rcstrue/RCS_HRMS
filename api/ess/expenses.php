@@ -14,6 +14,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -67,7 +68,10 @@ function handleGetExpenses(): void
         return;
     }
 
-    $queryEmployeeId = isset($_GET['employee_id']) ? $_GET['employee_id'] : $authId;
+    // SECURITY (IDOR): previously `$queryEmployeeId = $_GET['employee_id'] ?? $authId`
+    // let any user fetch any other user's expenses by passing ?employee_id=X.
+    // Now: requesting another user's data requires a supervisor+ role.
+    $queryEmployeeId = scopedEmployeeId($authId, ESS_GUARD_ROLES_SUPERVISOR, $conn);
     $statusFilter    = isset($_GET['status']) ? $_GET['status'] : '';
     $categoryFilter  = isset($_GET['category']) ? $_GET['category'] : '';
     $typeFilter      = isset($_GET['type']) ? $_GET['type'] : '';
@@ -379,7 +383,8 @@ function handlePendingTeamExpenses($authId): void
 function handleAdvanceAllocations($authId): void
 {
     $conn = getDbConnection();
-    $queryEmployeeId = isset($_GET['employee_id']) ? $_GET['employee_id'] : $authId;
+    // SECURITY (IDOR): scope to the authenticated user unless caller is supervisor+.
+    $queryEmployeeId = scopedEmployeeId($authId, ESS_GUARD_ROLES_SUPERVISOR, $conn);
 
     // Fetch all advance allocations ordered by year DESC, month DESC
     $allocStmt = $conn->prepare(
@@ -545,9 +550,16 @@ function handleUpdateExpense(): void
     $input = getInput();
     $conn = getDbConnection();
 
+    // SECURITY: approving/rejecting an expense is a manager+ action. Previously
+    // any authenticated employee could approve/reject ANY expense (financial
+    // fraud — expense balances and reimbursements are affected).
+    requireRole(ESS_GUARD_ROLES_MANAGER, $conn);
+
     $expenseId      = (int)(isset($input['id']) ? $input['id'] : 0);
     $status         = strtolower(trim(isset($input['status']) ? $input['status'] : ''));
-    $approvedBy     = trim(isset($input['approved_by']) ? $input['approved_by'] : $authId);
+    // SECURITY: force approved_by to the authenticated user — ignore any
+    // client-supplied approved_by value (was previously trusted).
+    $approvedBy     = $authId;
     $rejectionReason = trim(isset($input['rejection_reason']) ? $input['rejection_reason'] : '');
 
     if ($expenseId <= 0) {

@@ -9,6 +9,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -46,8 +47,10 @@ function _handleGetLeaves(): void
         return;
     }
 
-    // Query params
-    $queryEmployeeId = $_GET['employee_id'] ?? $authId;
+    // SECURITY (IDOR): previously `$queryEmployeeId = $_GET['employee_id'] ?? $authId`
+    // let any user fetch any other user's leaves by passing ?employee_id=X.
+    // Now: requesting another user's data requires a manager+ role.
+    $queryEmployeeId = scopedEmployeeId($authId, ESS_GUARD_ROLES_SUPERVISOR, $conn);
     $statusFilter = $_GET['status'] ?? '';
     $typeFilter = $_GET['type'] ?? '';
     $yearFilter = $_GET['year'] ?? '';
@@ -252,9 +255,16 @@ function _handleUpdateLeave(): void
     $input = getInput();
     $conn = getDbConnection();
 
+    // SECURITY: approving/rejecting a leave is a manager+ action. Previously
+    // any authenticated employee could approve/reject ANY leave (financial
+    // impact — leave balance is decremented on approval).
+    requireRole(ESS_GUARD_ROLES_MANAGER, $conn);
+
     $leaveId = (int)($input['id'] ?? 0);
     $status = strtolower(trim($input['status'] ?? ''));
-    $approvedBy = trim($input['approved_by'] ?? $authId);
+    // SECURITY: force approved_by to the authenticated user — ignore any
+    // client-supplied approved_by value (was previously trusted).
+    $approvedBy = $authId;
     $rejectionReason = trim($input['rejection_reason'] ?? '');
 
     if ($leaveId <= 0) {

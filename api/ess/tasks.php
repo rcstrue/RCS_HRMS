@@ -9,6 +9,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -223,6 +224,17 @@ function _handleUpdateTask(): void
 
     if (!$task) {
         jsonOutput(['success' => false, 'error' => 'Task not found'], 404);
+    }
+
+    // SECURITY (ownership): previously any authenticated user could reassign or
+    // update ANY task. Now: only the assignee, the assigner, or a supervisor+
+    // role may update it.
+    $ownerId = (string)($task['assigned_to'] ?? '');
+    $assignerId = (string)($task['assigned_by'] ?? '');
+    $isOwner = ($ownerId !== '' && $ownerId === $employeeId)
+            || ($assignerId !== '' && $assignerId === $employeeId);
+    if (!$isOwner) {
+        requireRole(ESS_GUARD_ROLES_SUPERVISOR, $conn);
     }
 
     // Build dynamic update query based on provided fields

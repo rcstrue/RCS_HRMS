@@ -9,6 +9,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -40,8 +41,11 @@ function _handleGetAttendance(): void
     $employeeId = requireAuth();
     $conn = getDbConnection();
 
-    // Query params: employee_id (for managers viewing others), month (YYYY-MM), page, limit
-    $queryEmployeeId = $_GET['employee_id'] ?? $employeeId;
+    // Query params: month (YYYY-MM), page, limit
+    // SECURITY (IDOR): previously `$queryEmployeeId = $_GET['employee_id'] ?? $employeeId`
+    // let any user fetch any other user's attendance by passing ?employee_id=X.
+    // Now: requesting another user's data requires a supervisor+ role.
+    $queryEmployeeId = scopedEmployeeId($employeeId, ESS_GUARD_ROLES_SUPERVISOR, $conn);
     $month = $_GET['month'] ?? date('Y-m');
     [$page, $limit, $offset] = getPaginationParams();
 
