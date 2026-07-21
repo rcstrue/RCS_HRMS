@@ -16,6 +16,7 @@
  * seeded PIN case where HR sets a default PIN that the employee must change.
  */
 
+require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';

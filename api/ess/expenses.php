@@ -11,6 +11,7 @@
  * Category values ('advance','expense','employee_advance') are also from DB enum.
  */
 
+require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';

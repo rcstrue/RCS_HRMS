@@ -10,6 +10,7 @@
  * - This endpoint requires the same X-API-KEY as all other ESS endpoints.
  */
 
+require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';

@@ -65,6 +65,9 @@ $response = [
         'spa_key_centralized'      => true,  // ess-auth.ts imports from config.ts, no hardcoded key (r3)
         'csrf_sweep_api'           => true,  // 5 admin API endpoints got CSRF in r4
         'spa_stale_backup_removed' => true,  // src-backup/ + src/src-backup/ deleted in r4
+        'cors_consistent'          => true,  // all 29 ESS endpoints now include cors.php (r5)
+        'role_scoping_cleanup'     => true,  // manpower-status + employee-actions + filters (r5)
+        'spa_csp_added'            => true,  // Content-Security-Policy meta in index.html (r5)
     ],
 ];
 

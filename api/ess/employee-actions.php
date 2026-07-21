@@ -10,9 +10,11 @@
  * Only managers, regional_managers, and admin roles can use this.
  */
 
+require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/security-headers.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     jsonOutput(array('success' => false, 'error' => 'Method not allowed. Use POST.'), 405);
@@ -20,7 +22,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 try {
     validateApiKey();
-    $employeeId = requireAuth();
+    // SECURITY (R5): exit/transfer is a manager+ action. Previously the inline
+    // role check allowed supervisor + field_officer and read app_role directly
+    // from the employees table. Now uses the centralized auth-guard which reads
+    // from ess_employee_cache (the single source of truth for ESS roles).
+    // TODO: add unit-scope verification — a manager should only be able to
+    // exit/transfer employees in units they're allocated to.
+    $employeeId = requireRole(ESS_GUARD_ROLES_MANAGER);
     $conn = getDbConnection();
 
     $input = getJsonInput();
@@ -28,18 +36,6 @@ try {
 
     if (!in_array($action, ['exit', 'transfer'])) {
         jsonOutput(array('success' => false, 'error' => 'Invalid action. Use "exit" or "transfer".'), 400);
-    }
-
-    // ── Check role — only managers and above ──
-    $roleStmt = $conn->prepare("SELECT app_role FROM employees WHERE id = ? LIMIT 1");
-    $roleStmt->bind_param('i', $employeeId);
-    $roleStmt->execute();
-    $roleRow = $roleStmt->get_result()->fetch_assoc();
-    $roleStmt->close();
-
-    $allowedRoles = ['admin', 'manager', 'regional_manager', 'supervisor', 'field_officer'];
-    if (!$roleRow || !in_array($roleRow['app_role'], $allowedRoles)) {
-        jsonOutput(array('success' => false, 'error' => 'Only managers can perform this action.'), 403);
     }
 
     $targetEmpId = (int)($input['employee_id'] ?? 0);
