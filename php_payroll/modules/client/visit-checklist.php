@@ -8,27 +8,36 @@
 
 $pageTitle = 'Unit Visit Checklists';
 
-// ── Filters ───
-$filterClient   = isset($_GET['client_id']) ? (int)$_GET['client_id'] : 0;
-$filterUnit     = isset($_GET['unit_id']) ? (int)$_GET['unit_id'] : 0;
-$filterMonth    = isset($_GET['month']) ? (int)$_GET['month'] : 0;
-$filterYear     = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
-$filterStatus   = isset($_GET['status']) ? sanitize($_GET['status']) : '';
+// -- Filters --
 $filterEmployee = isset($_GET['employee_id']) ? (int)$_GET['employee_id'] : 0;
-$viewImage      = isset($_GET['view']) ? (int)$_GET['view'] : 0;
-
-// ── Dropdowns ───
-$clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
-
-$units = [];
-if ($filterClient > 0) {
-    $units = $db->fetchAll(
-        "SELECT id, name FROM units WHERE client_id = ? AND is_active = 1 ORDER BY name",
-        [$filterClient]
-    );
+$filterMonthYear = isset($_GET['my']) ? sanitize($_GET['my']) : ''; // format: YYYY-MM
+$filterMonth = 0;
+$filterYear = 0;
+if (preg_match('/^(\d{4})-(\d{2})$/', $filterMonthYear, $m)) {
+    $filterYear = (int)$m[1];
+    $filterMonth = (int)$m[2];
 }
+$viewImage = isset($_GET['view']) ? (int)$_GET['view'] : 0;
 
-// ── Handle status update ───
+// -- Dropdowns --
+// 1) Managers who have uploaded checklists
+$managers = $db->fetchAll(
+    "SELECT DISTINCT v.employee_id, e.employee_code, e.full_name, e.designation
+     FROM ess_unit_visits v
+     LEFT JOIN employees e ON v.employee_id = e.id
+     ORDER BY e.full_name"
+);
+
+// 2) Available month-year combos (newest first)
+$monthYearList = $db->fetchAll(
+    "SELECT DISTINCT visit_year, visit_month
+     FROM ess_unit_visits
+     ORDER BY visit_year DESC, visit_month DESC"
+);
+$monthNames = [1=>'January',2=>'February',3=>'March',4=>'April',5=>'May',6=>'June',
+               7=>'July',8=>'August',9=>'September',10=>'October',11=>'November',12=>'December'];
+
+// -- Handle status update --
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = sanitize($_POST['action']);
     
@@ -45,7 +54,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     
     if ($action === 'delete' && isset($_POST['visit_id'])) {
         $visitId = (int)$_POST['visit_id'];
-        // Get file path before deleting
         $visit = $db->fetch("SELECT document_url FROM ess_unit_visits WHERE id = ?", [$visitId]);
         if ($visit) {
             $filePath = $_SERVER['DOCUMENT_ROOT'] . '/' . ltrim($visit['document_url'], '/');
@@ -59,15 +67,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// ── Build filter URL helper ───
+// -- Build filter URL helper --
 function buildFilterUrl($overrides = []) {
     $params = [
-        'client_id'  => $GLOBALS['filterClient'] ?? 0,
-        'unit_id'    => $GLOBALS['filterUnit'] ?? 0,
-        'month'      => $GLOBALS['filterMonth'] ?? 0,
-        'year'       => $GLOBALS['filterYear'] ?? 0,
-        'status'     => $GLOBALS['filterStatus'] ?? '',
-        'employee_id'=> $GLOBALS['filterEmployee'] ?? 0,
+        'employee_id' => $GLOBALS['filterEmployee'] ?? 0,
+        'my'          => $GLOBALS['filterMonthYear'] ?? '',
     ];
     $params = array_merge($params, $overrides);
     $parts = [];
@@ -79,21 +83,16 @@ function buildFilterUrl($overrides = []) {
     return $parts ? '&' . implode('&', $parts) : '';
 }
 
-// ── Fetch visit checklists ───
+// -- Fetch visit checklists --
 $perPage = 50;
 $currentPage = max(1, (int)($_GET['pg'] ?? 1));
 
-// Build WHERE clause once, reuse for count + data queries
 $whereSQL = "1=1";
 $params = [];
 
-if ($filterClient > 0) {
-    $whereSQL .= " AND u.client_id = ?";
-    $params[] = $filterClient;
-}
-if ($filterUnit > 0) {
-    $whereSQL .= " AND v.unit_id = ?";
-    $params[] = $filterUnit;
+if ($filterEmployee > 0) {
+    $whereSQL .= " AND v.employee_id = ?";
+    $params[] = $filterEmployee;
 }
 if ($filterMonth > 0) {
     $whereSQL .= " AND v.visit_month = ?";
@@ -102,14 +101,6 @@ if ($filterMonth > 0) {
 if ($filterYear > 0) {
     $whereSQL .= " AND v.visit_year = ?";
     $params[] = $filterYear;
-}
-if ($filterStatus !== '') {
-    $whereSQL .= " AND v.status = ?";
-    $params[] = $filterStatus;
-}
-if ($filterEmployee > 0) {
-    $whereSQL .= " AND v.employee_id = ?";
-    $params[] = $filterEmployee;
 }
 
 // Total count
@@ -144,22 +135,13 @@ $visits = $db->fetchAll($query, $params);
 function paginationUrl($page) {
     $base = 'index.php?page=client/visit-checklist';
     $parts = [];
-    $pairs = [
-        'client_id' => $GLOBALS['filterClient'] ?? 0,
-        'unit_id' => $GLOBALS['filterUnit'] ?? 0,
-        'month' => $GLOBALS['filterMonth'] ?? 0,
-        'year' => $GLOBALS['filterYear'] ?? 0,
-        'status' => $GLOBALS['filterStatus'] ?? '',
-        'employee_id' => $GLOBALS['filterEmployee'] ?? 0,
-    ];
-    foreach ($pairs as $k => $v) {
-        if ($v !== '' && $v !== 0) $parts[] = $k . '=' . urlencode($v);
-    }
+    if (!empty($GLOBALS['filterEmployee'])) $parts[] = 'employee_id=' . urlencode($GLOBALS['filterEmployee']);
+    if (!empty($GLOBALS['filterMonthYear'])) $parts[] = 'my=' . urlencode($GLOBALS['filterMonthYear']);
     if ($page > 1) $parts[] = 'pg=' . $page;
     return $base . ($parts ? '&' . implode('&', $parts) : '');
 }
 
-// ── View single image ───
+// -- View single image --
 $viewVisit = null;
 if ($viewImage > 0) {
     $viewVisit = $db->fetch("SELECT v.*, e.full_name as employee_name, u.name as unit_name 
@@ -169,7 +151,7 @@ if ($viewImage > 0) {
                               WHERE v.id = ?", [$viewImage]);
 }
 
-// ── Stats ───
+// -- Stats --
 $stats = [
     'total'     => $totalRecords,
     'submitted' => 0,
@@ -185,10 +167,6 @@ foreach ($visits as $v) {
     if (($v['document_type'] ?? '') === 'image') $stats['images']++;
     if (($v['document_type'] ?? '') === 'pdf') $stats['pdfs']++;
 }
-
-// ── Month names ───
-$monthNames = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',
-               7=>'Jul',8=>'Aug',9=>'Sep',10=>'Oct',11=>'Nov',12=>'Dec'];
 ?>
 
 <style>
@@ -239,68 +217,44 @@ $monthNames = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',
     display: block;
 }
 
-.filter-bar .form-select, .filter-bar .form-control {
-    font-size: 0.82rem;
-}
 .stat-card {
     border-left: 3px solid;
     padding: 8px 12px;
 }
 </style>
 
-<!-- ═════════════════ FILTER BAR ═══════════════ -->
+<!-- FILTER BAR -->
 <div class="card mb-3">
     <div class="card-body py-2">
-        <form method="GET" class="row g-2 align-items-end filter-bar" id="filterForm">
+        <form method="GET" class="row g-2 align-items-end" id="filterForm">
             <input type="hidden" name="page" value="client/visit-checklist">
 
-            <div class="col-lg-2 col-md-3 col-sm-6">
-                <label class="form-label mb-0 small">Client</label>
-                <select class="form-select form-select-sm" name="client_id" id="clientSelect">
-                    <option value="">All Clients</option>
-                    <?php foreach ($clients as $c): ?>
-                    <option value="<?= $c['id'] ?>" <?= $filterClient == $c['id'] ? 'selected' : '' ?>><?= sanitize($c['name']) ?></option>
+            <div class="col-lg-4 col-md-5 col-sm-6">
+                <label class="form-label mb-0 small">Manager</label>
+                <select class="form-select form-select-sm" name="employee_id" id="employeeSelect">
+                    <option value="">All Managers</option>
+                    <?php foreach ($managers as $mgr): ?>
+                    <option value="<?= $mgr['employee_id'] ?>" <?= $filterEmployee == $mgr['employee_id'] ? 'selected' : '' ?>>
+                        <?= sanitize($mgr['full_name'] ?? 'Unknown') ?>
+                        <?php if (!empty($mgr['employee_code'])): ?>(<?= sanitize($mgr['employee_code']) ?>)<?php endif; ?>
+                        <?php if (!empty($mgr['designation'])): ?> - <?= sanitize($mgr['designation']) ?><?php endif; ?>
+                    </option>
                     <?php endforeach; ?>
                 </select>
             </div>
 
-            <div class="col-lg-2 col-md-3 col-sm-6">
-                <label class="form-label mb-0 small">Unit</label>
-                <select class="form-select form-select-sm" name="unit_id" id="unitSelect">
-                    <option value="">All Units</option>
-                    <?php foreach ($units as $u): ?>
-                    <option value="<?= $u['id'] ?>" <?= $filterUnit == $u['id'] ? 'selected' : '' ?>><?= sanitize($u['name']) ?></option>
+            <div class="col-lg-3 col-md-4 col-sm-6">
+                <label class="form-label mb-0 small">Month / Year</label>
+                <select class="form-select form-select-sm" name="my">
+                    <option value="">All Months</option>
+                    <?php foreach ($monthYearList as $my): 
+                        $myKey = $my['visit_year'] . '-' . str_pad($my['visit_month'], 2, '0', STR_PAD_LEFT);
+                        $myLabel = $monthNames[(int)$my['visit_month']] . ' ' . $my['visit_year'];
+                    ?>
+                    <option value="<?= $myKey ?>" <?= $filterMonthYear === $myKey ? 'selected' : '' ?>>
+                        <?= $myLabel ?>
+                    </option>
                     <?php endforeach; ?>
-                </select>
-            </div>
-
-            <div class="col-lg-1 col-md-2 col-sm-3">
-                <label class="form-label mb-0 small">Month</label>
-                <select class="form-select form-select-sm" name="month">
-                    <option value="">All</option>
-                    <?php for ($m = 1; $m <= 12; $m++): ?>
-                    <option value="<?= $m ?>" <?= $filterMonth == $m ? 'selected' : '' ?>><?= $monthNames[$m] ?></option>
-                    <?php endfor; ?>
-                </select>
-            </div>
-
-            <div class="col-lg-1 col-md-2 col-sm-3">
-                <label class="form-label mb-0 small">Year</label>
-                <select class="form-select form-select-sm" name="year">
-                    <?php for ($y = date('Y'); $y >= date('Y') - 2; $y--): ?>
-                    <option value="<?= $y ?>" <?= $filterYear == $y ? 'selected' : '' ?>><?= $y ?></option>
-                    <?php endfor; ?>
-                </select>
-            </div>
-
-            <div class="col-lg-1 col-md-2 col-sm-4">
-                <label class="form-label mb-0 small">Status</label>
-                <select class="form-select form-select-sm" name="status">
-                    <option value="">All</option>
-                    <option value="submitted" <?= $filterStatus === 'submitted' ? 'selected' : '' ?>>Submitted</option>
-                    <option value="reviewed" <?= $filterStatus === 'reviewed' ? 'selected' : '' ?>>Reviewed</option>
-                    <option value="approved" <?= $filterStatus === 'approved' ? 'selected' : '' ?>>Approved</option>
-                    <option value="rejected" <?= $filterStatus === 'rejected' ? 'selected' : '' ?>>Rejected</option>
                 </select>
             </div>
 
@@ -316,7 +270,7 @@ $monthNames = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',
     </div>
 </div>
 
-<!-- ═════════════════ STATS BAR ═══════════════ -->
+<!-- STATS BAR -->
 <div class="row g-2 mb-3">
     <div class="col-auto">
         <div class="stat-card bg-light rounded border" style="border-color:#6c757d!important;">
@@ -362,7 +316,7 @@ $monthNames = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',
     </div>
 </div>
 
-<!-- ═════════════════ VIEW / LIST TOGGLE ═══════════════ -->
+<!-- VIEW / LIST TOGGLE -->
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h6 class="mb-0"><i class="bi bi-clipboard-check me-2"></i>Uploaded Checklists (<?= count($visits) ?>)</h6>
     <div class="btn-group btn-group-sm">
@@ -408,7 +362,7 @@ $monthNames = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',
 </nav>
 <?php endif; ?>
 
-<!-- ═════════════════ GRID VIEW ═══════════════ -->
+<!-- GRID VIEW -->
 <div id="gridView" class="row g-3">
 <?php foreach ($visits as $v):
     $docUrl = $v['document_url'] ?? '';
@@ -547,7 +501,7 @@ $monthNames = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',
 <?php endforeach; ?>
 </div>
 
-<!-- ═════════════════ TABLE VIEW ═══════════════ -->
+<!-- TABLE VIEW -->
 <div id="tableView" class="d-none">
     <div class="card">
         <div class="card-body p-0">
@@ -635,7 +589,7 @@ $monthNames = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',
 
 <?php endif; ?>
 
-<!-- ═════════════════ IMAGE/PDF VIEWER MODAL ═══════════════ -->
+<!-- IMAGE/PDF VIEWER MODAL -->
 <div class="modal fade" id="imageViewerModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content">
@@ -670,9 +624,9 @@ $monthNames = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',
     </div>
 </div>
 
-<!-- ═════════════════ JAVASCRIPT ═══════════════ -->
+<!-- JAVASCRIPT -->
 <script>
-// ── View toggle ────────────────────────────────────────────
+// -- View toggle --
 function setView(mode) {
     var gridView = document.getElementById('gridView');
     var tableView = document.getElementById('tableView');
@@ -692,7 +646,7 @@ function setView(mode) {
     }
 }
 
-// ── Image/PDF Viewer ───────────────────────────────────────
+// -- Image/PDF Viewer --
 var viewerModal = null;
 
 function openViewer(visitId, docType, docUrl) {
@@ -711,40 +665,9 @@ function openViewer(visitId, docType, docUrl) {
         body.innerHTML = '<iframe src="' + docUrl + '" style="width:100%; height:80vh; border:none;"></iframe>';
     }
 
-    // Find visit info from grid cards (approximate - we'd need a data lookup in production)
     title.innerHTML = '<i class="bi bi-eye me-2"></i>Checklist #' + visitId;
-
     viewerModal.show();
 }
-
-// ── Client → Unit cascade ──────────────────────────────────
-document.getElementById('clientSelect').addEventListener('change', function() {
-    var clientId = this.value;
-    var unitSelect = document.getElementById('unitSelect');
-    unitSelect.innerHTML = '<option value="">Loading...</option>';
-
-    if (!clientId) {
-        unitSelect.innerHTML = '<option value="">All Units</option>';
-        return;
-    }
-
-    fetch('index.php?page=api/units&client_id=' + clientId)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            unitSelect.innerHTML = '<option value="">All Units</option>';
-            if (data && data.units) {
-                data.units.forEach(function(unit) {
-                    var opt = document.createElement('option');
-                    opt.value = unit.id;
-                    opt.textContent = unit.name;
-                    unitSelect.appendChild(opt);
-                });
-            }
-        })
-        .catch(function() {
-            unitSelect.innerHTML = '<option value="">Error loading</option>';
-        });
-});
 </script>
 
 <?php
