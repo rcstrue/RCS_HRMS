@@ -52,13 +52,19 @@ $response = [
     ],
     // Hardening revision stamp — bump when a new hardening round is applied.
     'hardening' => [
-        'hardening_version'        => 2,    // bumped to 2 after Round 2 (IDOR/role fixes)
+        'hardening_version'        => 3,    // bumped to 3 after Round 3 (portal + ESS login + direct-access + SPA key)
         'security_headers_sent'    => true,
         'xtransform_proxy_removed' => true, // Caddyfile SSRF block deleted in r1
         'placeholder_secret_guard' => true, // example.config.php refuses placeholder secrets
         'jwt_expiry_reduced'       => true,  // 4 days -> 24 hours
         'centralized_auth_guard'   => true,  // auth-guard.php added in r2
         'idor_role_checks_added'   => true,  // 8 endpoints hardened in r2
+        'portal_login_hardened'    => true,  // CSRF + lockout + session_regenerate_id + birth-year removed (r3)
+        'birth_year_pin_removed'   => true,  // ESS login.php + portal login.php (r3)
+        'direct_access_blocked'    => true,  // Caddy @blocked for /includes,/config,/modules (r3)
+        'spa_key_centralized'      => true,  // ess-auth.ts imports from config.ts, no hardcoded key (r3)
+        'csrf_sweep_api'           => true,  // 5 admin API endpoints got CSRF in r4
+        'spa_stale_backup_removed' => true,  // src-backup/ + src/src-backup/ deleted in r4
     ],
 ];
 

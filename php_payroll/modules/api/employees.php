@@ -27,6 +27,14 @@ if (!in_array($roleCode, ['admin', 'hr_executive', 'hr', 'manager'])) {
     exit;
 }
 
+// CSRF check — state-changing POST (approve/etc.) must carry a valid token (Round 4)
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
+    && !validateCSRFToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Invalid or missing CSRF token. Please refresh the page and try again.']);
+    exit;
+}
+
 $employeeObj = new Employee();
 
 // Get request method
