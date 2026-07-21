@@ -78,6 +78,8 @@ $response = [
         'eslint_rules_restored'    => true,  // disabled rules restored to 'warn' (r8)
         'csrf_high_value_modules'  => true,  // CSRF added to 5 highest-risk module pages (r8)
         'csrf_sweep_complete'      => true,  // ALL 70 module POST handlers now have CSRF (r9)
+        'jwt_httponly_cookie'      => true,  // login.php + refresh.php set ess_jwt HttpOnly cookie (r10)
+        'spa_credentials_include'  => true,  // all SPA fetch calls send credentials (r10)
     ],
 ];
 

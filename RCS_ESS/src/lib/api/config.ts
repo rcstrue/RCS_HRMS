@@ -50,6 +50,7 @@ async function tryRefreshToken(): Promise<string | null> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
         body: JSON.stringify({ token }),
+        credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
       });
 
       if (!resp.ok) return null;
@@ -148,6 +149,7 @@ export async function apiRequest<T>(
     const response = await fetch(`${API_BASE_URL}/api${endpoint}`, {
       ...options,
       headers,
+      credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
     });
 
     // Check if response is JSON
@@ -226,6 +228,7 @@ export async function apiRequest<T>(
             const retryResp = await fetch(`${API_BASE_URL}/api${endpoint}`, {
               ...options,
               headers: retryHeaders,
+              credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
             });
             const retryText = await retryResp.text();
             if (retryResp.ok) {
@@ -281,6 +284,7 @@ export async function uploadBase64Image(
   try {
     const response = await fetch(`${API_BASE_URL}/api/upload/base64`, {
       method: 'POST',
+      credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
       headers: (() => {
         const h: Record<string, string> = { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY };
         const t = localStorage.getItem('admin_token') || localStorage.getItem('ess_token');

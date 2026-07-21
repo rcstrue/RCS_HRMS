@@ -223,6 +223,7 @@ export async function proactiveRefresh(): Promise<boolean> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
       body: JSON.stringify({ token }),
+      credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
     });
 
     if (!resp.ok) return false;

@@ -198,10 +198,18 @@ if (!defined('HELPERS_LOADED')) {
 // ─── Auth Helper ──────────────────────────────────────────────────────────────
 /**
  * Require authentication via JWT. Returns employee_id or exits with 401.
+ *
+ * Token sources (checked in priority order — Round 10):
+ *   1. Authorization: Bearer <token> header (original SPA method)
+ *   2. ess_jwt HttpOnly cookie (staged migration — more secure, JS can't read it)
  */
 function requireAuth(): string
 {
     $token = getBearerToken();
+    if (!$token) {
+        // Fallback: read from the HttpOnly cookie set by login.php / refresh.php
+        $token = $_COOKIE['ess_jwt'] ?? '';
+    }
     if (!$token) {
         jsonOutput(['success' => false, 'error' => 'Authorization token required'], 401);
     }

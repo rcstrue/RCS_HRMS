@@ -26,7 +26,10 @@ try {
     validateApiKey();
 
     $input = getInput();
-    $token = $input['token'] ?? '';
+    // Read token from JSON body (backward compat) OR from the ess_jwt cookie
+    // (Round 10 — staged HttpOnly cookie migration). The cookie takes priority
+    // if present because it's the more secure path (HttpOnly = JS can't read it).
+    $token = $_COOKIE['ess_jwt'] ?? ($input['token'] ?? '');
 
     if (empty($token)) {
         jsonOutput(['success' => false, 'error' => 'Token is required'], 400);
@@ -71,6 +74,17 @@ try {
         'role'        => $role,
         'full_name'   => $fullName,
     ], JWT_EXPIRY);
+
+    // Refresh the HttpOnly cookie with the new token (Round 10)
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    setcookie('ess_jwt', $newToken, [
+        'expires'  => time() + JWT_EXPIRY,
+        'path'     => '/',
+        'secure'   => $isHttps,
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
 
     jsonOutput([
         'success' => true,
