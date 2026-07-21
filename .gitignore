@@ -13,3 +13,13 @@ Thumbs.db
 # Runtime
 *.pid
 *.log
+
+# ── Secrets — never commit real config ────────────────────────────────────
+# ESS API live config (contains DB creds + JWT secret + API key)
+api/ess/config.php
+# PHP admin live local config (contains DB creds)
+php_payroll/config/config.local.php
+# Any env / local overrides anywhere in the monorepo
+.env
+.env.*
+*.local

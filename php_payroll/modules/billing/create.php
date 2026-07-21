@@ -163,7 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get employees for selection
 $employees = $db->query("SELECT id, employee_code, full_name, designation, client_id, unit_id 
-    FROM employees WHERE status = 'active' ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
+    FROM employees WHERE status = 'approved' ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
 
 ?>
 

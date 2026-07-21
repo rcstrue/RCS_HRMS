@@ -4,6 +4,22 @@
  * Routed via ?page=api/crop-save — exits before header.php is included
  */
 
+// ── SECURITY: auth + role check ─────────────────────────────────────────────
+// Previously had NO auth at the top — it wrote base64 image data to /uploads/
+// and updated the employee record without verifying the caller was logged in
+// or authorised. Restrict to admin / HR / manager.
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['ok' => false, 'msg' => 'Authentication required']);
+    exit;
+}
+$roleCode = $_SESSION['role_code'] ?? '';
+if (!in_array($roleCode, ['admin', 'hr_executive', 'hr', 'manager'], true)) {
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'msg' => 'Access denied. Insufficient permissions.']);
+    exit;
+}
+
 $empId = (int)($_POST['employee_id'] ?? 0);
 $field = $_POST['field'] ?? '';
 $base64 = $_POST['image_data'] ?? '';

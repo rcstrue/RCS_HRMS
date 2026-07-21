@@ -4,6 +4,14 @@
  * Updated for new database schema
  */
 
+// ── SECURITY: bulk employee import is admin / HR only ────────────────────────
+// The 'employee' module is granted to supervisors by index.php RBAC, but bulk
+// import must not be available to them. Enforce an explicit admin/HR check here.
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role_code'] ?? '', ['admin', 'hr', 'hr_executive'], true)) {
+    http_response_code(403);
+    die('Access denied. Only Admin / HR can import employees.');
+}
+
 $pageTitle = 'Import Employees';
 
 $importResult = null;

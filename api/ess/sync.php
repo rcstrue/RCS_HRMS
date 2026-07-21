@@ -14,6 +14,19 @@ if (!function_exists('getDbConnection')) require_once __DIR__ . '/example.config
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
 
+// ── SECURITY: sync is a server-to-server endpoint ───────────────────────────
+// It upserts ess_employee_cache (including role/app_role). Without this guard,
+// anyone on the internet could POST {"employees":[{"employee_id":"X","role":"admin"}]}
+// and escalate themselves to admin on the next login (pre-auth admin escalation).
+//
+// Restrict to loopback origin so only the same-server PHP admin backend can call it.
+// (Both apps share one LiteSpeed server, so internal calls come from 127.0.0.1 / ::1.)
+$remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
+$isLoopback = in_array($remoteAddr, ['127.0.0.1', '::1'], true);
+if (!$isLoopback) {
+    jsonError('Forbidden: sync endpoint is restricted to local server calls.', 403);
+}
+
 $conn = getDbConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 

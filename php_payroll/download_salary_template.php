@@ -8,6 +8,23 @@ define('APP_ROOT', __DIR__);
 require_once __DIR__ . '/config/config.php';
 require_once __DIR__ . '/includes/class.database.php';
 
+// ── SECURITY: auth + role check ─────────────────────────────────────────────
+// Previously this file had NO auth — it leaked every employee's code + full name
+// (PII) to the internet. Restrict to admin / HR / hr_executive / manager.
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'Authentication required']);
+    exit;
+}
+$roleCode = $_SESSION['role_code'] ?? '';
+if (!in_array($roleCode, ['admin', 'hr_executive', 'hr', 'manager'], true)) {
+    http_response_code(403);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'Access denied. Insufficient permissions to download the salary template.']);
+    exit;
+}
+
 $db = Database::getInstance();
 
 header('Content-Type: text/csv');

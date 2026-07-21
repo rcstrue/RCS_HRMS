@@ -21,6 +21,11 @@ if (!function_exists('getDbConnection')) {
 $conn = getDbConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 
+// ── SECURITY: require a valid JWT ────────────────────────────────────────────
+// Previously this endpoint was unauthenticated: the `employee_id` was taken from
+// $_GET / JSON body, so anyone could read or inject notifications for ANY user.
+$authId = requireAuth();
+
 try {
     switch ($method) {
         case 'GET':  handleGet($conn);  break;
@@ -37,12 +42,10 @@ try {
 // GET - List Notifications
 // ============================================================================
 function handleGet($conn) {
-    $employeeId = getQueryParam('employee_id');
-
-    if (!$employeeId) {
-        jsonError('employee_id is required', 400);
-        return; // jsonError calls exit, but static analyzers prefer explicit return
-    }
+    global $authId;
+    // SECURITY: always scope to the authenticated user — ignore any employee_id
+    // supplied by the client (it was previously trusted, enabling IDOR).
+    $employeeId = $authId;
 
     $page  = max(1, intval(getQueryParam('page', 1)));
     $limit = min(100, max(1, intval(getQueryParam('limit', 20))));
@@ -101,10 +104,12 @@ function handleGet($conn) {
 // POST - Create Notification
 // ============================================================================
 function handlePost($conn) {
+    global $authId;
     $data = getJsonInput();
 
-    $employeeId = $data['employee_id'] ?? null;
-    if (!$employeeId) { jsonError('employee_id is required', 400); }
+    // SECURITY: notifications can only be created for the authenticated user
+    // (admin/manager broadcast uses admin-notifications.php, not this endpoint).
+    $employeeId = $authId;
     $title      = $data['title'] ?? null;
     if (!$title) { jsonError('title is required', 400); }
     $message    = $data['message'] ?? null;
@@ -125,15 +130,14 @@ function handlePost($conn) {
 // PUT - Mark as Read (single or all)
 // ============================================================================
 function handlePut($conn) {
+    global $authId;
     $data = getJsonInput();
 
-    $employeeId = isset($data['employee_id']) ? $data['employee_id'] : null;
+    // SECURITY: scope mark-as-read to the authenticated user only.
+    $employeeId = $authId;
 
     // Mark ALL as read for an employee
     if (isset($data['mark_all']) && $data['mark_all'] === true) {
-        if (!$employeeId) {
-            jsonError('employee_id is required for mark_all', 400);
-        }
         $stmt = $conn->prepare("UPDATE ess_notifications SET is_read = 1 WHERE employee_id = ? AND is_read = 0");
         safeBindParam($stmt, 's', [$employeeId]);
         $stmt->execute();

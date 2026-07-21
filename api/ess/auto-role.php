@@ -23,13 +23,19 @@ if (!function_exists('getDbConnection')) require_once __DIR__ . '/example.config
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
 
-validateApiKey();
+// SECURITY: this endpoint mass-rewrites employees.app_role org-wide.
+// Previously only the shared X-API-KEY was required (and that key is shipped
+// in the SPA bundle, so it is effectively public). Require a valid admin JWT.
+$authId = requireAuth();
+$conn = getDbConnection();
+$callerRole = strtolower((string)(getEmployeeRole($conn, $authId) ?? ''));
+if (!in_array($callerRole, ['admin', 'regional_manager', 'hr'], true)) {
+    jsonError('Forbidden: only admin / regional manager / HR can run auto-role assignment.', 403);
+}
 
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {
-    $conn = getDbConnection();
-
     switch ($method) {
         case 'GET':
             handlePreview($conn);

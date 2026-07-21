@@ -13,9 +13,19 @@ require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
-validateApiKey();
 
+// SECURITY: previously only `validateApiKey()` (the shared X-API-KEY, which is
+// shipped in the SPA bundle and therefore public) was required. That allowed
+// anyone to fetch ANY employee's full PII (Aadhaar, bank, IFSC, UAN, nominee)
+// via ?id=N. Require a valid JWT and restrict to admin / regional_manager /
+// manager / hr roles.
+$authId = requireAuth();
 $conn = getDbConnection();
+$callerRole = strtolower((string)(getEmployeeRole($conn, $authId) ?? ''));
+if (!in_array($callerRole, ['admin', 'regional_manager', 'manager', 'hr'], true)) {
+    jsonOutput(['success' => false, 'error' => 'Access denied. Insufficient permissions.'], 403);
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {

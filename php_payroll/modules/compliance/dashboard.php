@@ -33,7 +33,7 @@ try {
 
 // Get total employees
 try {
-    $totalEmployees = $db->query("SELECT COUNT(*) FROM employees WHERE status = 'active'")->fetchColumn();
+    $totalEmployees = $db->query("SELECT COUNT(*) FROM employees WHERE status = 'approved'")->fetchColumn();
 } catch (Exception $e) {
     $totalEmployees = 0;
 }
