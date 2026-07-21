@@ -21,6 +21,10 @@ $clients = $db->query("SELECT id, name, client_code, gst_number FROM clients WHE
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 8)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        $errors[] = 'Invalid request. Please refresh the page and try again.';
+    }
     $invoice['client_id'] = (int)$_POST['client_id'];
     $invoice['unit_id'] = !empty($_POST['unit_id']) ? (int)$_POST['unit_id'] : null;
     $invoice['invoice_date'] = sanitize($_POST['invoice_date']);

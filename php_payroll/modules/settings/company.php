@@ -16,6 +16,10 @@ try {
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 8)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+    } else {
     try {
         if ($company) {
             // Update existing record
@@ -80,12 +84,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Exception $e) {
         setFlash('error', 'Failed to save settings: ' . $e->getMessage());
     }
+    } // end else (CSRF passed)
 }
 ?>
 
 <div class="row">
     <div class="col-lg-8">
         <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
             <!-- Company Information -->
             <div class="card mb-4">
                 <div class="card-header">

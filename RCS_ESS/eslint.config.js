@@ -32,23 +32,35 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
 
-      // Turn off noisy TypeScript rules
-      "@typescript-eslint/no-unused-vars": "off",
-      "@typescript-eslint/no-explicit-any": "off",
-      "@typescript-eslint/no-empty-object-type": "off",
-      "@typescript-eslint/ban-ts-comment": "off",
-      "@typescript-eslint/no-non-null-assertion": "off",
-      "@typescript-eslint/prefer-as-const": "off",
-      "@typescript-eslint/no-unused-disable-directive": "off",
+      // ── TypeScript rules (Round 8: restored from 'off' to 'warn') ──────
+      // Using 'warn' (not 'error') so the build doesn't fail on existing
+      // violations — operators see the warnings in the lint output and can
+      // fix them iteratively. Upgrade to 'error' once the codebase is clean.
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+      }],
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-empty-object-type": "warn",
+      "@typescript-eslint/ban-ts-comment": "warn",
+      "@typescript-eslint/no-non-null-assertion": "warn",
+      "@typescript-eslint/prefer-as-const": "warn",
+      "@typescript-eslint/no-unused-disable-directive": "warn",
 
-      // Turn off noisy general rules
-      "prefer-const": "off",
-      "no-unused-vars": "off",
-      "no-console": "off",
-      "no-empty": "off",
+      // ── General rules (Round 8: restored) ──────────────────────────────
+      "prefer-const": "warn",
+      "no-unused-vars": "off", // handled by @typescript-eslint/no-unused-vars
+      "no-console": "off",     // handled by the logger utility (R7) — console
+                               // calls are replaced with logger.* which no-op
+                               // in production. No need to lint here.
+      "no-empty": "warn",
 
-      // Turn off exhaustive-deps (too noisy for this project)
-      "react-hooks/exhaustive-deps": "off",
+      // ── React Hooks (Round 8: restored) ────────────────────────────────
+      // exhaustive-deps was 'off' — restoring to 'warn' to catch missing
+      // dependency arrays in useEffect/useCallback/useMemo. This is the
+      // highest-value React rule for preventing stale-closure bugs.
+      "react-hooks/exhaustive-deps": "warn",
     },
   },
 );

@@ -75,6 +75,8 @@ $response = [
         'spa_logger_added'         => true,  // logger.ts: console.log/info/debug no-op in prod (r7)
         'react_query_removed'      => true,  // unused @tanstack/react-query removed (r7)
         'remember_me_removed'      => true,  // decorative "Remember me" checkbox removed (r7)
+        'eslint_rules_restored'    => true,  // disabled rules restored to 'warn' (r8)
+        'csrf_high_value_modules'  => true,  // CSRF added to 5 highest-risk module pages (r8)
     ],
 ];
 

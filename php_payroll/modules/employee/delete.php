@@ -22,6 +22,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect(EMPLOYEE_LIST_URL);
 }
 
+// CSRF check (Round 8)
+if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+    setFlash('error', 'Invalid request. Please refresh the page and try again.');
+    redirect(EMPLOYEE_LIST_URL);
+}
+
 $dateOfLeaving = sanitize($_POST['date_of_leaving'] ?? '');
 $reason = sanitize($_POST['reason'] ?? '');
 
