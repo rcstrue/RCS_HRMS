@@ -68,6 +68,10 @@ $response = [
         'cors_consistent'          => true,  // all 29 ESS endpoints now include cors.php (r5)
         'role_scoping_cleanup'     => true,  // manpower-status + employee-actions + filters (r5)
         'spa_csp_added'            => true,  // Content-Security-Policy meta in index.html (r5)
+        'unit_scope_verification'  => true,  // employee-actions.php verifies manager allocation (r6)
+        'session_idle_timeout_8h'  => true,  // was 4 days, now 8 hours (r6)
+        'config_example_hardened'  => true,  // config.local.example.php ships APP_ENV=production (r6)
+        'spa_ts_strict'            => true,  // tsconfig strict:true + all any usages removed (r6)
     ],
 ];
 

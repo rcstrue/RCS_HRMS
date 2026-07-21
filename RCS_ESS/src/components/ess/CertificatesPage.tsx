@@ -53,8 +53,9 @@ export default function CertificatesPage({ employeeId, employeeName }: Props) {
 
       await generateCertificatePDF(data as CertificateData);
       toast.success(`${data.certificate_type === 'appointment' ? 'Appointment Letter' : data.certificate_type === 'salary' ? 'Salary Certificate' : 'Experience Certificate'} generated!`);
-    } catch (err: any) {
-      if (err?.message?.includes('Pop-up')) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Pop-up')) {
         toast.error('Please allow pop-ups in your browser to download certificates.');
       } else {
         toast.error('Failed to generate PDF. Please try again.');

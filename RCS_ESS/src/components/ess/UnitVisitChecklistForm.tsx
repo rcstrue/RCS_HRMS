@@ -102,9 +102,9 @@ export default function UnitVisitChecklistForm({ employeeId, employeeName, units
       year: visitYear,
       limit: 10,
     }).then(({ data }) => {
-      const items = (data as any)?.items || [];
-      const hasFirst = items.some((v: any) => v.visit_number === 1);
-      const hasSecond = items.some((v: any) => v.visit_number === 2);
+      const items: Array<{ visit_number?: number }> = (data as { items?: Array<{ visit_number?: number }> } | null)?.items ?? [];
+      const hasFirst = items.some((v) => v.visit_number === 1);
+      const hasSecond = items.some((v) => v.visit_number === 2);
       if (hasFirst && hasSecond) {
         // Both exist — keep current selection but warn
       } else if (hasFirst) {

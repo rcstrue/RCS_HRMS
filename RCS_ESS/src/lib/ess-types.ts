@@ -38,6 +38,7 @@ export interface Employee {
   bank_document_url?: string;
   profile_completion?: number;
   employee_role?: string;
+  app_role?: string;
   worker_category?: string;
   designation?: string;
   department?: string;
