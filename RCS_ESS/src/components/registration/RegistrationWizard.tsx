@@ -9,8 +9,8 @@ import { Step6AdditionalDetails } from './steps/Step6AdditionalDetails';
 import { Step7ClientUnit } from './steps/Step7ClientUnit';
 import { Step8Review } from './steps/Step8Review';
 import { createEmployee, updateEmployee } from '@/lib/api/employees';
-import type { 
 import { logger } from "@/lib/logger";
+import type { 
   RegistrationStep, 
   RegistrationData, 
   BasicInfo, 
