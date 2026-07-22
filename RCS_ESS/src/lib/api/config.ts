@@ -37,20 +37,13 @@ async function tryRefreshToken(): Promise<string | null> {
 
   _refreshPromise = (async () => {
     try {
-      // Collect token from both storage locations
-      const essSession = localStorage.getItem('ess_employee');
-      let token: string | null = null;
-      if (essSession) {
-        try { token = JSON.parse(essSession).token; } catch { /* */ }
-      }
-      if (!token) token = localStorage.getItem('ess_token');
-      if (!token) return null;
-
+      // R11: token is in the HttpOnly cookie — just POST to refresh.
+      // refresh.php reads from the cookie and returns a new token (also set as cookie).
       const resp = await fetch(`${API_BASE_URL}/api/ess/refresh.php`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
-        body: JSON.stringify({ token }),
-        credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
+        body: JSON.stringify({}), // token is in the cookie, not the body
+        credentials: 'include', // send the ess_jwt HttpOnly cookie
       });
 
       if (!resp.ok) return null;
@@ -59,16 +52,8 @@ async function tryRefreshToken(): Promise<string | null> {
       const newToken: string | undefined = json?.data?.token;
       if (!newToken) return null;
 
-      // Persist the new token
-      localStorage.setItem('ess_token', newToken);
-      if (essSession) {
-        try {
-          const parsed = JSON.parse(essSession);
-          parsed.token = newToken;
-          localStorage.setItem('ess_employee', JSON.stringify(parsed));
-        } catch { /* */ }
-      }
-
+      // R11: Don't store in localStorage — it's in the HttpOnly cookie.
+      // Return a non-null value so the caller knows refresh succeeded.
       return newToken;
     } catch {
       return null;
@@ -107,33 +92,21 @@ export async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<{ data: T | null; error: string | null }> {
   try {
-    // Resolve token from multiple sources for mobile reliability
-    let token: string | null = null;
-
-    // Priority 1: ess_employee session object (most complete, has structured data)
-    const essSession = localStorage.getItem('ess_employee');
-    if (essSession) {
-      try {
-        const parsed = JSON.parse(essSession);
-        if (parsed?.token) token = parsed.token;
-      } catch { /* invalid session */ }
-    }
-
-    // Priority 2: standalone ess_token (backup)
-    if (!token) token = localStorage.getItem('ess_token');
-
-    // Priority 3: admin_token (fallback)
-    if (!token) token = localStorage.getItem('admin_token');
+    // R11: ESS JWT is in the HttpOnly cookie (sent via credentials:'include').
+    // Only admin_token is read from localStorage (separate auth flow).
+    const adminToken = localStorage.getItem('admin_token');
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-API-KEY': API_KEY,
     };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+    // Admin panel uses admin_token in Authorization header (separate from ESS cookie auth)
+    if (adminToken) {
+      headers['Authorization'] = `Bearer ${adminToken}`;
     }
 
-    // Also set X-Employee-ID from ess_employee session
+    // Set X-Employee-ID from ess_employee session (for server-side logging)
+    const essSession = localStorage.getItem('ess_employee');
     if (essSession) {
       try {
         const parsed = JSON.parse(essSession);
@@ -193,7 +166,7 @@ export async function apiRequest<T>(
     if (!response.ok) {
       // ── Token expiry / invalid → try silent refresh first ──
       if (response.status === 401) {
-        const isEss = localStorage.getItem('ess_token') || localStorage.getItem('ess_employee');
+        const isEss = localStorage.getItem('ess_employee'); // R11: no more ess_token in localStorage
         if (isEss) {
           // Don't nuke tokens if user is in force PIN change flow (has_custom_pin=false)
           // This prevents cascade failure on mobile where PIN change API call might race
@@ -240,8 +213,7 @@ export async function apiRequest<T>(
           }
 
           // Refresh failed or retry failed — clear session
-          localStorage.removeItem('ess_token');
-          localStorage.removeItem('ess_employee');
+          localStorage.removeItem('ess_employee'); // R11: only remove session, token is in cookie
           // Dispatch only ONCE to prevent toast spam from concurrent 401s
           if (!_sessionExpiredFired) {
             _sessionExpiredFired = true;
@@ -287,14 +259,14 @@ export async function uploadBase64Image(
       credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
       headers: (() => {
         const h: Record<string, string> = { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY };
-        const t = localStorage.getItem('admin_token') || localStorage.getItem('ess_token');
+        const t = localStorage.getItem('admin_token'); // R11: ESS auth is via cookie only
         if (t) h['Authorization'] = `Bearer ${t}`;
         const ess = localStorage.getItem('ess_employee');
         if (ess) {
           try {
             const parsed = JSON.parse(ess);
             if (parsed?.employee?.id) h['X-Employee-ID'] = String(parsed.employee.id);
-            if (parsed?.token) h['Authorization'] = `Bearer ${parsed.token}`;
+            // R11: don't set Authorization from session.token — ESS auth is via cookie
           } catch { /* invalid session */ }
         }
         return h;

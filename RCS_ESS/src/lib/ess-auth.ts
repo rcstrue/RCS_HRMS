@@ -31,18 +31,24 @@ export interface JWTPayload {
 }
 
 // ── Token Storage ──────────────────────────────────────────
+// R11: The JWT is now stored ONLY in an HttpOnly cookie (set by login.php /
+// refresh.php). JavaScript CANNOT read it. These functions are kept for
+// backward-compat but storeEssToken is a no-op and getEssToken returns null.
+// API auth is handled entirely by the cookie via credentials:'include' in
+// the fetch calls (see config.ts).
 
-export function storeEssToken(token: string): void {
-  localStorage.setItem(ESS_TOKEN_KEY, token);
+export function storeEssToken(_token: string): void {
+  // No-op: token is in the HttpOnly cookie, not localStorage.
 }
 
 export function getEssToken(): string | null {
-  return localStorage.getItem(ESS_TOKEN_KEY);
+  return null; // Can't read HttpOnly cookie from JS.
 }
 
 export function clearEssAuth(): void {
-  localStorage.removeItem(ESS_TOKEN_KEY);
   localStorage.removeItem(ESS_SESSION_KEY);
+  // Note: ess_token key may exist from a pre-R11 session — clean it up.
+  localStorage.removeItem('ess_token');
 }
 
 // ── Token Validation ───────────────────────────────────────
@@ -212,18 +218,15 @@ export function getRateLimitStatus(): {
  * Returns true if refresh succeeded, false otherwise.
  */
 export async function proactiveRefresh(): Promise<boolean> {
-  const token = getEssToken();
-  if (!token) return false;
-
-  // Only refresh if token is nearing expiry (within buffer window)
-  if (!isTokenExpired(token)) return true; // still fresh
-
+  // R11: The token is in the HttpOnly cookie — we can't read it to check
+  // expiry. Just attempt a refresh; refresh.php reads the token from the
+  // cookie and returns a new one (also set as a new cookie).
   try {
     const resp = await fetch(`${API_BASE_URL}/api/ess/refresh.php`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
-      body: JSON.stringify({ token }),
-      credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
+      body: JSON.stringify({}), // token is in the cookie, not the body
+      credentials: 'include', // send the ess_jwt HttpOnly cookie
     });
 
     if (!resp.ok) return false;
@@ -232,14 +235,17 @@ export async function proactiveRefresh(): Promise<boolean> {
     const newToken: string | undefined = json?.data?.token;
     if (!newToken) return false;
 
-    // Persist
-    localStorage.setItem(ESS_TOKEN_KEY, newToken);
+    // R11: Don't store the new token in localStorage — it's already set as
+    // an HttpOnly cookie by refresh.php. Just update the session object's
+    // token field for any internal SPA logic that reads it.
     const essSession = localStorage.getItem(ESS_SESSION_KEY);
     if (essSession) {
       try {
         const parsed = JSON.parse(essSession);
         parsed.token = newToken;
-        localStorage.setItem(ESS_SESSION_KEY, JSON.stringify(parsed));
+        // Strip token before persisting — it's in the cookie, not localStorage.
+        const { token: _stripped, ...sessionWithoutToken } = parsed;
+        localStorage.setItem(ESS_SESSION_KEY, JSON.stringify(sessionWithoutToken));
       } catch { /* */ }
     }
 
