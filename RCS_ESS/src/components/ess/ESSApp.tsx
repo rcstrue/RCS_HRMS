@@ -82,7 +82,9 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
           // Only trigger when has_custom_pin is explicitly false (not undefined from old sessions)
           if (parsed.has_custom_pin === false) {
             setForcePinSession(parsed);
-            // R11 final: token is in HttpOnly cookie, not localStorage
+            if (parsed.token) {
+              localStorage.setItem('ess_token', parsed.token);
+            }
             return;
           }
           setSession(parsed);
@@ -115,9 +117,10 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
   }, []);
 
   const saveSession = useCallback((s: ESSSession) => {
-    // R11 final: strip token before persisting — it's in the HttpOnly cookie
-    const { token: _stripped, ...sessionWithoutToken } = s as Record<string, unknown>;
-    localStorage.setItem('ess_employee', JSON.stringify(sessionWithoutToken));
+    localStorage.setItem('ess_employee', JSON.stringify(s));
+    if (s.token) {
+      localStorage.setItem('ess_token', s.token);
+    }
     setSession(s);
     resetSessionExpiredGuard();
   }, []);
@@ -147,9 +150,10 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
 
   const handleForcePinChange = useCallback((s: ESSSession) => {
     setForcePinSession(s);
-    // R11 final: persist WITHOUT token (cookie has it)
-    const { token: _stripped, ...sessionWithoutToken } = s as Record<string, unknown>;
-    localStorage.setItem('ess_employee', JSON.stringify(sessionWithoutToken));
+    localStorage.setItem('ess_employee', JSON.stringify(s));
+    if (s.token) {
+      localStorage.setItem('ess_token', s.token);
+    }
   }, []);
 
   // Called when force PIN change completes (from full-screen ForceChangePin)

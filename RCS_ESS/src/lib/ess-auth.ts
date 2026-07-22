@@ -31,21 +31,21 @@ export interface JWTPayload {
 }
 
 // ── Token Storage ──────────────────────────────────────────
-// R11 final: cookie-only auth. The JWT is ONLY in the HttpOnly cookie.
-// These functions are kept for backward-compat but are no-ops / null returns.
-// All users must re-login once to get the cookie set.
+// R11: dual-path. Token is stored in localStorage AND the HttpOnly cookie.
+// The cookie is preferred (XSS-safe) but the server may not set it reliably;
+// localStorage is the reliable fallback. Both paths authenticate.
 
-export function storeEssToken(_token: string): void {
-  // No-op: token is in the HttpOnly cookie, not localStorage.
+export function storeEssToken(token: string): void {
+  localStorage.setItem('ess_token', token);
 }
 
 export function getEssToken(): string | null {
-  return null; // Can't read HttpOnly cookie from JS.
+  return localStorage.getItem('ess_token');
 }
 
 export function clearEssAuth(): void {
+  localStorage.removeItem('ess_token');
   localStorage.removeItem(ESS_SESSION_KEY);
-  localStorage.removeItem('ess_token'); // cleanup pre-R11 key
 }
 
 // ── Token Validation ───────────────────────────────────────

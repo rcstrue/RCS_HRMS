@@ -92,23 +92,35 @@ export async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<{ data: T | null; error: string | null }> {
   try {
-    // R11 final: cookie-only auth. The ESS JWT is in the HttpOnly cookie
-    // (set by login.php/refresh.php), sent via credentials:'include'.
-    // localStorage token storage is REMOVED. All users must re-login once
-    // to get the cookie set.
+    // R11: dual-path auth. The HttpOnly cookie is preferred (XSS-safe), but
+    // the server may not set it correctly (LiteSpeed setcookie + SameSite
+    // issues). So we ALSO read/store the token in localStorage as a fallback.
+    // Both paths work simultaneously — if the cookie works, great; if not,
+    // the Bearer header authenticates.
     const adminToken = localStorage.getItem('admin_token');
+
+    // ESS token: check ess_employee session object first, then ess_token key
+    let essToken: string | null = null;
+    const essSession = localStorage.getItem('ess_employee');
+    if (essSession) {
+      try {
+        const parsed = JSON.parse(essSession);
+        if (parsed?.token) essToken = parsed.token;
+      } catch { /* invalid session */ }
+    }
+    if (!essToken) essToken = localStorage.getItem('ess_token');
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-API-KEY': API_KEY,
     };
-    // Admin panel uses admin_token in Authorization header (separate auth flow)
-    if (adminToken) {
-      headers['Authorization'] = `Bearer ${adminToken}`;
+    // Prefer ESS token, fall back to admin token
+    const authToken = essToken || adminToken;
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
     }
 
     // Set X-Employee-ID from ess_employee session (for server-side logging)
-    const essSession = localStorage.getItem('ess_employee');
     if (essSession) {
       try {
         const parsed = JSON.parse(essSession);
