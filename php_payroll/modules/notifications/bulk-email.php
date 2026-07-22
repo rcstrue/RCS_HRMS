@@ -70,10 +70,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($source === 'employees') {
             $sql = "SELECT e.id, e.full_name, e.email, e.employee_code, e.designation, e.department,
                            e.mobile_number, e.date_of_birth,
-                           c.name as client_name, u.name as unit_name, u.address as site_name
+                           e.father_name, e.gender, e.blood_group, e.address, e.pin_code,
+                           e.state, e.district, e.uan_number, e.esic_number, e.marital_status,
+                           e.date_of_joining, e.employment_type, e.worker_category, e.status as emp_status,
+                           e.bank_name, e.ifsc_code, e.account_holder_name, e.alternate_mobile,
+                           e.emergency_contact_name, e.emergency_contact_relation,
+                           e.nominee_name, e.nominee_relationship,
+                           c.name as client_name, u.name as unit_name, u.address as site_name,
+                           ess.gross_salary
                     FROM employees e
                     LEFT JOIN clients c ON e.client_id = c.id
                     LEFT JOIN units u ON e.unit_id = u.id
+                    LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
                     WHERE e.email IS NOT NULL AND e.email != ''";
             $params = [];
             
@@ -183,28 +191,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $formattedDob = $rawDob;
                     }
                 }
+                // Format DOJ
+                $rawDoj = $r['date_of_joining'] ?? '';
+                $formattedDoj = '';
+                if ($rawDoj) {
+                    try {
+                        $dojObj = new DateTime($rawDoj);
+                        $formattedDoj = $dojObj->format('d/m/Y');
+                    } catch (Exception $e) {
+                        $formattedDoj = $rawDoj;
+                    }
+                }
                 
                 $mobile = $r['mobile_number'] ?? $r['mobile'] ?? '';
+                $grossSalary = $r['gross_salary'] ? number_format((float)$r['gross_salary'], 2) : '';
                 
                 $replacements = [
-                    '{{name}}'        => $r['full_name'] ?? $r['name'] ?? 'Employee',
-                    '{{unit}}'        => $r['unit_name'] ?? '',
-                    '{{site}}'        => $r['site_name'] ?? $r['unit_name'] ?? '',
-                    '{{client}}'      => $r['client_name'] ?? '',
-                    '{{designation}}' => $r['designation'] ?? '',
-                    '{{department}}'  => $r['department'] ?? '',
-                    '{{code}}'        => $r['employee_code'] ?? $r['member_id'] ?? '',
-                    '{{mobile}}'      => $mobile,
-                    '{{dob}}'         => $formattedDob,
-                    '{{Name}}'        => $r['full_name'] ?? $r['name'] ?? 'Employee',
-                    '{{Unit}}'        => $r['unit_name'] ?? '',
-                    '{{Site}}'        => $r['site_name'] ?? $r['unit_name'] ?? '',
-                    '{{Client}}'      => $r['client_name'] ?? '',
-                    '{{Designation}}' => $r['designation'] ?? '',
-                    '{{Department}}'  => $r['department'] ?? '',
-                    '{{Code}}'        => $r['employee_code'] ?? $r['member_id'] ?? '',
-                    '{{Mobile}}'      => $mobile,
-                    '{{DOB}}'         => $formattedDob,
+                    '{{name}}'            => $r['full_name'] ?? $r['name'] ?? 'Employee',
+                    '{{unit}}'            => $r['unit_name'] ?? '',
+                    '{{site}}'            => $r['site_name'] ?? $r['unit_name'] ?? '',
+                    '{{client}}'          => $r['client_name'] ?? '',
+                    '{{designation}}'     => $r['designation'] ?? '',
+                    '{{department}}'      => $r['department'] ?? '',
+                    '{{code}}'            => $r['employee_code'] ?? $r['member_id'] ?? '',
+                    '{{mobile}}'          => $mobile,
+                    '{{dob}}'             => $formattedDob,
+                    '{{email}}'           => $r['email'] ?? '',
+                    '{{father_name}}'     => $r['father_name'] ?? '',
+                    '{{gender}}'          => $r['gender'] ?? '',
+                    '{{blood_group}}'     => $r['blood_group'] ?? '',
+                    '{{marital_status}}'  => $r['marital_status'] ?? '',
+                    '{{doj}}'             => $formattedDoj,
+                    '{{employment_type}}' => $r['employment_type'] ?? '',
+                    '{{worker_category}}' => $r['worker_category'] ?? '',
+                    '{{emp_status}}'      => $r['emp_status'] ?? '',
+                    '{{uan}}'             => $r['uan_number'] ?? '',
+                    '{{esic}}'            => $r['esic_number'] ?? '',
+                    '{{gross_salary}}'    => $grossSalary,
+                    '{{address}}'         => $r['address'] ?? '',
+                    '{{pin_code}}'        => $r['pin_code'] ?? '',
+                    '{{state}}'           => $r['state'] ?? '',
+                    '{{district}}'        => $r['district'] ?? '',
+                    '{{bank_name}}'       => $r['bank_name'] ?? '',
+                    '{{ifsc_code}}'       => $r['ifsc_code'] ?? '',
+                    '{{account_holder}}'  => $r['account_holder_name'] ?? '',
+                    '{{alt_mobile}}'      => $r['alternate_mobile'] ?? '',
+                    '{{emergency_contact}}'=> $r['emergency_contact_name'] ?? '',
+                    '{{nominee_name}}'    => $r['nominee_name'] ?? '',
+                    '{{Name}}'            => $r['full_name'] ?? $r['name'] ?? 'Employee',
+                    '{{Unit}}'            => $r['unit_name'] ?? '',
+                    '{{Site}}'            => $r['site_name'] ?? $r['unit_name'] ?? '',
+                    '{{Client}}'          => $r['client_name'] ?? '',
+                    '{{Designation}}'     => $r['designation'] ?? '',
+                    '{{Department}}'      => $r['department'] ?? '',
+                    '{{Code}}'            => $r['employee_code'] ?? $r['member_id'] ?? '',
+                    '{{Mobile}}'          => $mobile,
+                    '{{DOB}}'             => $formattedDob,
+                    '{{Email}}'           => $r['email'] ?? '',
+                    '{{Father_Name}}'     => $r['father_name'] ?? '',
+                    '{{Gender}}'          => $r['gender'] ?? '',
+                    '{{Blood_Group}}'     => $r['blood_group'] ?? '',
+                    '{{Marital_Status}}'  => $r['marital_status'] ?? '',
+                    '{{DOJ}}'             => $formattedDoj,
+                    '{{Employment_Type}}' => $r['employment_type'] ?? '',
+                    '{{Worker_Category}}' => $r['worker_category'] ?? '',
+                    '{{Emp_Status}}'      => $r['emp_status'] ?? '',
+                    '{{UAN}}'             => $r['uan_number'] ?? '',
+                    '{{ESIC}}'            => $r['esic_number'] ?? '',
+                    '{{Gross_Salary}}'    => $grossSalary,
+                    '{{Address}}'         => $r['address'] ?? '',
+                    '{{Pin_Code}}'        => $r['pin_code'] ?? '',
+                    '{{State}}'           => $r['state'] ?? '',
+                    '{{District}}'        => $r['district'] ?? '',
+                    '{{Bank_Name}}'       => $r['bank_name'] ?? '',
+                    '{{IFSC_Code}}'       => $r['ifsc_code'] ?? '',
+                    '{{Account_Holder}}'  => $r['account_holder_name'] ?? '',
+                    '{{Alt_Mobile}}'      => $r['alternate_mobile'] ?? '',
+                    '{{Emergency_Contact}}'=> $r['emergency_contact_name'] ?? '',
+                    '{{Nominee_Name}}'    => $r['nominee_name'] ?? '',
                 ];
                 
                 $finalSubject = str_replace(array_keys($replacements), array_values($replacements), $preview['subject']);
@@ -614,20 +678,44 @@ $totalSkipped = (int)$db->fetchColumn("SELECT COUNT(*) FROM bulk_email_logs WHER
                     <h5 class="card-title mb-0"><i class="bi bi-info-circle me-2"></i>Placeholders</h5>
                 </div>
                 <div class="card-body">
-                    <table class="table table-sm mb-0">
-                        <thead><tr><th>Tag</th><th>Replaced With</th></tr></thead>
+                    <div style="max-height:450px;overflow-y:auto;">
+                    <table class="table table-sm mb-0 small">
+                        <thead class="sticky-top"><tr><th>Tag</th><th>Replaced With</th></tr></thead>
                         <tbody>
                             <tr><td><code>{{name}}</code></td><td>Full Name</td></tr>
                             <tr class="table-info"><td><code>{{mobile}}</code></td><td>Mobile No.</td></tr>
                             <tr class="table-info"><td><code>{{dob}}</code></td><td>Date of Birth (DD/MM/YYYY)</td></tr>
+                            <tr><td><code>{{email}}</code></td><td>Email Address</td></tr>
+                            <tr><td><code>{{father_name}}</code></td><td>Father's Name</td></tr>
+                            <tr class="table-info"><td><code>{{gender}}</code></td><td>Gender</td></tr>
+                            <tr class="table-info"><td><code>{{blood_group}}</code></td><td>Blood Group</td></tr>
+                            <tr><td><code>{{marital_status}}</code></td><td>Marital Status</td></tr>
+                            <tr class="table-info"><td><code>{{doj}}</code></td><td>Date of Joining (DD/MM/YYYY)</td></tr>
                             <tr><td><code>{{unit}}</code></td><td>Unit Name</td></tr>
-                            <tr><td><code>{{site}}</code></td><td>Site Address</td></tr>
+                            <tr class="table-info"><td><code>{{site}}</code></td><td>Site Address</td></tr>
                             <tr><td><code>{{client}}</code></td><td>Client Name</td></tr>
-                            <tr><td><code>{{designation}}</code></td><td>Job Title</td></tr>
+                            <tr class="table-info"><td><code>{{designation}}</code></td><td>Job Title</td></tr>
                             <tr><td><code>{{department}}</code></td><td>Department</td></tr>
-                            <tr><td><code>{{code}}</code></td><td>Emp Code / Member ID</td></tr>
+                            <tr class="table-info"><td><code>{{code}}</code></td><td>Emp Code / Member ID</td></tr>
+                            <tr><td><code>{{employment_type}}</code></td><td>Employment Type</td></tr>
+                            <tr class="table-info"><td><code>{{worker_category}}</code></td><td>Worker Category</td></tr>
+                            <tr><td><code>{{emp_status}}</code></td><td>Employee Status</td></tr>
+                            <tr class="table-info"><td><code>{{uan}}</code></td><td>UAN Number</td></tr>
+                            <tr><td><code>{{esic}}</code></td><td>ESIC Number</td></tr>
+                            <tr class="table-info"><td><code>{{gross_salary}}</code></td><td>Gross Salary</td></tr>
+                            <tr><td><code>{{address}}</code></td><td>Full Address</td></tr>
+                            <tr class="table-info"><td><code>{{pin_code}}</code></td><td>PIN Code</td></tr>
+                            <tr><td><code>{{state}}</code></td><td>State</td></tr>
+                            <tr class="table-info"><td><code>{{district}}</code></td><td>District</td></tr>
+                            <tr><td><code>{{bank_name}}</code></td><td>Bank Name</td></tr>
+                            <tr class="table-info"><td><code>{{ifsc_code}}</code></td><td>IFSC Code</td></tr>
+                            <tr><td><code>{{account_holder}}</code></td><td>Account Holder Name</td></tr>
+                            <tr class="table-info"><td><code>{{alt_mobile}}</code></td><td>Alternate Mobile</td></tr>
+                            <tr><td><code>{{emergency_contact}}</code></td><td>Emergency Contact Name</td></tr>
+                            <tr class="table-info"><td><code>{{nominee_name}}</code></td><td>Nominee Name</td></tr>
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
             
@@ -873,8 +961,25 @@ $totalSkipped = (int)$db->fetchColumn("SELECT COUNT(*) FROM bulk_email_logs WHER
                         $fDob = $first['date_of_birth'] ?? $first['dob'] ?? '';
                         $fDobFmt = '';
                         if ($fDob) { try { $fDobFmt = (new DateTime($fDob))->format('d/m/Y'); } catch(Exception $e) { $fDobFmt = $fDob; } }
+                        $fDoj = $first['date_of_joining'] ?? '';
+                        $fDojFmt = '';
+                        if ($fDoj) { try { $fDojFmt = (new DateTime($fDoj))->format('d/m/Y'); } catch(Exception $e) { $fDojFmt = $fDoj; } }
+                        $fGross = $first['gross_salary'] ? number_format((float)$first['gross_salary'], 2) : '[Gross Salary]';
                         echo sanitize(str_replace(
-                            ['{{name}}', '{{unit}}', '{{site}}', '{{client}}', '{{designation}}', '{{department}}', '{{code}}', '{{mobile}}', '{{dob}}'],
+                            ['{{name}}','{{unit}}','{{site}}','{{client}}','{{designation}}','{{department}}','{{code}}','{{mobile}}','{{dob}}',
+                             '{{email}}','{{father_name}}','{{gender}}','{{blood_group}}','{{marital_status}}','{{doj}}',
+                             '{{employment_type}}','{{worker_category}}','{{emp_status}}',
+                             '{{uan}}','{{esic}}','{{gross_salary}}',
+                             '{{address}}','{{pin_code}}','{{state}}','{{district}}',
+                             '{{bank_name}}','{{ifsc_code}}','{{account_holder}}',
+                             '{{alt_mobile}}','{{emergency_contact}}','{{nominee_name}}',
+                             '{{Name}}','{{Unit}}','{{Site}}','{{Client}}','{{Designation}}','{{Department}}','{{Code}}','{{Mobile}}','{{DOB}}',
+                             '{{Email}}','{{Father_Name}}','{{Gender}}','{{Blood_Group}}','{{Marital_Status}}','{{DOJ}}',
+                             '{{Employment_Type}}','{{Worker_Category}}','{{Emp_Status}}',
+                             '{{UAN}}','{{ESIC}}','{{Gross_Salary}}',
+                             '{{Address}}','{{Pin_Code}}','{{State}}','{{District}}',
+                             '{{Bank_Name}}','{{IFSC_Code}}','{{Account_Holder}}',
+                             '{{Alt_Mobile}}','{{Emergency_Contact}}','{{Nominee_Name}}'],
                             [$first['full_name'] ?? $first['name'] ?? '[Name]',
                              $first['unit_name'] ?? '[Unit]',
                              $first['site_name'] ?? $first['unit_name'] ?? '[Site]',
@@ -883,7 +988,38 @@ $totalSkipped = (int)$db->fetchColumn("SELECT COUNT(*) FROM bulk_email_logs WHER
                              $first['department'] ?? '[Department]',
                              $first['employee_code'] ?? $first['member_id'] ?? '[Code]',
                              $first['mobile_number'] ?? $first['mobile'] ?? '[Mobile]',
-                             $fDobFmt],
+                             $fDobFmt,
+                             $first['email'] ?? '[Email]',$first['father_name'] ?? '[Father]',
+                             $first['gender'] ?? '[Gender]',$first['blood_group'] ?? '[Blood Group]',
+                             $first['marital_status'] ?? '[Marital Status]',$fDojFmt,
+                             $first['employment_type'] ?? '[Emp Type]',$first['worker_category'] ?? '[Worker Cat]',
+                             $first['emp_status'] ?? '[Status]',
+                             $first['uan_number'] ?? '[UAN]',$first['esic_number'] ?? '[ESIC]',$fGross,
+                             $first['address'] ?? '[Address]',$first['pin_code'] ?? '[PIN]',$first['state'] ?? '[State]',
+                             $first['district'] ?? '[District]',
+                             $first['bank_name'] ?? '[Bank]',$first['ifsc_code'] ?? '[IFSC]',$first['account_holder_name'] ?? '[Acct Holder]',
+                             $first['alternate_mobile'] ?? '[Alt Mobile]',$first['emergency_contact_name'] ?? '[Emerg Contact]',
+                             $first['nominee_name'] ?? '[Nominee]',
+                             $first['full_name'] ?? $first['name'] ?? '[Name]',
+                             $first['unit_name'] ?? '[Unit]',
+                             $first['site_name'] ?? $first['unit_name'] ?? '[Site]',
+                             $first['client_name'] ?? '[Client]',
+                             $first['designation'] ?? '[Designation]',
+                             $first['department'] ?? '[Department]',
+                             $first['employee_code'] ?? $first['member_id'] ?? '[Code]',
+                             $first['mobile_number'] ?? $first['mobile'] ?? '[Mobile]',
+                             $fDobFmt,
+                             $first['email'] ?? '[Email]',$first['father_name'] ?? '[Father]',
+                             $first['gender'] ?? '[Gender]',$first['blood_group'] ?? '[Blood Group]',
+                             $first['marital_status'] ?? '[Marital Status]',$fDojFmt,
+                             $first['employment_type'] ?? '[Emp Type]',$first['worker_category'] ?? '[Worker Cat]',
+                             $first['emp_status'] ?? '[Status]',
+                             $first['uan_number'] ?? '[UAN]',$first['esic_number'] ?? '[ESIC]',$fGross,
+                             $first['address'] ?? '[Address]',$first['pin_code'] ?? '[PIN]',$first['state'] ?? '[State]',
+                             $first['district'] ?? '[District]',
+                             $first['bank_name'] ?? '[Bank]',$first['ifsc_code'] ?? '[IFSC]',$first['account_holder_name'] ?? '[Acct Holder]',
+                             $first['alternate_mobile'] ?? '[Alt Mobile]',$first['emergency_contact_name'] ?? '[Emerg Contact]',
+                             $first['nominee_name'] ?? '[Nominee]'],
                             $preview['subject']
                         )); 
                         ?></code>
@@ -896,8 +1032,20 @@ $totalSkipped = (int)$db->fetchColumn("SELECT COUNT(*) FROM bulk_email_logs WHER
                     <div class="card-body" style="max-height:400px;overflow-y:auto;">
                         <div style="background:#fff;padding:15px;border-radius:8px;border:1px solid #dee2e6;font-size:14px;"><?php 
                         echo str_replace(
-                            ['{{name}}', '{{unit}}', '{{site}}', '{{client}}', '{{designation}}', '{{department}}', '{{code}}', '{{mobile}}', '{{dob}}',
-                             '{{Name}}', '{{Unit}}', '{{Site}}', '{{Client}}', '{{Designation}}', '{{Department}}', '{{Code}}', '{{Mobile}}', '{{DOB}}'],
+                            ['{{name}}','{{unit}}','{{site}}','{{client}}','{{designation}}','{{department}}','{{code}}','{{mobile}}','{{dob}}',
+                             '{{email}}','{{father_name}}','{{gender}}','{{blood_group}}','{{marital_status}}','{{doj}}',
+                             '{{employment_type}}','{{worker_category}}','{{emp_status}}',
+                             '{{uan}}','{{esic}}','{{gross_salary}}',
+                             '{{address}}','{{pin_code}}','{{state}}','{{district}}',
+                             '{{bank_name}}','{{ifsc_code}}','{{account_holder}}',
+                             '{{alt_mobile}}','{{emergency_contact}}','{{nominee_name}}',
+                             '{{Name}}','{{Unit}}','{{Site}}','{{Client}}','{{Designation}}','{{Department}}','{{Code}}','{{Mobile}}','{{DOB}}',
+                             '{{Email}}','{{Father_Name}}','{{Gender}}','{{Blood_Group}}','{{Marital_Status}}','{{DOJ}}',
+                             '{{Employment_Type}}','{{Worker_Category}}','{{Emp_Status}}',
+                             '{{UAN}}','{{ESIC}}','{{Gross_Salary}}',
+                             '{{Address}}','{{Pin_Code}}','{{State}}','{{District}}',
+                             '{{Bank_Name}}','{{IFSC_Code}}','{{Account_Holder}}',
+                             '{{Alt_Mobile}}','{{Emergency_Contact}}','{{Nominee_Name}}'],
                             [$first['full_name'] ?? $first['name'] ?? '[Name]',
                              $first['unit_name'] ?? '[Unit]',
                              $first['site_name'] ?? $first['unit_name'] ?? '[Site]',
@@ -907,6 +1055,17 @@ $totalSkipped = (int)$db->fetchColumn("SELECT COUNT(*) FROM bulk_email_logs WHER
                              $first['employee_code'] ?? $first['member_id'] ?? '[Code]',
                              $first['mobile_number'] ?? $first['mobile'] ?? '[Mobile]',
                              $fDobFmt,
+                             $first['email'] ?? '[Email]',$first['father_name'] ?? '[Father]',
+                             $first['gender'] ?? '[Gender]',$first['blood_group'] ?? '[Blood Group]',
+                             $first['marital_status'] ?? '[Marital Status]',$fDojFmt,
+                             $first['employment_type'] ?? '[Emp Type]',$first['worker_category'] ?? '[Worker Cat]',
+                             $first['emp_status'] ?? '[Status]',
+                             $first['uan_number'] ?? '[UAN]',$first['esic_number'] ?? '[ESIC]',$fGross,
+                             $first['address'] ?? '[Address]',$first['pin_code'] ?? '[PIN]',$first['state'] ?? '[State]',
+                             $first['district'] ?? '[District]',
+                             $first['bank_name'] ?? '[Bank]',$first['ifsc_code'] ?? '[IFSC]',$first['account_holder_name'] ?? '[Acct Holder]',
+                             $first['alternate_mobile'] ?? '[Alt Mobile]',$first['emergency_contact_name'] ?? '[Emerg Contact]',
+                             $first['nominee_name'] ?? '[Nominee]',
                              $first['full_name'] ?? $first['name'] ?? '[Name]',
                              $first['unit_name'] ?? '[Unit]',
                              $first['site_name'] ?? $first['unit_name'] ?? '[Site]',
@@ -915,7 +1074,18 @@ $totalSkipped = (int)$db->fetchColumn("SELECT COUNT(*) FROM bulk_email_logs WHER
                              $first['department'] ?? '[Department]',
                              $first['employee_code'] ?? $first['member_id'] ?? '[Code]',
                              $first['mobile_number'] ?? $first['mobile'] ?? '[Mobile]',
-                             $fDobFmt],
+                             $fDobFmt,
+                             $first['email'] ?? '[Email]',$first['father_name'] ?? '[Father]',
+                             $first['gender'] ?? '[Gender]',$first['blood_group'] ?? '[Blood Group]',
+                             $first['marital_status'] ?? '[Marital Status]',$fDojFmt,
+                             $first['employment_type'] ?? '[Emp Type]',$first['worker_category'] ?? '[Worker Cat]',
+                             $first['emp_status'] ?? '[Status]',
+                             $first['uan_number'] ?? '[UAN]',$first['esic_number'] ?? '[ESIC]',$fGross,
+                             $first['address'] ?? '[Address]',$first['pin_code'] ?? '[PIN]',$first['state'] ?? '[State]',
+                             $first['district'] ?? '[District]',
+                             $first['bank_name'] ?? '[Bank]',$first['ifsc_code'] ?? '[IFSC]',$first['account_holder_name'] ?? '[Acct Holder]',
+                             $first['alternate_mobile'] ?? '[Alt Mobile]',$first['emergency_contact_name'] ?? '[Emerg Contact]',
+                             $first['nominee_name'] ?? '[Nominee]'],
                             $preview['body_template']
                         ); 
                         ?></div>
@@ -1080,12 +1250,34 @@ function renderLivePreview() {
         '{{name}}': 'Rajesh Kumar', '{{Name}}': 'Rajesh Kumar',
         '{{mobile}}': '9876543210', '{{Mobile}}': '9876543210',
         '{{dob}}': '15/08/1990', '{{DOB}}': '15/08/1990',
+        '{{email}}': 'rajesh.kumar@email.com', '{{Email}}': 'rajesh.kumar@email.com',
+        '{{father_name}}': 'Sh. Ram Kumar', '{{Father_Name}}': 'Sh. Ram Kumar',
+        '{{gender}}': 'Male', '{{Gender}}': 'Male',
+        '{{blood_group}}': 'B+', '{{Blood_Group}}': 'B+',
+        '{{marital_status}}': 'Married', '{{Marital_Status}}': 'Married',
+        '{{doj}}': '01/03/2022', '{{DOJ}}': '01/03/2022',
         '{{unit}}': 'Unit A - Main Plant', '{{Unit}}': 'Unit A - Main Plant',
         '{{site}}': 'Industrial Area, MIDC', '{{Site}}': 'Industrial Area, MIDC',
         '{{client}}': 'ABC Manufacturing Ltd', '{{Client}}': 'ABC Manufacturing Ltd',
         '{{designation}}': 'Supervisor', '{{Designation}}': 'Supervisor',
         '{{department}}': 'Production', '{{Department}}': 'Production',
-        '{{code}}': 'EMP-1042', '{{Code}}': 'EMP-1042'
+        '{{code}}': 'EMP-1042', '{{Code}}': 'EMP-1042',
+        '{{employment_type}}': 'Permanent', '{{Employment_Type}}': 'Permanent',
+        '{{worker_category}}': 'Skilled', '{{Worker_Category}}': 'Skilled',
+        '{{emp_status}}': 'Approved', '{{Emp_Status}}': 'Approved',
+        '{{uan}}': '101234567890', '{{UAN}}': '101234567890',
+        '{{esic}}': '210012345678901', '{{ESIC}}': '210012345678901',
+        '{{gross_salary}}': '18,500.00', '{{Gross_Salary}}': '18,500.00',
+        '{{address}}': 'Flat 301, Sector 15, CBD Belapur', '{{Address}}': 'Flat 301, Sector 15, CBD Belapur',
+        '{{pin_code}}': '400614', '{{Pin_Code}}': '400614',
+        '{{state}}': 'Maharashtra', '{{State}}': 'Maharashtra',
+        '{{district}}': 'Thane', '{{District}}': 'Thane',
+        '{{bank_name}}': 'State Bank of India', '{{Bank_Name}}': 'State Bank of India',
+        '{{ifsc_code}}': 'SBIN0001234', '{{IFSC_Code}}': 'SBIN0001234',
+        '{{account_holder}}': 'Rajesh Kumar', '{{Account_Holder}}': 'Rajesh Kumar',
+        '{{alt_mobile}}': '9898989898', '{{Alt_Mobile}}': '9898989898',
+        '{{emergency_contact}}': 'Suresh Kumar', '{{Emergency_Contact}}': 'Suresh Kumar',
+        '{{nominee_name}}': 'Meena Kumari', '{{Nominee_Name}}': 'Meena Kumari'
     };
     let rendered = body.value;
     for (const [key, val] of Object.entries(sampleReplacements)) {

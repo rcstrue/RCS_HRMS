@@ -55,10 +55,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'bulk') {
         } else {
             $sql = "SELECT e.id, e.full_name, e.mobile_number, e.employee_code, e.designation, e.department,
                            e.date_of_birth, e.client_id, e.unit_id,
-                           c.name as client_name, u.name as unit_name, u.address as site_name
+                           e.father_name, e.gender, e.blood_group, e.email, e.address, e.pin_code,
+                           e.state, e.district, e.uan_number, e.esic_number, e.marital_status,
+                           e.date_of_joining, e.employment_type, e.worker_category, e.status as emp_status,
+                           e.bank_name, e.ifsc_code, e.account_holder_name, e.alternate_mobile,
+                           e.emergency_contact_name, e.emergency_contact_relation,
+                           e.nominee_name, e.nominee_relationship,
+                           c.name as client_name, u.name as unit_name, u.address as site_name,
+                           ess.gross_salary
                     FROM employees e
                     LEFT JOIN clients c ON e.client_id = c.id
                     LEFT JOIN units u ON e.unit_id = u.id
+                    LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
                     WHERE e.mobile_number IS NOT NULL AND e.mobile_number != ''";
             $params = [];
 
@@ -670,34 +678,48 @@ function searchEmployee() {
                         <label class="form-label fw-bold">Message Template * <span class="badge bg-success">Plain text with placeholders</span></label>
 
                         <!-- Placeholder buttons -->
+                        <!-- Row 1: Core -->
                         <div class="btn-group mb-2 flex-wrap">
-                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{name}}')">
-                                <i class="bi bi-person me-1"></i>Name
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{mobile}}')">
-                                <i class="bi bi-phone me-1"></i>Mobile
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{dob}}')">
-                                <i class="bi bi-calendar3 me-1"></i>DOB
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{unit}}')">
-                                <i class="bi bi-building me-1"></i>Unit
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{site}}')">
-                                <i class="bi bi-geo-alt me-1"></i>Site
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{client}}')">
-                                <i class="bi bi-briefcase me-1"></i>Client
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{designation}}')">
-                                <i class="bi bi-tag me-1"></i>Designation
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{department}}')">
-                                <i class="bi bi-diagram-3 me-1"></i>Department
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{code}}')">
-                                <i class="bi bi-upc me-1"></i>Emp Code
-                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{name}}')"><i class="bi bi-person me-1"></i>Name</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{mobile}}')"><i class="bi bi-phone me-1"></i>Mobile</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{dob}}')"><i class="bi bi-calendar3 me-1"></i>DOB</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{unit}}')"><i class="bi bi-building me-1"></i>Unit</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{site}}')"><i class="bi bi-geo-alt me-1"></i>Site</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{client}}')"><i class="bi bi-briefcase me-1"></i>Client</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{designation}}')"><i class="bi bi-tag me-1"></i>Designation</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{department}}')"><i class="bi bi-diagram-3 me-1"></i>Department</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{code}}')"><i class="bi bi-upc me-1"></i>Emp Code</button>
+                        </div>
+                        <!-- Row 2: Personal -->
+                        <div class="btn-group mb-2 flex-wrap">
+                            <button type="button" class="btn btn-sm btn-outline-info" onclick="waInsertPlaceholder('{{email}}')"><i class="bi bi-envelope me-1"></i>Email</button>
+                            <button type="button" class="btn btn-sm btn-outline-info" onclick="waInsertPlaceholder('{{father_name}}')"><i class="bi bi-person-heart me-1"></i>Father</button>
+                            <button type="button" class="btn btn-sm btn-outline-info" onclick="waInsertPlaceholder('{{gender}}')"><i class="bi bi-gender-ambiguous me-1"></i>Gender</button>
+                            <button type="button" class="btn btn-sm btn-outline-info" onclick="waInsertPlaceholder('{{blood_group}}')"><i class="bi bi-droplet me-1"></i>Blood Grp</button>
+                            <button type="button" class="btn btn-sm btn-outline-info" onclick="waInsertPlaceholder('{{marital_status}}')"><i class="bi bi-heart me-1"></i>Marital</button>
+                            <button type="button" class="btn btn-sm btn-outline-info" onclick="waInsertPlaceholder('{{doj}}')"><i class="bi bi-calendar-plus me-1"></i>DOJ</button>
+                            <button type="button" class="btn btn-sm btn-outline-info" onclick="waInsertPlaceholder('{{address}}')"><i class="bi bi-pin-map me-1"></i>Address</button>
+                            <button type="button" class="btn btn-sm btn-outline-info" onclick="waInsertPlaceholder('{{alt_mobile}}')"><i class="bi bi-phone-landscape me-1"></i>Alt Mobile</button>
+                        </div>
+                        <!-- Row 3: Employment & Bank -->
+                        <div class="btn-group mb-2 flex-wrap">
+                            <button type="button" class="btn btn-sm btn-outline-warning" onclick="waInsertPlaceholder('{{employment_type}}')"><i class="bi bi-person-badge me-1"></i>Emp Type</button>
+                            <button type="button" class="btn btn-sm btn-outline-warning" onclick="waInsertPlaceholder('{{worker_category}}')"><i class="bi bi-people me-1"></i>Worker Cat</button>
+                            <button type="button" class="btn btn-sm btn-outline-warning" onclick="waInsertPlaceholder('{{emp_status}}')"><i class="bi bi-p-circle me-1"></i>Status</button>
+                            <button type="button" class="btn btn-sm btn-outline-warning" onclick="waInsertPlaceholder('{{uan}}')"><i class="bi bi-shield-check me-1"></i>UAN</button>
+                            <button type="button" class="btn btn-sm btn-outline-warning" onclick="waInsertPlaceholder('{{esic}}')"><i class="bi bi-heart-pulse me-1"></i>ESIC</button>
+                            <button type="button" class="btn btn-sm btn-outline-warning" onclick="waInsertPlaceholder('{{gross_salary}}')"><i class="bi bi-currency-rupee me-1"></i>Gross Salary</button>
+                        </div>
+                        <!-- Row 4: Location & Contact -->
+                        <div class="btn-group mb-2 flex-wrap">
+                            <button type="button" class="btn btn-sm btn-outline-dark" onclick="waInsertPlaceholder('{{pin_code}}')"><i class="bi bi-signpost me-1"></i>PIN Code</button>
+                            <button type="button" class="btn btn-sm btn-outline-dark" onclick="waInsertPlaceholder('{{state}}')"><i class="bi bi-map me-1"></i>State</button>
+                            <button type="button" class="btn btn-sm btn-outline-dark" onclick="waInsertPlaceholder('{{district}}')"><i class="bi bi-geo me-1"></i>District</button>
+                            <button type="button" class="btn btn-sm btn-outline-dark" onclick="waInsertPlaceholder('{{bank_name}}')"><i class="bi bi-bank me-1"></i>Bank</button>
+                            <button type="button" class="btn btn-sm btn-outline-dark" onclick="waInsertPlaceholder('{{ifsc_code}}')"><i class="bi bi-credit-card me-1"></i>IFSC</button>
+                            <button type="button" class="btn btn-sm btn-outline-dark" onclick="waInsertPlaceholder('{{account_holder}}')"><i class="bi bi-person-check me-1"></i>Acct Holder</button>
+                            <button type="button" class="btn btn-sm btn-outline-dark" onclick="waInsertPlaceholder('{{emergency_contact}}')"><i class="bi bi-telephone me-1"></i>Emerg Contact</button>
+                            <button type="button" class="btn btn-sm btn-outline-dark" onclick="waInsertPlaceholder('{{nominee_name}}')"><i class="bi bi-person-lines-fill me-1"></i>Nominee</button>
                         </div>
 
                         <textarea class="form-control font-monospace" name="message" id="waMessage" rows="10" required
@@ -776,21 +798,45 @@ Thank you.
                 <div class="card-header bg-success text-white">
                     <h5 class="card-title mb-0"><i class="bi bi-info-circle me-2"></i>Placeholders</h5>
                 </div>
-                <div class="card-body">
-                    <table class="table table-sm mb-0">
-                        <thead><tr><th>Tag</th><th>Replaced With</th></tr></thead>
+                <div class="card-body p-2">
+                    <div style="max-height:450px;overflow-y:auto;">
+                    <table class="table table-sm mb-0 small">
+                        <thead class="sticky-top"><tr><th>Tag</th><th>Replaced With</th></tr></thead>
                         <tbody>
                             <tr><td><code>{{name}}</code></td><td>Full Name</td></tr>
                             <tr class="table-success"><td><code>{{mobile}}</code></td><td>Mobile No.</td></tr>
                             <tr class="table-success"><td><code>{{dob}}</code></td><td>Date of Birth (DD/MM/YYYY)</td></tr>
+                            <tr><td><code>{{email}}</code></td><td>Email Address</td></tr>
+                            <tr><td><code>{{father_name}}</code></td><td>Father's Name</td></tr>
+                            <tr class="table-success"><td><code>{{gender}}</code></td><td>Gender</td></tr>
+                            <tr class="table-success"><td><code>{{blood_group}}</code></td><td>Blood Group</td></tr>
+                            <tr><td><code>{{marital_status}}</code></td><td>Marital Status</td></tr>
+                            <tr class="table-success"><td><code>{{doj}}</code></td><td>Date of Joining (DD/MM/YYYY)</td></tr>
                             <tr><td><code>{{unit}}</code></td><td>Unit Name</td></tr>
-                            <tr><td><code>{{site}}</code></td><td>Site Address</td></tr>
+                            <tr class="table-success"><td><code>{{site}}</code></td><td>Site Address</td></tr>
                             <tr><td><code>{{client}}</code></td><td>Client Name</td></tr>
-                            <tr><td><code>{{designation}}</code></td><td>Job Title</td></tr>
+                            <tr class="table-success"><td><code>{{designation}}</code></td><td>Job Title</td></tr>
                             <tr><td><code>{{department}}</code></td><td>Department</td></tr>
-                            <tr><td><code>{{code}}</code></td><td>Emp Code / Member ID</td></tr>
+                            <tr class="table-success"><td><code>{{code}}</code></td><td>Emp Code / Member ID</td></tr>
+                            <tr><td><code>{{employment_type}}</code></td><td>Employment Type</td></tr>
+                            <tr class="table-success"><td><code>{{worker_category}}</code></td><td>Worker Category</td></tr>
+                            <tr><td><code>{{emp_status}}</code></td><td>Employee Status</td></tr>
+                            <tr class="table-success"><td><code>{{uan}}</code></td><td>UAN Number</td></tr>
+                            <tr><td><code>{{esic}}</code></td><td>ESIC Number</td></tr>
+                            <tr class="table-success"><td><code>{{gross_salary}}</code></td><td>Gross Salary</td></tr>
+                            <tr><td><code>{{address}}</code></td><td>Full Address</td></tr>
+                            <tr class="table-success"><td><code>{{pin_code}}</code></td><td>PIN Code</td></tr>
+                            <tr><td><code>{{state}}</code></td><td>State</td></tr>
+                            <tr class="table-success"><td><code>{{district}}</code></td><td>District</td></tr>
+                            <tr><td><code>{{bank_name}}</code></td><td>Bank Name</td></tr>
+                            <tr class="table-success"><td><code>{{ifsc_code}}</code></td><td>IFSC Code</td></tr>
+                            <tr><td><code>{{account_holder}}</code></td><td>Account Holder Name</td></tr>
+                            <tr class="table-success"><td><code>{{alt_mobile}}</code></td><td>Alternate Mobile</td></tr>
+                            <tr><td><code>{{emergency_contact}}</code></td><td>Emergency Contact Name</td></tr>
+                            <tr class="table-success"><td><code>{{nominee_name}}</code></td><td>Nominee Name</td></tr>
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
 
@@ -806,7 +852,8 @@ Thank you.
                         <li>Messages sent in batches of 200 (3s server delay)</li>
                         <li><strong>Invalid mobiles auto-rejected</strong> before preview</li>
                         <li>Uncheck recipients in preview to skip them</li>
-                        <li>DOB formatted as <strong>DD/MM/YYYY</strong></li>
+                        <li>DOB &amp; DOJ formatted as <strong>DD/MM/YYYY</strong></li>
+                        <li>Gross Salary fetched from salary structure</li>
                         <li>+91 prefix added automatically</li>
                     </ul>
                 </div>
@@ -999,17 +1046,55 @@ Thank you.
                         $fDob = $first['date_of_birth'] ?? '';
                         $fDobFmt = '';
                         if ($fDob) { try { $fDobFmt = (new DateTime($fDob))->format('d/m/Y'); } catch(Exception $e) { $fDobFmt = $fDob; } }
+                        $fDoj = $first['date_of_joining'] ?? '';
+                        $fDojFmt = '';
+                        if ($fDoj) { try { $fDojFmt = (new DateTime($fDoj))->format('d/m/Y'); } catch(Exception $e) { $fDojFmt = $fDoj; } }
+                        $fGross = $first['gross_salary'] ? number_format((float)$first['gross_salary'], 2) : '[Gross Salary]';
                         echo nl2br(sanitize(str_replace(
                             ['{{name}}','{{mobile}}','{{dob}}','{{unit}}','{{site}}','{{client}}','{{designation}}','{{department}}','{{code}}',
-                             '{{Name}}','{{Mobile}}','{{DOB}}','{{Unit}}','{{Site}}','{{Client}}','{{Designation}}','{{Department}}','{{Code}}'],
+                             '{{email}}','{{father_name}}','{{gender}}','{{blood_group}}','{{marital_status}}','{{doj}}',
+                             '{{employment_type}}','{{worker_category}}','{{emp_status}}',
+                             '{{uan}}','{{esic}}','{{gross_salary}}',
+                             '{{address}}','{{pin_code}}','{{state}}','{{district}}',
+                             '{{bank_name}}','{{ifsc_code}}','{{account_holder}}',
+                             '{{alt_mobile}}','{{emergency_contact}}','{{nominee_name}}',
+                             '{{Name}}','{{Mobile}}','{{DOB}}','{{Unit}}','{{Site}}','{{Client}}','{{Designation}}','{{Department}}','{{Code}}',
+                             '{{Email}}','{{Father_Name}}','{{Gender}}','{{Blood_Group}}','{{Marital_Status}}','{{DOJ}}',
+                             '{{Employment_Type}}','{{Worker_Category}}','{{Emp_Status}}',
+                             '{{UAN}}','{{ESIC}}','{{Gross_Salary}}',
+                             '{{Address}}','{{Pin_Code}}','{{State}}','{{District}}',
+                             '{{Bank_Name}}','{{IFSC_Code}}','{{Account_Holder}}',
+                             '{{Alt_Mobile}}','{{Emergency_Contact}}','{{Nominee_Name}}'],
                             [$first['full_name'] ?? '[Name]',$first['mobile_number'] ?? '[Mobile]',$fDobFmt,
                              $first['unit_name'] ?? '[Unit]',$first['site_name'] ?? $first['unit_name'] ?? '[Site]',
                              $first['client_name'] ?? '[Client]',$first['designation'] ?? '[Designation]',
                              $first['department'] ?? '[Department]',$first['employee_code'] ?? '[Code]',
+                             $first['email'] ?? '[Email]',$first['father_name'] ?? '[Father Name]',
+                             $first['gender'] ?? '[Gender]',$first['blood_group'] ?? '[Blood Group]',
+                             $first['marital_status'] ?? '[Marital Status]',$fDojFmt,
+                             $first['employment_type'] ?? '[Employment Type]',$first['worker_category'] ?? '[Worker Category]',
+                             $first['emp_status'] ?? '[Status]',
+                             $first['uan_number'] ?? '[UAN]',$first['esic_number'] ?? '[ESIC]',$fGross,
+                             $first['address'] ?? '[Address]',$first['pin_code'] ?? '[PIN]',$first['state'] ?? '[State]',
+                             $first['district'] ?? '[District]',
+                             $first['bank_name'] ?? '[Bank]',$first['ifsc_code'] ?? '[IFSC]',$first['account_holder_name'] ?? '[Account Holder]',
+                             $first['alternate_mobile'] ?? '[Alt Mobile]',$first['emergency_contact_name'] ?? '[Emergency Contact]',
+                             $first['nominee_name'] ?? '[Nominee]',
                              $first['full_name'] ?? '[Name]',$first['mobile_number'] ?? '[Mobile]',$fDobFmt,
                              $first['unit_name'] ?? '[Unit]',$first['site_name'] ?? $first['unit_name'] ?? '[Site]',
                              $first['client_name'] ?? '[Client]',$first['designation'] ?? '[Designation]',
-                             $first['department'] ?? '[Department]',$first['employee_code'] ?? '[Code]'],
+                             $first['department'] ?? '[Department]',$first['employee_code'] ?? '[Code]',
+                             $first['email'] ?? '[Email]',$first['father_name'] ?? '[Father Name]',
+                             $first['gender'] ?? '[Gender]',$first['blood_group'] ?? '[Blood Group]',
+                             $first['marital_status'] ?? '[Marital Status]',$fDojFmt,
+                             $first['employment_type'] ?? '[Employment Type]',$first['worker_category'] ?? '[Worker Category]',
+                             $first['emp_status'] ?? '[Status]',
+                             $first['uan_number'] ?? '[UAN]',$first['esic_number'] ?? '[ESIC]',$fGross,
+                             $first['address'] ?? '[Address]',$first['pin_code'] ?? '[PIN]',$first['state'] ?? '[State]',
+                             $first['district'] ?? '[District]',
+                             $first['bank_name'] ?? '[Bank]',$first['ifsc_code'] ?? '[IFSC]',$first['account_holder_name'] ?? '[Account Holder]',
+                             $first['alternate_mobile'] ?? '[Alt Mobile]',$first['emergency_contact_name'] ?? '[Emergency Contact]',
+                             $first['nominee_name'] ?? '[Nominee]'],
                             $preview['message']
                         )));
                         ?>
@@ -1076,12 +1161,34 @@ function waRenderPreview() {
         '{{name}}': 'Rajesh Kumar', '{{Name}}': 'Rajesh Kumar',
         '{{mobile}}': '9876543210', '{{Mobile}}': '9876543210',
         '{{dob}}': '15/08/1990', '{{DOB}}': '15/08/1990',
+        '{{email}}': 'rajesh.kumar@email.com', '{{Email}}': 'rajesh.kumar@email.com',
+        '{{father_name}}': 'Sh. Ram Kumar', '{{Father_Name}}': 'Sh. Ram Kumar',
+        '{{gender}}': 'Male', '{{Gender}}': 'Male',
+        '{{blood_group}}': 'B+', '{{Blood_Group}}': 'B+',
+        '{{marital_status}}': 'Married', '{{Marital_Status}}': 'Married',
+        '{{doj}}': '01/03/2022', '{{DOJ}}': '01/03/2022',
         '{{unit}}': 'Unit A - Main Plant', '{{Unit}}': 'Unit A - Main Plant',
         '{{site}}': 'Industrial Area, MIDC', '{{Site}}': 'Industrial Area, MIDC',
         '{{client}}': 'ABC Manufacturing Ltd', '{{Client}}': 'ABC Manufacturing Ltd',
         '{{designation}}': 'Supervisor', '{{Designation}}': 'Supervisor',
         '{{department}}': 'Production', '{{Department}}': 'Production',
-        '{{code}}': 'EMP-1042', '{{Code}}': 'EMP-1042'
+        '{{code}}': 'EMP-1042', '{{Code}}': 'EMP-1042',
+        '{{employment_type}}': 'Permanent', '{{Employment_Type}}': 'Permanent',
+        '{{worker_category}}': 'Skilled', '{{Worker_Category}}': 'Skilled',
+        '{{emp_status}}': 'Approved', '{{Emp_Status}}': 'Approved',
+        '{{uan}}': '101234567890', '{{UAN}}': '101234567890',
+        '{{esic}}': '210012345678901', '{{ESIC}}': '210012345678901',
+        '{{gross_salary}}': '18,500.00', '{{Gross_Salary}}': '18,500.00',
+        '{{address}}': 'Flat 301, Sector 15, CBD Belapur', '{{Address}}': 'Flat 301, Sector 15, CBD Belapur',
+        '{{pin_code}}': '400614', '{{Pin_Code}}': '400614',
+        '{{state}}': 'Maharashtra', '{{State}}': 'Maharashtra',
+        '{{district}}': 'Thane', '{{District}}': 'Thane',
+        '{{bank_name}}': 'State Bank of India', '{{Bank_Name}}': 'State Bank of India',
+        '{{ifsc_code}}': 'SBIN0001234', '{{IFSC_Code}}': 'SBIN0001234',
+        '{{account_holder}}': 'Rajesh Kumar', '{{Account_Holder}}': 'Rajesh Kumar',
+        '{{alt_mobile}}': '9898989898', '{{Alt_Mobile}}': '9898989898',
+        '{{emergency_contact}}': 'Suresh Kumar', '{{Emergency_Contact}}': 'Suresh Kumar',
+        '{{nominee_name}}': 'Meena Kumari', '{{Nominee_Name}}': 'Meena Kumari'
     };
     let rendered = body.value;
     for (const [key, val] of Object.entries(sample)) {
