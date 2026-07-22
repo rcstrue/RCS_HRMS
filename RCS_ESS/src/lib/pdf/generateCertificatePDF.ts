@@ -227,8 +227,15 @@ function buildSalaryHTML(d: CertificateData, qrDataUrl: string): string {
   const pf = p?.pf_employee ?? 0;
   const esi = p?.esi_employee ?? 0;
   const pt = p?.professional_tax ?? 0;
-  const totalDed = p?.total_deductions ?? 0;
-  const netPay = p?.net_pay ?? 0;
+  const lwf = (p as Record<string, number> | null)?.lwf_employee ?? 0;
+  // Salary certificate shows ONLY recurring deductions (PF + ESI + PT + LWF).
+  // One-time advance/loan/office/trust deductions are excluded — they don't
+  // reflect the employee's regular monthly salary.
+  const totalDed = (p as Record<string, number> | null)?.recurring_deductions
+    ?? (pf + esi + pt + lwf);
+  // Net pay = Gross - recurring deductions (NOT payroll.net_pay which has
+  // one-time advances already subtracted)
+  const netPay = gross - totalDed;
   const ctc = p?.ctc ?? gross * 12;
 
   const body = `
@@ -273,6 +280,7 @@ function buildSalaryHTML(d: CertificateData, qrDataUrl: string): string {
       <tr><td>PF</td><td class="text-end">${fmtINR(pf)}</td></tr>
       <tr><td>ESI</td><td class="text-end">${fmtINR(esi)}</td></tr>
       <tr><td>Prof. Tax</td><td class="text-end">${fmtINR(pt)}</td></tr>
+      ${lwf > 0 ? `<tr><td>LWF</td><td class="text-end">${fmtINR(lwf)}</td></tr>` : ''}
       <tr style="background:#ffebee;"><td><strong>Total Ded.</strong></td><td class="text-end"><strong>${fmtINR(totalDed)}</strong></td></tr>
     </table>
 

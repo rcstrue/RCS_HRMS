@@ -232,6 +232,11 @@ function _generateCertificate(mysqli $conn, string $authId, string $type): void
         ] : null,
 
         // Payroll deductions (for salary cert)
+        // NOTE: salary certificate should show ONLY recurring deductions
+        // (PF, ESI, PT, LWF) — NOT one-time advance/loan/office/trust
+        // deductions. The 'total_deductions' and 'net_pay' from the payroll
+        // row include one-time deductions, so we pass the individual
+        // components and let the frontend compute recurring-only totals.
         'payroll' => $payroll ? [
             'month'            => (int)$payroll['month'],
             'year'             => (int)$payroll['year'],
@@ -241,6 +246,15 @@ function _generateCertificate(mysqli $conn, string $authId, string $type): void
             'pf_employee'      => (float)($payroll['pf_employee'] ?? 0),
             'esi_employee'     => (float)($payroll['esi_employee'] ?? 0),
             'professional_tax' => (float)($payroll['professional_tax'] ?? 0),
+            'lwf_employee'     => (float)($payroll['lwf_employee'] ?? 0),
+            // Recurring deductions only (exclude salary_advance, loan_emi,
+            // office_deduction, trust_deduction which are one-time/variable)
+            'recurring_deductions' => (float)(
+                ($payroll['pf_employee'] ?? 0)
+                + ($payroll['esi_employee'] ?? 0)
+                + ($payroll['professional_tax'] ?? 0)
+                + ($payroll['lwf_employee'] ?? 0)
+            ),
             'total_deductions' => (float)($payroll['total_deductions'] ?? 0),
             'net_pay'          => (float)($payroll['net_pay'] ?? 0),
             'ctc'              => (float)($payroll['ctc'] ?? 0),
