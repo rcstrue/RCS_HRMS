@@ -41,10 +41,40 @@ try {
     $unitIds = array_values(array_filter($unitIds, function($v) { return $v > 0; }));
 
     // SECURITY (IDOR): previously, omitting unit_ids returned the ENTIRE employee
-    // directory (WHERE 1=1) to any caller. Now: if no unit_ids are provided the
-    // caller must be admin/regional_manager; otherwise the request is rejected.
-    if (empty($unitIds)) {
-        requireRole(ESS_GUARD_ROLES_ADMIN, $conn);
+    // directory (WHERE 1=1) to any caller. Now:
+    //   - If unit_ids (plural) are provided → use them (frontend useAccess hook path).
+    //   - Else if unit_id (singular) or client_id is provided → use them as scope
+    //     (DirectoryPage path — sends requester_id + client_id + unit_id).
+    //   - Else if caller is admin/regional_manager → allow full directory.
+    //   - Else → auto-resolve the caller's own allocation from user_access so they
+    //     see only their allocated units (fail-safe: never return the full directory
+    //     to a non-admin).
+    if (empty($unitIds) && empty($unitId) && empty($clientId)) {
+        $callerRole = strtolower((string)(getEmployeeRole($conn, $employeeId) ?? ''));
+        if (in_array($callerRole, ['admin', 'regional_manager'], true)) {
+            // Admin/regional_manager — allow full directory
+        } else {
+            // Non-admin with no scope params — auto-resolve from user_access
+            $uaStmt = $conn->prepare("SELECT access_id FROM user_access WHERE user_id = ? AND access_type = 'unit'");
+            if ($uaStmt) {
+                $uaStmt->bind_param('s', $employeeId);
+                $uaStmt->execute();
+                $uaRes = $uaStmt->get_result();
+                while ($uaRow = $uaRes->fetch_assoc()) {
+                    $uid = (int)$uaRow['access_id'];
+                    if ($uid > 0) $unitIds[] = $uid;
+                }
+                $uaStmt->close();
+            }
+            // Also add the caller's own unit
+            $ownUnit = getEmployeeUnitId($employeeId, $conn);
+            if ($ownUnit > 0 && !in_array($ownUnit, $unitIds, true)) $unitIds[] = $ownUnit;
+
+            if (empty($unitIds)) {
+                // No allocation at all — deny
+                jsonOutput(array('success' => false, 'error' => 'Access denied: no unit allocation found for your account.'), 403);
+            }
+        }
     }
 
     // ─── Build Base Query ─────────────────────────────────────────────────

@@ -4,21 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- ── Content Security Policy (Round 5) ─────────────────────────────── -->
-    <!-- Restricts script/style/image/font/connect sources to prevent XSS,
-         data injection, and clickjacking. Adjust connect-src/img-src if
-         adding new backend hosts. -->
+    <!-- ── Content Security Policy (Round 5, fixed R11) ──────────────────── -->
+    <!-- Single-line: backslash continuations are invalid in HTML attributes. -->
+    <!-- style-src 'unsafe-inline' is required because React + shadcn inject  -->
+    <!-- inline styles. fonts.googleapis.com is used for the Inter font.       -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; \
-                   script-src 'self'; \
-                   style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
-                   img-src 'self' data: blob: https://*.rcsfacility.com; \
-                   font-src 'self' data: https://cdn.jsdelivr.net; \
-                   connect-src 'self' https://*.rcsfacility.com; \
-                   object-src 'none'; \
-                   base-uri 'self'; \
-                   frame-ancestors 'none'; \
-                   form-action 'self';" />
+          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';" />
 
     <title>RCS ESS — Employee Self Service</title>
     <meta name="description" content="RCS True Facilities — Employee Self Service Portal" />
