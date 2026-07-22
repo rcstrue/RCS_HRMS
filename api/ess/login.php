@@ -193,19 +193,20 @@ try {
     _clearFailedLogins($conn, $rateId);
 
     // ─── Set JWT as HttpOnly cookie (Round 10 — staged migration) ──────
-    // The token is ALSO returned in the JSON response for backward compat
-    // with the SPA's existing localStorage-based auth. The cookie enables a
-    // future migration to cookie-only auth (removing the XSS-vulnerable
-    // localStorage token). The cookie is HttpOnly (JS can't read it), Secure
-    // (HTTPS only), and SameSite=Strict (not sent on cross-site requests).
+    // The token is ALSO returned in the JSON response for backward compat.
+    // Cookie attrs: HttpOnly (JS can't read), Secure (HTTPS only),
+    // SameSite=Lax (allows cookie on same-site requests + top-level navigations;
+    // blocks cross-site POST CSRF). Lax is used instead of Strict because
+    // Strict can block the cookie on some same-site fetch scenarios.
     $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
+        || (($_SERVER['SERVER_PORT'] ?? 0) == 443);
     setcookie('ess_jwt', $token, [
         'expires'  => time() + JWT_EXPIRY,
         'path'     => '/',
-        'secure'   => $isHttps,
+        'secure'   => true, // always secure — the site is HTTPS-only
         'httponly' => true,
-        'samesite' => 'Strict',
+        'samesite' => 'Lax',
     ]);
 
     jsonOutput(array(

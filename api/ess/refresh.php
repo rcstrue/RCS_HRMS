@@ -76,14 +76,13 @@ try {
     ], JWT_EXPIRY);
 
     // Refresh the HttpOnly cookie with the new token (Round 10)
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    // SameSite=Lax + Secure=true (matches login.php)
     setcookie('ess_jwt', $newToken, [
         'expires'  => time() + JWT_EXPIRY,
         'path'     => '/',
-        'secure'   => $isHttps,
+        'secure'   => true, // always secure — the site is HTTPS-only
         'httponly' => true,
-        'samesite' => 'Strict',
+        'samesite' => 'Lax',
     ]);
 
     jsonOutput([
