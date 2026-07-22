@@ -22,10 +22,10 @@ const App = () => (
         <Route path="/admin/login" element={<AdminLogin />} />
 
         {/* Protected routes — RequireAuth prevents flash of protected content */}
+        {/* NOTE: /ess is NOT wrapped — ESSApp handles its own auth (shows LoginScreen
+            when no session). Wrapping it would cause a redirect loop → white screen. */}
         <Route path="/ess" element={
-          <RequireAuth type="ess">
-            <ESSApp onBackToRegistration={() => window.location.hash = '/'} />
-          </RequireAuth>
+          <ESSApp onBackToRegistration={() => window.location.hash = '/'} />
         } />
         <Route path="/admin" element={
           <RequireAuth type="admin">

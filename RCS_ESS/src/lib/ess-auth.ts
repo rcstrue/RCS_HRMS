@@ -31,24 +31,21 @@ export interface JWTPayload {
 }
 
 // ── Token Storage ──────────────────────────────────────────
-// R11 fix: restored localStorage storage for backward compat.
-// The JWT is ALSO in the HttpOnly cookie (set by login.php/refresh.php),
-// but existing sessions (pre-R11) only have it in localStorage. Both paths
-// work simultaneously. The cookie is preferred (XSS-safe), localStorage
-// keeps existing sessions working until they re-login.
-// A future round can remove localStorage once all users have re-logged in.
+// R11 final: cookie-only auth. The JWT is ONLY in the HttpOnly cookie.
+// These functions are kept for backward-compat but are no-ops / null returns.
+// All users must re-login once to get the cookie set.
 
-export function storeEssToken(token: string): void {
-  localStorage.setItem('ess_token', token);
+export function storeEssToken(_token: string): void {
+  // No-op: token is in the HttpOnly cookie, not localStorage.
 }
 
 export function getEssToken(): string | null {
-  return localStorage.getItem('ess_token');
+  return null; // Can't read HttpOnly cookie from JS.
 }
 
 export function clearEssAuth(): void {
-  localStorage.removeItem('ess_token');
   localStorage.removeItem(ESS_SESSION_KEY);
+  localStorage.removeItem('ess_token'); // cleanup pre-R11 key
 }
 
 // ── Token Validation ───────────────────────────────────────

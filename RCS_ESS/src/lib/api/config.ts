@@ -92,36 +92,23 @@ export async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<{ data: T | null; error: string | null }> {
   try {
-    // R11 fix: restore localStorage token fallback for backward compat.
-    // Existing sessions (pre-R11) have the token in localStorage but NOT in
-    // the cookie (cookie is only set on login). New logins set the cookie.
-    // Both paths work simultaneously — the cookie is preferred (HttpOnly =
-    // XSS-safe), but localStorage keeps existing sessions working until
-    // they re-login (at which point the cookie is set).
+    // R11 final: cookie-only auth. The ESS JWT is in the HttpOnly cookie
+    // (set by login.php/refresh.php), sent via credentials:'include'.
+    // localStorage token storage is REMOVED. All users must re-login once
+    // to get the cookie set.
     const adminToken = localStorage.getItem('admin_token');
-
-    // ESS token: check ess_employee session object first, then ess_token key
-    let essToken: string | null = null;
-    const essSession = localStorage.getItem('ess_employee');
-    if (essSession) {
-      try {
-        const parsed = JSON.parse(essSession);
-        if (parsed?.token) essToken = parsed.token;
-      } catch { /* invalid session */ }
-    }
-    if (!essToken) essToken = localStorage.getItem('ess_token');
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-API-KEY': API_KEY,
     };
-    // Prefer ESS token, fall back to admin token
-    const authToken = essToken || adminToken;
-    if (authToken) {
-      headers['Authorization'] = `Bearer ${authToken}`;
+    // Admin panel uses admin_token in Authorization header (separate auth flow)
+    if (adminToken) {
+      headers['Authorization'] = `Bearer ${adminToken}`;
     }
 
     // Set X-Employee-ID from ess_employee session (for server-side logging)
+    const essSession = localStorage.getItem('ess_employee');
     if (essSession) {
       try {
         const parsed = JSON.parse(essSession);
@@ -181,7 +168,7 @@ export async function apiRequest<T>(
     if (!response.ok) {
       // ── Token expiry / invalid → try silent refresh first ──
       if (response.status === 401) {
-        const isEss = localStorage.getItem('ess_employee'); // R11: no more ess_token in localStorage
+        const isEss = localStorage.getItem('ess_employee'); // cookie-only: check session exists
         if (isEss) {
           // Don't nuke tokens if user is in force PIN change flow (has_custom_pin=false)
           // This prevents cascade failure on mobile where PIN change API call might race
@@ -228,7 +215,7 @@ export async function apiRequest<T>(
           }
 
           // Refresh failed or retry failed — clear session
-          localStorage.removeItem('ess_employee'); // R11: only remove session, token is in cookie
+          localStorage.removeItem('ess_employee'); // cookie-only: just remove session
           // Dispatch only ONCE to prevent toast spam from concurrent 401s
           if (!_sessionExpiredFired) {
             _sessionExpiredFired = true;
@@ -274,7 +261,7 @@ export async function uploadBase64Image(
       credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
       headers: (() => {
         const h: Record<string, string> = { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY };
-        const t = localStorage.getItem('admin_token'); // R11: ESS auth is via cookie only
+        const t = localStorage.getItem('admin_token'); // cookie-only: ESS auth via cookie
         if (t) h['Authorization'] = `Bearer ${t}`;
         const ess = localStorage.getItem('ess_employee');
         if (ess) {
