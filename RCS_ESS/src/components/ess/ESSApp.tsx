@@ -82,7 +82,9 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
           // Only trigger when has_custom_pin is explicitly false (not undefined from old sessions)
           if (parsed.has_custom_pin === false) {
             setForcePinSession(parsed);
-            // R11: token is in HttpOnly cookie, not localStorage
+            if (parsed.token) {
+              localStorage.setItem('ess_token', parsed.token);
+            }
             return;
           }
           setSession(parsed);
@@ -102,7 +104,7 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
   useEffect(() => {
     const handler = () => {
       localStorage.removeItem('ess_employee');
-      // R11: ess_token is no longer stored in localStorage (cookie only)
+      localStorage.removeItem('ess_token');
       stopProactiveRefresh();
       toast.error('Session expired. Please login again.');
       // Hard reload to fetch latest app version
@@ -115,16 +117,17 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
   }, []);
 
   const saveSession = useCallback((s: ESSSession) => {
-    // R11: strip token before persisting — it's in the HttpOnly cookie, not localStorage
-    const { token: _stripped, ...sessionWithoutToken } = s as Record<string, unknown>;
-    localStorage.setItem('ess_employee', JSON.stringify(sessionWithoutToken));
+    localStorage.setItem('ess_employee', JSON.stringify(s));
+    if (s.token) {
+      localStorage.setItem('ess_token', s.token);
+    }
     setSession(s);
     resetSessionExpiredGuard();
   }, []);
 
   const clearSession = useCallback(() => {
     localStorage.removeItem('ess_employee');
-    // R11: ess_token is no longer stored in localStorage (cookie only)
+    localStorage.removeItem('ess_token');
     localStorage.removeItem('ess_login_attempts');
     stopProactiveRefresh();
     // Clear PWA caches so stale data isn't served after reload
@@ -147,9 +150,10 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
 
   const handleForcePinChange = useCallback((s: ESSSession) => {
     setForcePinSession(s);
-    // R11: persist session WITHOUT the token field (token is in HttpOnly cookie)
-    const { token: _stripped, ...sessionWithoutToken } = s as Record<string, unknown>;
-    localStorage.setItem('ess_employee', JSON.stringify(sessionWithoutToken));
+    localStorage.setItem('ess_employee', JSON.stringify(s));
+    if (s.token) {
+      localStorage.setItem('ess_token', s.token);
+    }
   }, []);
 
   // Called when force PIN change completes (from full-screen ForceChangePin)

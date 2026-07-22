@@ -92,21 +92,36 @@ export async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<{ data: T | null; error: string | null }> {
   try {
-    // R11: ESS JWT is in the HttpOnly cookie (sent via credentials:'include').
-    // Only admin_token is read from localStorage (separate auth flow).
+    // R11 fix: restore localStorage token fallback for backward compat.
+    // Existing sessions (pre-R11) have the token in localStorage but NOT in
+    // the cookie (cookie is only set on login). New logins set the cookie.
+    // Both paths work simultaneously — the cookie is preferred (HttpOnly =
+    // XSS-safe), but localStorage keeps existing sessions working until
+    // they re-login (at which point the cookie is set).
     const adminToken = localStorage.getItem('admin_token');
+
+    // ESS token: check ess_employee session object first, then ess_token key
+    let essToken: string | null = null;
+    const essSession = localStorage.getItem('ess_employee');
+    if (essSession) {
+      try {
+        const parsed = JSON.parse(essSession);
+        if (parsed?.token) essToken = parsed.token;
+      } catch { /* invalid session */ }
+    }
+    if (!essToken) essToken = localStorage.getItem('ess_token');
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-API-KEY': API_KEY,
     };
-    // Admin panel uses admin_token in Authorization header (separate from ESS cookie auth)
-    if (adminToken) {
-      headers['Authorization'] = `Bearer ${adminToken}`;
+    // Prefer ESS token, fall back to admin token
+    const authToken = essToken || adminToken;
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
     }
 
     // Set X-Employee-ID from ess_employee session (for server-side logging)
-    const essSession = localStorage.getItem('ess_employee');
     if (essSession) {
       try {
         const parsed = JSON.parse(essSession);

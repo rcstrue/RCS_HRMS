@@ -31,24 +31,24 @@ export interface JWTPayload {
 }
 
 // ── Token Storage ──────────────────────────────────────────
-// R11: The JWT is now stored ONLY in an HttpOnly cookie (set by login.php /
-// refresh.php). JavaScript CANNOT read it. These functions are kept for
-// backward-compat but storeEssToken is a no-op and getEssToken returns null.
-// API auth is handled entirely by the cookie via credentials:'include' in
-// the fetch calls (see config.ts).
+// R11 fix: restored localStorage storage for backward compat.
+// The JWT is ALSO in the HttpOnly cookie (set by login.php/refresh.php),
+// but existing sessions (pre-R11) only have it in localStorage. Both paths
+// work simultaneously. The cookie is preferred (XSS-safe), localStorage
+// keeps existing sessions working until they re-login.
+// A future round can remove localStorage once all users have re-logged in.
 
-export function storeEssToken(_token: string): void {
-  // No-op: token is in the HttpOnly cookie, not localStorage.
+export function storeEssToken(token: string): void {
+  localStorage.setItem('ess_token', token);
 }
 
 export function getEssToken(): string | null {
-  return null; // Can't read HttpOnly cookie from JS.
+  return localStorage.getItem('ess_token');
 }
 
 export function clearEssAuth(): void {
-  localStorage.removeItem(ESS_SESSION_KEY);
-  // Note: ess_token key may exist from a pre-R11 session — clean it up.
   localStorage.removeItem('ess_token');
+  localStorage.removeItem(ESS_SESSION_KEY);
 }
 
 // ── Token Validation ───────────────────────────────────────
