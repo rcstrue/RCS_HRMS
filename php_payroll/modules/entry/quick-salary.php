@@ -29,6 +29,11 @@ if ($clientFilter) {
 
 // Handle POST save (bulk)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['quick_save'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $employeeIds = $_POST['employee_id'] ?? [];
     $savedCount = 0;
 
@@ -120,6 +125,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['quick_save'])) {
 
 // Handle AJAX single-row save
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_save'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     header('Content-Type: application/json');
     $empId = (int)$_POST['emp_id'];
     $basicDA = floatval($_POST['basic_da'] ?? 0);
@@ -334,6 +344,7 @@ $months = [
         <?php else: ?>
         <!-- Quick Edit Grid -->
         <form method="POST" id="quickSalaryForm">
+            <?php echo getCSRFTokenField(); ?>
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center py-2">
                     <div>

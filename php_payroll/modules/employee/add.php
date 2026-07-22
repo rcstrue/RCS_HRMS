@@ -160,6 +160,11 @@ function handleFileUpload($file, $uploadDir = 'uploads/profile/') {
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 8)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect('index.php?page=employee/list');
+    }
     // ── Server-side input validation ──
     $validationErrors = [];
     $rawPost = $_POST;

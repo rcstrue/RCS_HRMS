@@ -9,9 +9,11 @@
  * DELETE                  — Delete a record
  */
 
+require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 try {
     validateApiKey();
@@ -68,7 +70,9 @@ function ensureTable(mysqli $conn): void
 
 function _handleGet(): void
 {
-    $employeeId = requireAuth();
+    // SECURITY (R5): manpower data is supervisor+ only — regular employees
+    // should not see org-wide manpower budgets vs actuals.
+    $employeeId = requireRole(ESS_GUARD_ROLES_SUPERVISOR);
     $conn = getDbConnection();
     ensureTable($conn);
 
@@ -404,7 +408,8 @@ function _handleDashboard(string $employeeId, mysqli $conn): void
 
 function _handleSave(): void
 {
-    $employeeId = requireAuth();
+    // SECURITY (R5): creating/updating manpower records is supervisor+ only.
+    $employeeId = requireRole(ESS_GUARD_ROLES_SUPERVISOR);
     $conn = getDbConnection();
     ensureTable($conn);
 

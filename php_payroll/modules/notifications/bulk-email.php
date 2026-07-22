@@ -54,6 +54,11 @@ $resultType = '';
 $currentTab = 'all'; // default tab for results
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? '';
     
     // Preview: generate sample emails for review before sending
@@ -449,6 +454,7 @@ $totalSkipped = (int)$db->fetchColumn("SELECT COUNT(*) FROM bulk_email_logs WHER
         <i class="bi bi-plus-circle me-2"></i>New Campaign
     </a>
     <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
         <input type="hidden" name="action" value="discard">
         <button type="submit" class="btn btn-outline-danger btn-lg">
             <i class="bi bi-trash me-2"></i>Clear Results
@@ -509,6 +515,7 @@ $totalSkipped = (int)$db->fetchColumn("SELECT COUNT(*) FROM bulk_email_logs WHER
 
 <!-- ==================== COMPOSE SCREEN ==================== -->
 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
     <input type="hidden" name="action" value="preview">
     
     <div class="row">
@@ -813,6 +820,7 @@ $totalSkipped = (int)$db->fetchColumn("SELECT COUNT(*) FROM bulk_email_logs WHER
     <!-- Valid Recipients Tab -->
     <div class="tab-pane fade show active" id="tabValidRecipients">
         <form method="POST" id="sendForm">
+            <?php echo getCSRFTokenField(); ?>
             <input type="hidden" name="action" value="send_bulk">
             
             <!-- Select All / Deselect All toolbar -->
@@ -904,6 +912,7 @@ $totalSkipped = (int)$db->fetchColumn("SELECT COUNT(*) FROM bulk_email_logs WHER
         </form>
         
         <form method="POST" class="mt-2">
+            <?php echo getCSRFTokenField(); ?>
             <input type="hidden" name="action" value="discard">
             <button type="submit" class="btn btn-outline-danger">
                 <i class="bi bi-x-circle me-2"></i>Discard & Go Back

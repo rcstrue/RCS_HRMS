@@ -14,6 +14,11 @@ if (isset($_GET['id'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $data = [
         'contract_number' => sanitize($_POST['contract_number']),
         'client_id' => (int)$_POST['client_id'],
@@ -67,6 +72,7 @@ if (!$isEdit) {
             <div class="card-header"><h5 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i><?php echo $isEdit ? 'Edit' : 'New'; ?> Contract</h5></div>
             <div class="card-body">
                 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label required">Contract Number</label>

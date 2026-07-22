@@ -4,12 +4,25 @@
  * Updated for new database schema
  */
 
+// ── SECURITY: bulk employee import is admin / HR only ────────────────────────
+// The 'employee' module is granted to supervisors by index.php RBAC, but bulk
+// import must not be available to them. Enforce an explicit admin/HR check here.
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role_code'] ?? '', ['admin', 'hr', 'hr_executive'], true)) {
+    http_response_code(403);
+    die('Access denied. Only Admin / HR can import employees.');
+}
+
 $pageTitle = 'Import Employees';
 
 $importResult = null;
 
 // Handle import
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $importType = $_POST['import_type'] ?? '';
     
     if ($importType === 'excel' && isset($_FILES['excel_file'])) {
@@ -184,6 +197,7 @@ $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </p>
                 
                 <form method="POST" enctype="multipart/form-data">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="import_type" value="excel">
                     
                     <div class="mb-3">
@@ -209,6 +223,7 @@ $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </p>
                 
                 <form method="POST" enctype="multipart/form-data">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="import_type" value="csv">
                     
                     <div class="mb-3">

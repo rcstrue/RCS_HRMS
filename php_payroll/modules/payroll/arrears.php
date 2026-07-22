@@ -19,7 +19,11 @@ define('ARREARS_PAGE_URL', 'index.php?page=payroll/arrears');
 
 // Handle arrear calculation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     if ($_POST['action'] === 'calculate') {
         $employeeId = sanitize($_POST['employee_id']);
         $arrearType = sanitize($_POST['arrear_type']);
@@ -397,6 +401,7 @@ $employees = $db->fetchAll(
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="calculate">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-calculator me-2"></i>Calculate Arrear</h5>
@@ -514,6 +519,7 @@ $employees = $db->fetchAll(
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="approve">
                 <input type="hidden" name="arrear_id" id="approve_arrear_id">
                 <div class="modal-header">

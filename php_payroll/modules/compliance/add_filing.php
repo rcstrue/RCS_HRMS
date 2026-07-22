@@ -11,6 +11,11 @@ if (isset($_GET['id'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $data = [
         'compliance_type' => sanitize($_POST['compliance_type']),
         'filing_period_month' => !empty($_POST['filing_period_month']) ? (int)$_POST['filing_period_month'] : null,
@@ -50,6 +55,7 @@ $months = [1=>'January','February','March','April','May','June','July','August',
             <div class="card-header"><h5 class="mb-0"><i class="bi bi-shield-check me-2"></i><?php echo $isEdit ? 'Edit' : 'New'; ?> Filing</h5></div>
             <div class="card-body">
                 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label required">Type</label>

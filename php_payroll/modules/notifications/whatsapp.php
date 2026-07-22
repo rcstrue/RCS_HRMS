@@ -19,6 +19,11 @@ if (!in_array($tab, ['send', 'bulk', 'history'])) $tab = 'send';
 
 // Handle single send
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($tab === 'send') && ($_POST['action'] ?? '') === 'send_single') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $mobile = sanitize($_POST['mobile'] ?? '');
     $message = $_POST['message'] ?? '';
     $employeeId = (int)($_POST['employee_id'] ?? 0);
@@ -40,6 +45,11 @@ $resultType = '';
 $currentTab = 'all';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'bulk') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? '';
 
     // ---- Preview: fetch employees, validate mobiles ----
@@ -369,6 +379,7 @@ $mobileCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM employees WHERE mobil
             </div>
             <div class="card-body">
                 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="action" value="send_single">
                     <input type="hidden" name="employee_id" id="send_emp_id" value="">
 
@@ -605,6 +616,7 @@ function searchEmployee() {
         <i class="bi bi-plus-circle me-2"></i>New Bulk Campaign
     </a>
     <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
         <input type="hidden" name="tab" value="bulk">
         <input type="hidden" name="action" value="discard">
         <button type="submit" class="btn btn-outline-danger btn-lg">
@@ -616,6 +628,7 @@ function searchEmployee() {
 <?php elseif (!$preview): ?>
 <!-- ==================== COMPOSE SCREEN ==================== -->
 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
     <input type="hidden" name="action" value="preview">
 
     <div class="row">
@@ -918,6 +931,7 @@ Thank you.
     <!-- Valid Recipients -->
     <div class="tab-pane fade show active" id="tabValidMobiles">
         <form method="POST" id="waSendForm">
+            <?php echo getCSRFTokenField(); ?>
             <input type="hidden" name="tab" value="bulk">
             <input type="hidden" name="action" value="send_bulk">
 
@@ -998,6 +1012,7 @@ Thank you.
         </form>
 
         <form method="POST" class="mt-2">
+            <?php echo getCSRFTokenField(); ?>
             <input type="hidden" name="tab" value="bulk">
             <input type="hidden" name="action" value="discard">
             <button type="submit" class="btn btn-outline-danger">

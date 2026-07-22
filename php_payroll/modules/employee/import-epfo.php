@@ -53,7 +53,11 @@ function cleanupFiles($files = [], $dirs = []) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     // === UAN Update action ===
     if (isset($_POST['action']) && $_POST['action'] === 'update_uan' && !empty($_POST['selected_ids'])) {
         $ids = array_map('intval', $_POST['selected_ids']);
@@ -328,6 +332,7 @@ $matchedRecords = $db->fetchAll("
                 </div>
 
                 <form method="POST" enctype="multipart/form-data">
+            <?php echo getCSRFTokenField(); ?>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">EPFO Export File</label>
                         <input type="file" name="epfo_file" accept=".zip,.csv" class="form-control" required>
@@ -405,6 +410,7 @@ $matchedRecords = $db->fetchAll("
                     </div>
                 <?php else: ?>
                 <form method="POST" id="uanUpdateForm">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="action" value="update_uan">
 
                     <div class="d-flex gap-2 mb-3 align-items-center flex-wrap">

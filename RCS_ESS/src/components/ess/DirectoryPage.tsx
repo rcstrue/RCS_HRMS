@@ -63,6 +63,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+import { logger } from "@/lib/logger";
   Select,
   SelectContent,
   SelectItem,
@@ -181,7 +182,7 @@ export default function DirectoryPage({
       ];
       await Promise.all(promises);
     } catch (err) {
-      console.error('Failed to load filters:', err);
+      logger.error('Failed to load filters:', err);
     } finally {
       setFiltersLoading(false);
     }
@@ -220,7 +221,7 @@ export default function DirectoryPage({
       setTotal(effectiveTotal);
       setTotalPages(effectiveTotalPages);
     } catch (err) {
-      console.error('Failed to fetch employees:', err);
+      logger.error('Failed to fetch employees:', err);
       setError('Failed to load directory. Please try again.');
       toast.error('Failed to load employee directory');
     } finally {
@@ -297,7 +298,7 @@ export default function DirectoryPage({
         setSelectedEmployee(fullEmp);
       }
     } catch (err) {
-      console.error('Failed to fetch full employee details:', err);
+      logger.error('Failed to fetch full employee details:', err);
       // Keep the basic data from the list
     } finally {
       setProfileLoading(false);

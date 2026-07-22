@@ -19,6 +19,11 @@ $notification = new Notification();
 
 // Handle actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? '';
     
     if ($action === 'send_sms') {
@@ -198,6 +203,7 @@ $tab = $_GET['tab'] ?? 'sms';
                 </div>
                 
                 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="action" value="send_sms">
                     
                     <div class="mb-3">
@@ -230,6 +236,7 @@ $tab = $_GET['tab'] ?? 'sms';
             </div>
             <div class="card-body">
                 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="action" value="send_email">
                     
                     <div class="mb-3">
@@ -284,6 +291,7 @@ $tab = $_GET['tab'] ?? 'sms';
                 <?php endif; ?>
                 
                 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="action" value="send_whatsapp">
                     
                     <div class="mb-3">
@@ -340,6 +348,7 @@ $tab = $_GET['tab'] ?? 'sms';
                     </div>
                     <div class="card-body">
                         <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                             <input type="hidden" name="action" value="bulk_sms">
                             
                             <div class="mb-3">
@@ -387,6 +396,7 @@ $tab = $_GET['tab'] ?? 'sms';
                     </div>
                     <div class="card-body">
                         <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                             <input type="hidden" name="action" value="send_payslips">
                             
                             <div class="row mb-3">

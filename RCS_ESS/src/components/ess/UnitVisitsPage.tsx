@@ -69,14 +69,17 @@ export default function UnitVisitsPage({ employeeId, employeeName, unitIds }: Un
   // Load visits
   const loadVisits = useCallback(async (p = page) => {
     setLoading(true);
-    const params: Record<string, string | number> = { employee_id: employeeId, page: p, limit: 20 };
-    if (filterMonth > 0) params.month = filterMonth;
-    if (filterYear) params.year = filterYear;
-    if (filterStatus) params.status = filterStatus;
-    const { data, error } = await fetchUnitVisits(params as any);
+    const { data, error } = await fetchUnitVisits({
+      employee_id: employeeId,
+      page: p,
+      limit: 20,
+      ...(filterMonth > 0 ? { month: filterMonth } : {}),
+      ...(filterYear ? { year: filterYear } : {}),
+      ...(filterStatus ? { status: filterStatus } : {}),
+    });
     if (error) { toast.error(error); setLoading(false); return; }
-    const res = data as any;
-    setVisits(res?.items || []);
+    const res = data as { items?: unknown[]; pagination?: { total?: number; total_pages?: number } } | null;
+    setVisits((res?.items as never[]) || []);
     setTotal(res?.pagination?.total || 0);
     setTotalPages(res?.pagination?.total_pages || 1);
     setLoading(false);

@@ -54,6 +54,11 @@ if ($selectedContractor) {
 // Handle POST for generating custom notice
 $customData = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $customData = [
         'licensing_officer' => sanitize($_POST['licensing_officer'] ?? ''),
         'licensing_address' => sanitize($_POST['licensing_address'] ?? ''),
@@ -319,6 +324,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="page" value="forms/labour/form-iv">
                 <div class="modal-body">
                     <div class="row g-3">

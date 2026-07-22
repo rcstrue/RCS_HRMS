@@ -9,9 +9,11 @@
  *   view=employees  — Paginated employee directory (search, filter)
  */
 
+require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 try {
     validateApiKey();
@@ -222,7 +224,8 @@ function _handleProfile(): void
 
 function _handleClients(): void
 {
-    requireAuth();
+    // SECURITY (R5): clients list is supervisor+ only.
+    requireRole(ESS_GUARD_ROLES_SUPERVISOR);
     $conn = getDbConnection();
 
     $scope = $_GET['scope'] ?? 'all';
@@ -283,7 +286,8 @@ function _handleClients(): void
 
 function _handleUnits(): void
 {
-    requireAuth();
+    // SECURITY (R5): units list is supervisor+ only.
+    requireRole(ESS_GUARD_ROLES_SUPERVISOR);
     $conn = getDbConnection();
 
     $clientId = $_GET['client_id'] ?? '';
@@ -379,7 +383,8 @@ function _handleBalance(): void
 
 function _handleEmployeeDirectory(): void
 {
-    $authEmployeeId = requireAuth();
+    // SECURITY (R5): employee directory is supervisor+ only.
+    $authEmployeeId = requireRole(ESS_GUARD_ROLES_SUPERVISOR);
     $conn = getDbConnection();
 
     $search = trim($_GET['q'] ?? '');
@@ -500,7 +505,8 @@ function _handleEmployeeDirectory(): void
 
 function _handleCities(): void
 {
-    requireAuth();
+    // SECURITY (R5): cities list is supervisor+ only.
+    requireRole(ESS_GUARD_ROLES_SUPERVISOR);
     $conn = getDbConnection();
 
     $search = trim($_GET['q'] ?? '');

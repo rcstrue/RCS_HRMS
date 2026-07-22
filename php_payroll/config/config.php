@@ -174,8 +174,11 @@ if (session_status() === PHP_SESSION_NONE) {
     session_name(SESSION_NAME);
     session_start();
 
-    // Idle session timeout — 4 days of inactivity logs the user out
-    $idleLimit = 345600;
+    // Idle session timeout — 8 hours of inactivity logs the user out (Round 6).
+    // Was 345600 (4 days) which was far too long for an HRMS handling PII +
+    // payroll data. 8h aligns with a standard workday; adjust via
+    // SESSION_IDLE_TIMEOUT if a different window is needed.
+    $idleLimit = defined('SESSION_IDLE_TIMEOUT') ? SESSION_IDLE_TIMEOUT : 28800;
     if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $idleLimit) {
         session_unset();
         session_destroy();

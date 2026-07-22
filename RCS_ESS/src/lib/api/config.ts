@@ -1,8 +1,22 @@
+import { logger } from "@/lib/logger";
 // API Configuration - direct calls to backend server
-const API_BASE_URL = 'https://join.rcsfacility.com';
+//
+// SECURITY (Round 3): API_BASE_URL and API_KEY are now EXPORTED so other modules
+// (e.g. ess-auth.ts proactive refresh) can reuse the same single source of truth
+// instead of hardcoding their own copy + a dangerous fallback secret.
+//
+// VITE_API_URL: set in .env for the target backend. Falls back to the production
+//   host so the app works out-of-the-box for the live deployment.
+// VITE_API_KEY: set in .env (build-time). Falls back to EMPTY STRING — never a
+//   hardcoded secret. The server validates via hash_equals; an empty key will be
+//   rejected, which is the safe failure mode.
+export const API_BASE_URL =
+  (import.meta as Record<string, Record<string, string>>).env?.VITE_API_URL
+  || 'https://join.rcsfacility.com';
 
-// API Key for server-side validation (Vite uses import.meta.env)
-const API_KEY = (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY ?? '';
+export const API_KEY =
+  (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY
+  || '';
 
 // Guard against duplicate session-expired toasts
 let _sessionExpiredFired = false;
@@ -36,6 +50,7 @@ async function tryRefreshToken(): Promise<string | null> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
         body: JSON.stringify({ token }),
+        credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
       });
 
       if (!resp.ok) return null;
@@ -134,6 +149,7 @@ export async function apiRequest<T>(
     const response = await fetch(`${API_BASE_URL}/api${endpoint}`, {
       ...options,
       headers,
+      credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
     });
 
     // Check if response is JSON
@@ -152,15 +168,15 @@ export async function apiRequest<T>(
       try {
         data = JSON.parse(responseText);
       } catch {
-        console.error(`Failed to parse JSON response for ${endpoint} (status ${response.status}):`, responseText.substring(0, 200));
+        logger.error(`Failed to parse JSON response for ${endpoint} (status ${response.status}):`, responseText.substring(0, 200));
         return { data: null, error: 'Invalid server response. Please try again.' };
       }
     } else {
       // Response is HTML or something else
-      console.error('Non-JSON response received:', responseText.substring(0, 500));
-      console.error('Response status:', response.status);
-      console.error('Content-Type:', contentType);
-      console.error('Endpoint:', endpoint);
+      logger.error('Non-JSON response received:', responseText.substring(0, 500));
+      logger.error('Response status:', response.status);
+      logger.error('Content-Type:', contentType);
+      logger.error('Endpoint:', endpoint);
       
       if (response.status === 404) {
         return { data: null, error: 'API endpoint not found. Please contact support.' };
@@ -212,6 +228,7 @@ export async function apiRequest<T>(
             const retryResp = await fetch(`${API_BASE_URL}/api${endpoint}`, {
               ...options,
               headers: retryHeaders,
+              credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
             });
             const retryText = await retryResp.text();
             if (retryResp.ok) {
@@ -238,7 +255,7 @@ export async function apiRequest<T>(
 
     return { data: data as T, error: null };
   } catch (error) {
-    console.error('API Error:', error);
+    logger.error('API Error:', error);
     return { data: null, error: 'Network error. Please check your connection.' };
   }
 }
@@ -253,7 +270,7 @@ export async function uploadFile(
     return uploadBase64Image(base64Data, file.name, folder);
 
   } catch (error) {
-    console.error('Upload Error:', error);
+    logger.error('Upload Error:', error);
     return { url: null, error: 'Upload failed. Please try again.' };
   }
 }
@@ -267,6 +284,7 @@ export async function uploadBase64Image(
   try {
     const response = await fetch(`${API_BASE_URL}/api/upload/base64`, {
       method: 'POST',
+      credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
       headers: (() => {
         const h: Record<string, string> = { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY };
         const t = localStorage.getItem('admin_token') || localStorage.getItem('ess_token');
@@ -297,12 +315,12 @@ export async function uploadBase64Image(
       try {
         data = JSON.parse(responseText);
       } catch {
-        console.error(`Failed to parse JSON response for /upload/base64 (status ${response.status}):`, responseText.substring(0, 200));
+        logger.error(`Failed to parse JSON response for /upload/base64 (status ${response.status}):`, responseText.substring(0, 200));
         return { url: null, error: 'Invalid server response. Please try again.' };
       }
     } else {
       // Response is HTML or something else
-      console.error('Non-JSON response from upload:', responseText.substring(0, 500));
+      logger.error('Non-JSON response from upload:', responseText.substring(0, 500));
       return { url: null, error: 'Server error. Please try again later.' };
     }
 
@@ -312,7 +330,7 @@ export async function uploadBase64Image(
 
     return { url: data?.url || null, error: null };
   } catch (error) {
-    console.error('Upload Error:', error);
+    logger.error('Upload Error:', error);
     return { url: null, error: 'Upload failed. Please try again.' };
   }
 }

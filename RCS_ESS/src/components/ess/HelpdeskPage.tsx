@@ -46,6 +46,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+import { logger } from "@/lib/logger";
   Sheet,
   SheetContent,
   SheetHeader,
@@ -169,7 +170,7 @@ export default function HelpdeskPage({ employeeId, employeeName = 'Employee' }: 
       }
       setTickets(res?.items ?? []);
     } catch (err) {
-      console.error('Failed to fetch helpdesk tickets:', err);
+      logger.error('Failed to fetch helpdesk tickets:', err);
       setError('Failed to load tickets. Please try again.');
       toast.error('Failed to load tickets');
     } finally {
@@ -259,7 +260,7 @@ export default function HelpdeskPage({ employeeId, employeeName = 'Employee' }: 
       resetForm();
       loadTickets();
     } catch (err) {
-      console.error('Failed to create ticket:', err);
+      logger.error('Failed to create ticket:', err);
       toast.error('Failed to submit ticket');
     } finally {
       setSubmitting(false);

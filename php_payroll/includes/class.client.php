@@ -162,7 +162,7 @@ class Client {
                 ['id' => $clientId]
             ) ?: 0,
             'active_employees' => $this->db->fetchColumn(
-                "SELECT COUNT(*) FROM employees WHERE client_id = :id AND status = 'active'",
+                "SELECT COUNT(*) FROM employees WHERE client_id = :id AND status = 'approved'",
                 ['id' => $clientId]
             ) ?: 0
         ];

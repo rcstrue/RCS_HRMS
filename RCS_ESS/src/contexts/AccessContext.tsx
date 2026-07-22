@@ -18,6 +18,7 @@ import type {
 } from '@/lib/access-types';
 import { ACCESS_STORAGE_KEY } from '@/lib/access-types';
 import { fetchAccessAllocation } from '@/lib/ess-api';
+import { logger } from "@/lib/logger";
 
 // ══════════════════════════════════════════════════════════════
 // API Layer — uses fetchAccessAllocation from ess-api.ts which
@@ -214,7 +215,7 @@ export function AccessProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (err) {
-      console.error('Failed to fetch access:', err);
+      logger.error('Failed to fetch access:', err);
       const stored = loadAccessFromStorage();
       if (stored) {
         setState({ ...stored, isValid: false });

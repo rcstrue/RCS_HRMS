@@ -9,6 +9,7 @@ import { generateRegistrationPDF } from '@/lib/pdf/generateRegistrationPDF';
 import { toast } from 'sonner';
 import { getFileUrl } from '@/lib/api/config';
 import { SuccessPage } from '@/components/registration/SuccessPage';
+import { logger } from "@/lib/logger";
 
 interface Step8Props {
   data: RegistrationData;
@@ -106,7 +107,7 @@ export function Step8Review({
       setIsSubmitted(true);
       // SuccessPage handles WhatsApp redirect automatically
     } catch (error) {
-      console.error('Submission error:', error);
+      logger.error('Submission error:', error);
       toast.error('Failed to submit registration');
     } finally {
       setIsSubmitting(false);

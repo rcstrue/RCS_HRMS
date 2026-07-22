@@ -40,6 +40,18 @@ if (!in_array($roleCode, ['admin', 'hr_executive', 'hr', 'manager'])) {
     exit;
 }
 
+// CSRF check — state-changing POST must carry a valid token (Round 4)
+// Note: this endpoint reads JSON body, so the token may come via X-CSRF-Token header
+// or in the JSON body as csrf_token. We read the body ONCE and reuse it below.
+$rawInput = file_get_contents('php://input');
+$csrfInput = json_decode($rawInput, true);
+$csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($csrfInput['csrf_token'] ?? '') ?? '';
+if (!validateCSRFToken($csrfToken)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Invalid or missing CSRF token. Please refresh the page and try again.']);
+    exit;
+}
+
 // ── Only POST ───────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -47,9 +59,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// ── Parse JSON input ────────────────────────────────────────────
-$rawInput = file_get_contents('php://input');
-$data = json_decode($rawInput, true);
+// ── Parse JSON input (reuse the body already read for CSRF) ─────
+$data = $csrfInput;
 
 if (json_last_error() !== JSON_ERROR_NONE) {
     echo json_encode(['success' => false, 'message' => 'Invalid JSON: ' . json_last_error_msg()]);

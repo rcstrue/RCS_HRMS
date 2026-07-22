@@ -28,7 +28,11 @@ $esiWageCeiling = floatval($db->fetchColumn("SELECT setting_value FROM settings 
 
 // Handle ESI calculation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     if ($_POST['action'] === 'calculate') {
         $month = intval($_POST['month']);
         $year = intval($_POST['year']);
@@ -275,6 +279,7 @@ $preview = $_SESSION['esi_preview'] ?? null;
                 </h5>
                 <div>
                     <form method="POST" class="d-inline">
+            <?php echo getCSRFTokenField(); ?>
                         <input type="hidden" name="action" value="save_return">
                         <button type="submit" class="btn btn-success btn-sm">
                             <i class="bi bi-check-lg me-1"></i>Generate Return
@@ -458,6 +463,7 @@ $preview = $_SESSION['esi_preview'] ?? null;
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="calculate">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-calculator me-2"></i>Calculate ESI</h5>
@@ -510,6 +516,7 @@ $preview = $_SESSION['esi_preview'] ?? null;
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="mark_paid">
                 <input type="hidden" name="return_id" id="paid_return_id">
                 <div class="modal-header">

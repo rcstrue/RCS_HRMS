@@ -30,6 +30,11 @@ if ($clientFilter) {
 
 // Handle POST save
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_salary'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $employeeIds = $_POST['employee_id'] ?? [];
     // Deduplicate: same employee may appear multiple times
     $employeeIds = array_unique(array_map('intval', $employeeIds));
@@ -393,6 +398,7 @@ $months = [
 
         <!-- Salary Entry Form -->
         <form method="POST" id="salaryForm">
+            <?php echo getCSRFTokenField(); ?>
             <div id="hiddenFields" style="display:none;"></div>
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">

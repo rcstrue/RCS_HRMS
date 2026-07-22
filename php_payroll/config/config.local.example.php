@@ -7,8 +7,10 @@
  */
 
 // Environment Setting
-// Use 'development' for local testing (shows errors), 'production' for live server
-define('APP_ENV', 'development');
+// Use 'development' for local testing (shows errors), 'production' for live server.
+// SECURITY: default to 'production' — operators copying this file get safe
+// settings. Switch to 'development' ONLY on a local dev machine.
+define('APP_ENV', 'production');
 
 // Database Configuration
 define('DB_HOST', 'localhost:3306');          // Database host (usually localhost)
@@ -24,7 +26,11 @@ define('APP_URL', 'https://sid.rcsfacility.com/php_payroll/');  // Your applicat
 
 // Session Settings
 define('SESSION_NAME', 'rcs_hrms_session');
-define('SESSION_LIFETIME', 7200); // 2 hours
+define('SESSION_LIFETIME', 7200); // 2 hours (cookie + gc_maxlifetime)
+// Idle timeout: seconds of inactivity before the session is invalidated.
+// 28800 = 8 hours (a standard workday). Was 345600 (4 days) — too long for
+// an HRMS handling PII + payroll data.
+define('SESSION_IDLE_TIMEOUT', 28800);
 
 // Security Settings
 define('ENCRYPTION_KEY', 'YOUR_32_CHAR_ENCRYPTION_KEY_HERE');  // Change to a random 32 character string
@@ -48,4 +54,7 @@ define('ALLOWED_FILE_TYPES', 'jpg,jpeg,png,pdf,doc,docx,xls,xlsx');
 
 // Logging
 define('LOG_PATH', APP_ROOT . '/logs/');
-define('LOG_LEVEL', 'debug'); // debug, info, warning, error
+// SECURITY: default to 'error' — 'debug' fills the disk with verbose logs in
+// production (and may log sensitive request data). Switch to 'debug' only on
+// a local dev machine.
+define('LOG_LEVEL', 'error'); // debug, info, warning, error

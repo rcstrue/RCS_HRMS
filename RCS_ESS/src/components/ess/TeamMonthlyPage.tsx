@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+import { logger } from "@/lib/logger";
   Dialog,
   DialogContent,
   DialogHeader,
@@ -113,7 +114,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
       setClients(clientsRes.data ?? []);
       setUnits(unitsRes.data ?? []);
     } catch (err) {
-      console.error('Failed to load filters:', err);
+      logger.error('Failed to load filters:', err);
       toast.error('Failed to load filters');
     } finally {
       setFiltersLoading(false);
@@ -144,7 +145,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
         setTotals({ present: 0, wo: 0, adv1: 0, office_advance: 0, dress_advance: 0 });
       }
     } catch (err) {
-      console.error('Failed to load summary:', err);
+      logger.error('Failed to load summary:', err);
       toast.error('Failed to load team data');
     } finally {
       setLoading(false);
@@ -209,10 +210,10 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
           dress_advance: row.dress_advance,
         });
         if (!res.error) saved++;
-        else { failed++; console.error(`Save failed for ${row.employee_id}:`, res.error); }
+        else { failed++; logger.error(`Save failed for ${row.employee_id}:`, res.error); }
       } catch (err) {
         failed++;
-        console.error(`Save failed for ${row.employee_id}:`, err);
+        logger.error(`Save failed for ${row.employee_id}:`, err);
       }
     }
 
@@ -253,7 +254,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
         toast.error(res.error || 'Failed to add temp employee');
       }
     } catch (err) {
-      console.error('Failed to add temp employee:', err);
+      logger.error('Failed to add temp employee:', err);
       toast.error('Failed to add temp employee');
     } finally {
       setAddingTemp(false);
@@ -278,7 +279,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
         toast.error(res.error || 'Failed to remove');
       }
     } catch (err) {
-      console.error('Failed to remove temp employee:', err);
+      logger.error('Failed to remove temp employee:', err);
       toast.error('Failed to remove temp employee');
     } finally {
       setDeletingTemp(null);
@@ -302,7 +303,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
         toast.error(res.error || 'Failed to remove');
       }
     } catch (err) {
-      console.error('Failed to remove employee:', err);
+      logger.error('Failed to remove employee:', err);
       toast.error('Failed to remove employee');
     } finally {
       setRemoving(false);

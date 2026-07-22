@@ -3,12 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RCS Registration App</title>
-    <meta name="description" content="RCS Facility Employee Registration Portal" />
-    <meta name="author" content="RCS Facility" />
 
-    <meta property="og:title" content="RCS Registration App" />
-    <meta property="og:description" content="RCS Facility Employee Registration Portal" />
+    <!-- ── Content Security Policy (Round 5) ─────────────────────────────── -->
+    <!-- Restricts script/style/image/font/connect sources to prevent XSS,
+         data injection, and clickjacking. Adjust connect-src/img-src if
+         adding new backend hosts. -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; \
+                   script-src 'self'; \
+                   style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
+                   img-src 'self' data: blob: https://*.rcsfacility.com; \
+                   font-src 'self' data: https://cdn.jsdelivr.net; \
+                   connect-src 'self' https://*.rcsfacility.com; \
+                   object-src 'none'; \
+                   base-uri 'self'; \
+                   frame-ancestors 'none'; \
+                   form-action 'self';" />
+
+    <title>RCS ESS — Employee Self Service</title>
+    <meta name="description" content="RCS True Facilities — Employee Self Service Portal" />
+    <meta name="author" content="RCS True Facilities Pvt Ltd" />
+
+    <meta property="og:title" content="RCS ESS — Employee Self Service" />
+    <meta property="og:description" content="RCS True Facilities — Employee Self Service Portal" />
     <meta property="og:type" content="website" />
 
     <meta name="twitter:card" content="summary_large_image" />

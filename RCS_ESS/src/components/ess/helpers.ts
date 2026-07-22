@@ -15,7 +15,7 @@ import type { Employee, EmployeeRole } from '@/lib/ess-types';
 export function detectRole(employee: Employee): EmployeeRole {
   const category = (employee.worker_category || '').toLowerCase();
   const role = (employee.employee_role || '').toLowerCase();
-  const appRole = (employee as any).app_role ? (employee as any).app_role.toLowerCase() : '';
+  const appRole = employee.app_role ? employee.app_role.toLowerCase() : '';
 
   // PRIMARY: Use app_role if available (single source of truth)
   if (appRole === 'regional_manager') return 'regional_manager';

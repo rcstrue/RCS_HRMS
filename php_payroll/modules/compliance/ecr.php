@@ -23,7 +23,11 @@ $pfEstId = $company['pf_establishment_id'] ?? '';
 
 // Handle ECR generation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     if ($_POST['action'] === 'generate') {
         $wageMonth = intval($_POST['wage_month']);
         $wageYear = intval($_POST['wage_year']);
@@ -324,6 +328,7 @@ unset($_SESSION['ecr_summary']);
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="generate">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-file-earmark-plus me-2"></i>Generate ECR File</h5>

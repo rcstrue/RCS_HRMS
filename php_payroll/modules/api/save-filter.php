@@ -19,8 +19,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+// CSRF check — state-changing POST must carry a valid token (Round 4)
+// This endpoint reads JSON body, so accept token via header or body field.
+$rawBody = file_get_contents('php://input');
+$csrfInput = json_decode($rawBody, true);
+$csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($csrfInput['csrf_token'] ?? '') ?? '';
+if (!validateCSRFToken($csrfToken)) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Invalid or missing CSRF token. Please refresh the page and try again.']);
+    exit;
+}
+
 // Read JSON body
-$input = json_decode(file_get_contents('php://input'), true);
+$input = json_decode($rawBody, true);
 
 if (!$input) {
     http_response_code(400);

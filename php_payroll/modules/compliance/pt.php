@@ -34,6 +34,11 @@ $selectedState = sanitize($_GET['state'] ?? '');
 
 // Handle form submission for PT challan
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = sanitize($_POST['action']);
     
     if ($action === 'save_challan') {
@@ -306,6 +311,7 @@ try {
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="save_challan">
                 <input type="hidden" name="month" value="<?php echo $selectedMonth; ?>">
                 <input type="hidden" name="year" value="<?php echo $selectedYear; ?>">

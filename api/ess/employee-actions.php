@@ -10,9 +10,11 @@
  * Only managers, regional_managers, and admin roles can use this.
  */
 
+require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/security-headers.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     jsonOutput(array('success' => false, 'error' => 'Method not allowed. Use POST.'), 405);
@@ -20,7 +22,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 try {
     validateApiKey();
-    $employeeId = requireAuth();
+    // SECURITY (R5): exit/transfer is a manager+ action. Previously the inline
+    // role check allowed supervisor + field_officer and read app_role directly
+    // from the employees table. Now uses the centralized auth-guard which reads
+    // from ess_employee_cache (the single source of truth for ESS roles).
+    // TODO: add unit-scope verification — a manager should only be able to
+    // exit/transfer employees in units they're allocated to.
+    $employeeId = requireRole(ESS_GUARD_ROLES_MANAGER);
     $conn = getDbConnection();
 
     $input = getJsonInput();
@@ -28,18 +36,6 @@ try {
 
     if (!in_array($action, ['exit', 'transfer'])) {
         jsonOutput(array('success' => false, 'error' => 'Invalid action. Use "exit" or "transfer".'), 400);
-    }
-
-    // ── Check role — only managers and above ──
-    $roleStmt = $conn->prepare("SELECT app_role FROM employees WHERE id = ? LIMIT 1");
-    $roleStmt->bind_param('i', $employeeId);
-    $roleStmt->execute();
-    $roleRow = $roleStmt->get_result()->fetch_assoc();
-    $roleStmt->close();
-
-    $allowedRoles = ['admin', 'manager', 'regional_manager', 'supervisor', 'field_officer'];
-    if (!$roleRow || !in_array($roleRow['app_role'], $allowedRoles)) {
-        jsonOutput(array('success' => false, 'error' => 'Only managers can perform this action.'), 403);
     }
 
     $targetEmpId = (int)($input['employee_id'] ?? 0);
@@ -60,6 +56,63 @@ try {
 
     if (!in_array($targetEmp['status'], ['approved', 'active'])) {
         jsonOutput(array('success' => false, 'error' => 'Cannot modify this employee. Status: ' . $targetEmp['status']), 400);
+    }
+
+    // ── Unit-scope verification (Round 6) ──────────────────────────────
+    // A manager/regional_manager may only exit/transfer employees in units they
+    // are allocated to. Admin bypasses. This prevents a manager from acting on
+    // employees in units outside their allocation.
+    $callerRole = strtolower((string) (getEmployeeRole($conn, $employeeId) ?? ''));
+    if ($callerRole !== 'admin') {
+        // Fetch the caller's allocated unit IDs from user_access (primary) +
+        // employee_city_allocations (fallback), same model as access.php.
+        $allocatedUnitIds = [];
+
+        // Primary: user_access table (access_type='unit')
+        $uaStmt = $conn->prepare("SELECT access_id FROM user_access WHERE user_id = ? AND access_type = 'unit'");
+        if ($uaStmt) {
+            $uaStmt->bind_param('s', $employeeId);
+            $uaStmt->execute();
+            $uaRes = $uaStmt->get_result();
+            while ($uaRow = $uaRes->fetch_assoc()) {
+                $uid = (int) $uaRow['access_id'];
+                if ($uid > 0) $allocatedUnitIds[$uid] = true;
+            }
+            $uaStmt->close();
+        }
+
+        // Fallback: employee_city_allocations (legacy) — join units by city
+        $ecaStmt = $conn->prepare("
+            SELECT DISTINCT u.id AS unit_id
+            FROM employee_city_allocations eca
+            JOIN units u ON LOWER(u.city) = LOWER(eca.city)
+            WHERE eca.employee_id = ?
+        ");
+        if ($ecaStmt) {
+            $ecaStmt->bind_param('s', $employeeId);
+            $ecaStmt->execute();
+            $ecaRes = $ecaStmt->get_result();
+            while ($ecaRow = $ecaRes->fetch_assoc()) {
+                $uid = (int) $ecaRow['unit_id'];
+                if ($uid > 0) $allocatedUnitIds[$uid] = true;
+            }
+            $ecaStmt->close();
+        }
+
+        // The caller's own unit (from ess_employee_cache) is always allowed.
+        $ownUnitId = getEmployeeUnitId($employeeId, $conn);
+        if ($ownUnitId > 0) $allocatedUnitIds[$ownUnitId] = true;
+
+        $targetUnitId = (int) ($targetEmp['unit_id'] ?? 0);
+        if ($targetUnitId > 0 && !isset($allocatedUnitIds[$targetUnitId])) {
+            jsonOutput(array(
+                'success' => false,
+                'error'   => 'Access denied: the target employee is not in a unit you are allocated to.',
+            ), 403);
+        }
+
+        // For transfer, also verify the DESTINATION unit is in the caller's allocation
+        // (checked below after $newUnitId is parsed).
     }
 
     // ── ACTION: EXIT ──────────────────────────────────────────
@@ -154,6 +207,15 @@ try {
             if (!$clientRow) {
                 jsonOutput(array('success' => false, 'error' => 'Client not found.'), 404);
             }
+        }
+
+        // ── Destination unit scope check (Round 6) ────────────────────
+        // A non-admin manager may only transfer INTO a unit they are allocated to.
+        if ($callerRole !== 'admin' && $newUnitId > 0 && !isset($allocatedUnitIds[$newUnitId])) {
+            jsonOutput(array(
+                'success' => false,
+                'error'   => 'Access denied: you cannot transfer an employee into a unit you are not allocated to.',
+            ), 403);
         }
 
         // Build update query — only update what changed

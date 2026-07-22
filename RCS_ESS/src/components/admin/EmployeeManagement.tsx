@@ -32,6 +32,7 @@ import { toast } from 'sonner';
 import { Check, X, Eye, Loader2, UserCog, Search, User, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 import { EmployeeDetailDialog } from './EmployeeDetailDialog';
 import { getFileUrl } from '@/lib/api/config';
+import { logger } from "@/lib/logger";
 
 interface EmployeeManagementProps {
   userRole: string;
@@ -65,7 +66,7 @@ export function EmployeeManagement({ userRole }: EmployeeManagementProps) {
 
     if (error) {
       toast.error('Failed to fetch employees');
-      console.error(error);
+      logger.error(error);
     } else {
       const employeeList = data?.data || [];
       setEmployees(employeeList);

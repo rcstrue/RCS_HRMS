@@ -50,6 +50,11 @@ $previewData = null;
 $uploadedFile = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_salary'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $clientId = (int)($_POST['client_id'] ?? 0);
     $unitId = (int)($_POST['unit_id'] ?? 0);
     $effectiveFrom = sanitize($_POST['effective_from'] ?? date('Y-m-01'));
@@ -110,6 +115,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_salary'])) {
 
 // Handle confirm import
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $submittedPath = $_POST['file_path'] ?? '';
     $clientId = (int)($_POST['client_id'] ?? 0);
     $unitId = (int)($_POST['unit_id'] ?? 0);
@@ -438,6 +448,7 @@ define('UPLOAD_OK', 0);
                     </div>
                     <div class="card-body">
                         <form method="POST" enctype="multipart/form-data">
+            <?php echo getCSRFTokenField(); ?>
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <label class="form-label">Client (Optional)</label>
@@ -530,6 +541,7 @@ define('UPLOAD_OK', 0);
             </div>
             <div class="card-body">
                 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="file_path" value="<?php echo htmlspecialchars($uploadedFile['path']); ?>">
                     <input type="hidden" name="client_id" value="<?php echo $uploadedFile['client_id']; ?>">
                     <input type="hidden" name="unit_id" value="<?php echo $uploadedFile['unit_id']; ?>">

@@ -19,7 +19,7 @@ $esiExempt = 0;
 $activeClients = 0;
 
 try {
-    $empStats = $db->fetch("SELECT COUNT(*) as total, SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) as active FROM employees");
+    $empStats = $db->fetch("SELECT COUNT(*) as total, SUM(CASE WHEN status='approved' THEN 1 ELSE 0 END) as active FROM employees");
     $totalEmployees = $empStats['total'];
     $activeEmployees = $empStats['active'];
 } catch (Exception $e) {

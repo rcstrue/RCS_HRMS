@@ -27,6 +27,23 @@
 
 header('Content-Type: application/json');
 
+// ── SECURITY: auth + role check ─────────────────────────────────────────────
+// Previously had NO in-file auth — a supervisor (granted the 'employee' module
+// by index.php RBAC) could pass any employee_id and read full employee listings
+// including aadhaar_*_url, bank_document_url, mobile, email, DOB, father_name
+// for every employee in any manager's allocated units (DPDP-2023 PII leak).
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Authentication required']);
+    exit;
+}
+$roleCode = $_SESSION['role_code'] ?? '';
+if (!in_array($roleCode, ['admin', 'hr_executive', 'hr', 'manager'], true)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'Access denied. Insufficient permissions.']);
+    exit;
+}
+
 $employeeId = sanitize($_GET['employee_id'] ?? '');
 if (empty($employeeId)) {
     echo json_encode(['success' => false, 'error' => 'employee_id is required']);

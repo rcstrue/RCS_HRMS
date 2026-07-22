@@ -9,6 +9,7 @@ import {
 import type { ESSSession, LeaveBalance, AttendanceRecord } from '@/lib/ess-types';
 import { todayDateString, getISTMonthKey, getHighAccuracyPosition } from '../helpers';
 import type { DashboardData } from '../DashboardHome';
+import { logger } from "@/lib/logger";
 
 // ══════════════════════════════════════════════════════════════
 // useDashboard — Handles all dashboard data loading & check-in/out
@@ -79,7 +80,7 @@ export function useDashboard(session: ESSSession | null) {
         pendingTasks: tasksData?.pagination?.total ?? tasksData?.items?.length ?? 0,
       });
     } catch (err) {
-      console.error('Failed to load dashboard data:', err);
+      logger.error('Failed to load dashboard data:', err);
     } finally {
       setDashboardLoading(false);
     }

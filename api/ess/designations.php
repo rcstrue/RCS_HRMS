@@ -6,6 +6,10 @@ require_once __DIR__ . '/helpers.php';
 
 header('Content-Type: application/json');
 
+// SECURITY: require a valid JWT — designations are reference data for
+// authenticated employees only (previously fully unauthenticated).
+requireAuth();
+
 try {
     $conn = getDbConnection();
     $activeOnly = getQueryParam('active_only', '0');
@@ -24,7 +28,10 @@ try {
     }
     $stmt->close();
 
-    echo jsonResponse(true, $data);
+    // BUGFIX: previously `echo jsonResponse(true, $data);` — but jsonResponse()
+    // is void (it calls exit internally), so `echo` on its return value threw
+    // a TypeError on PHP 8.2. Use jsonSuccess() which is the correct helper.
+    jsonSuccess($data);
 } catch (Exception $e) {
     error_log('[api/ess/designations] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     jsonError('Internal server error.', 500);

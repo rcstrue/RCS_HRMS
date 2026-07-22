@@ -64,6 +64,11 @@ try {
 
 // Handle upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['attendance_file'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $month = (int)$_POST['month'];
     $year = (int)$_POST['year'];
     
@@ -272,6 +277,7 @@ try {
                 </div>
                 
                 <form method="POST" enctype="multipart/form-data" class="needs-validation" novalidate id="uploadForm">
+            <?php echo getCSRFTokenField(); ?>
                     <div class="row g-3">
                         <div class="col-md-4">
                             <label class="form-label required">Month</label>

@@ -38,6 +38,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getFileUrl } from '@/lib/api/config';
 import { toast } from 'sonner';
 import { formatDateDDMMYYYY } from '@/lib/utils';
+import { logger } from "@/lib/logger";
 
 interface EmployeeProfileProps {
   employee: Employee;
@@ -123,7 +124,7 @@ export function EmployeeProfile({ employee, onLogout, onRefresh, onStartRegistra
         description: 'Your profile has been updated successfully.',
       });
     } catch (error) {
-      console.error('Error updating profile:', error);
+      logger.error('Error updating profile:', error);
       toastHook({
         title: 'Update Failed',
         description: 'Failed to update profile. Please try again.',

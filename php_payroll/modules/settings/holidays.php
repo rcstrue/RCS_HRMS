@@ -24,6 +24,11 @@ $year = (int)($_GET['year'] ?? date('Y'));
 
 // Handle CRUD
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? '';
     
     if ($action === 'add') {
@@ -136,6 +141,7 @@ $typeColors = ['national'=>'danger','state'=>'warning','company'=>'primary','opt
                         <div class="d-flex justify-content-between align-items-center mt-2">
                             <small class="text-muted"><?php echo date('d-M-Y', strtotime($h['holiday_date'])); ?></small>
                             <form method="POST" onsubmit="return confirm('Delete this holiday?')">
+            <?php echo getCSRFTokenField(); ?>
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="holiday_id" value="<?php echo $h['id']; ?>">
                                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
@@ -159,6 +165,7 @@ $typeColors = ['national'=>'danger','state'=>'warning','company'=>'primary','opt
 <div class="modal fade" id="addModal" tabindex="-1">
     <div class="modal-dialog"><div class="modal-content">
         <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
             <input type="hidden" name="action" value="add">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title"><i class="bi bi-calendar-plus me-2"></i>Add Holiday</h5>
@@ -196,6 +203,7 @@ $typeColors = ['national'=>'danger','state'=>'warning','company'=>'primary','opt
 <div class="modal fade" id="bulkModal" tabindex="-1">
     <div class="modal-dialog modal-lg"><div class="modal-content">
         <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
             <input type="hidden" name="action" value="bulk_add">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title"><i class="bi bi-calendar-plus-fill me-2"></i>Bulk Add Holidays</h5>

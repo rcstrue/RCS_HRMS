@@ -19,6 +19,13 @@ if (!in_array($_SESSION['role_code'] ?? '', ['admin', 'hr_executive'])) {
     redirect('index.php?page=dashboard');
 }
 
+// CSRF check for POST (Round 8) — salary revision is a high-value state change
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
+    && !validateCSRFToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+    setFlash('error', 'Invalid request. Please refresh the page and try again.');
+    redirect('index.php?page=payroll/salary-revision');
+}
+
 // Get filters
 $filterClientId = (int)($_GET['client_id'] ?? 0);
 $filterUnitId = (int)($_GET['unit_id'] ?? 0);

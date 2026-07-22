@@ -8,9 +8,11 @@
  * This endpoint stores each row and logs the bulk upload.
  */
 
+require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/security-headers.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -39,7 +41,11 @@ try {
 
 function handleBulkUpload(): void
 {
-    $authId = requireAuth();
+    // SECURITY: bulk salary upload is an admin/regional-manager action.
+    // Previously any authenticated employee could bulk-insert salary records
+    // for anyone (financial fraud). The README labels this endpoint "(admin)"
+    // but the code did not enforce it.
+    $authId = requireRole(ESS_GUARD_ROLES_ADMIN);
     $input = getInput();
     $conn = getDbConnection();
 

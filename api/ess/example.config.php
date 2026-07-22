@@ -17,7 +17,25 @@ define('DB_NAME', 'your_db_name');
 // ─── Security Constants ──────────────────────────────────────────────────────
 define('API_KEY', 'your_api_key_here');
 define('JWT_SECRET', 'your_jwt_secret_here');
-define('JWT_EXPIRY', 345600); // 4 days
+// JWT expiry reduced from 345600 (4 days) to 86400 (24h) per hardening review.
+// Combined with refresh-token grace this limits a stolen token's usefulness.
+define('JWT_EXPIRY', 86400); // 24 hours
+
+// ─── Runtime secret guard ────────────────────────────────────────────────────
+// Refuse to serve any endpoint if the operator forgot to replace the placeholder
+// secrets. This prevents the "one git add / one forgotten config = total auth
+// bypass" scenario. health.php is exempt (it loads before this file is required).
+if (PHP_SAPI !== 'cli' && !defined('RCS_ESS_HEALTH_CHECK')) {
+    if (API_KEY === 'your_api_key_here' || JWT_SECRET === 'your_jwt_secret_here') {
+        http_response_code(500);
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => false,
+            'error'   => 'Server misconfiguration: default API_KEY / JWT_SECRET placeholders are still in use. Copy example.config.php to config.php and set real secrets before serving requests.',
+        ]);
+        exit;
+    }
+}
 
 // ─── Timezone ─────────────────────────────────────────────────────────────────
 date_default_timezone_set('Asia/Kolkata');
@@ -180,10 +198,18 @@ if (!defined('HELPERS_LOADED')) {
 // ─── Auth Helper ──────────────────────────────────────────────────────────────
 /**
  * Require authentication via JWT. Returns employee_id or exits with 401.
+ *
+ * Token sources (checked in priority order — Round 10):
+ *   1. Authorization: Bearer <token> header (original SPA method)
+ *   2. ess_jwt HttpOnly cookie (staged migration — more secure, JS can't read it)
  */
 function requireAuth(): string
 {
     $token = getBearerToken();
+    if (!$token) {
+        // Fallback: read from the HttpOnly cookie set by login.php / refresh.php
+        $token = $_COOKIE['ess_jwt'] ?? '';
+    }
     if (!$token) {
         jsonOutput(['success' => false, 'error' => 'Authorization token required'], 401);
     }

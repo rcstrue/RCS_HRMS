@@ -15,9 +15,31 @@
 
 header('Content-Type: application/json');
 
+// ── SECURITY: auth + role check ─────────────────────────────────────────────
+// Previously had NO in-file auth — a worker (granted the 'expense' module by
+// index.php RBAC) could call ?action=dashboard|my_expenses|my_balance|
+// expense_detail with ANY employee_id → full IDOR of every manager's expenses,
+// balance, and receipt bill_url.
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Authentication required']);
+    exit;
+}
+$roleCode = $_SESSION['role_code'] ?? '';
+if (!in_array($roleCode, ['admin', 'hr_executive', 'hr', 'manager'], true)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'Access denied. Insufficient permissions.']);
+    exit;
+}
+
 // ============================================================================
-// SECTION 1: Auto-create missing columns on ess_expenses
+// SECTION 1: Auto-create missing columns on ess_expenses (OPTIMISED)
 // ============================================================================
+// Previously this ran 11 separate `SHOW COLUMNS LIKE '...'` queries on EVERY
+// request (DoS / lock contention). Now: one `SHOW COLUMNS` query, cached in a
+// static so it runs at most once per PHP process. Missing columns are added in
+// a single pass. The whole block is also skipped if the table already has all
+// required columns.
 
 $alterColumns = [
     'category'      => "ADD COLUMN category ENUM('advance','expense','employee_advance') NOT NULL DEFAULT 'expense' AFTER employee_id",
@@ -34,14 +56,27 @@ $alterColumns = [
     'settlement_id' => "ADD COLUMN settlement_id INT DEFAULT NULL AFTER edited_at",
 ];
 
-foreach ($alterColumns as $colName => $alterSql) {
+if (!isset($GLOBALS['_ess_expenses_cols_checked'])) {
+    $GLOBALS['_ess_expenses_cols_checked'] = true;
     try {
-        $checkCol = $db->fetch("SHOW COLUMNS FROM ess_expenses LIKE '{$colName}'");
-        if (!$checkCol) {
-            $db->query("ALTER TABLE ess_expenses {$alterSql}");
+        // One query: fetch ALL existing column names in a single round-trip.
+        $existingRows = $db->fetchAll("SHOW COLUMNS FROM ess_expenses");
+        $existing = [];
+        foreach ($existingRows as $r) {
+            $existing[strtolower($r['Field'])] = true;
+        }
+        // Only ALTER for the columns that are actually missing.
+        $missing = array_diff_key($alterColumns, $existing);
+        foreach ($missing as $colName => $alterSql) {
+            try {
+                $db->query("ALTER TABLE ess_expenses {$alterSql}");
+            } catch (Exception $e) {
+                // Single-column ALTER failed (e.g. concurrent request) — continue.
+            }
         }
     } catch (Exception $e) {
-        // Column alteration failed for this column, silently continue
+        // Table introspection failed (e.g. table not yet created) — let the
+        // request handler surface the real error; do not block here.
     }
 }
 

@@ -433,6 +433,7 @@ if ($tablesExist) {
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="calculate">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-calculator me-2"></i>New F&F Settlement</h5>
@@ -505,6 +506,7 @@ if ($tablesExist) {
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="approve">
                 <input type="hidden" name="settlement_id" id="approve_settlement_id">
                 <div class="modal-header">

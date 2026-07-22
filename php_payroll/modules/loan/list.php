@@ -11,6 +11,11 @@ $loanClass->ensureTables();
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? '';
 
     // Create new loan
@@ -322,6 +327,7 @@ $monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <form method="POST" id="addLoanForm">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="create_loan">
                 <input type="hidden" name="filter_client_id" value="<?php echo $selectedClient; ?>">
                 <input type="hidden" name="filter_unit_id" value="<?php echo $selectedUnit; ?>">
@@ -430,6 +436,7 @@ $monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="settle_loan">
                 <input type="hidden" name="loan_id" id="settleLoanId">
                 <input type="hidden" name="filter_client_id" value="<?php echo $selectedClient; ?>">
@@ -458,6 +465,7 @@ $monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="delete_loan">
                 <input type="hidden" name="loan_id" id="deleteLoanId">
                 <input type="hidden" name="filter_client_id" value="<?php echo $selectedClient; ?>">

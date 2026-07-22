@@ -3,13 +3,20 @@
  * ESS API — Login Endpoint
  * POST: Validate mobile + PIN, return JWT token and employee data
  *
- * PIN Logic:
- *   1. Check ess_employee_cache.pin — if set, validate against it (custom PIN)
- *   2. If cache pin is NULL, validate against employees.date_of_birth (birth year, 4 digits)
- *   3. If login via birth year → return has_custom_pin=false → force PIN change
- *   4. Custom PIN is saved ONLY in ess_employee_cache.pin (NOT in employees table)
+ * PIN Logic (SECURITY — Round 3 hardening):
+ *   1. Check ess_employee_cache.pin — if set, validate against it (custom PIN).
+ *      Plaintext PINs are auto-upgraded to bcrypt on successful verify.
+ *   2. If NO custom PIN is set, login is REFUSED with a clear message directing
+ *      the employee to contact HR to set a PIN. (Previously the 4-digit birth
+ *      year was accepted as a fallback — that made every employee whose PIN
+ *      wasn't set brute-forceable in ≤100 tries. Birth-year fallback is REMOVED.)
+ *   3. Custom PIN is saved ONLY in ess_employee_cache.pin (NOT in employees table).
+ *
+ * The force-PIN-change flow (has_custom_pin=false) is preserved for the admin-
+ * seeded PIN case where HR sets a default PIN that the employee must change.
  */
 
+require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
@@ -101,13 +108,21 @@ try {
         }
     }
 
-    // Step 2: If no custom PIN or custom PIN didn't match, try birth year
-    if (!$validPin && !$hasCustomPin && !empty($employee['date_of_birth'])) {
-        $birthYear = substr($employee['date_of_birth'], 0, 4);
-        if ($birthYear === $pin) {
-            $validPin = true;
-            // has_custom_pin remains false → will trigger force PIN change
-        }
+    // Step 2: SECURITY — birth-year fallback REMOVED (Round 3).
+    // Previously, if no custom PIN was set, the 4-digit birth year was accepted
+    // as a valid PIN. That made every employee without a custom PIN brute-forceable
+    // in ≤100 tries. Now: if no custom PIN is set, refuse login with a clear
+    // message. HR must seed a PIN (via admin or the pin.php endpoint) for
+    // first-time users. The has_custom_pin=false flag is still returned when HR
+    // seeds a default PIN, so the force-PIN-change flow still works.
+    if (!$validPin && !$hasCustomPin) {
+        _recordFailedLogin($conn, $rateId);
+        jsonOutput(array(
+            'success' => false,
+            'error'   => 'No PIN set for this account. Please contact HR to set your PIN.',
+            'code'    => 'PIN_NOT_SET',
+        ), 401);
+        return;
     }
 
     if (!$validPin) {
@@ -176,6 +191,22 @@ try {
     ), JWT_EXPIRY);
 
     _clearFailedLogins($conn, $rateId);
+
+    // ─── Set JWT as HttpOnly cookie (Round 10 — staged migration) ──────
+    // The token is ALSO returned in the JSON response for backward compat
+    // with the SPA's existing localStorage-based auth. The cookie enables a
+    // future migration to cookie-only auth (removing the XSS-vulnerable
+    // localStorage token). The cookie is HttpOnly (JS can't read it), Secure
+    // (HTTPS only), and SameSite=Strict (not sent on cross-site requests).
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    setcookie('ess_jwt', $token, [
+        'expires'  => time() + JWT_EXPIRY,
+        'path'     => '/',
+        'secure'   => $isHttps,
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
 
     jsonOutput(array(
         'success' => true,

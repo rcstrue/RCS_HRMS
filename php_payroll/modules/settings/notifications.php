@@ -16,6 +16,11 @@ $notification = new Notification();
 
 // Handle save
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $fields = [
         'notif_sms_api_key' => $_POST['sms_api_key'] ?? '',
         'notif_sms_provider' => $_POST['sms_provider'] ?? 'fast2sms',
@@ -58,6 +63,7 @@ $waBot = $notification->getWhatsAppBotStatus();
 </div>
 
 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
     <div class="row">
         <!-- WhatsApp Bot Settings -->
         <div class="col-md-6">

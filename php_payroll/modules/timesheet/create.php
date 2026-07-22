@@ -76,6 +76,11 @@ if ($selectedClient) {
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = sanitize($_POST['action']);
     
     if ($action === 'create_timesheet') {
@@ -177,6 +182,7 @@ while ($currentDate <= $endDateTime) {
             
             <div class="card-body">
                 <form method="POST" id="timesheetForm">
+            <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="action" value="create_timesheet">
                     
                     <div class="row mb-3">

@@ -37,7 +37,11 @@ $canResolve = $isAdmin || in_array($currentUserRole, ['hr', 'hr_executive']);
 // ============================================================================
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     // --- Create New Ticket ---
     if ($_POST['action'] === 'create_ticket') {
         $subject = trim($_POST['subject'] ?? '');
@@ -252,6 +256,7 @@ $flashType = $flashType ?? 'success';
 
                     <!-- Add Comment Form -->
                     <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                         <input type="hidden" name="action" value="add_comment">
                         <div class="mb-2">
                             <textarea name="comment" class="form-control form-control-sm" rows="2" required placeholder="Add a comment..."></textarea>
@@ -280,6 +285,7 @@ $flashType = $flashType ?? 'success';
                 </div>
                 <div class="card-body">
                     <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                         <input type="hidden" name="action" value="update_status">
                         <div class="mb-3">
                             <label class="form-label small fw-semibold">Status</label>
@@ -329,6 +335,7 @@ $flashType = $flashType ?? 'success';
                 </div>
                 <div class="card-body">
                     <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                         <input type="hidden" name="action" value="create_ticket">
                         <div class="row g-3">
                             <div class="col-12">

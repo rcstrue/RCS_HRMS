@@ -1,15 +1,32 @@
 :81 {
-	@transform_port_query {
-		query XTransformPort=*
+	# ── Security headers ───────────────────────────────────────────────────
+	# NOTE: XTransformPort open-proxy block was REMOVED (was SSRF risk —
+	# allowed anyone to tunnel to internal MariaDB/Redis/WhatsApp ports).
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	}
 
-	handle @transform_port_query {
-		reverse_proxy localhost:{query.XTransformPort} {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-		}
+	encode gzip zstd
+
+	# ── Direct-access protection ───────────────────────────────────────────
+	# Block direct URL access to internal PHP source directories. LiteSpeed
+	# would normally honour .htaccess deny rules, but the repo ships none and
+	# Caddy ignores .htaccess entirely. These matchers ensure that even if the
+	# webserver tries to serve these paths, they return 403.
+	@blocked {
+		path /includes/* /config/* /modules/* /tmp_sessions/*
+		# Standalone scripts that should never be hit directly
+		path /download_salary_template.php
+		# Also block dotfiles and editor cruft
+		path_regexp \.(git|env|sql|md|log|swp|swo)$
+		path /.git* /.env*
+	}
+	respond @blocked 403 {
+		close
 	}
 
 	handle {

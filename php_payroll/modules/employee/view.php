@@ -37,6 +37,11 @@ $documents = $docStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Handle actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $action = $_POST['action'] ?? '';
     
     // Approve employee
@@ -851,6 +856,7 @@ $statusLabels = [
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="approve">
                 <div class="modal-header">
                     <h5 class="modal-title">Approve Employee</h5>
@@ -873,6 +879,7 @@ $statusLabels = [
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="reject">
                 <div class="modal-header">
                     <h5 class="modal-title">Reject Employee</h5>
@@ -898,6 +905,7 @@ $statusLabels = [
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="mark_left">
                 <div class="modal-header">
                     <h5 class="modal-title">Mark Employee as Left</h5>
@@ -927,6 +935,7 @@ $statusLabels = [
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST" enctype="multipart/form-data">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="upload_document" value="1">
                 <div class="modal-header">
                     <h5 class="modal-title">Upload Document</h5>

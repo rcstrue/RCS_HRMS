@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
+import { logger } from "@/lib/logger";
   getEmployeeById, 
   getEmployeeByMobile, 
   checkMobileExists as apiCheckMobileExists,
@@ -133,7 +134,7 @@ export function useEmployeeSession(): UseEmployeeSessionReturn {
         localStorage.removeItem('employee_id');
       }
     } catch (error) {
-      console.error('Error fetching employee:', error);
+      logger.error('Error fetching employee:', error);
       localStorage.removeItem('employee_id');
     } finally {
       setIsLoading(false);
@@ -153,7 +154,7 @@ export function useEmployeeSession(): UseEmployeeSessionReturn {
       if (error) throw new Error(error);
       return data?.exists || false;
     } catch (error) {
-      console.error('Error checking mobile:', error);
+      logger.error('Error checking mobile:', error);
       return false;
     }
   }, []);
@@ -183,7 +184,7 @@ export function useEmployeeSession(): UseEmployeeSessionReturn {
       
       return { success: true };
     } catch (error) {
-      console.error('Login error:', error);
+      logger.error('Login error:', error);
       return { success: false, error: 'An error occurred during login' };
     }
   }, []);

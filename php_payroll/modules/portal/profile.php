@@ -52,6 +52,11 @@ $message = '';
 $messageType = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     if ($_POST['action'] === 'update_contact') {
         try {
             $db->update('employees', [
@@ -514,6 +519,7 @@ include '../../templates/header.php';
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="update_contact">
                 <div class="modal-header">
                     <h5 class="modal-title">Edit Contact Information</h5>
@@ -574,6 +580,7 @@ include '../../templates/header.php';
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="update_bank">
                 <div class="modal-header">
                     <h5 class="modal-title">Edit Bank Details</h5>
@@ -615,6 +622,7 @@ include '../../templates/header.php';
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <input type="hidden" name="action" value="update_address">
                 <div class="modal-header">
                     <h5 class="modal-title">Edit Current Address</h5>

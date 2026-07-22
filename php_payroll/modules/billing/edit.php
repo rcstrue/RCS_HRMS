@@ -34,6 +34,11 @@ if ($invoice['status'] !== 'draft') {
 
 // Handle update
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     $invoice_date = sanitize($_POST['invoice_date']);
     $due_date = sanitize($_POST['due_date']);
     $notes = sanitize($_POST['notes'] ?? '');
@@ -76,6 +81,7 @@ $clients = $db->fetchAll("SELECT id, name, client_code FROM clients WHERE is_act
 <?php endif; ?>
 
 <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
     <div class="row">
         <div class="col-lg-8">
             <!-- Invoice Details -->

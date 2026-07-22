@@ -5,7 +5,7 @@ $employeeId = (int)($_GET['employee_id'] ?? 0);
 $employees = [];
 
 try {
-    $employees = $db->fetchAll("SELECT id, employee_code, full_name, designation FROM employees WHERE status = 'active' ORDER BY full_name");
+    $employees = $db->fetchAll("SELECT id, employee_code, full_name, designation FROM employees WHERE status = 'approved' ORDER BY full_name");
 } catch (Exception $e) {
     $employees = [];
 }

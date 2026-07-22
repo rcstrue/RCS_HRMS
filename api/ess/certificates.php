@@ -9,6 +9,7 @@
  *           No URL/POST parameter can override which employee's data is returned.
  */
 
+require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 

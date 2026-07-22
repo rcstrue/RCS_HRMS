@@ -94,6 +94,11 @@ if (isset($_GET['export'])) {
 
 // Handle form submission tracking
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    }
     try {
         $db->query("CREATE TABLE IF NOT EXISTS pf_form5_submissions (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -422,6 +427,7 @@ try {
         </div>
         <div class="card-body">
             <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
                 <div class="row g-3">
                     <div class="col-md-12">
                         <p class="text-muted small mb-2">Submit this Form 5 for the selected period. Submitted records can be tracked below.</p>
@@ -486,6 +492,7 @@ try {
                                 <td class="text-center">
                                     <?php if ($sub['status'] === 'submitted'): ?>
                                         <form method="POST" class="d-inline">
+            <?php echo getCSRFTokenField(); ?>
                                             <input type="hidden" name="action" value="revoke">
                                             <input type="hidden" name="submission_id" value="<?= $sub['id'] ?>">
                                             <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Revoke this submission?')">

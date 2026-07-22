@@ -6,9 +6,11 @@
  * PUT:  Update ticket status/resolution
  */
 
+require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
+require_once __DIR__ . '/auth-guard.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -40,7 +42,10 @@ function _handleGetTickets(): void
     $authId = requireAuth();
     $conn = getDbConnection();
 
-    $queryEmployeeId = $_GET['employee_id'] ?? $authId;
+    // SECURITY (IDOR): previously `$queryEmployeeId = $_GET['employee_id'] ?? $authId`
+    // let any user fetch any other user's helpdesk tickets by passing ?employee_id=X.
+    // Now: requesting another user's data requires a supervisor+ role.
+    $queryEmployeeId = scopedEmployeeId($authId, ESS_GUARD_ROLES_SUPERVISOR, $conn);
     $statusFilter = $_GET['status'] ?? '';
     $categoryFilter = $_GET['category'] ?? '';
     $priorityFilter = $_GET['priority'] ?? '';
@@ -206,6 +211,10 @@ function _handleUpdateTicket(): void
     if (!$ticket) {
         jsonOutput(['success' => false, 'error' => 'Ticket not found'], 404);
     }
+
+    // SECURITY (ownership): previously any authenticated user could update/close
+    // ANY ticket. Now: only the ticket owner or a supervisor+ role may update it.
+    requireOwnershipOrRole($authId, (string)($ticket['employee_id'] ?? ''), ESS_GUARD_ROLES_SUPERVISOR, $conn);
 
     // Build dynamic update
     $updateFields = [];
