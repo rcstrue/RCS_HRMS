@@ -46,7 +46,7 @@ export default tseslint.config(
       "@typescript-eslint/ban-ts-comment": "warn",
       "@typescript-eslint/no-non-null-assertion": "warn",
       "@typescript-eslint/prefer-as-const": "warn",
-      "@typescript-eslint/no-unused-disable-directive": "warn",
+      // Note: no-unused-disable-directive is handled via linterOptions below
 
       // ── General rules (Round 8: restored) ──────────────────────────────
       "prefer-const": "warn",

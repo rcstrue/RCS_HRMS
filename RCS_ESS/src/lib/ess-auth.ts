@@ -15,7 +15,7 @@
 
 import { API_BASE_URL, API_KEY } from './api/config';
 
-const ESS_TOKEN_KEY = 'ess_token';
+const _ESS_TOKEN_KEY = 'ess_token'; // R11: kept for cleanup reference, no longer used for storage
 const ESS_SESSION_KEY = 'ess_employee';
 const TOKEN_BUFFER_MS = 60_000; // Refresh 60s before expiry
 const PROACTIVE_REFRESH_INTERVAL_MS = 4 * 60_000; // Check every 4 minutes

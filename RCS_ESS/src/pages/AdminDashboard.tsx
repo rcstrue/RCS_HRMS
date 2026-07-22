@@ -111,7 +111,7 @@ export default function AdminDashboard() {
           </TabsList>
 
           <TabsContent value="employees">
-            <EmployeeManagement userRole={userRole!} />
+            <EmployeeManagement userRole={userRole ?? ''} />
           </TabsContent>
 
           <TabsContent value="clients">
