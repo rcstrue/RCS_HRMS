@@ -834,6 +834,7 @@ if ($ledger) {
                 <i class="bi bi-arrow-repeat me-1"></i>
                 Generate / Recalculate Ledger
             </button>
+            <?php echo getCSRFTokenField(); ?>
         </form>
     <?php else: ?>
         <button type="button" class="btn btn-success btn-sm" disabled title="Select a manager first">
@@ -912,6 +913,7 @@ if ($ledger) {
                                     onclick="return confirm('Settle this month?\\n\\nThis will auto-generate the stored ledger with current live data and carry the closing balance forward.');">
                                 <i class="bi bi-lock me-1"></i> Settle Month
                             </button>
+                            <?php echo getCSRFTokenField(); ?>
                         </form>
                     <?php endif; ?>
                 </div>
@@ -1238,6 +1240,7 @@ if ($ledger) {
                                         onclick="return confirm('Add this advance of the entered amount for <?= htmlspecialchars($selectedManagerInfo['full_name'] ?? 'this manager') ?>?');">
                                     <i class="bi bi-plus-circle me-1"></i> Add Advance
                                 </button>
+                                <?php echo getCSRFTokenField(); ?>
                             </form>
                         </div>
                     </div>
@@ -1327,6 +1330,7 @@ if ($ledger) {
                                         onclick="return confirm('Add this expense for <?= htmlspecialchars($selectedManagerInfo['full_name'] ?? 'this manager') ?>? It will be auto-approved.');">
                                     <i class="bi bi-plus-circle me-1"></i> Add Expense (Auto-Approved)
                                 </button>
+                                <?php echo getCSRFTokenField(); ?>
                             </form>
                         </div>
                     </div>

@@ -1189,6 +1189,7 @@ try {
                                             <input type="hidden" name="action" value="approve">
                                             <input type="hidden" name="id" value="<?= (int)$p['id'] ?>">
                                             <button type="submit" class="exp-btn exp-btn-success exp-btn-sm" title="Approve"><i class="bi bi-check-lg"></i></button>
+                                            <?php echo getCSRFTokenField(); ?>
                                         </form>
                                         <button type="button" class="exp-btn exp-btn-danger exp-btn-sm" title="Reject" onclick="showRejectBox(<?= (int)$p['id'] ?>)">
                                             <i class="bi bi-x-lg"></i>
@@ -1222,6 +1223,7 @@ try {
                         <button type="button" class="exp-btn exp-btn-outline exp-btn-sm" onclick="hideRejectBox()">Cancel</button>
                         <button type="submit" class="exp-btn exp-btn-danger exp-btn-sm"><i class="bi bi-x-lg"></i> Reject</button>
                     </div>
+                    <?php echo getCSRFTokenField(); ?>
                 </form>
             </div>
         </div>
@@ -1899,6 +1901,7 @@ try {
                                     </button>
                                 </div>
                             </div>
+                            <?php echo getCSRFTokenField(); ?>
                         </form>
 
                         <?php if (!empty($_SESSION['upload_debug'])): ?>
@@ -2015,6 +2018,7 @@ try {
                     <input type="hidden" name="action" value="approve">
                     <input type="hidden" name="id" value="<?= $pid ?>">
                     <button type="submit" class="exp-btn exp-btn-success exp-btn-sm"><i class="bi bi-check-lg"></i> Approve</button>
+                    <?php echo getCSRFTokenField(); ?>
                 </form>
                 <button type="button" class="exp-btn exp-btn-danger exp-btn-sm" onclick="bootstrap.Modal.getInstance(document.getElementById('detailModal-<?= $pid ?>')).hide(); showRejectBox(<?= $pid ?>);"><i class="bi bi-x-lg"></i> Reject</button>
             </div>
@@ -2059,6 +2063,7 @@ $modalRows = ($activeTab === 'approvals' && empty($fStatus)) ? $pendingList : (i
                             <input type="hidden" name="action" value="approve">
                             <input type="hidden" name="id" value="<?= $id ?>">
                             <button type="submit" class="exp-btn exp-btn-success w-100 exp-btn-sm" onclick="return confirm('Approve?');"><i class="bi bi-check-lg"></i> Approve</button>
+                            <?php echo getCSRFTokenField(); ?>
                         </form>
                         <button type="button" class="exp-btn exp-btn-danger w-100 exp-btn-sm" onclick="bootstrap.Modal.getInstance(document.getElementById('editModal-<?= $id ?>')).hide(); showRejectBox(<?= $id ?>);">
                             <i class="bi bi-x-lg"></i> Reject

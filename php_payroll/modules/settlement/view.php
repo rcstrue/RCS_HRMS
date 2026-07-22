@@ -399,6 +399,7 @@ $gross = floatval($settlement['gross_salary'] ?? $settlement['salary_amount']);
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-success">Confirm Payment</button>
                 </div>
+                <?php echo getCSRFTokenField(); ?>
             </form>
         </div>
     </div>

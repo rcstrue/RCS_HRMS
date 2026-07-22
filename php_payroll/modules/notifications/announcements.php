@@ -435,6 +435,7 @@ $totalAnnouncements = count($announcements);
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                             <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save Changes</button>
                         </div>
+                        <?php echo getCSRFTokenField(); ?>
                     </form>
                 </div>
             </div>
@@ -502,6 +503,7 @@ $totalAnnouncements = count($announcements);
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="publishBtn"><i class="bi bi-send me-1"></i>Publish</button>
                 </div>
+                <?php echo getCSRFTokenField(); ?>
             </form>
         </div>
     </div>
@@ -526,6 +528,7 @@ $totalAnnouncements = count($announcements);
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="announcement_id" id="deleteId" value="">
                     <button type="submit" class="btn btn-danger btn-sm"><i class="bi bi-trash me-1"></i>Delete</button>
+                    <?php echo getCSRFTokenField(); ?>
                 </form>
             </div>
         </div>

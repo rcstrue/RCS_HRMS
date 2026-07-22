@@ -597,6 +597,7 @@ krsort($periodsByYear);
                     <button type="submit" name="create_period" class="btn btn-primary btn-sm">
                         <i class="bi bi-plus"></i> Create Period
                     </button>
+                    <?php echo getCSRFTokenField(); ?>
                 </form>
             </div>
             
@@ -682,6 +683,7 @@ krsort($periodsByYear);
                                 onclick="return confirm('Approve all payroll for this period?')">
                             <i class="bi bi-check-lg me-1"></i>Approve All
                         </button>
+                        <?php echo getCSRFTokenField(); ?>
                     </form>
                     <form method="POST" class="d-inline">
                         <input type="hidden" name="period_id" value="<?php echo $selectedPeriod['id']; ?>">
@@ -689,6 +691,7 @@ krsort($periodsByYear);
                                 onclick="return confirm('Delete payroll and re-process?')">
                             <i class="bi bi-trash me-1"></i>Delete
                         </button>
+                        <?php echo getCSRFTokenField(); ?>
                     </form>
                     <?php endif; ?>
                     
@@ -848,6 +851,7 @@ krsort($periodsByYear);
                                             <button type="submit" name="process_unit" class="btn btn-sm btn-primary">
                                                 <i class="bi bi-play-fill"></i> Process
                                             </button>
+                                            <?php echo getCSRFTokenField(); ?>
                                         </form>
                                         <?php else: ?>
                                         <a href="index.php?page=attendance/add&client_id=<?php echo $unit['client_id']; ?>&unit_id=<?php echo $unit['unit_id']; ?>&month=<?php echo $selectedPeriod['month']; ?>&year=<?php echo $selectedPeriod['year']; ?>&load=1" 
@@ -863,6 +867,7 @@ krsort($periodsByYear);
                                                 onclick="return confirm('Recalculate payroll with fresh attendance/salary data?')">
                                             <i class="bi bi-arrow-repeat"></i>
                                         </button>
+                                        <?php echo getCSRFTokenField(); ?>
                                     </form>
                                     <form method="POST" class="d-inline">
                                         <input type="hidden" name="period_id" value="<?php echo $selectedPeriod['id']; ?>">
@@ -871,6 +876,7 @@ krsort($periodsByYear);
                                                 onclick="return confirm('Finalize this unit?')">
                                             <i class="bi bi-check-lg"></i> Finalize
                                         </button>
+                                        <?php echo getCSRFTokenField(); ?>
                                     </form>
                                     <?php else: ?>
                                     <span class="text-success"><i class="bi bi-check-circle"></i> Done</span>

@@ -206,6 +206,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-primary">Create User</button>
                 </div>
+                <?php echo getCSRFTokenField(); ?>
             </form>
         </div>
     </div>
@@ -267,6 +268,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-primary">Update User</button>
                 </div>
+                <?php echo getCSRFTokenField(); ?>
             </form>
         </div>
     </div>
@@ -277,6 +279,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
     <input type="hidden" name="action" value="delete">
     <input type="hidden" name="user_id" id="delete_user_id">
+    <?php echo getCSRFTokenField(); ?>
 </form>
 
 <?php

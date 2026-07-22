@@ -364,6 +364,7 @@ $employees = $db->query("SELECT id, employee_code, full_name, designation, clien
             </div>
         </div>
     </div>
+    <?php echo getCSRFTokenField(); ?>
 </form>
 
 <?php

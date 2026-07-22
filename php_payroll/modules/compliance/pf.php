@@ -327,6 +327,7 @@ $pfSummary = [
                         <button type="submit" name="download_ecr" class="btn btn-success">
                             <i class="bi bi-download me-1"></i>Download ECR File
                         </button>
+                        <?php echo getCSRFTokenField(); ?>
                     </form>
                     <button type="button" class="btn btn-outline-primary" onclick="previewECR()">
                         <i class="bi bi-eye me-1"></i>Preview ECR

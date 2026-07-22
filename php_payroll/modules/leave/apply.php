@@ -363,6 +363,7 @@ $pendingCount = $db->fetchColumn("SELECT COUNT(*) FROM leave_applications WHERE 
                                             <input type="hidden" name="action" value="approve">
                                             <input type="hidden" name="application_id" value="<?php echo $app['id']; ?>">
                                             <button class="btn btn-success" title="Approve"><i class="bi bi-check-lg"></i></button>
+                                            <?php echo getCSRFTokenField(); ?>
                                         </form>
                                         <button class="btn btn-danger" title="Reject" data-bs-toggle="modal" data-bs-target="#rejectModal" onclick="setRejectId(<?php echo $app['id']; ?>)"><i class="bi bi-x-lg"></i></button>
                                     </div>
@@ -440,6 +441,7 @@ $pendingCount = $db->fetchColumn("SELECT COUNT(*) FROM leave_applications WHERE 
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="submit" class="btn btn-primary"><i class="bi bi-send me-1"></i>Submit</button>
             </div>
+            <?php echo getCSRFTokenField(); ?>
         </form>
     </div></div>
 </div>
@@ -465,6 +467,7 @@ $pendingCount = $db->fetchColumn("SELECT COUNT(*) FROM leave_applications WHERE 
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="submit" class="btn btn-danger"><i class="bi bi-x-lg me-1"></i>Reject</button>
             </div>
+            <?php echo getCSRFTokenField(); ?>
         </form>
     </div></div>
 </div>

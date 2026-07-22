@@ -478,6 +478,7 @@ if ($selectedEmp) {
                                         </button>
                                     </div>
                                     <small class="text-muted">Upload JPG or PNG (max 5MB)</small>
+                                    <?php echo getCSRFTokenField(); ?>
                                 </form>
                                 
                                 <?php if ($hasPhoto): ?>
@@ -572,6 +573,7 @@ if ($selectedEmp) {
                                             <i class="bi bi-arrow-clockwise me-1"></i>Refresh Preview
                                         </button>
                                     </div>
+                                    <?php echo getCSRFTokenField(); ?>
                                 </form>
                             </div>
                         </div>

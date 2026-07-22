@@ -847,6 +847,7 @@ $relationships = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Bro
                             </a>
                         </div>
                     </div>
+                    <?php echo getCSRFTokenField(); ?>
                 </form>
             </div>
         </div>

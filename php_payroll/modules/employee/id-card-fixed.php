@@ -351,6 +351,7 @@ $templatePath = '/upload/Id card format.jpeg';
                                     <button type="submit" name="upload_photo" class="btn btn-success btn-sm">
                                         <i class="bi bi-upload me-1"></i>Upload Photo
                                     </button>
+                                    <?php echo getCSRFTokenField(); ?>
                                 </form>
                                 <?php else: ?>
                                 <hr>

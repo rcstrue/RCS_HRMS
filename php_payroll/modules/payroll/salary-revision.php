@@ -603,6 +603,7 @@ $esiRates = $db->fetch("SELECT * FROM esi_rates WHERE is_active = 1 ORDER BY eff
                             </div>
                         </div>
                     </div>
+                    <?php echo getCSRFTokenField(); ?>
                 </form>
                 <?php elseif ($filterUnitId): ?>
                 <div class="alert alert-warning">
@@ -687,6 +688,7 @@ $esiRates = $db->fetch("SELECT * FROM esi_rates WHERE is_active = 1 ORDER BY eff
                                             onclick="return confirm('Upload and apply salary changes?')">
                                         <i class="bi bi-cloud-upload me-1"></i>Upload & Apply
                                     </button>
+                                    <?php echo getCSRFTokenField(); ?>
                                 </form>
                             </div>
                         </div>

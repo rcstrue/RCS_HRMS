@@ -393,6 +393,7 @@ function filterUrl($baseUrl, $override = []): string
                 <button type="button" class="btn btn-success btn-sm" id="bulkApproveBtn" disabled>
                     <i class="bi bi-check-circle me-1"></i> Approve Selected
                 </button>
+                <?php echo getCSRFTokenField(); ?>
             </form>
         </div>
 
@@ -603,6 +604,7 @@ function filterUrl($baseUrl, $override = []): string
                                         onclick="quickReject(<?= $id ?>)">Confirm Reject</button>
                             </div>
                         </div>
+                        <?php echo getCSRFTokenField(); ?>
                     </form>
                 </div>
                 <div class="modal-footer py-2">
