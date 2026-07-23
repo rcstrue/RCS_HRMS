@@ -51,8 +51,9 @@ try {
             jsonOutput(['success' => false, 'error' => 'Method not allowed'], 405);
     }
 } catch (\Throwable $e) {
-    error_log('[api/ess/team-summary] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-    jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
+    $errMsg = $e->getMessage();
+    error_log('[api/ess/team-summary] ' . $errMsg . ' in ' . $e->getFile() . ':' . $e->getLine());
+    jsonOutput(['success' => false, 'error' => $errMsg . ' (' . $e->getFile() . ':' . $e->getLine() . ')'], 500);
 }
 
 // ─── Helper: Check if caller has access to a unit ─────────────────────────────
@@ -231,10 +232,10 @@ function _handleGetSummary(): void
     $stmt->close();
 
     // Fetch temp employees
+    // NOTE: employee_advances does NOT have present/wo columns, so temp employee
+    // present/wo always returns 0. These fields are read-only display.
     $tempStmt = $conn->prepare('
         SELECT t.id, t.name,
-               COALESCE(adv.present, 0) AS present,
-               COALESCE(adv.wo, 0) AS wo,
                COALESCE(adv.adv1, 0) AS adv1,
                COALESCE(adv.office_advance, 0) AS office_advance,
                COALESCE(adv.dress_advance, 0) AS dress_advance
@@ -250,8 +251,6 @@ function _handleGetSummary(): void
     $tempResult = $tempStmt->get_result();
 
     while ($tRow = $tempResult->fetch_assoc()) {
-        $tPresent   = (float)$tRow['present'];
-        $tWo        = (float)$tRow['wo'];
         $tAdv1      = (float)$tRow['adv1'];
         $tOffAdv    = (float)$tRow['office_advance'];
         $tDressAdv  = (float)$tRow['dress_advance'];
@@ -260,16 +259,14 @@ function _handleGetSummary(): void
             'employee_id'    => 'TEMP-' . $tRow['id'],
             'employee_code'  => '',
             'full_name'      => $tRow['name'] . ' (Temp)',
-            'present'        => $tPresent,
-            'wo'             => $tWo,
+            'present'        => 0,
+            'wo'             => 0,
             'adv1'           => $tAdv1,
             'office_advance' => $tOffAdv,
             'dress_advance'  => $tDressAdv,
             'is_temp'        => true,
         ];
 
-        $totals['present']        += $tPresent;
-        $totals['wo']             += $tWo;
         $totals['adv1']           += $tAdv1;
         $totals['office_advance'] += $tOffAdv;
         $totals['dress_advance']  += $tDressAdv;
@@ -339,76 +336,40 @@ function _handleSaveAdvance(array $input): void
         if ($existing) {
             // Update existing row
             $updStmt = $conn->prepare(
-                'UPDATE attendance_summary SET total_present = ?, total_wo = ?, source = ?, updated_at = NOW() WHERE id = ?'
+                'UPDATE attendance_summary SET total_present = ?, total_wo = ?, updated_at = NOW() WHERE id = ?'
             );
-            $source = 'ess_manager';
-            $updStmt->bind_param('ddsi', $present, $wo, $source, (int)$existing['id']);
+            $updStmt->bind_param('ddi', $present, $wo, (int)$existing['id']);
             $updStmt->execute();
             $updStmt->close();
         } else {
             // Insert new row
             $insStmt = $conn->prepare(
-                'INSERT INTO attendance_summary (employee_id, unit_id, month, year, total_present, total_wo, source, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+                'INSERT INTO attendance_summary (employee_id, unit_id, month, year, total_present, total_wo, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())'
             );
-            $source = 'ess_manager';
-            $insStmt->bind_param('iiiidds', $numericEmpId, $unitId, $month, $year, $present, $wo, $source);
+            $insStmt->bind_param('iiiidd', $numericEmpId, $unitId, $month, $year, $present, $wo);
             $insStmt->execute();
             $insStmt->close();
         }
     }
 
     // ── 2. Save advances to employee_advances ────────────────────────────────
-    // For temp employees, also save present/wo here (no attendance_summary row)
-    if ($isTemp) {
-        // Temp: save everything including present/wo in employee_advances
-        if ($present !== null && $wo !== null) {
-            $stmt = $conn->prepare('
-                INSERT INTO employee_advances
-                    (employee_id, unit_id, month, year, present, wo, adv1, office_advance, dress_advance)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE
-                    present = VALUES(present),
-                    wo = VALUES(wo),
-                    adv1 = VALUES(adv1),
-                    office_advance = VALUES(office_advance),
-                    dress_advance = VALUES(dress_advance)
-            ');
-            $stmt->bind_param('siiiddidd',
-                $targetEmpId, $unitId, $month, $year,
-                $present, $wo, $adv1, $officeAdv, $dressAdv
-            );
-        } else {
-            $stmt = $conn->prepare('
-                INSERT INTO employee_advances
-                    (employee_id, unit_id, month, year, adv1, office_advance, dress_advance)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE
-                    adv1 = VALUES(adv1),
-                    office_advance = VALUES(office_advance),
-                    dress_advance = VALUES(dress_advance)
-            ');
-            $stmt->bind_param('siiiddd',
-                $targetEmpId, $unitId, $month, $year,
-                $adv1, $officeAdv, $dressAdv
-            );
-        }
-    } else {
-        // Regular: save only advances (attendance already saved to attendance_summary)
-        $stmt = $conn->prepare('
-            INSERT INTO employee_advances
-                (employee_id, unit_id, month, year, adv1, office_advance, dress_advance)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE
-                adv1 = VALUES(adv1),
-                office_advance = VALUES(office_advance),
-                dress_advance = VALUES(dress_advance)
-        ');
-        $stmt->bind_param('siiiddd',
-            $targetEmpId, $unitId, $month, $year,
-            $adv1, $officeAdv, $dressAdv
-        );
-    }
+    // NOTE: employee_advances table does NOT have present/wo columns.
+    // Temp employees: present/wo are lost (attendance_summary requires a real employee_id).
+    // Both temp and regular: only adv1, office_advance, dress_advance are saved here.
+    $stmt = $conn->prepare('
+        INSERT INTO employee_advances
+            (employee_id, unit_id, month, year, adv1, office_advance, dress_advance)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            adv1 = VALUES(adv1),
+            office_advance = VALUES(office_advance),
+            dress_advance = VALUES(dress_advance)
+    ');
+    $stmt->bind_param('siiiddd',
+        $targetEmpId, $unitId, $month, $year,
+        $adv1, $officeAdv, $dressAdv
+    );
     $stmt->execute();
     $stmt->close();
 

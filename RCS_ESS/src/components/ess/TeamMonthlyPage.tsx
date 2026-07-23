@@ -481,7 +481,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
                         type="number"
                         min="0"
                         step="1"
-                        value={row.present || ''}
+                        value={row.present ?? ''}
                         onChange={e => handleFieldChange(row.employee_id, 'present', e.target.value)}
                         className="h-7 text-[11px] text-center bg-emerald-50/50 border-emerald-200 focus:border-emerald-400 py-0 px-1"
                         placeholder="0"
@@ -492,7 +492,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
                         type="number"
                         min="0"
                         step="1"
-                        value={row.wo || ''}
+                        value={row.wo ?? ''}
                         onChange={e => handleFieldChange(row.employee_id, 'wo', e.target.value)}
                         className="h-7 text-[11px] text-center bg-emerald-50/50 border-emerald-200 focus:border-emerald-400 py-0 px-1"
                         placeholder="0"
@@ -503,7 +503,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
                         type="number"
                         min="0"
                         step="1"
-                        value={row.adv1 || ''}
+                        value={row.adv1 ?? ''}
                         onChange={e => handleFieldChange(row.employee_id, 'adv1', e.target.value)}
                         className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400 py-0 px-1"
                         placeholder="0"
@@ -514,7 +514,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
                         type="number"
                         min="0"
                         step="1"
-                        value={row.office_advance || ''}
+                        value={row.office_advance ?? ''}
                         onChange={e => handleFieldChange(row.employee_id, 'office_advance', e.target.value)}
                         className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400 py-0 px-1"
                         placeholder="0"
@@ -525,7 +525,7 @@ export default function TeamMonthlyPage({ employeeId, scope, unitIds }: TeamMont
                         type="number"
                         min="0"
                         step="1"
-                        value={row.dress_advance || ''}
+                        value={row.dress_advance ?? ''}
                         onChange={e => handleFieldChange(row.employee_id, 'dress_advance', e.target.value)}
                         className="h-7 text-[11px] text-center bg-blue-50/50 border-blue-200 focus:border-blue-400 py-0 px-1"
                         placeholder="0"
