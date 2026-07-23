@@ -335,10 +335,11 @@ function _handleSaveAdvance(array $input): void
 
         if ($existing) {
             // Update existing row
+            $existingId = (int)$existing['id'];
             $updStmt = $conn->prepare(
                 'UPDATE attendance_summary SET total_present = ?, total_wo = ?, updated_at = NOW() WHERE id = ?'
             );
-            $updStmt->bind_param('ddi', $present, $wo, (int)$existing['id']);
+            $updStmt->bind_param('ddi', $present, $wo, $existingId);
             $updStmt->execute();
             $updStmt->close();
         } else {
