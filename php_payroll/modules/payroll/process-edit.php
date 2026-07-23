@@ -1099,6 +1099,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const YEAR  = <?= $year ?>;
     const UNIT_ID = <?= $unitId ?>;
     const SAVE_URL = 'index.php?page=api/payroll-save-row';
+    const CSRF_TOKEN = <?= json_encode(generateCSRFToken()) ?>;
 
     // PT slabs from database (for unit's state)
     const PT_SLABS = <?= json_encode($ptSlabs) ?>;
@@ -1634,7 +1635,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         return fetch(SAVE_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': CSRF_TOKEN
+            },
             body: JSON.stringify(payload)
         })
         .then(function(r) { return r.json(); })
