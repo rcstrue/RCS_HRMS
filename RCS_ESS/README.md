@@ -1,73 +1,135 @@
-# Welcome to your Lovable project
+# RCS ESS — Employee Self-Service
 
-## Project info
+Mobile-first React SPA for employee self-service. Part of the [RCS HRMS](../README.md) monorepo.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+**Live:** https://join.rcsfacility.com/#ess
 
-## How can I edit this code?
+## Tech Stack
 
-There are several ways of editing your application.
+- **React 19** + TypeScript
+- **Vite** — build tool
+- **Tailwind CSS 4** — utility-first styling
+- **shadcn/ui** — component library (New York style)
+- **Lucide Icons** — icon set
+- **Sonner** — toast notifications
+- **Bun** — package manager & runtime
 
-**Use Lovable**
+## Features
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+### Employee (Self-Service)
+- **Attendance** — Daily check-in/out with geolocation, monthly calendar view
+- **Leaves** — Apply, track balance (CL/EL/SL), approve/reject for managers
+- **Expenses** — Submit claims, per-month advance tracking
+- **Payslip** — View monthly payslips with full breakdown
+- **Tasks** — Create and manage assigned tasks
+- **Helpdesk** — Submit and track support tickets
+- **Profile** — Edit personal details, change PIN
+- **Notifications** — In-app announcements and alerts
+- **Certificates** — Generate service/experience/registration certificates
 
-Changes made via Lovable will be committed automatically to this repo.
+### Manager / Supervisor
+- **Team Attendance** — Monthly attendance + advance entry per employee per unit
+- **Manpower Status** — Daily manpower budget vs actual (morning/evening shifts)
+- **Unit Visits** — Inspection checklists with scoring, PDF report generation
+- **Employee Directory** — Search and filter team members
+- **Temp Employees** — Add temporary employees for monthly tracking
+- **Announcements** — Create company-wide announcements
 
-**Use your preferred IDE**
+### Admin
+- **Employee Management** — Full CRUD with document viewing
+- **Salary Upload** — Bulk salary record upload
+- **Auto Role Assignment** — Auto-assign app_role by designation
+- **Notification Broadcasting** — Send notifications to target groups
+- **Client Management** — Manage client records
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Getting Started
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+```bash
+# Install dependencies
+bun install
 
-Follow these steps:
+# Development server (port 3000)
+bun run dev
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+# Production build → dist/
+bun run build
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+# Lint
+bun run lint
 ```
 
-**Edit a file directly in GitHub**
+## Project Structure
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```
+src/
+├── App.tsx              # Root: hash router + auth wrapper
+├── main.tsx             # Entry point
+├── index.css            # Global styles + Tailwind
+├── lib/
+│   ├── ess-api.ts       # All API endpoint functions
+│   ├── ess-auth.ts      # Login, refresh, logout helpers
+│   ├── ess-types.ts     # TypeScript type definitions
+│   ├── api/config.ts    # Base URL, fetch wrapper
+│   ├── pdf/             # PDF generators
+│   └── excel/           # Excel export
+├── components/
+│   ├── ess/             # App pages and components
+│   │   ├── ESSApp.tsx           # Orchestrator + routing
+│   │   ├── LoginScreen.tsx      # PIN login
+│   │   ├── DashboardHome.tsx     # Home dashboard
+│   │   ├── AttendancePage.tsx   # Monthly attendance
+│   │   ├── TeamMonthlyPage.tsx  # Team attendance (manager)
+│   │   ├── ManpowerStatusPage.tsx
+│   │   ├── UnitVisitsPage.tsx
+│   │   ├── LeavesPage.tsx
+│   │   ├── ExpensesPage.tsx
+│   │   ├── TasksPage.tsx
+│   │   ├── PayslipPage.tsx
+│   │   ├── CertificatesPage.tsx
+│   │   ├── DirectoryPage.tsx
+│   │   ├── BottomNav.tsx        # Bottom navigation
+│   │   └── hooks/               # Custom React hooks
+│   ├── admin/           # Admin panel
+│   ├── registration/    # Self-registration wizard
+│   └── ui/              # shadcn/ui components
+├── contexts/
+│   └── AccessContext.tsx  # Role-based access control
+└── hooks/               # Shared hooks (use-mobile, use-toast)
+```
 
-**Use GitHub Codespaces**
+## Routing
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Uses hash-based routing (`/#ess`, `/#ess/attendance`, etc.) for compatibility with the PHP admin app sharing the same domain.
 
-## What technologies are used for this project?
+| Route | Component | Access |
+|---|---|---|
+| `/#ess` | DashboardHome | All authenticated |
+| `/#ess/attendance` | AttendancePage | All |
+| `/#ess/team` | TeamMonthlyPage | Manager+ |
+| `/#ess/leaves` | LeavesPage | All |
+| `/#ess/expenses` | ExpensesPage | All |
+| `/#ess/tasks` | TasksPage | All |
+| `/#ess/payslip` | PayslipPage | All |
+| `/#ess/manpower` | ManpowerStatusPage | Manager+ |
+| `/#ess/unit-visits` | UnitVisitsPage | Manager+ |
+| `/#ess/directory` | DirectoryPage | Manager+ |
+| `/#ess/certificates` | CertificatesPage | All |
+| `/#ess/announcements` | AnnouncementsPage | All |
+| `/#ess/notifications` | NotificationsPage | All |
+| `/#ess/profile` | EditProfilePage | All |
 
-This project is built with:
+## Auth Flow
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+1. Employee enters mobile number + 4-digit PIN
+2. Backend validates → sets JWT in HttpOnly `ess_jwt` cookie (24h expiry)
+3. All API requests include cookie automatically (no localStorage token)
+4. When token nears expiry, client calls refresh endpoint (5-min grace window)
+5. On refresh failure, redirects to login
 
-## How can I deploy this project?
+## Admin Panel (Hash Route)
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+Accessible at `/#ess/admin` — requires admin credentials entered via a separate login dialog.
 
-## Can I connect a custom domain to my Lovable project?
+## PWA Support
 
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+The app is installable as a Progressive Web App with offline-capable service worker caching.
