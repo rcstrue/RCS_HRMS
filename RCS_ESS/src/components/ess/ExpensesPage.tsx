@@ -160,7 +160,7 @@ export function ExpensesPage({
   role,
   canApprove,
 }: ExpensesPageProps) {
-  const [activeTab, setActiveTab] = useState('advance');
+  const [activeTab, setActiveTab] = useState('expenses');
 
   // ── Advance tab state ──
   const [advanceAllocations, setAdvanceAllocations] = useState<AdvanceAllocation[]>([]);

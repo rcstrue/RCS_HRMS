@@ -82,7 +82,7 @@ export default function DashboardHome({
   const quickActions = [
     ...(canViewEmployees ? [{ key: 'team-monthly', label: 'Team Attendance', icon: TableProperties, color: 'text-indigo-600', bg: 'bg-indigo-50' }] : []),
     { key: 'leaves', label: 'Leave', icon: CalendarDays, color: 'text-amber-600', bg: 'bg-amber-50' },
-    { key: 'expenses', label: 'Expenses', icon: Receipt, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { key: 'expenses', label: 'Expenses', icon: Receipt, color: 'text-emerald-600', bg: 'bg-emerald-50', isNew: true },
     { key: 'tasks', label: 'Tasks', icon: ClipboardList, color: 'text-violet-600', bg: 'bg-violet-50' },
     { key: 'certificates', label: 'Certificates', icon: Award, color: 'text-purple-600', bg: 'bg-purple-50', isNew: true },
     { key: 'announcements', label: 'Notices', icon: Megaphone, color: 'text-rose-600', bg: 'bg-rose-50' },
