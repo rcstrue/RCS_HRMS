@@ -344,6 +344,7 @@ var CATEGORIES = <?php echo $allColumnsJson; ?>;
 var CLIENTS = <?php echo $clientsJson; ?>;
 var UNITS = <?php echo $unitsJson; ?>;
 var STATES = <?php echo $statesJson; ?>;
+var CSRF_TOKEN = '<?php echo generateCSRFToken(); ?>';
 </script>
 
 <?php
@@ -632,7 +633,10 @@ function saveAllChanges() {
 
     fetch('index.php?page=api/bulk-edit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': CSRF_TOKEN
+        },
         body: JSON.stringify({ employees: Object.values(employeesData) })
     })
     .then(function(r) { return r.json(); })
