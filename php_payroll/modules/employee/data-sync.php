@@ -15,7 +15,7 @@ if (!in_array($roleCode, ['admin', 'hr', 'hr_executive'])) {
 }
 
 // ── Self-heal: ensure log table exists ──
-$db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_logs` (
+try { $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_logs` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `employee_id` INT UNSIGNED NOT NULL,
     `field_name` VARCHAR(100) NOT NULL,
@@ -30,6 +30,7 @@ $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_logs` (
     INDEX `idx_employee_id` (`employee_id`),
     INDEX `idx_updated_at` (`updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (\Throwable $e) {}
 ?>
 
 <!-- Page Header -->

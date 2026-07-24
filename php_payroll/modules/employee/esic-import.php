@@ -3,7 +3,6 @@
  * RCS HRMS Pro — Import ESIC IP Data
  * Upload multiple ESIC CSV files → merge into esic_ip_master table.
  * Uses position-based column mapping (headers are untrustworthy).
- * Also: Match ESIC IPs to employees by UAN and merge esic_number.
  */
 
 $pageTitle = 'Import ESIC IP Data';
@@ -85,52 +84,8 @@ $recentImports = $db->fetchAll(
 $totalRecords = (int)$db->fetchColumn("SELECT COUNT(*) FROM esic_ip_master") ?: 0;
 $totalImports = (int)$db->fetchColumn("SELECT COUNT(*) FROM esic_import_history") ?: 0;
 
-// ── Handle ESIC merge (update esic_number in employees) ──
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_esic' && !empty($_POST['selected_ids'])) {
-    // CSRF check (Round 9)
-    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
-        setFlash('error', 'Invalid request. Please refresh the page and try again.');
-        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
-    }
-    $ids = array_map('intval', $_POST['selected_ids']);
-    $placeholders = implode(',', array_fill(0, count($ids), '?'));
-
-    $matchedRows = $db->fetchAll(
-        "SELECT e.id AS emp_id, e.esic_number AS old_esic, ip.ip_number AS new_esic,
-                e.full_name, e.employee_code
-         FROM employees e
-         JOIN esic_ip_master ip ON e.uan_number = ip.uan
-         WHERE e.id IN ($placeholders)",
-        $ids
-    );
-
-    $updated = 0;
-    foreach ($matchedRows as $r) {
-        if (!empty($r['new_esic']) && $r['new_esic'] !== $r['old_esic']) {
-            $db->query("UPDATE employees SET esic_number = ? WHERE id = ?", [$r['new_esic'], $r['emp_id']]);
-            $updated++;
-        }
-    }
-    logActivity('esic_merge', 'employees', 0, "Merged ESIC IP numbers for {$updated} employees");
-    setFlash('success', "ESIC IP Number updated for {$updated} employee(s).");
-    redirect('index.php?page=employee/esic-import');
-    exit;
-}
-
-// ── Matched records: employees whose UAN exists in esic_ip_master ──
-$matchedRecords = [];
-try {
-    $matchedRecords = $db->fetchAll("
-        SELECT e.id, e.employee_code, e.full_name, e.mobile_number,
-               e.uan_number AS current_uan, e.esic_number AS current_esic,
-               ip.ip_number AS esic_ip, ip.ip_name AS esic_name, ip.mobile AS esic_mobile
-        FROM employees e
-        JOIN esic_ip_master ip ON e.uan_number = ip.uan
-        WHERE e.status = 'approved'
-        ORDER BY e.full_name
-    ");
-} catch (\Throwable $th) {}
 ?>
+
 
 <!-- Page Header -->
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -270,101 +225,6 @@ try {
                 <div class="fs-4 fw-bold text-danger" id="sumErrors">0</div>
             </div>
         </div>
-    </div>
-</div>
-
-<!-- Match & Merge ESIC IP to Employees -->
-<div class="card border-primary mb-4">
-    <div class="card-header bg-primary text-white">
-        <div class="d-flex justify-content-between align-items-center">
-            <h6 class="card-title mb-0"><i class="bi bi-arrow-repeat me-2"></i>Match &amp; Update ESIC Number in Employees</h6>
-            <span class="badge bg-light text-primary"><?= count($matchedRecords) ?> matched by UAN</span>
-        </div>
-    </div>
-    <div class="card-body">
-        <div class="alert alert-secondary small mb-3">
-            <i class="bi bi-info-circle me-1"></i>
-            Matches found by comparing <strong>UAN</strong> between Employee records and ESIC IP master data.
-            Select employees and click <strong>Update ESIC Number</strong> to copy the ESIC IP Number into the employee record.
-        </div>
-
-        <?php if (empty($matchedRecords)): ?>
-            <div class="text-center text-muted py-4">
-                <i class="bi bi-search display-4 d-block mb-2"></i>
-                <p class="mb-0">No matching records found. Import ESIC data first and ensure employees have UAN filled.</p>
-            </div>
-        <?php else: ?>
-        <form method="POST" id="esicMergeForm">
-            <?php echo getCSRFTokenField(); ?>
-            <input type="hidden" name="action" value="update_esic">
-
-            <div class="d-flex gap-2 mb-3 align-items-center flex-wrap">
-                <select class="form-select form-select-sm" style="width:auto" id="esicStatusFilter" onchange="filterEsicByStatus()">
-                    <option value="update">Will Set / Will Update</option>
-                    <option value="same">Already Same</option>
-                    <option value="all">Show All</option>
-                </select>
-                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleAllEsic(true)">
-                    <i class="bi bi-check-all me-1"></i>Select All
-                </button>
-                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleAllEsic(false)">
-                    <i class="bi bi-x-square me-1"></i>Select None
-                </button>
-                <div class="ms-auto">
-                    <span class="text-muted small me-2" id="esicVisibleCount"></span>
-                    <button type="submit" class="btn btn-success btn-sm" id="updateEsicBtn" disabled>
-                        <i class="bi bi-arrow-repeat me-1"></i>Update ESIC Number (<span id="esicSelectedCount">0</span>)
-                    </button>
-                </div>
-            </div>
-
-            <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-                <table class="table table-sm table-hover align-middle">
-                    <thead class="table-light sticky-top">
-                        <tr>
-                            <th style="width:40px"><input type="checkbox" class="form-check-input" id="checkAllEsic" onchange="toggleAllEsic(this.checked)"></th>
-                            <th>Emp Code</th>
-                            <th>Employee Name</th>
-                            <th>Mobile</th>
-                            <th>Current ESIC No.</th>
-                            <th>ESIC IP Number</th>
-                            <th>ESIC IP Name</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="esicTableBody">
-                        <?php foreach ($matchedRecords as $m): ?>
-                        <?php
-                            $isSame = (!empty($m['current_esic']) && $m['current_esic'] === $m['esic_ip']);
-                            $isEmpty = empty($m['current_esic']);
-                            $willUpdate = !$isSame && !empty($m['esic_ip']);
-                        ?>
-                        <tr class="<?= $isSame ? 'table-success' : ($isEmpty ? 'table-warning' : '') ?>" data-status="<?= $isSame ? 'same' : 'update' ?>" style="<?= $isSame ? 'display:none' : '' ?>">
-                            <td>
-                                <input type="checkbox" class="form-check-input esic-check" name="selected_ids[]" value="<?= $m['id'] ?>" <?= $willUpdate ? '' : 'disabled' ?> onchange="updateEsicCount()">
-                            </td>
-                            <td><?= sanitize($m['employee_code']) ?></td>
-                            <td class="fw-semibold"><?= sanitize($m['full_name']) ?></td>
-                            <td><?= sanitize($m['mobile_number']) ?></td>
-                            <td><?= !empty($m['current_esic']) ? sanitize($m['current_esic']) : '<span class="text-muted">-- empty --</span>' ?></td>
-                            <td><strong class="text-primary"><?= sanitize($m['esic_ip']) ?></strong></td>
-                            <td><?= sanitize($m['esic_name']) ?></td>
-                            <td>
-                                <?php if ($isSame): ?>
-                                    <span class="badge bg-success">Same</span>
-                                <?php elseif ($isEmpty): ?>
-                                    <span class="badge bg-warning text-dark">Will Set</span>
-                                <?php else: ?>
-                                    <span class="badge bg-info text-dark">Will Update</span>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        </form>
-        <?php endif; ?>
     </div>
 </div>
 
@@ -552,38 +412,4 @@ function downloadErrorLog() {
     window.open('index.php?page=employee/esic-import&ajax=1&action=download_errors&import_id=' + lastImportId, '_blank');
 }
 
-// ── ESIC Match table controls ──
-function toggleAllEsic(checked) {
-    var boxes = document.querySelectorAll('.esic-check:not(:disabled)');
-    for (var i = 0; i < boxes.length; i++) { boxes[i].checked = checked; }
-    var checkAll = document.getElementById('checkAllEsic');
-    if (checkAll) checkAll.checked = checked;
-    updateEsicCount();
-}
-function updateEsicCount() {
-    var visibleChecks = document.querySelectorAll('#esicTableBody tr:not([style*="display: none"]) .esic-check:not(:disabled)');
-    var checked = document.querySelectorAll('.esic-check:checked').length;
-    var total = visibleChecks.length;
-    document.getElementById('esicSelectedCount').textContent = checked;
-    document.getElementById('updateEsicBtn').disabled = (checked === 0);
-    var checkAll = document.getElementById('checkAllEsic');
-    if (checkAll) checkAll.checked = (checked === total && total > 0);
-    var visibleRows = document.querySelectorAll('#esicTableBody tr:not([style*="display: none"])');
-    document.getElementById('esicVisibleCount').textContent = visibleRows.length + ' records';
-}
-function filterEsicByStatus() {
-    var val = document.getElementById('esicStatusFilter').value;
-    var rows = document.querySelectorAll('#esicTableBody tr');
-    for (var i = 0; i < rows.length; i++) {
-        if (val === 'all') {
-            rows[i].style.display = '';
-        } else {
-            rows[i].style.display = (rows[i].getAttribute('data-status') === val) ? '' : 'none';
-        }
-    }
-    toggleAllEsic(false);
-    updateEsicCount();
-}
-// Init count on page load
-updateEsicCount();
 </script>
