@@ -3,13 +3,12 @@
  * ESS API — Login Endpoint
  * POST: Validate mobile + PIN, return JWT token and employee data
  *
- * PIN Logic (SECURITY — Round 3 hardening):
+ * PIN Logic:
  *   1. Check ess_employee_cache.pin — if set, validate against it (custom PIN).
  *      Plaintext PINs are auto-upgraded to bcrypt on successful verify.
- *   2. If NO custom PIN is set, login is REFUSED with a clear message directing
- *      the employee to contact HR to set a PIN. (Previously the 4-digit birth
- *      year was accepted as a fallback — that made every employee whose PIN
- *      wasn't set brute-forceable in ≤100 tries. Birth-year fallback is REMOVED.)
+ *   2. If NO custom PIN is set, allow login with the employee's birth year
+ *      (from employees.date_of_birth) as a first-time fallback.
+ *      has_custom_pin=false is returned so the app prompts to set a PIN.
  *   3. Custom PIN is saved ONLY in ess_employee_cache.pin (NOT in employees table).
  *
  * The force-PIN-change flow (has_custom_pin=false) is preserved for the admin-
@@ -108,18 +107,31 @@ try {
         }
     }
 
-    // Step 2: SECURITY — birth-year fallback REMOVED (Round 3).
-    // Previously, if no custom PIN was set, the 4-digit birth year was accepted
-    // as a valid PIN. That made every employee without a custom PIN brute-forceable
-    // in ≤100 tries. Now: if no custom PIN is set, refuse login with a clear
-    // message. HR must seed a PIN (via admin or the pin.php endpoint) for
-    // first-time users. The has_custom_pin=false flag is still returned when HR
-    // seeds a default PIN, so the force-PIN-change flow still works.
+    // Step 2: If no custom PIN, allow birth year as fallback for first-time login.
+    // The birth year is extracted from employees.date_of_birth (4-digit year).
+    // On successful birth-year login, has_custom_pin=false is returned so the
+    // app prompts the user to set their own PIN.
+    if (!$validPin && !$hasCustomPin) {
+        $dob = $employee['date_of_birth'] ?? '';
+        $birthYear = '';
+        if (!empty($dob)) {
+            // Extract year from date string (handles Y-m-d, d-m-Y, m/d/Y etc.)
+            if (preg_match('/(\d{4})/', $dob, $m)) {
+                $birthYear = $m[1];
+            }
+        }
+        if ($birthYear && (string)$pin === $birthYear) {
+            $validPin = true;
+            // Mark as no custom PIN so app prompts to set one
+            $hasCustomPin = false;
+        }
+    }
+
     if (!$validPin && !$hasCustomPin) {
         _recordFailedLogin($conn, $rateId);
         jsonOutput(array(
             'success' => false,
-            'error'   => 'No PIN set for this account. Please contact HR to set your PIN.',
+            'error'   => 'Invalid mobile number or PIN.',
             'code'    => 'PIN_NOT_SET',
         ), 401);
         return;
