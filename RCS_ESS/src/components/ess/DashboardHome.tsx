@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { fetchExpenses } from '@/lib/ess-api';
 import {
   LogIn,
   LogOut,
@@ -25,6 +26,9 @@ import {
   Loader2,
   TableProperties,
   Award,
+  ChevronLeft,
+  ChevronRight,
+  Wallet,
 } from 'lucide-react';
 
 // ══════════════════════════════════════════════════════════════
@@ -38,6 +42,13 @@ export interface DashboardData {
   pendingLeaves: number;
   pendingExpenses: number;
   pendingTasks: number;
+  expenseMonthSummary?: {
+    advance_received: number;
+    this_month_advance: number;
+    opening_balance: number;
+    approved_expenses: number;
+    closing_balance: number;
+  };
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -69,6 +80,48 @@ export default function DashboardHome({
   onAddNotification?: (title: string, message: string, type: 'leave' | 'expense' | 'task' | 'helpdesk') => void;
   canViewEmployees?: boolean;
 }) {
+  // ── Expense month state ──
+  const [expenseMonth, setExpenseMonth] = useState(() => {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [expenseSummary, setExpenseSummary] = useState<DashboardData['expenseMonthSummary'] | null>(null);
+  const [expenseSummaryLoading, setExpenseSummaryLoading] = useState(false);
+
+  const formatExpenseMonth = (monthStr: string) => {
+    const [year, month] = monthStr.split('-').map(Number);
+    return new Date(year, month - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  };
+
+  const navigateExpenseMonth = (monthStr: string, direction: number) => {
+    const [year, month] = monthStr.split('-').map(Number);
+    const d = new Date(year, month - 1 + direction, 1);
+    setExpenseMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  const currentMonthMax = (() => {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}`;
+  })();
+
+  // Fetch expense summary for selected month
+  useEffect(() => {
+    if (!employee?.id) return;
+    setExpenseSummaryLoading(true);
+    fetchExpenses(employee.id, { month: expenseMonth })
+      .then(({ data }) => {
+        if (data && 'month_summary' in data && data.month_summary) {
+          setExpenseSummary(data.month_summary as NonNullable<DashboardData['expenseMonthSummary']>);
+        } else {
+          setExpenseSummary(null);
+        }
+      })
+      .catch(() => setExpenseSummary(null))
+      .finally(() => setExpenseSummaryLoading(false));
+  }, [employee?.id, expenseMonth]);
+
   // Live clock
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
@@ -316,8 +369,90 @@ export default function DashboardHome({
         {canViewEmployees && (
           <SummaryCard loading={loading} icon={<MapPin className="w-3.5 h-3.5 text-teal-500" />} label="Unit Visits" value="Submit" subtext="Checklists" onClick={() => onNavigate('unit-visits')} />
         )}
-        <SummaryCard loading={loading} icon={<ListTodo className="w-3.5 h-3.5 text-violet-500" />} label="Tasks" value={String(dashboardData?.pendingTasks ?? 0)} subtext="Pending" />
       </div>
+
+      {/* ═══ Expenses & Advance Card ═══ */}
+      <Card
+        className="border-2 border-emerald-200 shadow-sm cursor-pointer hover:shadow-md transition-all active:scale-[0.99]"
+        onClick={() => onNavigate('expenses')}
+      >
+        <CardContent className="p-4 space-y-3">
+          {/* Header row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100">
+                <Wallet className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-800">Expenses & Advance</h3>
+              </div>
+            </div>
+            {dashboardData?.pendingExpenses ? (
+              <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] font-medium">
+                {dashboardData.pendingExpenses} pending
+              </Badge>
+            ) : null}
+          </div>
+
+          {/* Month picker */}
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={(e) => { e.stopPropagation(); navigateExpenseMonth(expenseMonth, -1); }}
+              disabled={expenseSummaryLoading}
+              className="p-1 rounded-full hover:bg-gray-100 disabled:opacity-40 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5 text-gray-500" />
+            </button>
+            <span className="text-sm font-bold text-gray-800 min-w-[140px] text-center">
+              {formatExpenseMonth(expenseMonth).toUpperCase()}
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); navigateExpenseMonth(expenseMonth, 1); }}
+              disabled={expenseSummaryLoading || expenseMonth >= currentMonthMax}
+              className="p-1 rounded-full hover:bg-gray-100 disabled:opacity-40 transition-colors"
+            >
+              <ChevronRight className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+
+          {/* Summary row */}
+          {expenseSummaryLoading ? (
+            <div className="flex items-center justify-center gap-2 py-2">
+              <Skeleton className="h-5 w-20 rounded" />
+              <Skeleton className="h-5 w-4 rounded" />
+              <Skeleton className="h-5 w-20 rounded" />
+              <Skeleton className="h-5 w-4 rounded" />
+              <Skeleton className="h-5 w-20 rounded" />
+            </div>
+          ) : expenseSummary ? (
+            <div className="flex items-center justify-center gap-2 py-2 text-sm font-semibold">
+              <span className="text-emerald-700">₹{(expenseSummary.advance_received || 0).toLocaleString('en-IN')}</span>
+              <span className="text-gray-400">−</span>
+              <span className="text-rose-600">₹{(expenseSummary.approved_expenses || 0).toLocaleString('en-IN')}</span>
+              <span className="text-gray-400">=</span>
+              <span className={expenseSummary.closing_balance >= 0 ? 'text-emerald-700' : 'text-rose-600'}>
+                ₹{Math.abs(expenseSummary.closing_balance || 0).toLocaleString('en-IN')}
+                {expenseSummary.closing_balance < 0 && ' dr'}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-2">
+              <span className="text-xs text-gray-400">No data for this month</span>
+            </div>
+          )}
+
+          {/* Labels */}
+          {!expenseSummaryLoading && expenseSummary && (
+            <div className="flex items-center justify-center gap-2 text-[10px] font-medium text-gray-400">
+              <span className="text-center min-w-[80px]">Advance</span>
+              <span className="min-w-[12px]" />
+              <span className="text-center min-w-[80px]">Used</span>
+              <span className="min-w-[12px]" />
+              <span className="text-center min-w-[80px]">Balance</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Quick Actions */}
       <div>
