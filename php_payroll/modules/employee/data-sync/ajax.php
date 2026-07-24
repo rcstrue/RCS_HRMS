@@ -192,6 +192,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'config') {
         'source_label'    => $tables[$source]['label'],
         'target_label'    => $tables[$target]['label'],
         'match_fields'    => array_keys($matchFields),
+        'field_labels'    => $matchFieldLabels,
         'copyable_fields' => $fieldList,
     ]);
 }

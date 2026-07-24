@@ -161,6 +161,12 @@ $(document).ready(function() {
 // When source/target changes, load match fields
 $('#sourceTable, #targetTable').on('change', loadConfig);
 
+// When match field is selected, enable search/export buttons
+$('#matchBy').on('change', function() {
+    var val = $(this).val();
+    $('#btnSearch, #btnExport').prop('disabled', !val);
+});
+
 function loadConfig() {
     var source = $('#sourceTable').val();
     var target = $('#targetTable').val();
@@ -179,12 +185,6 @@ function loadConfig() {
 
         // Match By dropdown
         var mfHtml = '<option value="">-- Select --</option>';
-        res.match_fields.forEach(function(f) {
-            var label = res.match_fields_labels ? res.match_fields_labels[f] : f;
-            mfHtml += '<option value="' + f + '">' + (res.field_labels && res.field_labels[f] ? res.field_labels[f] : f) + '</option>';
-        });
-        // Use the field_labels from config for match field display
-        mfHtml = '<option value="">-- Select --</option>';
         res.match_fields.forEach(function(f) {
             mfHtml += '<option value="' + f + '">' + (res.field_labels ? res.field_labels[f] : f) + '</option>';
         });
