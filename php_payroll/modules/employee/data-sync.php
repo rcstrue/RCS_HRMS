@@ -140,7 +140,7 @@ try { $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_logs` (
 </div>
 
 <?php
-$_jsCode = <<<"JSEOF"
+$_jsCode = <<<'JSEOF'
 var syncTable = null;
 var currentConfig = null;
 var selectedFields = [];
