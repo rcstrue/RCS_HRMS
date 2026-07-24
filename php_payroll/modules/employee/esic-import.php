@@ -60,17 +60,9 @@ $db->exec("CREATE TABLE IF NOT EXISTS `esic_import_history` (
     INDEX `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-// ── Fix existing tables: collation + index (one-time migration) ──
-try {
-    $db->exec("ALTER TABLE esic_ip_master CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-} catch (\Throwable $e) {}
-try {
-    $db->exec("ALTER TABLE esic_import_errors CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-} catch (\Throwable $e) {}
-try {
-    $db->exec("ALTER TABLE esic_import_history CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-} catch (\Throwable $e) {}
-// Index idx_uan already defined in CREATE TABLE above
+// ── Collation migration was a one-time operation (already applied) ──
+// Removed ALTER TABLE CONVERT TO CHARACTER SET — it rebuilds the entire
+// table on every page load, locking MySQL and hanging the server.
 
 // ── Fetch recent import history ──
 $recentImports = $db->fetchAll(
