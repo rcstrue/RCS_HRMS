@@ -15,8 +15,11 @@ if (!in_array($roleCode, ['admin', 'hr', 'hr_executive'])) {
     exit;
 }
 
+// ── Prevent indefinite MySQL lock waits (safety net) ──
+try { $db->exec("SET SESSION innodb_lock_wait_timeout = 10"); } catch (\Throwable $e) {}
+
 // ── Ensure tables exist (self-heal on first visit) ──
-$db->exec("CREATE TABLE IF NOT EXISTS `esic_ip_master` (
+try { $db->exec("CREATE TABLE IF NOT EXISTS `esic_ip_master` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `ip_number` VARCHAR(50) NOT NULL,
     `ip_name` VARCHAR(255) DEFAULT NULL,
@@ -34,8 +37,9 @@ $db->exec("CREATE TABLE IF NOT EXISTS `esic_ip_master` (
     UNIQUE KEY `uk_ip_number` (`ip_number`),
     INDEX `idx_uan` (`uan`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (\Throwable $e) {}
 
-$db->exec("CREATE TABLE IF NOT EXISTS `esic_import_errors` (
+try { $db->exec("CREATE TABLE IF NOT EXISTS `esic_import_errors` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `import_id` INT UNSIGNED NOT NULL,
     `file_name` VARCHAR(255) NOT NULL,
@@ -45,8 +49,9 @@ $db->exec("CREATE TABLE IF NOT EXISTS `esic_import_errors` (
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_import_id` (`import_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (\Throwable $e) {}
 
-$db->exec("CREATE TABLE IF NOT EXISTS `esic_import_history` (
+try { $db->exec("CREATE TABLE IF NOT EXISTS `esic_import_history` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `user_id` VARCHAR(50) NOT NULL,
     `user_name` VARCHAR(255) DEFAULT NULL,
@@ -59,22 +64,28 @@ $db->exec("CREATE TABLE IF NOT EXISTS `esic_import_history` (
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (\Throwable $e) {}
 
 // ── Collation migration was a one-time operation (already applied) ──
 // Removed ALTER TABLE CONVERT TO CHARACTER SET — it rebuilds the entire
 // table on every page load, locking MySQL and hanging the server.
 
 // ── Fetch recent import history ──
-$recentImports = $db->fetchAll(
-    "SELECT h.*, CONCAT(u.first_name, ' ', u.last_name) AS user_display
-     FROM esic_import_history h
-     LEFT JOIN users u ON h.user_id = u.id
-     ORDER BY h.created_at DESC LIMIT 10"
-);
+$recentImports = [];
+try {
+    $recentImports = $db->fetchAll(
+        "SELECT h.*, CONCAT(u.first_name, ' ', u.last_name) AS user_display
+         FROM esic_import_history h
+         LEFT JOIN users u ON h.user_id = u.id
+         ORDER BY h.created_at DESC LIMIT 10"
+    );
+} catch (\Throwable $e) { error_log('[esic-import] Failed to fetch import history: ' . $e->getMessage()); }
 
 // ── Master record count ──
-$totalRecords = (int)$db->fetchColumn("SELECT COUNT(*) FROM esic_ip_master") ?: 0;
-$totalImports = (int)$db->fetchColumn("SELECT COUNT(*) FROM esic_import_history") ?: 0;
+$totalRecords = 0;
+$totalImports = 0;
+try { $totalRecords = (int)$db->fetchColumn("SELECT COUNT(*) FROM esic_ip_master") ?: 0; } catch (\Throwable $e) {}
+try { $totalImports = (int)$db->fetchColumn("SELECT COUNT(*) FROM esic_import_history") ?: 0; } catch (\Throwable $e) {}
 
 ?>
 

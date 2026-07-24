@@ -5,6 +5,26 @@
  */
 $pageTitle = 'Client Timesheets';
 
+// ── Self-heal: ensure table exists ──
+try { $db->exec("CREATE TABLE IF NOT EXISTS `client_timesheets` (
+    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `client_id` INT UNSIGNED DEFAULT NULL,
+    `unit_id` INT UNSIGNED DEFAULT NULL,
+    `invoice_id` INT UNSIGNED DEFAULT NULL,
+    `period_from` DATE DEFAULT NULL,
+    `period_to` DATE DEFAULT NULL,
+    `status` VARCHAR(50) DEFAULT 'draft',
+    `total_manpower` DECIMAL(10,2) DEFAULT 0,
+    `total_amount` DECIMAL(12,2) DEFAULT 0,
+    `remarks` TEXT DEFAULT NULL,
+    `created_by` VARCHAR(50) DEFAULT NULL,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX `idx_client_id` (`client_id`),
+    INDEX `idx_status` (`status`),
+    INDEX `idx_period` (`period_from`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"); } catch (\Throwable $e) {}
+
 // Filters
 $status_filter = $_GET['status'] ?? '';
 $client_filter = $_GET['client'] ?? '';
@@ -31,23 +51,28 @@ if ($month_filter && $year_filter) {
 }
 
 // Get timesheets
-$query = "SELECT t.*, 
-          c.name as client_name, c.client_code,
-          u.name as unit_name,
-          i.invoice_number
-          FROM client_timesheets t
-          LEFT JOIN clients c ON t.client_id = c.id
-          LEFT JOIN units u ON t.unit_id = u.id
-          LEFT JOIN invoices i ON t.invoice_id = i.id
-          $where
-          ORDER BY t.period_from DESC";
-
-$stmt = $db->prepare($query);
-$stmt->execute($params);
-$timesheets = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$timesheets = [];
+try {
+    $query = "SELECT t.*, 
+              c.name as client_name, c.client_code,
+              u.name as unit_name,
+              i.invoice_number
+              FROM client_timesheets t
+              LEFT JOIN clients c ON t.client_id = c.id
+              LEFT JOIN units u ON t.unit_id = u.id
+              LEFT JOIN invoices i ON t.invoice_id = i.id
+              $where
+              ORDER BY t.period_from DESC";
+    $stmt = $db->prepare($query);
+    $stmt->execute($params);
+    $timesheets = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (\Throwable $e) {
+    error_log('[timesheet/list] Query failed: ' . $e->getMessage());
+}
 
 // Get clients
-$clients = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+$clients = [];
+try { $clients = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name")->fetchAll(PDO::FETCH_ASSOC); } catch (\Throwable $e) {}
 
 ?>
 
