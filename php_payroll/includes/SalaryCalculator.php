@@ -186,6 +186,7 @@ function applyTemplateToEmployee(int $empId, $db, int $month, int $year): bool {
     );
 
     // Insert new structure from template
+    // Try with template_id + applied_month first, fall back to without them
     try {
         $db->query(
             "INSERT INTO employee_salary_structures
@@ -206,8 +207,31 @@ function applyTemplateToEmployee(int $empId, $db, int $month, int $year): bool {
             ]
         );
     } catch (\Throwable $e) {
-        error_log("[applyTemplate] Failed for emp {$empId}: " . $e->getMessage());
-        return false;
+        // Fallback: columns template_id/applied_month may not exist yet
+        error_log("[applyTemplate] template_id insert failed, trying without: " . $e->getMessage());
+        try {
+            $db->query(
+                "INSERT INTO employee_salary_structures
+                 (employee_id, effective_from,
+                  basic_da, hra, leave_encashment, bonus_encashment, washing_allowance,
+                  gross_salary, pf_applicable, esi_applicable, pt_applicable, lwf_applicable,
+                  overtime_applicable, bonus_applicable, gratuity_applicable, created_by)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    $empId, $effectiveFrom,
+                    $matched['basic_da'], $matched['hra'], $matched['leave_encashment'],
+                    $matched['bonus_encashment'], 0,
+                    $matched['gross_salary'], $matched['pf_applicable'], $matched['esi_applicable'],
+                    $matched['pt_applicable'], $matched['lwf_applicable'],
+                    $matched['overtime_applicable'], $matched['bonus_applicable'],
+                    $matched['gratuity_applicable'],
+                    $_SESSION['user_id'] ?? null,
+                ]
+            );
+        } catch (\Throwable $e2) {
+            error_log("[applyTemplate] Failed for emp {$empId}: " . $e2->getMessage());
+            return false;
+        }
     }
     return true;
 }
