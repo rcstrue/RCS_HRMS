@@ -244,8 +244,8 @@ $csrfToken = generateCSRFToken();
                             <div class="d-flex flex-wrap gap-2 mt-1">
                                 <?php foreach ($workerCategories as $cat): ?>
                                 <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" name="worker_cat[]" value="<?= $cat ?>" id="wc_<?= strtolower(str_replace([' ',' => '', ' ' => '_'], $cat)) ?>">
-                                    <label class="form-check-label small" for="wc_<?= strtolower(str_replace([' ',' => '', ' ' => '_'], $cat)) ?>"><?= $cat ?></label>
+                                    <input class="form-check-input" type="checkbox" name="worker_cat[]" value="<?= htmlspecialchars($cat) ?>" id="wc_<?= strtolower(str_replace(' ', '_', $cat)) ?>">
+                                    <label class="form-check-label small" for="wc_<?= strtolower(str_replace(' ', '_', $cat)) ?>"><?= htmlspecialchars($cat) ?></label>
                                 </div>
                                 <?php endforeach; ?>
                             </div>
