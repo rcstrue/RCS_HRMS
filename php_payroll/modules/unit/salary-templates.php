@@ -497,6 +497,7 @@ $csrfToken = generateCSRFToken();
 
 <?php
 $extraJS = <<<JSEOF
+<script>
 var CSRF_TOKEN = '{$csrfToken}';
 var UNIT_ID = {$unitId};
 var UNIT_STATE = '{$unitState}';
@@ -804,4 +805,5 @@ function copyFromUnit() {
     });
 }
 JSEOF;
+</script>
 ?>
