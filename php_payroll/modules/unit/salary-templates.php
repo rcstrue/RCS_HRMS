@@ -44,11 +44,33 @@ try { $db->exec("CREATE TABLE IF NOT EXISTS `unit_salary_templates` (
     INDEX `idx_unit_default` (`unit_id`, `is_default`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"); } catch (\Throwable $e) {}
 
+// ── Self-heal: ensure employee_salary_structures has template_id + applied_month ──
+try {
+    $db->exec("SET SESSION innodb_lock_wait_timeout = 5");
+} catch (\Throwable $e) {}
+try {
+    $cols = $db->fetchAll("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'employee_salary_structures' AND COLUMN_NAME IN ('template_id','applied_month')");
+    $colNames = array_column($cols, 'COLUMN_NAME');
+    if (!in_array('template_id', $colNames)) {
+        try { $db->exec("ALTER TABLE employee_salary_structures ADD COLUMN template_id INT UNSIGNED NULL AFTER employee_id"); } catch (\Throwable $e) {}
+    }
+    if (!in_array('applied_month', $colNames)) {
+        try { $db->exec("ALTER TABLE employee_salary_structures ADD COLUMN applied_month DATE NULL AFTER template_id"); } catch (\Throwable $e) {}
+    }
+    // Add index if missing
+    $idxCheck = $db->fetchColumn("SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'employee_salary_structures' AND INDEX_NAME = 'idx_template'");
+    if (!$idxCheck) {
+        try { $db->exec("ALTER TABLE employee_salary_structures ADD INDEX idx_template (template_id)"); } catch (\Throwable $e) {}
+    }
+} catch (\Throwable $e) {}
+
 // ── Get unit details ──
 $unitId = (int)($_GET['unit_id'] ?? 0);
 if (!$unitId) { redirect('index.php?page=unit/list'); exit; }
 
-$unit = $db->fetch("SELECT u.*, c.name as client_name FROM units u LEFT JOIN clients c ON c.id = u.client_id WHERE u.id = ?", [$unitId]);
+try {
+    $unit = $db->fetch("SELECT u.*, c.name as client_name FROM units u LEFT JOIN clients c ON c.id = u.client_id WHERE u.id = ?", [$unitId]);
+} catch (\Throwable $e) { error_log('[salary-templates] Unit query failed: ' . $e->getMessage()); $unit = null; }
 if (!$unit) { setFlash('error', 'Unit not found.'); redirect('index.php?page=unit/list'); exit; }
 
 $unitState = $unit['state'] ?? '';
@@ -63,15 +85,25 @@ try {
 } catch (\Throwable $e) {}
 
 // ── Employee count ──
-$totalEmployees = (int)$db->fetchColumn("SELECT COUNT(*) FROM employees WHERE unit_id = ? AND status IN ('approved','active')", [$unitId]) ?: 0;
-$blankEmployees = (int)$db->fetchColumn(
-    "SELECT COUNT(*) FROM employees WHERE unit_id = ? AND status IN ('approved','active')
-     AND id NOT IN (SELECT employee_id FROM employee_salary_structures WHERE effective_to IS NULL OR effective_to >= CURDATE())",
-    [$unitId]
-) ?: 0;
+$totalEmployees = 0;
+try {
+    $totalEmployees = (int)$db->fetchColumn("SELECT COUNT(*) FROM employees WHERE unit_id = ? AND status IN ('approved','active')", [$unitId]) ?: 0;
+} catch (\Throwable $e) { error_log('[salary-templates] Employee count failed: ' . $e->getMessage()); }
+
+$blankEmployees = 0;
+try {
+    $blankEmployees = (int)$db->fetchColumn(
+        "SELECT COUNT(*) FROM employees WHERE unit_id = ? AND status IN ('approved','active')
+         AND id NOT IN (SELECT employee_id FROM employee_salary_structures WHERE effective_to IS NULL OR effective_to >= CURDATE())",
+        [$unitId]
+    ) ?: 0;
+} catch (\Throwable $e) { error_log('[salary-templates] Blank employee count failed: ' . $e->getMessage()); }
 
 // ── All units for copy dropdown ──
-$allUnits = $db->fetchAll("SELECT id, name FROM units WHERE id != ? ORDER BY name", [$unitId]);
+$allUnits = [];
+try {
+    $allUnits = $db->fetchAll("SELECT id, name FROM units WHERE id != ? ORDER BY name", [$unitId]);
+} catch (\Throwable $e) { error_log('[salary-templates] All units query failed: ' . $e->getMessage()); }
 
 // ── Worker categories ──
 $workerCategories = ['Unskilled', 'Semi-skilled', 'Skilled', 'Highly Skilled', 'Supervisor', 'Manager'];
@@ -474,7 +506,7 @@ $csrfToken = generateCSRFToken();
 </div>
 
 <?php
-$extraJS = <<<'NOWDOC'
+$extraJS = <<<JSEOF
 var CSRF_TOKEN = '{$csrfToken}';
 var UNIT_ID = {$unitId};
 var UNIT_STATE = '{$unitState}';
@@ -781,5 +813,5 @@ function copyFromUnit() {
         }
     });
 }
-NOWDOC;
+JSEOF;
 ?>

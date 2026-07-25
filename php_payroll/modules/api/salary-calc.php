@@ -22,6 +22,15 @@ if (!in_array($roleCode, ['admin', 'hr', 'hr_executive'])) {
     exit;
 }
 
+// ── Parse JSON input if sent as application/json ──
+$ct = $_SERVER['CONTENT_TYPE'] ?? '';
+if (strpos($ct, 'application/json') !== false) {
+    $jsonInput = json_decode(file_get_contents('php://input'), true);
+    if (is_array($jsonInput)) {
+        $_POST = array_merge($_POST, $jsonInput);
+    }
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 $db = Database::getInstance();
 
