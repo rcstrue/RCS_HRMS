@@ -283,6 +283,10 @@ try {
                                         </span>
                                     </td>
                                     <td>
+                                        <a href="index.php?page=unit/salary-templates&unit_id=<?php echo $u['id']; ?>"
+                                           class="btn btn-sm btn-outline-info me-1" title="Salary Templates">
+                                            <i class="bi bi-file-earmark-spreadsheet"></i>
+                                        </a>
                                         <button type="button" class="btn btn-sm btn-outline-primary"
                                                 onclick='editUnit(<?php echo htmlspecialchars(json_encode($u)); ?>)'>
                                             <i class="bi bi-pencil"></i>
