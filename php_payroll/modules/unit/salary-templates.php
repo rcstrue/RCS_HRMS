@@ -804,6 +804,6 @@ function copyFromUnit() {
         }
     });
 }
-JSEOF;
 </script>
+JSEOF;
 ?>
