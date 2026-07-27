@@ -164,3 +164,18 @@ Stage Summary:
 - Worker category can be edited INLINE directly in the table row (auto-saves).
 - Employee module index page now has a Designations card.
 - api/designation.php registered in RBAC apiModuleMap (employee module access).
+
+---
+Task ID: 11
+Agent: main
+Task: Fix "showToast is not defined" ReferenceError on designation page
+
+Work Log:
+- Root cause: showToast is NOT a global function in this app. It is only defined locally on two other pages (data-sync.php, process-edit.php), each backed by its own Bootstrap toast element. My designation.php called showToast() without defining it and without a toast container in the DOM → ReferenceError on every AJAX callback.
+- Fix (self-contained, no global dependency):
+  * Added a #desigToast Bootstrap toast container (position-fixed top-right) to designation.php DOM.
+  * Defined a local showToast(msg, type) function at the top of the script block, backed by #desigToast. Maps 'error'→danger, 'warning'→warning, else success. Graceful fallback to console.log if the element or bootstrap is missing.
+- No changes to api/designation.php (server-side, unaffected).
+
+Stage Summary:
+- All AJAX actions (toggle, inline category edit, add, update, delete) now show success/error toasts instead of throwing ReferenceError.

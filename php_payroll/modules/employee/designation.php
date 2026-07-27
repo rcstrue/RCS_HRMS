@@ -266,12 +266,44 @@ $catColor = [
     </div>
 </div>
 
+<!-- Toast container (self-contained on this page) -->
+<div class="position-fixed top-0 end-0 p-3" style="z-index: 1090;">
+    <div id="desigToast" class="toast align-items-center border-0 text-bg-success" role="alert"
+         aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body"></div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
 <script>
 const CSRF_TOKEN = <?php echo json_encode(generateCSRFToken()); ?>;
 // POST to the dedicated API endpoint — NOT to this page. The api/* endpoints
 // are included by index.php WITHOUT the HTML wrapper, so JSON responses come
 // back clean (no HTML shell prefix) and response.json() works.
 const API_URL    = 'index.php?page=api/designation';
+
+// ── Self-contained toast helper ───────────────────────────────────────
+// showToast is NOT a global function in this app (only defined locally on a
+// couple of pages). Define it here backed by the #desigToast container below.
+function showToast(msg, type) {
+    type = type || 'success';
+    var el = document.getElementById('desigToast');
+    if (!el) { console.log('[toast]', type, msg); return; } // graceful fallback
+    el.className = 'toast align-items-center border-0 text-bg-' +
+        (type === 'error' ? 'danger' : (type === 'warning' ? 'warning' : 'success'));
+    var body = el.querySelector('.toast-body');
+    if (body) {
+        var icon = type === 'error' ? 'x-circle' : (type === 'warning' ? 'exclamation-triangle' : 'check-circle');
+        body.innerHTML = '<i class="bi bi-' + icon + ' me-1"></i> ' + msg;
+    }
+    try {
+        bootstrap.Toast.getOrCreateInstance(el, { delay: 4000 }).show();
+    } catch (e) {
+        console.log('[toast]', type, msg);
+    }
+}
 
 // Small helper: POST form-encoded body with CSRF in header (works for all actions)
 function apiPost(body) {
