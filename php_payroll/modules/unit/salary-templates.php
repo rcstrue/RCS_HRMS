@@ -75,13 +75,13 @@ try {
 // ── Employee count ──
 $totalEmployees = 0;
 try {
-    $totalEmployees = (int)$db->fetchColumn("SELECT COUNT(*) FROM employees WHERE unit_id = ? AND status IN ('approved','active')", [$unitId]) ?: 0;
+    $totalEmployees = (int)$db->fetchColumn("SELECT COUNT(*) FROM employees WHERE unit_id = ? AND status = 'approved'", [$unitId]) ?: 0;
 } catch (\Throwable $e) { error_log('[salary-templates] Employee count failed: ' . $e->getMessage()); }
 
 $blankEmployees = 0;
 try {
     $blankEmployees = (int)$db->fetchColumn(
-        "SELECT COUNT(*) FROM employees WHERE unit_id = ? AND status IN ('approved','active')"
+        "SELECT COUNT(*) FROM employees WHERE unit_id = ? AND status = 'approved'"
         . ($hasTemplateColumns
             ? " AND id NOT IN (SELECT employee_id FROM employee_salary_structures WHERE effective_to IS NULL OR effective_to >= CURDATE())"
             : " AND id NOT IN (SELECT employee_id FROM employee_salary_structures WHERE effective_to IS NULL OR effective_to >= CURDATE())"),

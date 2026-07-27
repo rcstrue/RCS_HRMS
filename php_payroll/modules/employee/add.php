@@ -14,6 +14,9 @@ $pageTitle = 'Add Employee';
 $employeeData = null;
 $isEdit = false;
 
+// Load salary template auto-allocation helper
+require_once __DIR__ . '/../../includes/SalaryCalculator.php';
+
 // Define upload path constants - paths stored in DB with / prefix
 define('EMPLOYEE_PHOTO_UPLOAD_PATH', 'uploads/profile/');
 define('EMPLOYEE_AADHAAR_UPLOAD_PATH', 'uploads/aadhaar/');
@@ -314,6 +317,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     if (isset($result['success']) && $result['success']) {
+        // Auto-apply salary template if available for new employees
+        if (!$isEdit && !empty($result['employee_id'])) {
+            try {
+                applyTemplateToEmployee((int)$result['employee_id'], $db, (int)date('n'), (int)date('Y'));
+            } catch (\Throwable $e) {
+                error_log('[employee/add] Auto-template failed: ' . $e->getMessage());
+            }
+        }
         setFlash('success', $isEdit ? 'Employee updated successfully!' : 'Employee added successfully!');
         redirect('index.php?page=employee/view&id=' . ($isEdit ? $employeeData['id'] : $result['employee_id']));
     } else {

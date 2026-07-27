@@ -206,7 +206,7 @@ if ($action === 'apply_templates') {
     }
 
     // Get employees
-    $sql = "SELECT id, worker_category FROM employees WHERE unit_id = ? AND status IN ('approved', 'active')";
+    $sql = "SELECT id, worker_category FROM employees WHERE unit_id = ? AND status = 'approved'";
     $params = [$unitId];
 
     if ($applyTo === 'blank_only') {
@@ -295,7 +295,7 @@ if ($action === 'copy_unit_templates') {
         // Optionally apply to employees
         $applied = 0;
         if ($copyWhat === 'both') {
-            $sql = "SELECT id FROM employees WHERE unit_id = ? AND status IN ('approved', 'active')";
+            $sql = "SELECT id FROM employees WHERE unit_id = ? AND status = 'approved'";
             $params = [$toUnitId];
             if ($applyTo === 'blank_only') {
                 $sql .= " AND id NOT IN (
