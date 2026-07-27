@@ -11,8 +11,8 @@ $monthFilter = isset($_GET['month']) ? (int)$_GET['month'] : (int)prev_month_num
 $yearFilter = isset($_GET['year']) ? (int)$_GET['year'] : date('Y');
 if ($monthFilter < 1) { $monthFilter = 12; $yearFilter--; }
 
-$clientFilter = !empty($_GET['client_id']) ? (int)$_GET['client_id'] : 0;
-$unitFilter = !empty($_GET['unit_id']) ? (int)$_GET['unit_id'] : 0;
+$clientFilter = getSessionFilter('client_id', 0);
+$unitFilter = getSessionFilter('unit_id', 0);
 $searchFilter = isset($_GET['search']) ? trim($_GET['search']) : '';
 
 // Get clients for dropdown

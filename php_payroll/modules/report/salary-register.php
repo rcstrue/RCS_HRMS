@@ -8,8 +8,8 @@ $pageTitle = 'Salary Register';
 
 $month = (int)($_GET['month'] ?? prev_month_num());
 $year = (int)($_GET['year'] ?? date('Y'));
-$clientFilter = (int)($_GET['client_id'] ?? 0);
-$unitFilter = (int)($_GET['unit_id'] ?? 0);
+$clientFilter = getSessionFilter('client_id', 0);
+$unitFilter = getSessionFilter('unit_id', 0);
 $reportStyle = sanitize($_GET['style'] ?? 'portrait');
 $reportType = sanitize($_GET['type'] ?? 'all');
 $search = sanitize($_GET['search'] ?? '');

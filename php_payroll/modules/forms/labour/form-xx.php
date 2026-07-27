@@ -42,8 +42,8 @@ try {
 // ── Apply filters ───────────────────────────────────────────────────
 $filterMonth = intval($_GET['month'] ?? (prev_month_num() > 1 ? prev_month_num() : 1));
 $filterYear  = intval($_GET['year'] ?? ($years[0] ?? date('Y')));
-$filterClient = intval($_GET['client_id'] ?? 0);
-$filterUnit   = intval($_GET['unit_id'] ?? 0);
+$filterClient = getSessionFilter('client_id', 0);
+$filterUnit   = getSessionFilter('unit_id', 0);
 
 // ── Fetch units for selected client ─────────────────────────────────
 $filteredUnits = [];

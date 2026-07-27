@@ -353,8 +353,8 @@ if (isset($_POST['upload_photo']) && isset($_POST['employee_id'])) {
 
 // Get data
 $clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
-$selectedClient = isset($_GET['client_id']) ? (int)$_GET['client_id'] : 0;
-$selectedUnit = isset($_GET['unit_id']) ? (int)$_GET['unit_id'] : 0;
+$selectedClient = getSessionFilter('client_id', 0);
+$selectedUnit = getSessionFilter('unit_id', 0);
 $selectedEmployee = isset($_GET['employee_id']) ? (int)$_GET['employee_id'] : 0;
 
 $units = [];

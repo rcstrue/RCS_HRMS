@@ -494,3 +494,36 @@ function updateSetting($key, $value)
     }
     return $result;
 }
+
+/**
+ * Get a filter value with session memory.
+ * Priority: $_GET param → $_SESSION → default
+ * Always saves back to $_SESSION so the selection is remembered across pages.
+ *
+ * Usage (at top of any page with filter dropdowns):
+ *   $clientFilter = getSessionFilter('client_id', 0);
+ *   $unitFilter   = getSessionFilter('unit_id', 0);
+ *   $month        = getSessionFilter('month', prev_month_num());
+ *
+ * @param string $key     Filter key (e.g. 'client_id', 'unit_id', 'month', 'year')
+ * @param mixed  $default Default value if nothing set
+ * @return mixed
+ */
+function getSessionFilter(string $key, $default = 0)
+{
+    $sessionKey = 'filter_' . $key;
+    $value = isset($_GET[$key]) ? $_GET[$key] : ($_SESSION[$sessionKey] ?? $default);
+    $_SESSION[$sessionKey] = is_numeric($value) ? (int)$value : $value;
+    return $_SESSION[$sessionKey];
+}
+
+/**
+ * Clear all session filter values (used by "Clear" buttons).
+ */
+function clearSessionFilters()
+{
+    $keys = ['client_id', 'unit_id', 'month', 'year', 'status', 'worker_category', 'search'];
+    foreach ($keys as $k) {
+        unset($_SESSION['filter_' . $k]);
+    }
+}

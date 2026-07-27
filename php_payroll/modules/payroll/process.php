@@ -221,8 +221,8 @@ $currentMonth = prev_month_num();
 $currentYear = date('Y');
 
 // Get filter values
-$filterClientId = (int)($_GET['client_id'] ?? 0);
-$filterUnitId = (int)($_GET['unit_id'] ?? 0);
+$filterClientId = getSessionFilter('client_id', 0);
+$filterUnitId = getSessionFilter('unit_id', 0);
 $searchTerm = sanitize($_GET['search'] ?? '');
 $filterPressed = isset($_GET['filter']) || $filterClientId > 0;
 

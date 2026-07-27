@@ -9,8 +9,8 @@ $pageTitle = 'Payslips';
 // Get filters from GET
 $month = isset($_GET['month']) ? (int)$_GET['month'] : (int)prev_month_num();
 $year = isset($_GET['year']) ? (int)$_GET['year'] : (int)prev_month_year();
-$clientId = $_GET['client_id'] ?? null;
-$unitId = $_GET['unit_id'] ?? null;
+$clientId = getSessionFilter('client_id', null);
+$unitId = getSessionFilter('unit_id', null);
 
 // Get active clients that have units
 $clients = $db->query("

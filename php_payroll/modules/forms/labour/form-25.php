@@ -31,8 +31,8 @@ try {
 
 // ── Apply filters ───────────────────────────────────────────────────
 $filterYear   = intval($_GET['year'] ?? ($years[0] ?? $currentYear));
-$filterClient = intval($_GET['client_id'] ?? 0);
-$filterUnit   = intval($_GET['unit_id'] ?? 0);
+$filterClient = getSessionFilter('client_id', 0);
+$filterUnit   = getSessionFilter('unit_id', 0);
 
 // ── Fetch units based on selected client ────────────────────────────
 $filteredUnits = [];

@@ -8,7 +8,7 @@ $pageTitle = 'Compliance Reports';
 // Get filter parameters
 $month = isset($_GET['month']) ? (int)$_GET['month'] : (int)prev_month_num();
 $year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
-$clientId = isset($_GET['client_id']) ? (int)$_GET['client_id'] : 0;
+$clientId = getSessionFilter('client_id', 0);
 $reportType = isset($_GET['report_type']) ? sanitize($_GET['report_type']) : 'pf';
 
 // Get filter options - use clients table

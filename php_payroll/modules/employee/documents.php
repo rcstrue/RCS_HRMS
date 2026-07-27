@@ -9,8 +9,8 @@ $pageTitle = 'Employee Documents';
 
 // Get filters
 $filters = [
-    'client_id' => !empty($_GET['client_id']) ? (int)$_GET['client_id'] : null,
-    'unit_id' => !empty($_GET['unit_id']) ? (int)$_GET['unit_id'] : null,
+    'client_id' => getSessionFilter('client_id', null),
+    'unit_id' => getSessionFilter('unit_id', null),
     'document_type' => sanitize($_GET['document_type'] ?? ''),
     'search' => sanitize($_GET['search'] ?? '')
 ];

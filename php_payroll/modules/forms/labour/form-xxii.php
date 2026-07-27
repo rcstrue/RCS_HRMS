@@ -10,8 +10,8 @@ $pageTitle = 'Form XXII - Register of Overtime (CLRA)';
 // Filters
 $filterMonth = intval($_GET['month'] ?? date('m'));
 $filterYear = intval($_GET['year'] ?? date('Y'));
-$filterClient = intval($_GET['client_id'] ?? 0);
-$filterUnit = intval($_GET['unit_id'] ?? 0);
+$filterClient = getSessionFilter('client_id', 0);
+$filterUnit = getSessionFilter('unit_id', 0);
 
 $monthNames = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
 

@@ -2,7 +2,7 @@
 $pageTitle = 'Loan Ledger';
 
 $statusFilter = sanitize($_GET['status'] ?? 'all');
-$clientId = (int)($_GET['client_id'] ?? 0);
+$clientId = getSessionFilter('client_id', 0);
 
 $clients = [];
 try {

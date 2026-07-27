@@ -6,7 +6,7 @@
 $pageTitle = 'Contracts';
 
 $statusFilter = $_GET['status'] ?? '';
-$clientFilter = $_GET['client_id'] ?? '';
+$clientFilter = getSessionFilter('client_id', '');
 $searchQuery = $_GET['search'] ?? '';
 
 $where = "WHERE 1=1";

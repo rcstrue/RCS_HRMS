@@ -117,8 +117,8 @@ if (isset($_GET['export'])) {
 }
 
 // Get filter values
-$clientId = sanitize($_GET['client_id'] ?? '');
-$unitId = sanitize($_GET['unit_id'] ?? '');
+$clientId = getSessionFilter('client_id', '');
+$unitId = getSessionFilter('unit_id', '');
 
 // Fetch clients and units
 try {

@@ -19,11 +19,11 @@
 
 $pageTitle = 'Payroll Entry';
 
-// ── Filters (from GET params only — no session memory) ───────────
-$clientId = (int)($_GET['client_id'] ?? 0);
-$unitId   = (int)($_GET['unit_id'] ?? 0);
-$month    = (int)($_GET['month'] ?? prev_month_num());
-$year     = (int)($_GET['year'] ?? prev_month_year());
+// ── Session Filters (remembered across all pages) ──────────────
+$clientId = getSessionFilter('client_id', 0);
+$unitId   = getSessionFilter('unit_id', 0);
+$month    = getSessionFilter('month', prev_month_num());
+$year     = getSessionFilter('year', prev_month_year());
 
 $calendarDays = cal_days_in_month(CAL_GREGORIAN, $month, $year);
 

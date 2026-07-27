@@ -143,7 +143,7 @@ if (isset($_POST['delete_leave']) && isset($_POST['leave_id'])) {
 // Get filters for recent entries
 $filterStatus = sanitize($_GET['status'] ?? '');
 $filterType = sanitize($_GET['leave_type'] ?? '');
-$filterClient = (int)($_GET['client_id'] ?? 0);
+$filterClient = getSessionFilter('client_id', 0);
 $filterMonth = (int)($_GET['month'] ?? 0);
 $filterYear = (int)($_GET['year'] ?? date('Y'));
 

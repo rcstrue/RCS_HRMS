@@ -106,7 +106,7 @@ if (isset($_GET['export'])) {
 
 // Get filter values
 $year = sanitize($_GET['year'] ?? date('Y'));
-$clientId = sanitize($_GET['client_id'] ?? '');
+$clientId = getSessionFilter('client_id', '');
 
 // Fetch clients for filter
 try {

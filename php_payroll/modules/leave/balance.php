@@ -5,7 +5,7 @@
  */
 $pageTitle = 'Leave Balance';
 $yearFilter = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
-$clientFilter = isset($_GET['client_id']) ? (int)$_GET['client_id'] : 0;
+$clientFilter = getSessionFilter('client_id', 0);
 $search = sanitize($_GET['search'] ?? '');
 
 // Create table if not exists (with INT employee_id)

@@ -7,8 +7,8 @@
 $pageTitle = 'Bonus Register';
 
 $year = (int)($_GET['year'] ?? date('Y'));
-$clientFilter = (int)($_GET['client_id'] ?? 0);
-$unitFilter = (int)($_GET['unit_id'] ?? 0);
+$clientFilter = getSessionFilter('client_id', 0);
+$unitFilter = getSessionFilter('unit_id', 0);
 $reportFormat = sanitize($_GET['format'] ?? 'register');
 
 $formatOptions = [

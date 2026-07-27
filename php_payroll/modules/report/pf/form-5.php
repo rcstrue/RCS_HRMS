@@ -154,8 +154,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 // Get filter values
 $month = sanitize($_GET['month'] ?? date('m'));
 $year = sanitize($_GET['year'] ?? date('Y'));
-$clientId = sanitize($_GET['client_id'] ?? '');
-$unitId = sanitize($_GET['unit_id'] ?? '');
+$clientId = getSessionFilter('client_id', '');
+$unitId = getSessionFilter('unit_id', '');
 
 // Fetch PF rates
 try {

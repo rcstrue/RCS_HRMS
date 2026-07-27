@@ -5,8 +5,8 @@ $monthNames = [1=>'January','February','March','April','May','June','July','Augu
 $month = (int)($_GET['month'] ?? date('m'));
 $year = (int)($_GET['year'] ?? date('Y'));
 $monthName = $monthNames[$month] ?? '';
-$clientId = (int)($_GET['client_id'] ?? 0);
-$unitId = (int)($_GET['unit_id'] ?? 0);
+$clientId = getSessionFilter('client_id', 0);
+$unitId = getSessionFilter('unit_id', 0);
 
 // CSV Export
 if (isset($_GET['export'])) {

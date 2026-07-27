@@ -7,8 +7,8 @@
 $pageTitle = 'Leave Register';
 
 $year = (int)($_GET['year'] ?? date('Y'));
-$clientFilter = (int)($_GET['client_id'] ?? 0);
-$unitFilter = (int)($_GET['unit_id'] ?? 0);
+$clientFilter = getSessionFilter('client_id', 0);
+$unitFilter = getSessionFilter('unit_id', 0);
 $leaveType = sanitize($_GET['leave_type'] ?? 'all');
 
 $leaveTypeOptions = ['all' => 'All', 'CL' => 'CL (Casual Leave)', 'PL' => 'PL (Privilege Leave)', 

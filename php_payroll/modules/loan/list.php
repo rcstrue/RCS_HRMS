@@ -73,9 +73,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// ── Filters (from GET params only — no session memory) ──
-$selectedClient = (int)($_GET['client_id'] ?? 0);
-$selectedUnit = (int)($_GET['unit_id'] ?? 0);
+// ── Filters (session-aware — remembered across all pages) ──
+$selectedClient = getSessionFilter('client_id', 0);
+$selectedUnit = getSessionFilter('unit_id', 0);
 
 // Load clients
 $clients = [];

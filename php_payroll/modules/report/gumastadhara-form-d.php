@@ -9,8 +9,8 @@ $pageTitle = 'Gumastadhara Form D - Leave with Wages Register';
 
 $month = (int)($_GET['month'] ?? 0); // 0 = full year
 $year = (int)($_GET['year'] ?? date('Y'));
-$clientFilter = (int)($_GET['client_id'] ?? 0);
-$unitFilter = (int)($_GET['unit_id'] ?? 0);
+$clientFilter = getSessionFilter('client_id', 0);
+$unitFilter = getSessionFilter('unit_id', 0);
 
 $monthName = $month > 0 ? date('F', mktime(0, 0, 0, $month, 1, $year)) : 'Full Year';
 $displayPeriod = $month > 0 ? $monthName . ' ' . $year : 'Year ' . $year;

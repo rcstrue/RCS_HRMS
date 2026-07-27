@@ -9,7 +9,7 @@ $pageTitle = 'Summary Reports';
 $tab = sanitize($_GET['tab'] ?? 'annual');
 $year = (int)($_GET['year'] ?? date('Y'));
 $month = (int)($_GET['month'] ?? 0);
-$clientFilter = (int)($_GET['client_id'] ?? 0);
+$clientFilter = getSessionFilter('client_id', 0);
 
 $clients = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 

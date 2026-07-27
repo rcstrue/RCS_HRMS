@@ -80,7 +80,7 @@ if (isset($_GET['export'])) {
 // Get filter values
 $month = (int)sanitize($_GET['month'] ?? date('m'));
 $year = (int)sanitize($_GET['year'] ?? date('Y'));
-$clientId = sanitize($_GET['client_id'] ?? '');
+$clientId = getSessionFilter('client_id', '');
 
 // Fetch payroll periods (distinct month/year from payroll table)
 $payrollPeriods = [];

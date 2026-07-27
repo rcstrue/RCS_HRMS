@@ -11,8 +11,8 @@ $stmt = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY na
 $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get filters
-$clientId = $_GET['client_id'] ?? null;
-$unitId = $_GET['unit_id'] ?? null;
+$clientId = getSessionFilter('client_id', null);
+$unitId = getSessionFilter('unit_id', null);
 $periodId = $_GET['period_id'] ?? null;
 
 // Get units based on selected client

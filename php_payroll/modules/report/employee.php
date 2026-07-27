@@ -8,7 +8,7 @@ $pageTitle = 'Employee Reports';
 
 // Get filter parameters
 $status = isset($_GET['status']) ? sanitize($_GET['status']) : '';
-$clientId = isset($_GET['client_id']) ? (int)$_GET['client_id'] : 0;
+$clientId = getSessionFilter('client_id', 0);
 $designation = isset($_GET['designation']) ? sanitize($_GET['designation']) : '';
 $reportType = isset($_GET['report_type']) ? sanitize($_GET['report_type']) : 'summary';
 

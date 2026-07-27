@@ -8,7 +8,7 @@ $pageTitle = 'Department Salary Register';
 
 $month = (int)($_GET['month'] ?? prev_month_num());
 $year = (int)($_GET['year'] ?? date('Y'));
-$clientFilter = (int)($_GET['client_id'] ?? 0);
+$clientFilter = getSessionFilter('client_id', 0);
 
 // Get filter options
 try {

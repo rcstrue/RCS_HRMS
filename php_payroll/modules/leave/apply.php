@@ -149,7 +149,7 @@ $clients = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY
 
 // Fetch applications with filters
 $filterStatus = sanitize($_GET['status'] ?? '');
-$filterClient = (int)($_GET['client_id'] ?? 0);
+$filterClient = getSessionFilter('client_id', 0);
 $filterMonth = (int)($_GET['month'] ?? 0);
 $filterYear = (int)($_GET['year'] ?? date('Y'));
 

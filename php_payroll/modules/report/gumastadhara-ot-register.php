@@ -9,8 +9,8 @@ $pageTitle = 'Gumastadhara Overtime Register - Form 4';
 
 $month = (int)($_GET['month'] ?? prev_month_num());
 $year = (int)($_GET['year'] ?? date('Y'));
-$clientFilter = (int)($_GET['client_id'] ?? 0);
-$unitFilter = (int)($_GET['unit_id'] ?? 0);
+$clientFilter = getSessionFilter('client_id', 0);
+$unitFilter = getSessionFilter('unit_id', 0);
 
 $monthName = date('F', mktime(0, 0, 0, $month, 1, $year));
 $daysInMonth = (int)cal_days_in_month(CAL_GREGORIAN, $month, $year);

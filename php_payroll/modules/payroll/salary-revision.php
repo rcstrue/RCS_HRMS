@@ -27,8 +27,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
 }
 
 // Get filters
-$filterClientId = (int)($_GET['client_id'] ?? 0);
-$filterUnitId = (int)($_GET['unit_id'] ?? 0);
+$filterClientId = getSessionFilter('client_id', 0);
+$filterUnitId = getSessionFilter('unit_id', 0);
 $filterMonth = (int)($_GET['month'] ?? prev_month_num());
 $filterYear = (int)($_GET['year'] ?? date('Y'));
 

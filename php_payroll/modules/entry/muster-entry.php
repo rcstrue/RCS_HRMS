@@ -19,8 +19,8 @@ $currentMonth = prev_month_num();
 $currentYear = date('Y');
 $monthFilter = isset($_GET['month']) ? (int)$_GET['month'] : $currentMonth;
 $yearFilter = isset($_GET['year']) ? (int)$_GET['year'] : $currentYear;
-$clientFilter = (int)($_GET['client_id'] ?? 0);
-$unitFilter = (int)($_GET['unit_id'] ?? 0);
+$clientFilter = getSessionFilter('client_id', 0);
+$unitFilter = getSessionFilter('unit_id', 0);
 $mode = sanitize($_GET['mode'] ?? 'blank'); // blank or filled
 $filterPressed = isset($_GET['filter']) || $clientFilter > 0;
 

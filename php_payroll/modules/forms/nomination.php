@@ -10,8 +10,8 @@
 $pageTitle = 'Nomination Forms';
 
 // Get filters
-$clientId = $_GET['client_id'] ?? null;
-$unitId = $_GET['unit_id'] ?? null;
+$clientId = getSessionFilter('client_id', null);
+$unitId = getSessionFilter('unit_id', null);
 $employeeId = $_GET['employee_id'] ?? null;
 
 // Get clients for filter

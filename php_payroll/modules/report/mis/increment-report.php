@@ -2,8 +2,8 @@
 $pageTitle = 'Increment Report';
 
 $year = (int)($_GET['year'] ?? date('Y'));
-$clientId = (int)($_GET['client_id'] ?? 0);
-$unitId = (int)($_GET['unit_id'] ?? 0);
+$clientId = getSessionFilter('client_id', 0);
+$unitId = getSessionFilter('unit_id', 0);
 $typeFilter = sanitize($_GET['type'] ?? '');
 
 $clients = [];
