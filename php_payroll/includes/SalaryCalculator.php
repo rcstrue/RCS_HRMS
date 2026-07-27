@@ -95,7 +95,7 @@ function reverseCalculateSalary(
     $BONUS_PCT          = 8.33;      // Statutory minimum bonus
     $LEAVE_MIN_PCT      = 5.0;       // Leave starts at 5% of Basic+DA
     $LEAVE_MAX_PCT      = 11.23;     // Leave capped at 11.23% of Basic+DA
-    $HRA_MAX_PCT        = 40.0;      // HRA capped at 40% of Basic+DA
+    $HRA_MAX_PCT        = 80.44;     // HRA capped at 80.44% of Basic+DA (includes other allowances)
     $BASIC_FLOOR_PCT    = 50.0;      // New Wage Code: Basic+DA ≥ 50% of gross
     $TOLERANCE          = 0.01;      // ₹0.01 rounding tolerance
     $MAX_ITER           = 20;        // Max iterations for convergence
@@ -109,7 +109,7 @@ function reverseCalculateSalary(
         list($stateForLookup, $zone) = explode('|', $state, 2);
     }
 
-    $minWage = _lookupMinWage($db, $stateForLookup, $zone, $workerCategory, $effectiveDate);
+    $minWage = round(_lookupMinWage($db, $stateForLookup, $zone, $workerCategory, $effectiveDate)); // Always .00
 
     // ── Step 2: Lookup LWF (PT is dynamic — depends on gross, looked up per iteration) ──
     $lwfAmount = $lwfApplicable ? _lookupLWF($db, $stateForLookup) : 0;
@@ -151,7 +151,7 @@ function reverseCalculateSalary(
     for ($iter = 0; $iter < $MAX_ITER; $iter++) {
 
         // ── Apply 50% rule: Basic+DA = MAX(min_wage, 50% of gross_estimate) ──
-        $basicDa = max($minWage, round(0.5 * $grossEstimate, 2));
+        $basicDa = round(max($minWage, 0.5 * $grossEstimate)); // Always rounded to .00 (whole rupees)
         $levelReached = 0;
 
         // ── Level 0: Basic+DA only ──
@@ -443,7 +443,7 @@ function reverseCalculateSalary(
         'error'             => $errorCode,
         'error_message'     => $errorMsg,
         'net_salary'        => round($netSalary, 2),
-        'basic_da'          => round($basicDa, 2),
+        'basic_da'          => round($basicDa),
         'hra'               => round($hra, 2),
         'leave_encashment'  => round($leave, 2),
         'bonus_encashment'  => round($bonus, 2),

@@ -288,7 +288,7 @@ $csrfToken = generateCSRFToken();
                                     <li><strong>Basic+DA</strong> = MAX(Minimum Wage, 50% of Gross)</li>
                                     <li><strong>Bonus</strong> = 8.33% of Basic+DA <span class="text-muted">(skipped if overshoots)</span></li>
                                     <li><strong>Leave</strong> = 5% to 11.23% of Basic+DA <span class="text-muted">(progressive)</span></li>
-                                    <li><strong>HRA</strong> = remaining balance <span class="text-muted">(max 40% of Basic+DA)</span></li>
+                                    <li><strong>HRA</strong> = remaining balance <span class="text-muted">(max 80.44% of Basic+DA)</span></li>
                                 </ol>
                             </div></div>
                         </div>
