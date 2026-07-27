@@ -240,11 +240,11 @@ $csrfToken = generateCSRFToken();
                             <input type="text" class="form-control form-control-sm" name="template_name" id="tplName" required placeholder="e.g. Unskilled">
                         </div>
                         <div class="col-md-8">
-                            <label class="form-label small fw-semibold">Worker Categories <small class="text-muted">(leave empty = catch-all)</small></label>
+                            <label class="form-label small fw-semibold">Worker Category <small class="text-muted">(select one — used for minimum wage lookup)</small></label>
                             <div class="d-flex flex-wrap gap-2 mt-1">
                                 <?php foreach ($workerCategories as $cat): ?>
                                 <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" name="worker_cat[]" value="<?= htmlspecialchars($cat) ?>" id="wc_<?= strtolower(str_replace(' ', '_', $cat)) ?>">
+                                    <input class="form-check-input" type="radio" name="worker_cat" value="<?= htmlspecialchars($cat) ?>" id="wc_<?= strtolower(str_replace(' ', '_', $cat)) ?>" onchange="recalcTemplate()">
                                     <label class="form-check-label small" for="wc_<?= strtolower(str_replace(' ', '_', $cat)) ?>"><?= htmlspecialchars($cat) ?></label>
                                 </div>
                                 <?php endforeach; ?>
@@ -252,35 +252,26 @@ $csrfToken = generateCSRFToken();
                         </div>
                     </div>
 
-                    <!-- Row 2: Net Salary + Bonus + Leave % -->
+                    <!-- Row 2: Net Salary only (bonus/leave auto-calculated) -->
                     <div class="row g-3 mb-3">
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Net Salary (Take Home)</label>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Net Salary (Take Home) <span class="text-danger">*</span></label>
                             <div class="input-group input-group-sm">
                                 <span class="input-group-text">₹</span>
                                 <input type="number" class="form-control" name="net_salary" id="tplNetSalary" step="100" min="0" placeholder="12500" required>
                             </div>
+                            <small class="text-muted">Enter net salary and select worker category — system auto-calculates Basic+DA from minimum wage, then bonus → leave → HRA</small>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Bonus % of Basic+DA</label>
-                            <div class="d-flex gap-3 mt-1">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="bonus_pct" value="0" id="bp0" checked>
-                                    <label class="form-check-label small" for="bp0">0% (No Bonus)</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="bonus_pct" value="8.33" id="bp833">
-                                    <label class="form-check-label small" for="bp833">8.33% (Statutory)</label>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Leave Encashment % of Basic+DA</label>
-                            <div class="input-group input-group-sm">
-                                <input type="number" class="form-control" name="leave_pct" id="tplLeavePct" value="0" step="0.01" min="0" max="11.23">
-                                <span class="input-group-text">%</span>
-                            </div>
-                            <small class="text-muted">0 to 11.23</small>
+                        <div class="col-md-6">
+                            <div class="card bg-light"><div class="card-body py-2">
+                                <div class="small text-muted mb-1">Auto-calculation order:</div>
+                                <ol class="small mb-0 ps-3">
+                                    <li><strong>Basic+DA</strong> = minimum wage for selected category</li>
+                                    <li><strong>Bonus</strong> = 8.33% of Basic+DA (if needed)</li>
+                                    <li><strong>Leave</strong> = up to 11.23% of Basic+DA (if needed)</li>
+                                    <li><strong>HRA</strong> = residual (matches exact net)</li>
+                                </ol>
+                            </div></div>
                         </div>
                     </div>
 
@@ -309,20 +300,20 @@ $csrfToken = generateCSRFToken();
                         <div class="row g-3">
                             <div class="col-md-3">
                                 <div class="card bg-light"><div class="card-body py-2 text-center">
-                                    <div class="text-muted small">Basic + DA</div>
+                                    <div class="text-muted small">Basic + DA <span class="badge bg-info" id="calcMinWageBadge">Min Wage</span></div>
                                     <div class="fw-bold" id="calcBasicDa">₹ 0</div>
                                     <small class="text-muted" id="calcBasicPct">0% of Gross</small>
                                 </div></div>
                             </div>
                             <div class="col-md-2">
                                 <div class="card bg-light"><div class="card-body py-2 text-center">
-                                    <div class="text-muted small">Leave Enc.</div>
+                                    <div class="text-muted small">Leave Enc. <span class="badge bg-secondary" id="calcLeavePct">0%</span></div>
                                     <div class="fw-bold" id="calcLeave">₹ 0</div>
                                 </div></div>
                             </div>
                             <div class="col-md-2">
                                 <div class="card bg-light"><div class="card-body py-2 text-center">
-                                    <div class="text-muted small">Bonus Enc.</div>
+                                    <div class="text-muted small">Bonus Enc. <span class="badge bg-secondary" id="calcBonusPct">0%</span></div>
                                     <div class="fw-bold" id="calcBonus">₹ 0</div>
                                 </div></div>
                             </div>
@@ -511,9 +502,7 @@ function openAddModal() {
     document.getElementById('tplId').value = '0';
     document.getElementById('tplName').value = '';
     document.getElementById('tplNetSalary').value = '';
-    document.getElementById('tplLeavePct').value = '0';
-    document.getElementById('bp0').checked = true;
-    document.querySelectorAll('[name="worker_cat[]"]').forEach(function(cb) { cb.checked = false; });
+    document.querySelectorAll('[name="worker_cat"]').forEach(function(rb) { rb.checked = false; });
     document.querySelectorAll('[name^="stat_"]').forEach(function(cb) { cb.checked = true; });
     clearCalcResults();
     new bootstrap.Modal(document.getElementById('templateModal')).show();
@@ -525,19 +514,11 @@ function openEditModal(t) {
     document.getElementById('tplId').value = t.id;
     document.getElementById('tplName').value = t.template_name;
     document.getElementById('tplNetSalary').value = t.net_salary;
-    document.getElementById('tplLeavePct').value = t.leave_percent || 0;
 
-    // Bonus percent
-    if (parseFloat(t.bonus_percent) > 0) {
-        document.getElementById('bp833').checked = true;
-    } else {
-        document.getElementById('bp0').checked = true;
-    }
-
-    // Worker categories
-    var cats = (t.worker_categories || '').split(',');
-    document.querySelectorAll('[name="worker_cat[]"]').forEach(function(cb) {
-        cb.checked = cats.indexOf(cb.value) !== -1;
+    // Worker category (single radio now)
+    var cat = (t.worker_categories || '').split(',')[0].trim();
+    document.querySelectorAll('[name="worker_cat"]').forEach(function(rb) {
+        rb.checked = (rb.value === cat);
     });
 
     // Statutory
@@ -563,10 +544,12 @@ function openCopyModal() {
 
 // ── Live reverse calculator ──
 function clearCalcResults() {
-    ['calcBasicDa','calcLeave','calcBonus','calcHra','calcGross','calcPf','calcEsi','calcPt','calcLwf','calcTotalDed','calcNet','calcFiftyFifty','calcBasicPct'].forEach(function(id) {
-        document.getElementById(id).textContent = id.startsWith('calc') && id !== 'calcFiftyFifty' && id !== 'calcBasicPct' ? '₹ 0' : '0';
-        if (id === 'calcFiftyFifty') document.getElementById(id).innerHTML = '';
+    ['calcBasicDa','calcLeave','calcBonus','calcHra','calcGross','calcPf','calcEsi','calcPt','calcLwf','calcTotalDed','calcNet','calcBasicPct'].forEach(function(id) {
+        document.getElementById(id).textContent = '₹ 0';
     });
+    document.getElementById('calcBonusPct').textContent = '0%';
+    document.getElementById('calcLeavePct').textContent = '0%';
+    document.getElementById('calcFiftyFifty').innerHTML = '';
     document.getElementById('calcWarnings').classList.add('d-none');
     document.getElementById('calcWarnings').innerHTML = '';
 }
@@ -577,20 +560,28 @@ function recalcTemplate() {
     var net = parseFloat(document.getElementById('tplNetSalary').value) || 0;
     if (net <= 0) { clearCalcResults(); return; }
 
-    var bonus = parseFloat(document.querySelector('[name="bonus_pct"]:checked').value) || 0;
-    var leave = parseFloat(document.getElementById('tplLeavePct').value) || 0;
+    // Get selected worker category (single radio)
+    var catEl = document.querySelector('[name="worker_cat"]:checked');
+    var workerCategory = catEl ? catEl.value : '';
+    if (!workerCategory) {
+        clearCalcResults();
+        var w = document.getElementById('calcWarnings');
+        w.classList.remove('d-none');
+        w.innerHTML = '<div class="alert alert-info py-2 small mb-0"><i class="bi bi-info-circle me-1"></i>Please select a Worker Category to look up minimum wage.</div>';
+        return;
+    }
 
     var params = {
         action: 'reverse_calc',
         net_salary: net,
-        bonus_percent: bonus,
-        leave_percent: leave,
         unit_id: UNIT_ID,
         state: UNIT_STATE,
+        worker_category: workerCategory,
         pf: document.getElementById('stat_pf').checked ? '1' : '0',
         esi: document.getElementById('stat_esi').checked ? '1' : '0',
         pt: document.getElementById('stat_pt').checked ? '1' : '0',
-        lwf: document.getElementById('stat_lwf').checked ? '1' : '0'
+        lwf: document.getElementById('stat_lwf').checked ? '1' : '0',
+        bonus_applicable: document.getElementById('stat_bonus').checked ? '1' : '0'
     };
 
     fetch('index.php?page=api/salary-calc', {
@@ -614,6 +605,10 @@ function recalcTemplate() {
         document.getElementById('calcTotalDed').textContent = fmt(d.total_deductions);
         document.getElementById('calcNet').textContent = fmt(d.calculated_net);
         document.getElementById('calcBasicPct').textContent = d.basic_percent + '% of Gross';
+
+        // Auto-calculated bonus and leave percentages
+        document.getElementById('calcBonusPct').textContent = d.bonus_percent + '%';
+        document.getElementById('calcLeavePct').textContent = d.leave_percent + '%';
 
         // 50-50 indicator
         var ff = document.getElementById('calcFiftyFifty');
@@ -652,12 +647,7 @@ function scheduleRecalc() {
 
 // Bind events
 document.addEventListener('DOMContentLoaded', function() {
-    ['tplNetSalary','tplLeavePct'].forEach(function(id) {
-        document.getElementById(id).addEventListener('input', scheduleRecalc);
-    });
-    ['bp0','bp833'].forEach(function(id) {
-        document.getElementById(id).addEventListener('change', recalcTemplate);
-    });
+    document.getElementById('tplNetSalary').addEventListener('input', scheduleRecalc);
     ['stat_pf','stat_esi','stat_pt','stat_lwf','stat_ot','stat_bonus','stat_gratuity'].forEach(function(id) {
         document.getElementById(id).addEventListener('change', scheduleRecalc);
     });
@@ -670,8 +660,10 @@ function saveTemplate() {
     if (!name) { alert('Template name is required'); return; }
     if (!net || parseFloat(net) <= 0) { alert('Net salary must be greater than 0'); return; }
 
-    var cats = [];
-    document.querySelectorAll('[name="worker_cat[]"]:checked').forEach(function(cb) { cats.push(cb.value); });
+    // Worker category (single radio)
+    var catEl = document.querySelector('[name="worker_cat"]:checked');
+    var workerCategory = catEl ? catEl.value : '';
+    if (!workerCategory) { alert('Please select a Worker Category'); return; }
 
     // Get calc values
     var basicText = document.getElementById('calcBasicDa').textContent.replace(/[^\d.]/g, '');
@@ -679,16 +671,18 @@ function saveTemplate() {
     var leaveText = document.getElementById('calcLeave').textContent.replace(/[^\d.]/g, '');
     var bonusText = document.getElementById('calcBonus').textContent.replace(/[^\d.]/g, '');
     var grossText = document.getElementById('calcGross').textContent.replace(/[^\d.]/g, '');
+    var bonusPctText = document.getElementById('calcBonusPct').textContent.replace('%','').trim();
+    var leavePctText = document.getElementById('calcLeavePct').textContent.replace('%','').trim();
 
     var data = {
         action: 'save_template',
         id: document.getElementById('tplId').value,
         unit_id: UNIT_ID,
         template_name: name,
-        worker_categories: cats.join(','),
+        worker_categories: workerCategory,
         net_salary: parseFloat(net),
-        bonus_percent: parseFloat(document.querySelector('[name="bonus_pct"]:checked').value) || 0,
-        leave_percent: parseFloat(document.getElementById('tplLeavePct').value) || 0,
+        bonus_percent: parseFloat(bonusPctText) || 0,
+        leave_percent: parseFloat(leavePctText) || 0,
         basic_da: parseFloat(basicText) || 0,
         hra: parseFloat(hraText) || 0,
         leave_encashment: parseFloat(leaveText) || 0,

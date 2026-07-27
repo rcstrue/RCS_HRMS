@@ -54,13 +54,14 @@ if ($action === 'get_templates') {
 // ══════════════════════════════════════════════════════
 if ($action === 'reverse_calc') {
     $netSalary    = floatval($_POST['net_salary'] ?? 0);
-    $bonusPercent = floatval($_POST['bonus_percent'] ?? 0);
-    $leavePercent = floatval($_POST['leave_percent'] ?? 0);
+    $bonusPercent = floatval($_POST['bonus_percent'] ?? 0);  // ignored, auto-calc now
+    $leavePercent = floatval($_POST['leave_percent'] ?? 0);  // ignored, auto-calc now
     $unitId       = (int)($_POST['unit_id'] ?? 0);
     $pfApplicable   = ($_POST['pf'] ?? '1') === '1';
     $esiApplicable  = ($_POST['esi'] ?? '1') === '1';
     $ptApplicable   = ($_POST['pt'] ?? '1') === '1';
     $lwfApplicable  = ($_POST['lwf'] ?? '1') === '1';
+    $bonusApplicable = ($_POST['bonus_applicable'] ?? '1') === '1';
     $workerCategory = $_POST['worker_category'] ?? '';
     $effectiveDate  = $_POST['effective_date'] ?? date('Y-m-d');
 
@@ -79,7 +80,7 @@ if ($action === 'reverse_calc') {
     $result = reverseCalculateSalary(
         $netSalary, $bonusPercent, $leavePercent,
         $pfApplicable, $esiApplicable, $ptApplicable, $lwfApplicable,
-        $state, $workerCategory, $effectiveDate, $db
+        $state, $workerCategory, $effectiveDate, $db, $bonusApplicable
     );
 
     echo json_encode(['success' => true, 'data' => $result]);

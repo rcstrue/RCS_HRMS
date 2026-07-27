@@ -9,17 +9,22 @@ if (!function_exists('reverseCalculateSalary')) {
 
 /**
  * Reverse calculate gross components from a target Net Salary.
- * New Wage Code: Basic+DA must be >= 50% of total gross.
+ *
+ * NEW LOGIC (per HR request):
+ * 1. Basic+DA = minimum wage for (state, worker_category) — NOT 50% of gross
+ * 2. If gross > basic_da, auto-fill in order: bonus (8.33%) → leave (≤11.23%) → HRA (residual)
+ * 3. HRA absorbs all rounding to hit exact net
  *
  * @param float  $netSalary      Target net (take-home)
- * @param float  $bonusPercent   0 or 8.33 — bonus provision % of basic_da
- * @param float  $leavePercent   0 to 11.23 — leave encashment % of basic_da
+ * @param float  $bonusPercent   IGNORED (auto-calculated) — kept for backward compat
+ * @param float  $leavePercent   IGNORED (auto-calculated) — kept for backward compat
  * @param bool   $pfApplicable
  * @param bool   $esiApplicable
  * @param bool   $ptApplicable
  * @param bool   $lwfApplicable
- * @param string $state          For PT + LWF lookup
- * @param string $workerCategory For minimum wage check
+ * @param bool   $bonusApplicable  If false, skip bonus and go to leave
+ * @param string $state          For PT + LWF + min wage lookup
+ * @param string $workerCategory For minimum wage lookup (REQUIRED)
  * @param string $effectiveDate  For minimum wage effective_from lookup (Y-m-d)
  * @param object $db             Database instance
  * @return array
@@ -35,50 +40,77 @@ function reverseCalculateSalary(
     string $state,
     string $workerCategory,
     string $effectiveDate,
-    $db
+    $db,
+    bool $bonusApplicable = true
 ): array {
     if ($netSalary <= 0) {
         return _emptyResult(0);
     }
 
-    // ── Step 1: Initial PT + LWF estimate ──
+    // ── Step 1: Look up minimum wage for this category + state ──
+    $minWage = _lookupMinWage($db, $state, $workerCategory, $effectiveDate);
+
+    // ── Step 2: Look up PT + LWF ──
     $ptAmount = _lookupPT($db, $state, $netSalary);
     $lwfAmount = _lookupLWF($db, $state);
 
-    // ── Step 2: Iterative solver (converges in 3-5 iterations) ──
-    $grossEstimate = $netSalary + $ptAmount + $lwfAmount;
-    $deductionRate = ($pfApplicable ? 0.12 : 0) + ($esiApplicable ? 0.0075 : 0);
-    if ($deductionRate < 1) {
-        $grossEstimate = $grossEstimate / (1 - $deductionRate);
-    }
-    if ($grossEstimate <= 0) {
-        return _emptyResult($netSalary);
-    }
+    // ── Step 3: Start with Basic+DA = minimum wage ──
+    $basicDa = $minWage;
 
-    $basicDa = 0; $hra = 0; $bonusAmt = 0; $leaveAmt = 0; $actualGross = 0;
+    // ── Step 4: Iterative solver ──
+    $hra = 0; $bonusAmt = 0; $leaveAmt = 0; $actualGross = 0;
     $pfDeduction = 0; $esiDeduction = 0; $totalDeductions = 0;
+    $calcBonusPct = 0; $calcLeavePct = 0;
+    $minWageWarning = null;
 
-    for ($i = 0; $i < 6; $i++) {
-        // Basic+DA = 50% of gross (New Wage Code)
-        $basicDa = round($grossEstimate * 0.50, 2);
-        $bonusAmt = round($basicDa * $bonusPercent / 100, 2);
-        $leaveAmt = round($basicDa * $leavePercent / 100, 2);
-        $washingAmt = 0;
+    for ($i = 0; $i < 8; $i++) {
+        // PF = 12% of basic_da (capped at 15000)
+        $pfDeduction = $pfApplicable ? round(min($basicDa, 15000) * 0.12, 2) : 0;
 
-        // HRA = residual (absorbs all rounding)
-        $hra = max(0, round($grossEstimate - $basicDa - $bonusAmt - $leaveAmt - $washingAmt, 2));
-
-        // ── Recheck 50-50 compliance ──
-        $actualGross = $basicDa + $bonusAmt + $leaveAmt + $washingAmt + $hra;
-        if ($basicDa < $actualGross * 0.50 - 0.01) {
-            $basicDa = round($actualGross / 2, 2);
-            $bonusAmt = round($basicDa * $bonusPercent / 100, 2);
-            $leaveAmt = round($basicDa * $leavePercent / 100, 2);
-            $hra = max(0, round($actualGross - $basicDa - $bonusAmt - $leaveAmt, 2));
-            $actualGross = $basicDa + $bonusAmt + $leaveAmt + $washingAmt + $hra;
+        // Estimate gross needed to achieve net (accounting for % deductions)
+        $grossEstimate = $netSalary + $pfDeduction + $ptAmount + $lwfAmount;
+        $esiRate = $esiApplicable ? 0.0075 : 0;
+        if ((1 - $esiRate) > 0) {
+            $grossEstimate = $grossEstimate / (1 - $esiRate);
         }
 
-        // ── Deductions ──
+        // ── Check 50-50 rule: if basic_da < 50% of gross, raise basic_da ──
+        // (New Wage Code compliance — but min wage takes precedence if higher)
+        $fiftyPctOfGross = round($grossEstimate * 0.50, 2);
+        if ($basicDa < $fiftyPctOfGross) {
+            $basicDa = $fiftyPctOfGross;
+        }
+
+        // ── Fill remaining gross in order: bonus → leave → HRA ──
+        $remaining = round($grossEstimate - $basicDa, 2);
+
+        // Auto bonus: 8.33% of basic_da if applicable and remaining > 0
+        $bonusAmt = 0; $calcBonusPct = 0;
+        if ($bonusApplicable && $remaining > 0) {
+            $bonusAmt = round($basicDa * 8.33 / 100, 2);
+            if ($bonusAmt > $remaining) {
+                $bonusAmt = round($remaining, 2);
+            }
+            $calcBonusPct = $basicDa > 0 ? round(($bonusAmt / $basicDa) * 100, 2) : 0;
+            $remaining = round($remaining - $bonusAmt, 2);
+        }
+
+        // Auto leave: up to 11.23% of basic_da if remaining > 0
+        $leaveAmt = 0; $calcLeavePct = 0;
+        if ($remaining > 0) {
+            $maxLeave = round($basicDa * 11.23 / 100, 2);
+            $leaveAmt = min($maxLeave, round($remaining, 2));
+            $calcLeavePct = $basicDa > 0 ? round(($leaveAmt / $basicDa) * 100, 2) : 0;
+            $remaining = round($remaining - $leaveAmt, 2);
+        }
+
+        // HRA = residual (absorbs all rounding)
+        $hra = max(0, round($remaining, 2));
+        $washingAmt = 0;
+
+        $actualGross = round($basicDa + $bonusAmt + $leaveAmt + $washingAmt + $hra, 2);
+
+        // ── Calculate deductions on actual gross ──
         $pfDeduction = $pfApplicable ? round(min($basicDa, 15000) * 0.12, 2) : 0;
         $esiDeduction = ($esiApplicable && $actualGross <= 21000) ? round($actualGross * 0.0075, 2) : 0;
         $ptAmount = _lookupPT($db, $state, $actualGross);
@@ -88,20 +120,21 @@ function reverseCalculateSalary(
         // ── Adjust HRA to hit exact net ──
         $diff = $netSalary - $calculatedNet;
         $hra = max(0, round($hra + $diff, 2));
-        $actualGross = $basicDa + $bonusAmt + $leaveAmt + $washingAmt + $hra;
+        $actualGross = round($basicDa + $bonusAmt + $leaveAmt + $washingAmt + $hra, 2);
 
-        // Recheck ESI on new gross
+        // Recalculate ESI on new gross
         $esiDeduction = ($esiApplicable && $actualGross <= 21000) ? round($actualGross * 0.0075, 2) : 0;
         $totalDeductions = $pfDeduction + $esiDeduction + $ptAmount + $lwfAmount;
         $calculatedNet = round($actualGross - $totalDeductions, 2);
 
-        // ── Convergence ──
+        // ── Convergence check ──
         if (abs($calculatedNet - $netSalary) < 0.01) break;
-        $grossEstimate = $actualGross + ($netSalary - $calculatedNet);
     }
 
-    // ── Minimum wage check ──
-    $minWageWarning = _checkMinWage($db, $state, $workerCategory, $effectiveDate, $actualGross);
+    // ── Minimum wage warning (if basic_da had to be raised above min wage for 50-50) ──
+    if ($minWage > 0 && $basicDa < $minWage - 0.01) {
+        $minWageWarning = "Basic+DA (₹{$basicDa}) is below minimum wage (₹{$minWage}) for {$workerCategory}";
+    }
 
     return [
         'net_salary'         => round($netSalary, 2),
@@ -111,6 +144,8 @@ function reverseCalculateSalary(
         'bonus_encashment'   => round($bonusAmt, 2),
         'washing_allowance'  => 0,
         'gross_salary'       => round($actualGross, 2),
+        'bonus_percent'      => round($calcBonusPct, 2),
+        'leave_percent'      => round($calcLeavePct, 2),
         'deductions'         => [
             'pf'  => round($pfDeduction, 2),
             'esi' => round($esiDeduction, 2),
@@ -121,6 +156,7 @@ function reverseCalculateSalary(
         'calculated_net'     => round($calculatedNet, 2),
         'fifty_fifty_ok'     => $basicDa >= ($actualGross * 0.50 - 0.01),
         'basic_percent'      => $actualGross > 0 ? round(($basicDa / $actualGross) * 100, 2) : 0,
+        'min_wage'           => round($minWage, 2),
         'min_wage_warning'   => $minWageWarning,
         'iterations'         => $i + 1,
     ];
@@ -287,6 +323,31 @@ function _checkMinWage($db, string $state, string $category, string $date, float
         }
     } catch (\Throwable $e) {}
     return null;
+}
+
+/**
+ * Look up minimum wage for a worker category in a state.
+ * Returns 0 if not found.
+ */
+function _lookupMinWage($db, string $state, string $category, string $date): float {
+    if (!$category) return 0;
+    try {
+        // Try exact state match first, then 'All'
+        $row = $db->fetch(
+            "SELECT minimum_wage FROM minimum_wages
+             WHERE (state = ? OR state = 'All' OR state = '')
+             AND designation LIKE CONCAT('%', ?, '%')
+             AND effective_from <= ?
+             ORDER BY 
+               CASE WHEN state = ? THEN 0 WHEN state = 'All' THEN 1 ELSE 2 END,
+               effective_from DESC
+             LIMIT 1",
+            [$state ?: '', $category, $date ?: date('Y-m-d'), $state ?: '']
+        );
+        return floatval($row['minimum_wage'] ?? 0);
+    } catch (\Throwable $e) {
+        return 0;
+    }
 }
 
 function _emptyResult(float $netSalary): array {
