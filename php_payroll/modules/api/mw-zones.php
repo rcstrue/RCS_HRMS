@@ -25,7 +25,7 @@ if ($state === '') {
 try {
     // Verify the state exists in the states table (so we can report state_found)
     $st = $db->fetch(
-        "SELECT id FROM states WHERE state_name = ? OR state_code = ? LIMIT 1",
+        "SELECT id FROM states WHERE LOWER(state_name) = LOWER(?) OR LOWER(state_code) = LOWER(?) LIMIT 1",
         [$state, $state]
     );
     $stateFound = !empty($st);
@@ -35,7 +35,7 @@ try {
         "SELECT DISTINCT mw.zone
          FROM minimum_wages mw
          JOIN states s ON s.id = mw.state_id
-         WHERE (s.state_name = ? OR s.state_code = ?)
+         WHERE (LOWER(s.state_name) = LOWER(?) OR LOWER(s.state_code) = LOWER(?))
            AND mw.zone IS NOT NULL
            AND mw.zone <> ''
            AND (mw.is_active = 1 OR mw.is_active IS NULL)
