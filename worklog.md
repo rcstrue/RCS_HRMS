@@ -141,3 +141,26 @@ Stage Summary:
 - Backend: designation.php fully supports worker_category (add/edit/list/delete/toggle).
 - Frontend: employee Add/Edit form auto-fills Worker Category from the chosen Designation.
 - NOTE: MySQL not available in local sandbox — migration must be executed by user on the live database (visit index.php?page=employee/run-designation-migration as admin, or run the SQL in phpMyAdmin).
+
+---
+Task ID: 10
+Agent: main
+Task: Add Designations card on employee index page; fix broken boolean toggle & enable inline category editing on designation page
+
+Work Log:
+- ROOT CAUSE of "boolean not working": designation.php handled AJAX by POSTing to itself (index.php?page=employee/designation). Module pages are rendered INSIDE the HTML shell (header.php outputs <!DOCTYPE html>... BEFORE the module loads), so `header('Content-Type: application/json')` in the AJAX handler failed silently (headers already sent). The JSON response came back prefixed with the full HTML document, so response.json() threw a SyntaxError and no callback ever ran — toggle/add/edit/delete all appeared broken.
+- FIX: Created dedicated api endpoint modules/api/designation.php — api/* endpoints are included directly by index.php WITHOUT the HTML wrapper, so Content-Type: application/json is sent cleanly. Handles: toggle_view, update_cat (inline), add, update, delete. CSRF accepted via X-CSRF-Token header OR csrf_token POST field.
+- Registered 'designation' => 'employee' in $apiModuleMap (index.php) for RBAC.
+- Refactored modules/employee/designation.php:
+  * Removed the broken in-page POST/AJAX handler entirely.
+  * All JS now POSTs to index.php?page=api/designation with X-CSRF-Token header.
+  * Added INLINE worker-category editing: each row has a <select> dropdown; onchange saves automatically via action=update_cat (with optimistic revert on failure). No modal needed to change category.
+  * Toggle (Show in App) now uses optimistic UI update + revert on failure.
+  * Hardened inline JSON in onclick with JSON_HEX_* flags.
+- Added "Designations" card to modules/employee/index.php (links to employee/designation, cyan-soft icon).
+
+Stage Summary:
+- Boolean toggle (desi_view) now works end-to-end (clean JSON from api/ endpoint).
+- Worker category can be edited INLINE directly in the table row (auto-saves).
+- Employee module index page now has a Designations card.
+- api/designation.php registered in RBAC apiModuleMap (employee module access).

@@ -1,12 +1,18 @@
 <?php
 /**
  * RCS HRMS Pro - Designation Management
- * Manage employee designations with:
- *   - worker_category (Unskilled / Semi-skilled / Skilled / Highly Skilled)
- *   - desi_view (show in ESS App dropdown or not)
  *
- * When an employee is assigned a designation, the worker_category is
- * auto-populated from here (see employee/add.php).
+ * Manage employee designations with:
+ *   - worker_category (Unskilled / Semi-skilled / Skilled / Highly Skilled) —
+ *     editable INLINE directly in the table row (no modal needed).
+ *   - desi_view (Show in App toggle).
+ *
+ * NOTE: All AJAX (add / edit / delete / toggle / inline-category-update) is
+ * routed through the dedicated api/designation endpoint. Posting to
+ * employee/designation itself does NOT work because module pages are rendered
+ * inside the HTML shell — by the time the page's PHP runs, headers have
+ * already been sent, so `Content-Type: application/json` is ignored and the
+ * JSON gets prefixed with HTML, breaking response.json() on the client.
  */
 
 $pageTitle = 'Manage Designations';
@@ -15,7 +21,6 @@ $pageTitle = 'Manage Designations';
 $WORKER_CATEGORIES = ['Unskilled', 'Semi-skilled', 'Skilled', 'Highly Skilled'];
 
 // Detect whether worker_category column exists (migration may not be run yet).
-// Checked early so AJAX handlers can degrade gracefully.
 $hasWorkerCategoryCol = false;
 try {
     $col = $db->fetch("SHOW COLUMNS FROM designations LIKE 'worker_category'");
@@ -24,104 +29,6 @@ try {
     $hasWorkerCategoryCol = false;
 }
 
-// ---------------------------------------------------------------------------
-// AJAX handlers
-// ---------------------------------------------------------------------------
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    // CSRF check (Round 9)
-    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
-        setFlash('error', 'Invalid request. Please refresh the page and try again.');
-        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
-    }
-    header('Content-Type: application/json');
-
-    // ---- toggle desi_view (Show in App) ----
-    if ($_POST['action'] === 'toggle_view') {
-        $id = (int)$_POST['id'];
-        $status = (int)$_POST['status'];
-        try {
-            $stmt = $db->prepare("UPDATE designations SET desi_view = ? WHERE id = ?");
-            $stmt->execute([$status, $id]);
-            echo json_encode(['success' => true, 'message' => 'Status updated']);
-        } catch (Exception $e) {
-            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-        }
-        exit;
-    }
-
-    // ---- add ----
-    if ($_POST['action'] === 'add') {
-        $name = sanitize($_POST['name']);
-        $worker_category = sanitize($_POST['worker_category'] ?? 'Unskilled');
-        if (!in_array($worker_category, $WORKER_CATEGORIES, true)) {
-            $worker_category = 'Unskilled';
-        }
-        if ($name === '') {
-            echo json_encode(['success' => false, 'message' => 'Designation name is required']);
-            exit;
-        }
-        try {
-            if ($hasWorkerCategoryCol) {
-                $stmt = $db->prepare("INSERT INTO designations (name, worker_category, desi_view) VALUES (?, ?, 1)");
-                $stmt->execute([$name, $worker_category]);
-            } else {
-                $stmt = $db->prepare("INSERT INTO designations (name, desi_view) VALUES (?, 1)");
-                $stmt->execute([$name]);
-            }
-            echo json_encode(['success' => true, 'message' => 'Designation added', 'id' => $db->lastInsertId()]);
-        } catch (Exception $e) {
-            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-        }
-        exit;
-    }
-
-    // ---- delete ----
-    if ($_POST['action'] === 'delete') {
-        $id = (int)$_POST['id'];
-        try {
-            $stmt = $db->prepare("SELECT COUNT(*) FROM employees WHERE designation = (SELECT name FROM designations WHERE id = ?)");
-            $stmt->execute([$id]);
-            $count = $stmt->fetchColumn();
-            if ($count > 0) {
-                echo json_encode(['success' => false, 'message' => "Cannot delete. $count employee(s) have this designation."]);
-            } else {
-                $stmt = $db->prepare("DELETE FROM designations WHERE id = ?");
-                $stmt->execute([$id]);
-                echo json_encode(['success' => true, 'message' => 'Designation deleted']);
-            }
-        } catch (Exception $e) {
-            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-        }
-        exit;
-    }
-
-    // ---- update ----
-    if ($_POST['action'] === 'update') {
-        $id = (int)$_POST['id'];
-        $name = sanitize($_POST['name']);
-        $worker_category = sanitize($_POST['worker_category'] ?? 'Unskilled');
-        if (!in_array($worker_category, $WORKER_CATEGORIES, true)) {
-            $worker_category = 'Unskilled';
-        }
-        try {
-            if ($hasWorkerCategoryCol) {
-                $stmt = $db->prepare("UPDATE designations SET name = ?, worker_category = ? WHERE id = ?");
-                $stmt->execute([$name, $worker_category, $id]);
-            } else {
-                $stmt = $db->prepare("UPDATE designations SET name = ? WHERE id = ?");
-                $stmt->execute([$name, $id]);
-            }
-            echo json_encode(['success' => true, 'message' => 'Designation updated']);
-        } catch (Exception $e) {
-            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-        }
-        exit;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Data
-// ---------------------------------------------------------------------------
 // Get all designations with employee count (+ worker_category if present)
 if ($hasWorkerCategoryCol) {
     $designations = $db->fetchAll(
@@ -153,7 +60,7 @@ $catColor = [
     <i class="bi bi-exclamation-triangle me-2"></i>
     <strong>Migration required.</strong>
     The <code>worker_category</code> column is missing on the <code>designations</code> table.
-    Run the migration to enable worker category linking:
+    Inline category editing is disabled until the migration is run:
     <a href="index.php?page=employee/run-designation-migration" class="alert-link ms-2">
         <i class="bi bi-play-circle"></i> Run migration now
     </a>
@@ -179,7 +86,10 @@ $catColor = [
                             <tr>
                                 <th style="width: 50px;">#</th>
                                 <th>Designation Name</th>
-                                <th style="width: 170px;">Worker Category</th>
+                                <th style="width: 200px;">
+                                    Worker Category
+                                    <small class="text-muted d-block" style="font-weight:normal;">(change inline)</small>
+                                </th>
                                 <th style="width: 130px;">Show in App</th>
                                 <th style="width: 90px;">Employees</th>
                                 <th style="width: 120px;">Actions</th>
@@ -197,26 +107,36 @@ $catColor = [
                                 $cat  = $des['worker_category'] ?? 'Unskilled';
                                 $cCol = $catColor[$cat] ?? 'secondary';
                             ?>
-                            <tr>
+                            <tr id="row-<?php echo (int)$des['id']; ?>">
                                 <td><?php echo $i + 1; ?></td>
                                 <td>
-                                    <span id="name-<?php echo $des['id']; ?>"><?php echo sanitize($des['name']); ?></span>
+                                    <span id="name-<?php echo (int)$des['id']; ?>"><?php echo sanitize($des['name']); ?></span>
                                 </td>
                                 <td>
-                                    <span class="badge bg-<?php echo $cCol; ?>-soft"
-                                          id="cat-<?php echo $des['id']; ?>">
-                                        <?php echo sanitize($cat); ?>
-                                    </span>
+                                    <?php if ($hasWorkerCategoryCol): ?>
+                                    <select class="form-select form-select-sm cat-select"
+                                            data-id="<?php echo (int)$des['id']; ?>"
+                                            onchange="updateCategory(<?php echo (int)$des['id']; ?>, this)"
+                                            style="max-width: 170px;">
+                                        <?php foreach ($WORKER_CATEGORIES as $wc): ?>
+                                        <option value="<?php echo $wc; ?>" <?php echo $cat === $wc ? 'selected' : ''; ?>>
+                                            <?php echo $wc; ?>
+                                        </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <?php else: ?>
+                                    <span class="badge bg-<?php echo $cCol; ?>-soft"><?php echo sanitize($cat); ?></span>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <div class="form-check form-switch">
                                         <input type="checkbox" class="form-check-input"
-                                               id="view-<?php echo $des['id']; ?>"
+                                               id="view-<?php echo (int)$des['id']; ?>"
                                                <?php echo $des['desi_view'] ? 'checked' : ''; ?>
-                                               onchange="toggleView(<?php echo $des['id']; ?>, this.checked ? 1 : 0)">
-                                        <label class="form-check-label" for="view-<?php echo $des['id']; ?>">
+                                               onchange="toggleView(<?php echo (int)$des['id']; ?>, this)">
+                                        <label class="form-check-label" for="view-<?php echo (int)$des['id']; ?>">
                                             <span class="badge bg-<?php echo $des['desi_view'] ? 'success' : 'secondary'; ?>"
-                                                  id="badge-<?php echo $des['id']; ?>">
+                                                  id="badge-<?php echo (int)$des['id']; ?>">
                                                 <?php echo $des['desi_view'] ? 'Show' : 'Hide'; ?>
                                             </span>
                                         </label>
@@ -231,12 +151,12 @@ $catColor = [
                                                 ["id" => (int)$des["id"], "name" => $des["name"], "worker_category" => $cat],
                                                 JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
                                             ); ?>)'
-                                            title="Edit">
+                                            title="Edit name / category">
                                         <i class="bi bi-pencil"></i>
                                     </button>
                                     <?php if ($des['emp_count'] == 0): ?>
                                     <button type="button" class="btn btn-sm btn-outline-danger"
-                                            onclick="deleteDesignation(<?php echo $des['id']; ?>)"
+                                            onclick="deleteDesignation(<?php echo (int)$des['id']; ?>)"
                                             title="Delete">
                                         <i class="bi bi-trash"></i>
                                     </button>
@@ -260,10 +180,11 @@ $catColor = [
             <div class="card-body">
                 <h6><i class="bi bi-info-circle me-2"></i>How it works</h6>
                 <ul class="mb-0 text-muted small">
-                    <li><strong>Worker Category</strong> — When an employee is assigned this designation, their
-                        Worker Category is auto-filled (used for Minimum Wage lookup &amp; salary calculation).</li>
+                    <li><strong>Worker Category</strong> — Change it directly in the dropdown above (saves automatically).
+                        When an employee is assigned this designation, their Worker Category is auto-filled
+                        (used for Minimum Wage lookup &amp; salary calculation).</li>
                     <li><strong>Show in App</strong> — <span class="badge bg-success-soft">Show</span> makes the
-                        designation visible in the ESS App dropdowns; <span class="badge bg-secondary-soft">Hide</span>
+                        designation visible in the ESS App dropdowns; <span class="badge bg-secondary">Hide</span>
                         keeps it in the system but hidden from the app.</li>
                 </ul>
             </div>
@@ -332,10 +253,6 @@ $catColor = [
                             <option value="<?php echo $wc; ?>"><?php echo $wc; ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <div class="form-text">
-                            Changing this will <strong>not</strong> retroactively update existing employees —
-                            it only applies to employees assigned this designation going forward.
-                        </div>
                     </div>
                 </form>
             </div>
@@ -351,28 +268,76 @@ $catColor = [
 
 <script>
 const CSRF_TOKEN = <?php echo json_encode(generateCSRFToken()); ?>;
-const AJAX_URL    = 'index.php?page=employee/designation';
+// POST to the dedicated API endpoint — NOT to this page. The api/* endpoints
+// are included by index.php WITHOUT the HTML wrapper, so JSON responses come
+// back clean (no HTML shell prefix) and response.json() works.
+const API_URL    = 'index.php?page=api/designation';
 
-function toggleView(id, status) {
-    fetch(AJAX_URL, {
+// Small helper: POST form-encoded body with CSRF in header (works for all actions)
+function apiPost(body) {
+    return fetch(API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'action=toggle_view&id=' + id + '&status=' + status + '&csrf_token=' + encodeURIComponent(CSRF_TOKEN)
-    })
-    .then(r => r.json())
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRF-Token': CSRF_TOKEN
+        },
+        body: body
+    }).then(r => r.json());
+}
+
+// ── Toggle Show in App ────────────────────────────────────────────────
+function toggleView(id, checkbox) {
+    const status = checkbox.checked ? 1 : 0;
+    // optimistic: badge updates immediately; reverted on failure
+    const badge = document.getElementById('badge-' + id);
+    const prevChecked = !checkbox.checked;
+    apiPost('action=toggle_view&id=' + id + '&status=' + status)
     .then(data => {
         if (data.success) {
-            const badge = document.getElementById('badge-' + id);
             badge.textContent = status ? 'Show' : 'Hide';
             badge.className = 'badge bg-' + (status ? 'success' : 'secondary');
-            showToast('success', 'Status updated successfully');
+            showToast('success', data.message || 'Status updated');
         } else {
-            showToast('error', data.message);
-            document.getElementById('view-' + id).checked = !status;
+            checkbox.checked = prevChecked; // revert
+            showToast('error', data.message || 'Failed to update status');
         }
+    })
+    .catch(() => {
+        checkbox.checked = prevChecked; // revert
+        showToast('error', 'Network error — please try again');
     });
 }
 
+// ── Inline worker-category change (dropdown in the row) ───────────────
+function updateCategory(id, select) {
+    const newCat = select.value;
+    const prevCat = select.dataset.prevValue || newCat;
+    select.dataset.prevValue = newCat;
+    select.classList.add('is-valid');
+    apiPost('action=update_cat&id=' + id + '&worker_category=' + encodeURIComponent(newCat))
+    .then(data => {
+        if (data.success) {
+            showToast('success', 'Category updated to ' + newCat);
+            setTimeout(() => select.classList.remove('is-valid'), 1200);
+        } else {
+            select.value = prevCat; // revert
+            showToast('error', data.message || 'Failed to update category');
+        }
+    })
+    .catch(() => {
+        select.value = prevCat; // revert
+        showToast('error', 'Network error — please try again');
+    });
+}
+
+// Remember the previous value of each inline category dropdown so we can revert on error
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.cat-select').forEach(function(s) {
+        s.dataset.prevValue = s.value;
+    });
+});
+
+// ── Add ───────────────────────────────────────────────────────────────
 function showAddModal() {
     document.getElementById('addForm').reset();
     new bootstrap.Modal(document.getElementById('addModal')).show();
@@ -382,22 +347,21 @@ function addDesignation() {
     const form = document.getElementById('addForm');
     const name = form.name.value.trim();
     if (!name) { showToast('error', 'Designation name is required'); return; }
-    const formData = new FormData(form);
-    formData.append('action', 'add');
-    formData.append('csrf_token', CSRF_TOKEN);
-
-    fetch(AJAX_URL, { method: 'POST', body: formData })
-    .then(r => r.json())
+    const body = 'action=add&name=' + encodeURIComponent(name)
+               + '&worker_category=' + encodeURIComponent(form.worker_category.value);
+    apiPost(body)
     .then(data => {
         if (data.success) {
             showToast('success', 'Designation added');
             location.reload();
         } else {
-            showToast('error', data.message);
+            showToast('error', data.message || 'Failed to add designation');
         }
-    });
+    })
+    .catch(() => showToast('error', 'Network error — please try again'));
 }
 
+// ── Edit (modal) ──────────────────────────────────────────────────────
 function showEditModal(d) {
     document.getElementById('edit-id').value = d.id;
     document.getElementById('edit-name').value = d.name;
@@ -409,38 +373,34 @@ function updateDesignation() {
     const form = document.getElementById('editForm');
     const name = form.name.value.trim();
     if (!name) { showToast('error', 'Designation name is required'); return; }
-    const formData = new FormData(form);
-    formData.append('action', 'update');
-    formData.append('csrf_token', CSRF_TOKEN);
-
-    fetch(AJAX_URL, { method: 'POST', body: formData })
-    .then(r => r.json())
+    const id = form.id.value;
+    const body = 'action=update&id=' + id
+               + '&name=' + encodeURIComponent(name)
+               + '&worker_category=' + encodeURIComponent(form.worker_category.value);
+    apiPost(body)
     .then(data => {
         if (data.success) {
             showToast('success', 'Designation updated');
             location.reload();
         } else {
-            showToast('error', data.message);
+            showToast('error', data.message || 'Failed to update designation');
         }
-    });
+    })
+    .catch(() => showToast('error', 'Network error — please try again'));
 }
 
+// ── Delete ────────────────────────────────────────────────────────────
 function deleteDesignation(id) {
     if (!confirm('Are you sure you want to delete this designation?')) return;
-    const formData = new FormData();
-    formData.append('action', 'delete');
-    formData.append('id', id);
-    formData.append('csrf_token', CSRF_TOKEN);
-
-    fetch(AJAX_URL, { method: 'POST', body: formData })
-    .then(r => r.json())
+    apiPost('action=delete&id=' + id)
     .then(data => {
         if (data.success) {
             showToast('success', 'Designation deleted');
             location.reload();
         } else {
-            showToast('error', data.message);
+            showToast('error', data.message || 'Failed to delete designation');
         }
-    });
+    })
+    .catch(() => showToast('error', 'Network error — please try again'));
 }
 </script>

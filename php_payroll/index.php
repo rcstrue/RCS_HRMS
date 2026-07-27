@@ -191,6 +191,7 @@ if (strpos($page, 'api/') === 0) {
         'zones'           => 'unit',
         'minimum-wage-sync' => 'compliance',
         'salary-calc'       => 'unit',
+        'designation'       => 'employee',
     ];
     $effectiveModule = $apiModuleMap[$apiModule] ?? $apiModule;
 
