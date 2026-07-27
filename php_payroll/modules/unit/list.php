@@ -13,8 +13,9 @@
 
 $pageTitle = 'Units';
 
-// Define redirect URL constant to avoid string duplication
-define('UNIT_LIST_URL', 'index.php?page=unit/list');
+// Preserve query string (client, search, etc.) across POST redirects
+$queryStr = $_SERVER['QUERY_STRING'] ?? '';
+$unitListUrl = 'index.php?page=unit/list' . ($queryStr ? "&$queryStr" : '');
 
 // Get filter
 $clientFilter = isset($_GET['client']) ? (int)$_GET['client'] : 0;
@@ -45,13 +46,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         if (empty($clientId)) {
             setFlash('error', 'Client is required!');
-            redirect(UNIT_LIST_URL);
+            redirect($unitListUrl);
         }
         
         $state = sanitize($_POST['state'] ?? '');
         if (empty($state)) {
             setFlash('error', 'State is required!');
-            redirect(UNIT_LIST_URL);
+            redirect($unitListUrl);
         }
         
         $data = [
@@ -90,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         setFlash($result['success'] ? 'success' : 'error', $result['message']);
-        redirect(UNIT_LIST_URL);
+        redirect($unitListUrl);
     }
 
     if ($action === 'edit' && isset($_POST['unit_id'])) {
@@ -98,13 +99,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         if (empty($clientId)) {
             setFlash('error', 'Client is required!');
-            redirect(UNIT_LIST_URL);
+            redirect($unitListUrl);
         }
         
         $state = sanitize($_POST['state'] ?? '');
         if (empty($state)) {
             setFlash('error', 'State is required!');
-            redirect(UNIT_LIST_URL);
+            redirect($unitListUrl);
         }
         
         $data = [
@@ -152,13 +153,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         setFlash($result['success'] ? 'success' : 'error', $result['message']);
-        redirect(UNIT_LIST_URL);
+        redirect($unitListUrl);
     }
 
     if ($action === 'delete' && isset($_POST['unit_id'])) {
         $result = $unit->delete($_POST['unit_id']);
         setFlash($result['success'] ? 'success' : 'error', $result['message']);
-        redirect(UNIT_LIST_URL);
+        redirect($unitListUrl);
     }
 }
 
@@ -247,7 +248,7 @@ try {
                     <div class="col-md-2">
                         <button type="submit" class="btn btn-sm btn-primary">Filter</button>
                         <?php if ($clientFilter): ?>
-                        <a href="<?php echo UNIT_LIST_URL; ?>" class="btn btn-sm btn-secondary">Clear</a>
+                        <a href="index.php?page=unit/list" class="btn btn-sm btn-secondary">Clear</a>
                         <?php endif; ?>
                     </div>
                 </form>

@@ -19,22 +19,11 @@
 
 $pageTitle = 'Payroll Entry';
 
-// ── Session Filters ──────────────────────────────────────────────
-$clientId = (int)($_SESSION['filter_client_id'] ?? 0);
-$unitId   = (int)($_SESSION['filter_unit_id'] ?? 0);
-$month    = (int)($_SESSION['filter_month'] ?? prev_month_num());
-$year     = (int)($_SESSION['filter_year'] ?? prev_month_year());
-
-// Override from GET params (when form is submitted)
-if (isset($_GET['client_id'])) $clientId = (int)$_GET['client_id'];
-if (isset($_GET['unit_id']))   $unitId   = (int)$_GET['unit_id'];
-if (isset($_GET['month']))     $month    = (int)$_GET['month'];
-if (isset($_GET['year']))      $year     = (int)$_GET['year'];
-// Save back to session for persistence
-$_SESSION['filter_client_id'] = $clientId;
-$_SESSION['filter_unit_id']   = $unitId;
-$_SESSION['filter_month']     = $month;
-$_SESSION['filter_year']      = $year;
+// ── Filters (from GET params only — no session memory) ───────────
+$clientId = (int)($_GET['client_id'] ?? 0);
+$unitId   = (int)($_GET['unit_id'] ?? 0);
+$month    = (int)($_GET['month'] ?? prev_month_num());
+$year     = (int)($_GET['year'] ?? prev_month_year());
 
 $calendarDays = cal_days_in_month(CAL_GREGORIAN, $month, $year);
 

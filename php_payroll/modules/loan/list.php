@@ -73,10 +73,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// ── Filters (same pattern as id-card page) ──
-// GET params first, fallback to session header filter
-$selectedClient = isset($_GET['client_id']) ? (int)$_GET['client_id'] : (($_SESSION['filter_client_id'] ?? 0) ?: 0);
-$selectedUnit = isset($_GET['unit_id']) ? (int)$_GET['unit_id'] : (($_SESSION['filter_unit_id'] ?? 0) ?: 0);
+// ── Filters (from GET params only — no session memory) ──
+$selectedClient = (int)($_GET['client_id'] ?? 0);
+$selectedUnit = (int)($_GET['unit_id'] ?? 0);
 
 // Load clients
 $clients = [];
