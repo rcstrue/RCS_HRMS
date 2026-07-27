@@ -136,27 +136,8 @@ if ($page === null) {
 
 $action = isset($_GET['action']) ? sanitizePageParam($_GET['action']) : null;
 
-// Handle AJAX requests
-if (isset($_GET['ajax']) || isset($_SERVER['HTTP_X_REQUESTED_WITH'])) {
-    header('Content-Type: application/json');
-    
-    if (!$isLoggedIn && $page !== 'auth/login') {
-        echo json_encode(['error' => 'Authentication required', 'redirect' => 'index.php?page=auth/login']);
-        exit;
-    }
-    
-    // Fix: Single assignment using getSafeModulePath only
-    $ajaxFile = getSafeModulePath($page . '/ajax');
-    
-    if ($ajaxFile !== null && file_exists($ajaxFile)) {
-        include $ajaxFile;
-    } else {
-        echo json_encode(['error' => 'Invalid request']);
-    }
-    exit;
-}
-
-// Handle API requests
+// Handle API requests — checked BEFORE AJAX so that jQuery $.getJSON calls
+// (which send X-Requested-With header) hit the API handler, not the AJAX handler.
 if (strpos($page, 'api/') === 0) {
     header('Content-Type: application/json');
 
@@ -220,6 +201,26 @@ if (strpos($page, 'api/') === 0) {
     } else {
         http_response_code(404);
         echo json_encode(['error' => 'API endpoint not found']);
+    }
+    exit;
+}
+
+// Handle AJAX requests
+if (isset($_GET['ajax']) || isset($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+    header('Content-Type: application/json');
+    
+    if (!$isLoggedIn && $page !== 'auth/login') {
+        echo json_encode(['error' => 'Authentication required', 'redirect' => 'index.php?page=auth/login']);
+        exit;
+    }
+    
+    // Fix: Single assignment using getSafeModulePath only
+    $ajaxFile = getSafeModulePath($page . '/ajax');
+    
+    if ($ajaxFile !== null && file_exists($ajaxFile)) {
+        include $ajaxFile;
+    } else {
+        echo json_encode(['error' => 'Invalid request']);
     }
     exit;
 }
