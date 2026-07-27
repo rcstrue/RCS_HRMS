@@ -51,39 +51,118 @@ if ($action === 'get_templates') {
 
 // ══════════════════════════════════════════════════════
 // action=reverse_calc (POST)
+// Auto-fetches state, zone, and statutory flags from units table.
+// Frontend can override any flag by sending it explicitly.
 // ══════════════════════════════════════════════════════
 if ($action === 'reverse_calc') {
     $netSalary    = floatval($_POST['net_salary'] ?? 0);
     $bonusPercent = floatval($_POST['bonus_percent'] ?? 0);  // ignored, auto-calc now
     $leavePercent = floatval($_POST['leave_percent'] ?? 0);  // ignored, auto-calc now
     $unitId       = (int)($_POST['unit_id'] ?? 0);
-    $pfApplicable   = ($_POST['pf'] ?? '1') === '1';
-    $esiApplicable  = ($_POST['esi'] ?? '1') === '1';
-    $ptApplicable   = ($_POST['pt'] ?? '1') === '1';
-    $lwfApplicable  = ($_POST['lwf'] ?? '1') === '1';
-    $bonusApplicable = ($_POST['bonus_applicable'] ?? '1') === '1';
     $workerCategory = $_POST['worker_category'] ?? '';
     $effectiveDate  = $_POST['effective_date'] ?? date('Y-m-d');
+    $bonusApplicable = ($_POST['bonus_applicable'] ?? '1') === '1';
 
     if ($netSalary <= 0) {
         echo json_encode(['success' => false, 'error' => 'Net salary must be greater than 0']);
         exit;
     }
-
-    // Look up unit state if not provided directly
-    $state = $_POST['state'] ?? '';
-    if (!$state && $unitId) {
-        $unitRow = $db->fetch("SELECT state FROM units WHERE id = ?", [$unitId]);
-        $state = $unitRow['state'] ?? '';
+    if (!$workerCategory) {
+        echo json_encode(['success' => false, 'error' => 'Worker Category is required for minimum wage lookup']);
+        exit;
     }
+    if (!$unitId) {
+        echo json_encode(['success' => false, 'error' => 'Unit ID is required to fetch state/zone/statutory config']);
+        exit;
+    }
+
+    // ── Fetch unit config: state, zone, PF/ESI/PT/LWF defaults ──
+    $unitRow = $db->fetch(
+        "SELECT state, zone, pf_applicable, esi_applicable, pt_applicable, lwf_applicable
+         FROM units WHERE id = ?",
+        [$unitId]
+    );
+    if (!$unitRow) {
+        echo json_encode(['success' => false, 'error' => 'Unit not found']);
+        exit;
+    }
+
+    $unitState = $unitRow['state'] ?? '';
+    $unitZone  = $unitRow['zone']  ?? '';
+
+    // Per Q1=A: defaults come from unit config, but template/employee can override.
+    // If the frontend explicitly sends pf=0/1, use that. Otherwise use unit default.
+    $pfApplicable  = isset($_POST['pf'])  ? (($_POST['pf']  === '1') ? true : false) : (intval($unitRow['pf_applicable']  ?? 1) === 1);
+    $esiApplicable = isset($_POST['esi']) ? (($_POST['esi'] === '1') ? true : false) : (intval($unitRow['esi_applicable'] ?? 1) === 1);
+    $ptApplicable  = isset($_POST['pt'])  ? (($_POST['pt']  === '1') ? true : false) : (intval($unitRow['pt_applicable']  ?? 1) === 1);
+    $lwfApplicable = isset($_POST['lwf']) ? (($_POST['lwf'] === '1') ? true : false) : (intval($unitRow['lwf_applicable'] ?? 1) === 1);
+
+    // Encode state+zone together for the calculator (split internally)
+    $stateWithZone = $unitZone ? ($unitState . '|' . $unitZone) : $unitState;
 
     $result = reverseCalculateSalary(
         $netSalary, $bonusPercent, $leavePercent,
         $pfApplicable, $esiApplicable, $ptApplicable, $lwfApplicable,
-        $state, $workerCategory, $effectiveDate, $db, $bonusApplicable
+        $stateWithZone, $workerCategory, $effectiveDate, $db, $bonusApplicable
     );
 
+    // Add unit context info to the response (for UI display)
+    $result['unit_state'] = $unitState;
+    $result['unit_zone']  = $unitZone;
+    $result['pf_applicable']  = $pfApplicable;
+    $result['esi_applicable'] = $esiApplicable;
+    $result['pt_applicable']  = $ptApplicable;
+    $result['lwf_applicable'] = $lwfApplicable;
+
+    // If the calculator returned a hard error (e.g. target below min wage), surface it
+    if (!empty($result['error'])) {
+        echo json_encode([
+            'success' => false,
+            'error'   => $result['error_message'] ?? $result['error'],
+            'data'    => $result,
+        ]);
+        exit;
+    }
+
     echo json_encode(['success' => true, 'data' => $result]);
+    exit;
+}
+
+// ══════════════════════════════════════════════════════
+// action=get_unit_config (GET)
+// Returns the unit's state, zone, and statutory flags —
+// used by the UI to prefill the template form.
+// ══════════════════════════════════════════════════════
+if ($action === 'get_unit_config') {
+    $unitId = (int)($_GET['unit_id'] ?? 0);
+    if (!$unitId) {
+        echo json_encode(['success' => false, 'error' => 'Unit ID required']);
+        exit;
+    }
+    try {
+        $unitRow = $db->fetch(
+            "SELECT id, state, zone, pf_applicable, esi_applicable, pt_applicable, lwf_applicable
+             FROM units WHERE id = ?",
+            [$unitId]
+        );
+        if (!$unitRow) {
+            echo json_encode(['success' => false, 'error' => 'Unit not found']);
+            exit;
+        }
+        echo json_encode([
+            'success' => true,
+            'config'  => [
+                'state'          => $unitRow['state'] ?? '',
+                'zone'           => $unitRow['zone']  ?? '',
+                'pf_applicable'  => intval($unitRow['pf_applicable']  ?? 1),
+                'esi_applicable' => intval($unitRow['esi_applicable'] ?? 1),
+                'pt_applicable'  => intval($unitRow['pt_applicable']  ?? 1),
+                'lwf_applicable' => intval($unitRow['lwf_applicable'] ?? 1),
+            ],
+        ]);
+    } catch (\Throwable $e) {
+        echo json_encode(['success' => false, 'error' => 'DB error: ' . $e->getMessage()]);
+    }
     exit;
 }
 

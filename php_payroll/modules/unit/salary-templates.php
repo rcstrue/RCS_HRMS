@@ -62,6 +62,13 @@ try {
 if (!$unit) { setFlash('error', 'Unit not found.'); redirect('index.php?page=unit/list'); exit; }
 
 $unitState = $unit['state'] ?? '';
+$unitZone  = $unit['zone']  ?? '';
+
+// Per Q1=A: defaults from unit, override allowed per template/employee
+$unitPfApplicable  = isset($unit['pf_applicable'])  ? (intval($unit['pf_applicable'])  === 1) : true;
+$unitEsiApplicable = isset($unit['esi_applicable']) ? (intval($unit['esi_applicable']) === 1) : true;
+$unitPtApplicable  = isset($unit['pt_applicable'])  ? (intval($unit['pt_applicable'])  === 1) : true;
+$unitLwfApplicable = isset($unit['lwf_applicable']) ? (intval($unit['lwf_applicable']) === 1) : true;
 
 // ── Fetch templates ──
 $templates = [];
@@ -112,7 +119,19 @@ $csrfToken = generateCSRFToken();
             <?= sanitize($unit['name']) ?>
             <?php if ($unit['client_name']): ?> (<?= sanitize($unit['client_name']) ?>)<?php endif; ?>
             <?php if ($unitState): ?> — <?= sanitize($unitState) ?><?php endif; ?>
+            <?php if ($unitZone): ?> / <?= sanitize($unitZone) ?><?php endif; ?>
         </small>
+        <div class="mt-1">
+            <?php
+                $statBadges = [];
+                $statBadges[] = '<span class="badge bg-' . ($unitPfApplicable  ? 'primary-soft' : 'light text-muted') . '">PF ' . ($unitPfApplicable  ? 'ON' : 'OFF') . '</span>';
+                $statBadges[] = '<span class="badge bg-' . ($unitEsiApplicable ? 'success-soft' : 'light text-muted') . '">ESI ' . ($unitEsiApplicable ? 'ON' : 'OFF') . '</span>';
+                $statBadges[] = '<span class="badge bg-' . ($unitPtApplicable  ? 'info-soft' : 'light text-muted') . '">PT ' . ($unitPtApplicable  ? 'ON' : 'OFF') . '</span>';
+                $statBadges[] = '<span class="badge bg-' . ($unitLwfApplicable ? 'warning-soft' : 'light text-muted') . '">LWF ' . ($unitLwfApplicable ? 'ON' : 'OFF') . '</span>';
+                echo '<small class="text-muted me-1">Unit defaults:</small> ' . implode(' ', $statBadges);
+            ?>
+            <a href="index.php?page=unit/list" class="btn btn-sm btn-link py-0 px-1"><i class="bi bi-pencil"></i> edit</a>
+        </div>
     </div>
     <div class="d-flex gap-2">
         <button class="btn btn-outline-primary btn-sm" onclick="openApplyModal()">
@@ -260,33 +279,39 @@ $csrfToken = generateCSRFToken();
                                 <span class="input-group-text">₹</span>
                                 <input type="number" class="form-control" name="net_salary" id="tplNetSalary" step="100" min="0" placeholder="12500" required>
                             </div>
-                            <small class="text-muted">Enter net salary and select worker category — system auto-calculates Basic+DA from minimum wage, then bonus → leave → HRA</small>
+                            <small class="text-muted">Enter net salary and select worker category — system auto-calculates the salary breakup.</small>
                         </div>
                         <div class="col-md-6">
                             <div class="card bg-light"><div class="card-body py-2">
-                                <div class="small text-muted mb-1">Auto-calculation order:</div>
+                                <div class="small text-muted mb-1">Auto-calculation order (stops when target reached):</div>
                                 <ol class="small mb-0 ps-3">
-                                    <li><strong>Basic+DA</strong> = minimum wage for selected category</li>
-                                    <li><strong>Bonus</strong> = 8.33% of Basic+DA (if needed)</li>
-                                    <li><strong>Leave</strong> = up to 11.23% of Basic+DA (if needed)</li>
-                                    <li><strong>HRA</strong> = residual (matches exact net)</li>
+                                    <li><strong>Basic+DA</strong> = MAX(Minimum Wage, 50% of Gross)</li>
+                                    <li><strong>Bonus</strong> = 8.33% of Basic+DA <span class="text-muted">(skipped if overshoots)</span></li>
+                                    <li><strong>Leave</strong> = 5% to 11.23% of Basic+DA <span class="text-muted">(progressive)</span></li>
+                                    <li><strong>HRA</strong> = remaining balance <span class="text-muted">(max 40% of Basic+DA)</span></li>
                                 </ol>
                             </div></div>
                         </div>
                     </div>
 
-                    <!-- Row 3: Statutory Settings -->
+                    <!-- Row 3: Statutory Settings (loaded from Unit, override allowed) -->
                     <div class="row g-3 mb-3">
                         <div class="col-12">
-                            <label class="form-label small fw-semibold">Statutory Settings</label>
-                            <div class="d-flex flex-wrap gap-3 mt-1">
-                                <?php foreach (['pf' => 'PF Applicable', 'esi' => 'ESI Applicable', 'pt' => 'PT Applicable', 'lwf' => 'LWF Applicable', 'ot' => 'OT Applicable', 'bonus' => 'Bonus Applicable', 'gratuity' => 'Gratuity Applicable'] as $key => $label): ?>
+                            <div class="d-flex align-items-center justify-content-between">
+                                <label class="form-label small fw-semibold mb-0">Statutory Settings</label>
+                                <small class="text-muted">
+                                    <i class="bi bi-info-circle"></i> Defaults loaded from Unit configuration — override here if needed for this template.
+                                </small>
+                            </div>
+                            <div class="d-flex flex-wrap gap-3 mt-2">
+                                <?php foreach (['pf' => 'PF Applicable', 'esi' => 'ESI Applicable', 'pt' => 'PT Applicable', 'lwf' => 'LWF Applicable', 'ot' => 'OT Applicable', 'gratuity' => 'Gratuity Applicable'] as $key => $label): ?>
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" name="stat_<?= $key ?>" id="stat_<?= $key ?>" checked>
                                     <label class="form-check-label small" for="stat_<?= $key ?>"><?= $label ?></label>
                                 </div>
                                 <?php endforeach; ?>
                             </div>
+                            <small class="text-muted d-block mt-1"><i class="bi bi-lightning-fill text-warning"></i> <strong>Bonus</strong> is always auto-calculated (8.33% of Basic+DA when applicable) — no manual toggle needed.</small>
                         </div>
                     </div>
 
@@ -297,10 +322,31 @@ $csrfToken = generateCSRFToken();
                         <label class="form-label small fw-semibold text-primary">
                             <i class="bi bi-calculator me-1"></i>Auto-calculated (updates as you type)
                         </label>
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-12">
+                                <div class="card bg-light border-info"><div class="card-body py-2">
+                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 small">
+                                        <div>
+                                            <span class="text-muted">Unit:</span>
+                                            <strong><?= sanitize($unit['name']) ?></strong>
+                                            <span class="text-muted ms-2">State:</span>
+                                            <strong><?= sanitize($unitState ?: '—') ?></strong>
+                                            <span class="text-muted ms-2">Zone:</span>
+                                            <strong><?= sanitize($unitZone ?: '— (state-wide)') ?></strong>
+                                        </div>
+                                        <div>
+                                            <span class="text-muted">Min Wage:</span>
+                                            <strong id="calcMinWage">—</strong>
+                                            <span class="badge bg-info ms-1" id="calcLevel">—</span>
+                                        </div>
+                                    </div>
+                                </div></div>
+                            </div>
+                        </div>
                         <div class="row g-3">
                             <div class="col-md-3">
                                 <div class="card bg-light"><div class="card-body py-2 text-center">
-                                    <div class="text-muted small">Basic + DA <span class="badge bg-info" id="calcMinWageBadge">Min Wage</span></div>
+                                    <div class="text-muted small">Basic + DA</div>
                                     <div class="fw-bold" id="calcBasicDa">₹ 0</div>
                                     <small class="text-muted" id="calcBasicPct">0% of Gross</small>
                                 </div></div>
@@ -319,7 +365,7 @@ $csrfToken = generateCSRFToken();
                             </div>
                             <div class="col-md-2">
                                 <div class="card bg-light"><div class="card-body py-2 text-center">
-                                    <div class="text-muted small">HRA</div>
+                                    <div class="text-muted small">HRA <span class="badge bg-secondary d-none" id="calcHraCapped">Capped</span></div>
                                     <div class="fw-bold" id="calcHra">₹ 0</div>
                                 </div></div>
                             </div>
@@ -487,11 +533,26 @@ $csrfToken = generateCSRFToken();
 </div>
 
 <?php
+$unitPfJs  = $unitPfApplicable  ? 'true' : 'false';
+$unitEsiJs = $unitEsiApplicable ? 'true' : 'false';
+$unitPtJs  = $unitPtApplicable  ? 'true' : 'false';
+$unitLwfJs = $unitLwfApplicable ? 'true' : 'false';
+$unitStateJs = addslashes($unitState);
+$unitZoneJs = addslashes($unitZone);
+
 $extraJS = <<<JSEOF
 <script>
 var CSRF_TOKEN = '{$csrfToken}';
 var UNIT_ID = {$unitId};
-var UNIT_STATE = '{$unitState}';
+var UNIT_STATE = '{$unitStateJs}';
+var UNIT_ZONE = '{$unitZoneJs}';
+// Unit-level statutory defaults (loaded once at page render)
+var UNIT_DEFAULTS = {
+    pf:  {$unitPfJs},
+    esi: {$unitEsiJs},
+    pt:  {$unitPtJs},
+    lwf: {$unitLwfJs}
+};
 var editTemplate = null;
 var recalcTimer = null;
 
@@ -503,7 +564,16 @@ function openAddModal() {
     document.getElementById('tplName').value = '';
     document.getElementById('tplNetSalary').value = '';
     document.querySelectorAll('[name="worker_cat"]').forEach(function(rb) { rb.checked = false; });
-    document.querySelectorAll('[name^="stat_"]').forEach(function(cb) { cb.checked = true; });
+
+    // Pre-fill statutory checkboxes with Unit defaults (Q1=A: defaults from unit)
+    document.getElementById('stat_pf').checked  = UNIT_DEFAULTS.pf;
+    document.getElementById('stat_esi').checked = UNIT_DEFAULTS.esi;
+    document.getElementById('stat_pt').checked  = UNIT_DEFAULTS.pt;
+    document.getElementById('stat_lwf').checked = UNIT_DEFAULTS.lwf;
+    document.getElementById('stat_ot').checked = true;
+    document.getElementById('stat_gratuity').checked = true;
+    // Bonus is always auto — no manual toggle (removed from UI)
+
     clearCalcResults();
     new bootstrap.Modal(document.getElementById('templateModal')).show();
 }
@@ -515,20 +585,19 @@ function openEditModal(t) {
     document.getElementById('tplName').value = t.template_name;
     document.getElementById('tplNetSalary').value = t.net_salary;
 
-    // Worker category (single radio now)
+    // Worker category (single radio)
     var cat = (t.worker_categories || '').split(',')[0].trim();
     document.querySelectorAll('[name="worker_cat"]').forEach(function(rb) {
         rb.checked = (rb.value === cat);
     });
 
-    // Statutory
-    document.getElementById('stat_pf').checked = t.pf_applicable == 1;
-    document.getElementById('stat_esi').checked = t.esi_applicable == 1;
-    document.getElementById('stat_pt').checked = t.pt_applicable == 1;
-    document.getElementById('stat_lwf').checked = t.lwf_applicable == 1;
-    document.getElementById('stat_ot').checked = t.overtime_applicable == 1;
-    document.getElementById('stat_bonus').checked = t.bonus_applicable == 1;
-    document.getElementById('stat_gratuity').checked = t.gratuity_applicable == 1;
+    // Statutory — use template values if set, otherwise fall back to unit defaults
+    document.getElementById('stat_pf').checked  = (t.pf_applicable  != null) ? (t.pf_applicable  == 1) : UNIT_DEFAULTS.pf;
+    document.getElementById('stat_esi').checked = (t.esi_applicable != null) ? (t.esi_applicable == 1) : UNIT_DEFAULTS.esi;
+    document.getElementById('stat_pt').checked  = (t.pt_applicable  != null) ? (t.pt_applicable  == 1) : UNIT_DEFAULTS.pt;
+    document.getElementById('stat_lwf').checked = (t.lwf_applicable != null) ? (t.lwf_applicable == 1) : UNIT_DEFAULTS.lwf;
+    document.getElementById('stat_ot').checked = (t.overtime_applicable != null) ? (t.overtime_applicable == 1) : true;
+    document.getElementById('stat_gratuity').checked = (t.gratuity_applicable != null) ? (t.gratuity_applicable == 1) : true;
 
     new bootstrap.Modal(document.getElementById('templateModal')).show();
     recalcTemplate();
@@ -545,13 +614,17 @@ function openCopyModal() {
 // ── Live reverse calculator ──
 function clearCalcResults() {
     ['calcBasicDa','calcLeave','calcBonus','calcHra','calcGross','calcPf','calcEsi','calcPt','calcLwf','calcTotalDed','calcNet','calcBasicPct'].forEach(function(id) {
-        document.getElementById(id).textContent = '₹ 0';
+        var el = document.getElementById(id);
+        if (el) el.textContent = '₹ 0';
     });
-    document.getElementById('calcBonusPct').textContent = '0%';
-    document.getElementById('calcLeavePct').textContent = '0%';
-    document.getElementById('calcFiftyFifty').innerHTML = '';
-    document.getElementById('calcWarnings').classList.add('d-none');
-    document.getElementById('calcWarnings').innerHTML = '';
+    var bp = document.getElementById('calcBonusPct'); if (bp) bp.textContent = '0%';
+    var lp = document.getElementById('calcLeavePct'); if (lp) lp.textContent = '0%';
+    var mw = document.getElementById('calcMinWage'); if (mw) mw.textContent = '—';
+    var lvl = document.getElementById('calcLevel'); if (lvl) lvl.textContent = '—';
+    var hc = document.getElementById('calcHraCapped'); if (hc) hc.classList.add('d-none');
+    var ff = document.getElementById('calcFiftyFifty'); if (ff) ff.innerHTML = '';
+    var w = document.getElementById('calcWarnings');
+    if (w) { w.classList.add('d-none'); w.innerHTML = ''; }
 }
 
 function fmt(n) { return '₹ ' + Number(n || 0).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
@@ -575,13 +648,13 @@ function recalcTemplate() {
         action: 'reverse_calc',
         net_salary: net,
         unit_id: UNIT_ID,
-        state: UNIT_STATE,
         worker_category: workerCategory,
-        pf: document.getElementById('stat_pf').checked ? '1' : '0',
+        // Send explicit overrides for the 4 statutory flags (Q1=A: defaults from unit, override allowed)
+        pf:  document.getElementById('stat_pf').checked  ? '1' : '0',
         esi: document.getElementById('stat_esi').checked ? '1' : '0',
-        pt: document.getElementById('stat_pt').checked ? '1' : '0',
-        lwf: document.getElementById('stat_lwf').checked ? '1' : '0',
-        bonus_applicable: document.getElementById('stat_bonus').checked ? '1' : '0'
+        pt:  document.getElementById('stat_pt').checked  ? '1' : '0',
+        lwf: document.getElementById('stat_lwf').checked ? '1' : '0'
+        // No bonus_applicable — bonus is always auto (skipped only if it would overshoot)
     };
 
     fetch('index.php?page=api/salary-calc', {
@@ -591,24 +664,49 @@ function recalcTemplate() {
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-        if (!data.success) return;
+        // Handle hard error (e.g. target below min wage, target not achievable)
+        if (!data.success) {
+            clearCalcResults();
+            var w = document.getElementById('calcWarnings');
+            w.classList.remove('d-none');
+            var errType = (data.data && data.data.error) ? data.data.error : 'ERROR';
+            var alertClass = 'alert-danger';
+            if (errType === 'TARGET_BELOW_MIN_WAGE') alertClass = 'alert-warning';
+            w.innerHTML = '<div class="alert ' + alertClass + ' py-2 small mb-0"><i class="bi bi-exclamation-octagon me-1"></i><strong>Cannot calculate:</strong> ' + (data.error || 'Unknown error') + '</div>';
+            return;
+        }
         var d = data.data;
         document.getElementById('calcBasicDa').textContent = fmt(d.basic_da);
-        document.getElementById('calcLeave').textContent = fmt(d.leave_encashment);
-        document.getElementById('calcBonus').textContent = fmt(d.bonus_encashment);
-        document.getElementById('calcHra').textContent = fmt(d.hra);
-        document.getElementById('calcGross').textContent = fmt(d.gross_salary);
-        document.getElementById('calcPf').textContent = fmt(d.deductions.pf);
-        document.getElementById('calcEsi').textContent = fmt(d.deductions.esi);
-        document.getElementById('calcPt').textContent = fmt(d.deductions.pt);
-        document.getElementById('calcLwf').textContent = fmt(d.deductions.lwf);
+        document.getElementById('calcLeave').textContent   = fmt(d.leave_encashment);
+        document.getElementById('calcBonus').textContent   = fmt(d.bonus_encashment);
+        document.getElementById('calcHra').textContent     = fmt(d.hra);
+        document.getElementById('calcGross').textContent   = fmt(d.gross_salary);
+        document.getElementById('calcPf').textContent      = fmt(d.deductions.pf);
+        document.getElementById('calcEsi').textContent     = fmt(d.deductions.esi);
+        document.getElementById('calcPt').textContent      = fmt(d.deductions.pt);
+        document.getElementById('calcLwf').textContent     = fmt(d.deductions.lwf);
         document.getElementById('calcTotalDed').textContent = fmt(d.total_deductions);
-        document.getElementById('calcNet').textContent = fmt(d.calculated_net);
+        document.getElementById('calcNet').textContent     = fmt(d.calculated_net);
         document.getElementById('calcBasicPct').textContent = d.basic_percent + '% of Gross';
+
+        // Min wage + escalation level
+        document.getElementById('calcMinWage').textContent = d.min_wage > 0 ? fmt(d.min_wage) : 'Not found';
+        var levelLabel = d.level_label || '—';
+        var levelClass = 'bg-info';
+        if (d.level_reached === 0) levelClass = 'bg-success';
+        else if (d.level_reached === 3) levelClass = 'bg-warning text-dark';
+        var lvlEl = document.getElementById('calcLevel');
+        lvlEl.textContent = levelLabel;
+        lvlEl.className = 'badge ms-1 ' + levelClass;
 
         // Auto-calculated bonus and leave percentages
         document.getElementById('calcBonusPct').textContent = d.bonus_percent + '%';
         document.getElementById('calcLeavePct').textContent = d.leave_percent + '%';
+
+        // HRA capped indicator
+        var hc = document.getElementById('calcHraCapped');
+        if (d.hra_capped) { hc.classList.remove('d-none'); }
+        else { hc.classList.add('d-none'); }
 
         // 50-50 indicator
         var ff = document.getElementById('calcFiftyFifty');
@@ -622,20 +720,35 @@ function recalcTemplate() {
         var ns = document.getElementById('calcNetStatus');
         var diff = Math.abs(parseFloat(d.calculated_net) - net);
         if (diff < 0.01) {
-            ns.innerHTML = ' <span class="badge bg-success">EXACT</span>';
+            ns.innerHTML = ' <span class="badge bg-success">EXACT MATCH</span>';
         } else {
             ns.innerHTML = ' <span class="badge bg-warning text-dark">Off by ₹' + diff.toFixed(2) + '</span>';
         }
 
-        // Warnings
+        // Warnings (escalation notes + min wage + non-convergence)
         var w = document.getElementById('calcWarnings');
+        var html = '';
         if (d.min_wage_warning) {
+            html += '<div class="alert alert-warning py-2 small mb-1"><i class="bi bi-exclamation-triangle me-1"></i>' + d.min_wage_warning + '</div>';
+        }
+        if (d.warnings && d.warnings.length) {
+            d.warnings.forEach(function(msg) {
+                var cls = msg.indexOf('✓') === 0 ? 'alert-success' : (msg.indexOf('⚠') === 0 ? 'alert-warning' : 'alert-info');
+                html += '<div class="alert ' + cls + ' py-1 small mb-1">' + msg + '</div>';
+            });
+        }
+        if (html) {
             w.classList.remove('d-none');
-            w.innerHTML = '<div class="alert alert-warning py-2 small mb-0"><i class="bi bi-exclamation-triangle me-1"></i>' + d.min_wage_warning + '</div>';
+            w.innerHTML = html;
         } else {
             w.classList.add('d-none');
             w.innerHTML = '';
         }
+    })
+    .catch(function(err) {
+        var w = document.getElementById('calcWarnings');
+        w.classList.remove('d-none');
+        w.innerHTML = '<div class="alert alert-danger py-2 small mb-0"><i class="bi bi-x-circle me-1"></i>Request failed: ' + err.message + '</div>';
     });
 }
 
@@ -648,8 +761,10 @@ function scheduleRecalc() {
 // Bind events
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('tplNetSalary').addEventListener('input', scheduleRecalc);
-    ['stat_pf','stat_esi','stat_pt','stat_lwf','stat_ot','stat_bonus','stat_gratuity'].forEach(function(id) {
-        document.getElementById(id).addEventListener('change', scheduleRecalc);
+    // Note: stat_bonus checkbox no longer exists (bonus always auto)
+    ['stat_pf','stat_esi','stat_pt','stat_lwf','stat_ot','stat_gratuity'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('change', scheduleRecalc);
     });
 });
 
@@ -665,7 +780,7 @@ function saveTemplate() {
     var workerCategory = catEl ? catEl.value : '';
     if (!workerCategory) { alert('Please select a Worker Category'); return; }
 
-    // Get calc values
+    // Get calc values from the displayed results
     var basicText = document.getElementById('calcBasicDa').textContent.replace(/[^\d.]/g, '');
     var hraText = document.getElementById('calcHra').textContent.replace(/[^\d.]/g, '');
     var leaveText = document.getElementById('calcLeave').textContent.replace(/[^\d.]/g, '');
@@ -673,6 +788,12 @@ function saveTemplate() {
     var grossText = document.getElementById('calcGross').textContent.replace(/[^\d.]/g, '');
     var bonusPctText = document.getElementById('calcBonusPct').textContent.replace('%','').trim();
     var leavePctText = document.getElementById('calcLeavePct').textContent.replace('%','').trim();
+
+    // Validate that calculation has been done (gross must be > 0)
+    if (!parseFloat(grossText) || parseFloat(grossText) <= 0) {
+        alert('Please wait for the auto-calculation to complete (enter net salary and select worker category).');
+        return;
+    }
 
     var data = {
         action: 'save_template',
@@ -693,7 +814,8 @@ function saveTemplate() {
         pt_applicable: document.getElementById('stat_pt').checked ? '1' : '0',
         lwf_applicable: document.getElementById('stat_lwf').checked ? '1' : '0',
         overtime_applicable: document.getElementById('stat_ot').checked ? '1' : '0',
-        bonus_applicable: document.getElementById('stat_bonus').checked ? '1' : '0',
+        // Bonus is always auto — saved as applicable=1 so it gets applied to employees
+        bonus_applicable: '1',
         gratuity_applicable: document.getElementById('stat_gratuity').checked ? '1' : '0',
         csrf_token: CSRF_TOKEN
     };

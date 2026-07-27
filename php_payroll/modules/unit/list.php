@@ -58,11 +58,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'client_id' => $clientId,
             'unit_name' => sanitize($_POST['unit_name']),
             'state' => $state,
+            'zone' => sanitize($_POST['zone'] ?? ''),
             'city' => sanitize($_POST['city'] ?? ''),
             'address' => sanitize($_POST['address'] ?? ''),
             'contact_person' => sanitize($_POST['contact_person'] ?? ''),
             'phone' => sanitize($_POST['phone'] ?? ''),
             'pincode' => sanitize($_POST['pincode'] ?? ''),
+            'pf_applicable'  => isset($_POST['pf_applicable'])  ? 1 : 0,
+            'esi_applicable' => isset($_POST['esi_applicable']) ? 1 : 0,
+            'pt_applicable'  => isset($_POST['pt_applicable'])  ? 1 : 0,
+            'lwf_applicable' => isset($_POST['lwf_applicable']) ? 1 : 0,
             'is_active' => isset($_POST['is_active']) ? 1 : 0
         ];
 
@@ -106,11 +111,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'client_id' => $clientId,
             'unit_name' => sanitize($_POST['unit_name']),
             'state' => $state,
+            'zone' => sanitize($_POST['zone'] ?? ''),
             'city' => sanitize($_POST['city'] ?? ''),
             'address' => sanitize($_POST['address'] ?? ''),
             'contact_person' => sanitize($_POST['contact_person'] ?? ''),
             'phone' => sanitize($_POST['phone'] ?? ''),
             'pincode' => sanitize($_POST['pincode'] ?? ''),
+            'pf_applicable'  => isset($_POST['pf_applicable'])  ? 1 : 0,
+            'esi_applicable' => isset($_POST['esi_applicable']) ? 1 : 0,
+            'pt_applicable'  => isset($_POST['pt_applicable'])  ? 1 : 0,
+            'lwf_applicable' => isset($_POST['lwf_applicable']) ? 1 : 0,
             'is_active' => isset($_POST['is_active']) ? 1 : 0
         ];
 
@@ -251,7 +261,9 @@ try {
                                 <th>Unit Code</th>
                                 <th>Unit Name</th>
                                 <th>State</th>
+                                <th>Zone</th>
                                 <th>City</th>
+                                <th>Statutory</th>
                                 <th>Pay Days</th>
                                 <th>OT Rate</th>
                                 <th>Contact</th>
@@ -268,7 +280,18 @@ try {
                                     <td><span class="badge bg-secondary"><?php echo sanitize($u['unit_code'] ?? '-'); ?></span></td>
                                     <td><strong><?php echo sanitize($u['unit_name'] ?? $u['name']); ?></strong></td>
                                     <td><?php echo sanitize($u['state'] ?? '-'); ?></td>
+                                    <td><?php echo !empty($u['zone']) ? sanitize($u['zone']) : '<span class="text-muted">—</span>'; ?></td>
                                     <td><?php echo sanitize($u['city'] ?? '-'); ?></td>
+                                    <td>
+                                        <?php
+                                            $statBadges = [];
+                                            if (!empty($u['pf_applicable'])  || $u['pf_applicable']  === null) $statBadges[] = '<span class="badge bg-primary-soft">PF</span>';
+                                            if (!empty($u['esi_applicable']) || $u['esi_applicable'] === null) $statBadges[] = '<span class="badge bg-success-soft">ESI</span>';
+                                            if (!empty($u['pt_applicable'])  || $u['pt_applicable']  === null) $statBadges[] = '<span class="badge bg-info-soft">PT</span>';
+                                            if (!empty($u['lwf_applicable']) || $u['lwf_applicable'] === null) $statBadges[] = '<span class="badge bg-warning-soft">LWF</span>';
+                                            echo implode(' ', $statBadges) ?: '<span class="text-muted">—</span>';
+                                        ?>
+                                    </td>
                                     <td><span class="badge bg-info"><?php echo $payDaysLabels[$u['pay_days_type'] ?? 'actual'] ?? 'Actual'; ?></span></td>
                                     <td><span class="badge bg-<?php echo ($u['ot_calculation_type'] ?? '') === 'double_pay' ? 'warning' : 'secondary'; ?>"><?php echo $otLabels[$u['ot_calculation_type'] ?? 'single_pay'] ?? 'Single'; ?></span></td>
                                     <td><?php echo sanitize($u['contact_person'] ?? '-'); ?></td>
@@ -300,7 +323,7 @@ try {
                                 <?php endforeach; ?>
                             <?php else: ?>
                                 <tr>
-                                    <td colspan="11" class="text-center text-muted py-4">No units found. Click "Add Unit" to create one.</td>
+                                    <td colspan="13" class="text-center text-muted py-4">No units found. Click "Add Unit" to create one.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>
@@ -346,7 +369,7 @@ try {
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label required">State</label>
-                            <select class="form-select" name="state" required>
+                            <select class="form-select" name="state" id="add_state" required>
                                 <option value="">Select State</option>
                                 <?php foreach ($statesList as $state): ?>
                                 <option value="<?php echo htmlspecialchars($state, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($state, ENT_QUOTES, 'UTF-8'); ?></option>
@@ -357,6 +380,11 @@ try {
                             <label class="form-label">City</label>
                             <input type="text" class="form-control" name="city">
                         </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Minimum Wage Zone</label>
+                        <input type="text" class="form-control" name="zone" id="add_zone" placeholder="e.g. Zone I, Zone II, Zone III (leave blank for state-wide rate)">
+                        <small class="text-muted">Used to look up the correct minimum wage for this unit's location. Leave blank to use state-wide rate.</small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Address</label>
@@ -379,6 +407,27 @@ try {
                     <div class="form-check">
                         <input type="checkbox" class="form-check-input" name="is_active" id="add_is_active" checked>
                         <label class="form-check-label" for="add_is_active">Active</label>
+                    </div>
+                    <hr class="my-3">
+                    <h6 class="text-primary mb-3"><i class="bi bi-shield-check me-1"></i>Statutory Configuration</h6>
+                    <small class="text-muted d-block mb-2">These are the unit-level defaults. Salary templates and employees inherit these defaults but can override them individually.</small>
+                    <div class="d-flex flex-wrap gap-3 mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="pf_applicable" id="add_pf_applicable" checked>
+                            <label class="form-check-label small" for="add_pf_applicable">PF Applicable</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="esi_applicable" id="add_esi_applicable" checked>
+                            <label class="form-check-label small" for="add_esi_applicable">ESI Applicable</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="pt_applicable" id="add_pt_applicable" checked>
+                            <label class="form-check-label small" for="add_pt_applicable">PT Applicable</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="lwf_applicable" id="add_lwf_applicable" checked>
+                            <label class="form-check-label small" for="add_lwf_applicable">LWF Applicable</label>
+                        </div>
                     </div>
                     <hr class="my-3">
                     <h6 class="text-primary mb-3"><i class="bi bi-calculator me-1"></i>Salary Formula Settings</h6>
@@ -473,6 +522,11 @@ try {
                         </div>
                     </div>
                     <div class="mb-3">
+                        <label class="form-label">Minimum Wage Zone</label>
+                        <input type="text" class="form-control" name="zone" id="edit_zone" placeholder="e.g. Zone I, Zone II, Zone III (leave blank for state-wide rate)">
+                        <small class="text-muted">Used to look up the correct minimum wage for this unit's location. Leave blank to use state-wide rate.</small>
+                    </div>
+                    <div class="mb-3">
                         <label class="form-label">Address</label>
                         <textarea class="form-control" name="address" id="edit_address" rows="2"></textarea>
                     </div>
@@ -493,6 +547,27 @@ try {
                     <div class="form-check">
                         <input type="checkbox" class="form-check-input" name="is_active" id="edit_is_active">
                         <label class="form-check-label" for="edit_is_active">Active</label>
+                    </div>
+                    <hr class="my-3">
+                    <h6 class="text-primary mb-3"><i class="bi bi-shield-check me-1"></i>Statutory Configuration</h6>
+                    <small class="text-muted d-block mb-2">These are the unit-level defaults. Salary templates and employees inherit these defaults but can override them individually.</small>
+                    <div class="d-flex flex-wrap gap-3 mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="pf_applicable" id="edit_pf_applicable" checked>
+                            <label class="form-check-label small" for="edit_pf_applicable">PF Applicable</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="esi_applicable" id="edit_esi_applicable" checked>
+                            <label class="form-check-label small" for="edit_esi_applicable">ESI Applicable</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="pt_applicable" id="edit_pt_applicable" checked>
+                            <label class="form-check-label small" for="edit_pt_applicable">PT Applicable</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="lwf_applicable" id="edit_lwf_applicable" checked>
+                            <label class="form-check-label small" for="edit_lwf_applicable">LWF Applicable</label>
+                        </div>
                     </div>
                     <hr class="my-3">
                     <h6 class="text-primary mb-3"><i class="bi bi-calculator me-1"></i>Salary Formula Settings</h6>
@@ -593,12 +668,18 @@ window.editUnit = function(u) {
     $('#edit_unit_name').val(u.unit_name || u.name);
     $('#edit_unit_code').val(u.unit_code || '');
     $('#edit_state').val(u.state || '');
+    $('#edit_zone').val(u.zone || '');
     $('#edit_city').val(u.city || '');
     $('#edit_address').val(u.address || '');
     $('#edit_pincode').val(u.pincode || '');
     $('#edit_contact_person').val(u.contact_person || '');
     $('#edit_phone').val(u.contact_phone || u.phone || '');
     $('#edit_is_active').prop('checked', u.is_active == 1);
+    // Statutory config (with safe fallbacks for units created before migration)
+    $('#edit_pf_applicable').prop('checked', u.pf_applicable == 1 || u.pf_applicable === undefined || u.pf_applicable === null);
+    $('#edit_esi_applicable').prop('checked', u.esi_applicable == 1 || u.esi_applicable === undefined || u.esi_applicable === null);
+    $('#edit_pt_applicable').prop('checked', u.pt_applicable == 1 || u.pt_applicable === undefined || u.pt_applicable === null);
+    $('#edit_lwf_applicable').prop('checked', u.lwf_applicable == 1 || u.lwf_applicable === undefined || u.lwf_applicable === null);
     // Salary formula fields
     $('#edit_pay_days_type').val(u.pay_days_type || 'actual');
     $('#edit_ot_calculation_type').val(u.ot_calculation_type || 'single_pay');
