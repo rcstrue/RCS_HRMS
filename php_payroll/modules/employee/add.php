@@ -356,9 +356,20 @@ try {
 
 $designations = [];
 try {
-    $designations = $db->query("SELECT id, name FROM designations ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+    // Detect whether worker_category column exists (migration may not be run yet)
+    $hasDesCatCol = !empty($db->fetch("SHOW COLUMNS FROM designations LIKE 'worker_category'"));
+    if ($hasDesCatCol) {
+        $designations = $db->query("SELECT id, name, COALESCE(NULLIF(worker_category,''),'Unskilled') AS worker_category FROM designations ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+    } else {
+        $designations = $db->query("SELECT id, name, 'Unskilled' AS worker_category FROM designations ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+    }
 } catch (Exception $e) {
     error_log('Failed to load designations: ' . $e->getMessage());
+}
+// Lookup map: designation name => worker_category (used by JS auto-populate)
+$designationCategoryMap = [];
+foreach ($designations as $d) {
+    $designationCategoryMap[$d['name']] = $d['worker_category'] ?? 'Unskilled';
 }
 
 // Salary components for display
@@ -561,18 +572,22 @@ $relationships = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Bro
                         </div>
                         <div class="col-md-3 mb-3">
                             <label for="designation" class="form-label">Designation</label>
-                            <select class="form-select" id="designation" name="designation">
+                            <select class="form-select" id="designation" name="designation"
+                                    onchange="autoFillWorkerCategory(this)">
                                 <option value="">Select Designation</option>
                                 <?php foreach ($designations as $des): ?>
-                                <option value="<?php echo sanitize($des['name']); ?>" <?php echo ($employeeData['designation'] ?? '') == $des['name'] ? 'selected' : ''; ?>>
+                                <option value="<?php echo sanitize($des['name']); ?>"
+                                        data-category="<?php echo sanitize($des['worker_category'] ?? 'Unskilled'); ?>"
+                                        <?php echo ($employeeData['designation'] ?? '') == $des['name'] ? 'selected' : ''; ?>>
                                     <?php echo sanitize($des['name']); ?>
                                 </option>
                                 <?php endforeach; ?>
                             </select>
+                            <div class="form-text">Selecting a designation auto-fills Worker Category.</div>
                         </div>
                         <div class="col-md-3 mb-3">
                             <label for="department" class="form-label">Department</label>
-                            <input type="text" class="form-control" id="department" name="department" 
+                            <input type="text" class="form-control" id="department" name="department"
                                    value="<?php echo sanitize($employeeData['department'] ?? ''); ?>">
                         </div>
                         <div class="col-md-3 mb-3">
@@ -584,6 +599,7 @@ $relationships = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Bro
                                 </option>
                                 <?php endforeach; ?>
                             </select>
+                            <div class="form-text">Auto-filled from designation; editable if needed.</div>
                         </div>
                         <div class="col-md-3 mb-3">
                             <label for="employment_type" class="form-label">Employment Type</label>
@@ -887,6 +903,41 @@ document.getElementById('client_id')?.addEventListener('change', function() {
             });
     } else {
         unitSelect.innerHTML = '<option value="">Select Unit</option>';
+    }
+});
+
+// Auto-populate Worker Category from the selected Designation
+// (the option carries a data-category attribute sourced from the
+//  designations.worker_category column)
+function autoFillWorkerCategory(designationSelect) {
+    const opt = designationSelect.options[designationSelect.selectedIndex];
+    const cat = opt ? (opt.getAttribute('data-category') || '') : '';
+    const wcSelect = document.getElementById('worker_category');
+    if (!wcSelect || !cat) return;
+
+    // Try exact match first
+    let matched = false;
+    for (const o of wcSelect.options) {
+        if (o.value === cat) { o.selected = true; matched = true; break; }
+    }
+    // Fallback: case-insensitive match (handles "Semi-skilled" vs "Semi-Skilled")
+    if (!matched) {
+        const lower = cat.toLowerCase();
+        for (const o of wcSelect.options) {
+            if (o.value.toLowerCase() === lower) { o.selected = true; matched = true; break; }
+        }
+    }
+    if (matched) {
+        wcSelect.classList.add('is-valid');
+        setTimeout(() => wcSelect.classList.remove('is-valid'), 1200);
+    }
+}
+
+// On page load, if a designation is already selected (edit mode), sync the category
+document.addEventListener('DOMContentLoaded', function() {
+    const des = document.getElementById('designation');
+    if (des && des.value) {
+        autoFillWorkerCategory(des);
     }
 });
 

@@ -114,3 +114,30 @@ Work Log:
 Stage Summary:
 - attendance_summary UPDATE now works for existing rows
 - Saving team attendance data works end-to-end
+
+---
+Task ID: 9
+Agent: main
+Task: Add Designations page (worker category + show-in-app) in employee module; auto-populate worker_category from designation into employees table
+
+Work Log:
+- Created database/designations_worker_category_migration.sql — ALTER TABLE designations ADD COLUMN worker_category VARCHAR(50) DEFAULT 'Unskilled' (+ backfill + index). Idempotent.
+- Created php_payroll/modules/employee/run-designation-migration.php — browser-based migration runner (idempotent, safe to run multiple times).
+- Rewrote php_payroll/modules/employee/designation.php:
+  * Add/Edit modals now include a Worker Category select (Unskilled, Semi-skilled, Skilled, Highly Skilled).
+  * Table shows a Worker Category column with colour-coded badges.
+  * Show-in-App (desi_view) toggle retained.
+  * AJAX add/update/delete/toggle handlers updated to persist worker_category; degrade gracefully if migration not yet run (column-existence check via SHOW COLUMNS).
+  * Warning banner + link to migration runner when worker_category column is missing.
+  * Hardened inline JSON in onclick with JSON_HEX_APOS/QUOT flags (apostrophe-safe).
+- Updated php_payroll/modules/employee/add.php:
+  * Designations query now also fetches worker_category (resilient to missing column).
+  * Each <option> carries data-category; onchange=autoFillWorkerCategory() auto-selects the matching Worker Category (case-insensitive fallback) — still editable by user.
+  * DOMContentLoaded sync for edit mode (designation pre-selected).
+- Added 'employee/run-designation-migration' to breadcrumb page titles in templates/header.php.
+
+Stage Summary:
+- DB: migration SQL + PHP runner ready (user runs once on live DB via phpMyAdmin or browser).
+- Backend: designation.php fully supports worker_category (add/edit/list/delete/toggle).
+- Frontend: employee Add/Edit form auto-fills Worker Category from the chosen Designation.
+- NOTE: MySQL not available in local sandbox — migration must be executed by user on the live database (visit index.php?page=employee/run-designation-migration as admin, or run the SQL in phpMyAdmin).

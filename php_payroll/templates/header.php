@@ -418,6 +418,7 @@
                             'employee/id-card'  => 'ID Card',
                             'employee/id-card-fixed' => 'ID Card',
                             'employee/designation'=> 'Designations',
+                            'employee/run-designation-migration'=> 'Run Designation Migration',
                             'employee/esic-import'=> 'Import ESIC IP Data',
                             'employee/data-sync' => 'Data Matching',
                             // Attendance
