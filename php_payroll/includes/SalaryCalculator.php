@@ -597,7 +597,7 @@ function _lookupPT($db, string $state, float $salaryEstimate): float {
         $row = $db->fetch(
             "SELECT ptr.pt_amount FROM professional_tax_rates ptr
              JOIN states s ON ptr.state_id = s.id
-             WHERE (s.state_code = ? OR s.state_name = ?)
+             WHERE (LOWER(s.state_code) = LOWER(?) OR LOWER(s.state_name) = LOWER(?))
              AND ptr.salary_from <= ?
              AND (ptr.salary_to IS NULL OR ptr.salary_to >= ?)
              AND ptr.is_active = 1
@@ -618,7 +618,7 @@ function _lookupLWF($db, string $state): float {
     try {
         $row = $db->fetch(
             "SELECT employee_contribution FROM lwf_rates
-             WHERE (state_code = ? OR state = ?) AND is_active = 1 LIMIT 1",
+             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1",
             [$state, $state]
         );
         return floatval($row['employee_contribution'] ?? 0);
@@ -656,8 +656,8 @@ function _lookupMinWage($db, string $state, string $zone, string $category, stri
     $zone = trim($zone);
 
     // Resolve the wage-value column once (total_per_month preferred,
-    // fallback to basic_per_month + da_per_month).
-    $wageExpr = 'COALESCE(NULLIF(total_per_month,0), (COALESCE(basic_per_month,0) + COALESCE(da_per_month,0)), 0)';
+    // fallback to basic_per_month + vda_per_month).
+    $wageExpr = 'COALESCE(NULLIF(total_per_month,0), (COALESCE(basic_per_month,0) + COALESCE(vda_per_month,0)), 0)';
 
     try {
         // Priority 1: state + exact zone + category
@@ -665,8 +665,8 @@ function _lookupMinWage($db, string $state, string $zone, string $category, stri
             $row = $db->fetch(
                 "SELECT {$wageExpr} AS wage FROM minimum_wages mw
                  JOIN states s ON s.id = mw.state_id
-                 WHERE (s.state_name = ? OR s.state_code = ?)
-                 AND mw.zone = ?
+                 WHERE (LOWER(s.state_name) = LOWER(?) OR LOWER(s.state_code) = LOWER(?))
+                 AND LOWER(mw.zone) = LOWER(?)
                  AND LOWER(mw.worker_category) = LOWER(?)
                  AND mw.effective_from <= ?
                  AND (mw.is_active = 1 OR mw.is_active IS NULL)
@@ -682,7 +682,7 @@ function _lookupMinWage($db, string $state, string $zone, string $category, stri
         $row = $db->fetch(
             "SELECT {$wageExpr} AS wage FROM minimum_wages mw
              JOIN states s ON s.id = mw.state_id
-             WHERE (s.state_name = ? OR s.state_code = ?)
+             WHERE (LOWER(s.state_name) = LOWER(?) OR LOWER(s.state_code) = LOWER(?))
              AND (mw.zone IS NULL OR mw.zone = '')
              AND LOWER(mw.worker_category) = LOWER(?)
              AND mw.effective_from <= ?
@@ -698,7 +698,7 @@ function _lookupMinWage($db, string $state, string $zone, string $category, stri
         $row = $db->fetch(
             "SELECT {$wageExpr} AS wage FROM minimum_wages mw
              JOIN states s ON s.id = mw.state_id
-             WHERE (s.state_name = ? OR s.state_code = ?)
+             WHERE (LOWER(s.state_name) = LOWER(?) OR LOWER(s.state_code) = LOWER(?))
              AND LOWER(mw.worker_category) = LOWER(?)
              AND mw.effective_from <= ?
              AND (mw.is_active = 1 OR mw.is_active IS NULL)
@@ -750,7 +750,7 @@ function _minWageDiagnostics($db, string $state, string $zone, string $category)
     }
     try {
         $st = $db->fetch(
-            "SELECT id FROM states WHERE state_name = ? OR state_code = ? LIMIT 1",
+            "SELECT id FROM states WHERE LOWER(state_name) = LOWER(?) OR LOWER(state_code) = LOWER(?) LIMIT 1",
             [$state, $state]
         );
         $diag['state_found'] = !empty($st);
@@ -762,7 +762,7 @@ function _minWageDiagnostics($db, string $state, string $zone, string $category)
         $countRow = $db->fetch(
             "SELECT COUNT(*) c FROM minimum_wages mw
              JOIN states s ON s.id = mw.state_id
-             WHERE (s.state_name = ? OR s.state_code = ?)
+             WHERE (LOWER(s.state_name) = LOWER(?) OR LOWER(s.state_code) = LOWER(?))
                AND (mw.is_active = 1 OR mw.is_active IS NULL)",
             [$state, $state]
         );
@@ -776,7 +776,7 @@ function _minWageDiagnostics($db, string $state, string $zone, string $category)
         $catRows = $db->fetchAll(
             "SELECT DISTINCT mw.worker_category FROM minimum_wages mw
              JOIN states s ON s.id = mw.state_id
-             WHERE (s.state_name = ? OR s.state_code = ?)
+             WHERE (LOWER(s.state_name) = LOWER(?) OR LOWER(s.state_code) = LOWER(?))
                AND (mw.is_active = 1 OR mw.is_active IS NULL)",
             [$state, $state]
         );
@@ -785,7 +785,7 @@ function _minWageDiagnostics($db, string $state, string $zone, string $category)
         $zoneRows = $db->fetchAll(
             "SELECT DISTINCT mw.zone FROM minimum_wages mw
              JOIN states s ON s.id = mw.state_id
-             WHERE (s.state_name = ? OR s.state_code = ?)
+             WHERE (LOWER(s.state_name) = LOWER(?) OR LOWER(s.state_code) = LOWER(?))
                AND mw.zone IS NOT NULL AND mw.zone <> ''
                AND (mw.is_active = 1 OR mw.is_active IS NULL)",
             [$state, $state]
