@@ -338,6 +338,7 @@ $csrfToken = generateCSRFToken();
                                             <span class="text-muted">Min Wage:</span>
                                             <strong id="calcMinWage">—</strong>
                                             <span class="badge bg-info ms-1" id="calcLevel">—</span>
+                                            <div id="calcMinWageDebug" class="small text-danger mt-1" style="display:none;"></div>
                                         </div>
                                     </div>
                                 </div></div>
@@ -691,6 +692,27 @@ function recalcTemplate() {
 
         // Min wage + escalation level
         document.getElementById('calcMinWage').textContent = d.min_wage > 0 ? fmt(d.min_wage) : 'Not found';
+
+        // Min wage diagnostic (explains why it's 0 / Not found)
+        var dbgEl = document.getElementById('calcMinWageDebug');
+        if (dbgEl) {
+            var dbg = d.min_wage_debug;
+            if (d.min_wage > 0 || !dbg) {
+                dbgEl.style.display = 'none';
+                dbgEl.textContent = '';
+            } else {
+                var msg = dbg.reason || 'Min wage not found.';
+                var extra = '';
+                if (dbg.categories_for_state && dbg.categories_for_state.length) {
+                    extra += ' | Categories in DB: ' + dbg.categories_for_state.join(', ');
+                }
+                if (dbg.zones_for_state && dbg.zones_for_state.length) {
+                    extra += ' | Zones: ' + dbg.zones_for_state.join(', ');
+                }
+                dbgEl.textContent = msg + extra;
+                dbgEl.style.display = 'block';
+            }
+        }
         var levelLabel = d.level_label || '—';
         var levelClass = 'bg-info';
         if (d.level_reached === 0) levelClass = 'bg-success';

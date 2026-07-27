@@ -179,3 +179,32 @@ Work Log:
 
 Stage Summary:
 - All AJAX actions (toggle, inline category edit, add, update, delete) now show success/error toasts instead of throwing ReferenceError.
+
+---
+Task ID: 12
+Agent: main
+Task: Fix "Min Wage: Not found" on salary template + add zone dropdown to unit form (zones from minimum_wages table)
+
+Work Log:
+- ROOT CAUSE of "Min Wage: Not found": _lookupMinWage() in SalaryCalculator.php queried NON-EXISTENT columns on the minimum_wages table:
+    SELECT minimum_wage FROM minimum_wages WHERE state = ? AND designation LIKE '%category%'
+  But the actual schema (populated by the Simpliance sync) is:
+    state_id (INT FK → states.id), worker_category (VARCHAR), zone (VARCHAR), total_per_month (the wage value)
+  So every lookup silently returned 0 ("Not found").
+- FIX: Rewrote _lookupMinWage() to:
+    * JOIN states s ON s.id = mw.state_id WHERE (s.state_name = ? OR s.state_code = ?)
+    * Match worker_category with LOWER() = LOWER() (case-insensitive — sync stores 'Semi-Skilled', UI sends 'Semi-skilled')
+    * Use COALESCE(NULLIF(total_per_month,0), basic_per_month+da_per_month, 0) as the wage value
+    * 3-level fallback: exact zone → state-wide (zone NULL/'') → any zone for the state
+    * is_active = 1 OR IS NULL (safe for tables without the flag)
+- Also fixed legacy _checkMinWage() which had the same broken query (now delegates to _lookupMinWage).
+- Added _minWageDiagnostics() helper: returns state_found, rows_for_state, categories_for_state, zones_for_state, category_matched, reason. Surfaced in salary-calc API response as data.min_wage_debug so the UI can show WHY min wage is 0 (e.g. "State not found", "No rows — run sync", "Category X not found, available: ...").
+- salary-templates.php UI: added #calcMinWageDebug line under "Min Wage: Not found" that shows the diagnostic reason + available categories/zones in the DB.
+- NEW api/mw-zones.php endpoint: returns distinct zones for a state from minimum_wages (for populating the unit form zone dropdown). Registered 'mw-zones' => 'unit' in $apiModuleMap.
+- unit/list.php: changed Zone field from free-text <input> to <select> in both Add and Edit modals. Added loadMwZones() JS that fetches zones from api/mw-zones when the state changes, pre-selects the saved zone in edit mode (and preserves it if not in the list), with helpful status text. editUnit() now loads zones async before showing the modal.
+
+Stage Summary:
+- Min wage lookup now queries the correct schema (state_id JOIN + worker_category + total_per_month) — Gujarat/Unskilled will resolve if the sync has run for Gujarat.
+- When min wage is still 0, the UI shows the exact reason (state not found / no rows / category mismatch + available categories).
+- Unit form Zone field is now a dropdown populated from the minimum_wages table for the selected state — no more guessing zone names.
+- NOTE: user must ensure the minimum-wage sync has been run for Gujarat (and other states) so minimum_wages has rows. If rows exist but lookup still fails, the new diagnostic will say exactly why.

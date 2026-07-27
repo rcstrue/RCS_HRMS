@@ -630,57 +630,83 @@ function _lookupLWF($db, string $state): float {
 /**
  * Look up minimum wage for a worker category in a state + zone.
  *
+ * SCHEMA: the `minimum_wages` table is populated by the Simpliance sync and
+ * stores rows keyed by `state_id` (FK → states.id) + `worker_category`
+ * (VARCHAR e.g. 'Unskilled','Semi-Skilled','Skilled','Highly Skilled') +
+ * `zone` (VARCHAR, NULL for state-wide) + `effective_from`. The wage value
+ * is in `total_per_month` (basic + DA + HRA etc.) with `basic_per_month` +
+ * `da_per_month` as a fallback.
+ *
+ * NOTE: previous versions of this function queried non-existent columns
+ * (`minimum_wage`, `state`, `designation LIKE …`) which silently returned
+ * 0 ("Not found"). This version joins `states` to resolve the state name →
+ * state_id, and matches `worker_category` case-insensitively (the sync
+ * stores 'Semi-Skilled' but the UI may send 'Semi-skilled').
+ *
  * Lookup priority:
- *   1. Exact match: state + zone + category + effective_from <= date
- *   2. State-wide:  state + zone IS NULL + category + effective_from <= date
- *   3. All-India:   state='All' + category + effective_from <= date
+ *   1. state + zone + category + effective_from <= date
+ *   2. state + zone IS NULL/'' + category + effective_from <= date  (state-wide)
+ *   3. any zone for state + category + effective_from <= date        (zone fallback)
  *
  * Returns 0 if not found.
  */
 function _lookupMinWage($db, string $state, string $zone, string $category, string $date): float {
-    if (!$category) return 0;
+    if (!$category || !$state) return 0;
     $effDate = $date ?: date('Y-m-d');
+    $zone = trim($zone);
+
+    // Resolve the wage-value column once (total_per_month preferred,
+    // fallback to basic_per_month + da_per_month).
+    $wageExpr = 'COALESCE(NULLIF(total_per_month,0), (COALESCE(basic_per_month,0) + COALESCE(da_per_month,0)), 0)';
 
     try {
-        // Priority 1: state + zone + category
-        if ($zone) {
+        // Priority 1: state + exact zone + category
+        if ($zone !== '') {
             $row = $db->fetch(
-                "SELECT minimum_wage FROM minimum_wages
-                 WHERE state = ? AND zone = ?
-                 AND designation LIKE CONCAT('%', ?, '%')
-                 AND effective_from <= ?
-                 ORDER BY effective_from DESC LIMIT 1",
-                [$state, $zone, $category, $effDate]
+                "SELECT {$wageExpr} AS wage FROM minimum_wages mw
+                 JOIN states s ON s.id = mw.state_id
+                 WHERE (s.state_name = ? OR s.state_code = ?)
+                 AND mw.zone = ?
+                 AND LOWER(mw.worker_category) = LOWER(?)
+                 AND mw.effective_from <= ?
+                 AND (mw.is_active = 1 OR mw.is_active IS NULL)
+                 ORDER BY mw.effective_from DESC LIMIT 1",
+                [$state, $state, $zone, $category, $effDate]
             );
-            if ($row && floatval($row['minimum_wage']) > 0) {
-                return floatval($row['minimum_wage']);
+            if ($row && floatval($row['wage']) > 0) {
+                return floatval($row['wage']);
             }
         }
 
-        // Priority 2: state + zone IS NULL (state-wide rate for category)
+        // Priority 2: state + zone IS NULL/'' (state-wide rate)
         $row = $db->fetch(
-            "SELECT minimum_wage FROM minimum_wages
-             WHERE state = ? AND (zone IS NULL OR zone = '')
-             AND designation LIKE CONCAT('%', ?, '%')
-             AND effective_from <= ?
-             ORDER BY effective_from DESC LIMIT 1",
-            [$state, $category, $effDate]
+            "SELECT {$wageExpr} AS wage FROM minimum_wages mw
+             JOIN states s ON s.id = mw.state_id
+             WHERE (s.state_name = ? OR s.state_code = ?)
+             AND (mw.zone IS NULL OR mw.zone = '')
+             AND LOWER(mw.worker_category) = LOWER(?)
+             AND mw.effective_from <= ?
+             AND (mw.is_active = 1 OR mw.is_active IS NULL)
+             ORDER BY mw.effective_from DESC LIMIT 1",
+            [$state, $state, $category, $effDate]
         );
-        if ($row && floatval($row['minimum_wage']) > 0) {
-            return floatval($row['minimum_wage']);
+        if ($row && floatval($row['wage']) > 0) {
+            return floatval($row['wage']);
         }
 
-        // Priority 3: state='All' + category (all-India fallback)
+        // Priority 3: state + any zone (zone fallback) + category
         $row = $db->fetch(
-            "SELECT minimum_wage FROM minimum_wages
-             WHERE (state = 'All' OR state = '')
-             AND designation LIKE CONCAT('%', ?, '%')
-             AND effective_from <= ?
-             ORDER BY effective_from DESC LIMIT 1",
-            [$category, $effDate]
+            "SELECT {$wageExpr} AS wage FROM minimum_wages mw
+             JOIN states s ON s.id = mw.state_id
+             WHERE (s.state_name = ? OR s.state_code = ?)
+             AND LOWER(mw.worker_category) = LOWER(?)
+             AND mw.effective_from <= ?
+             AND (mw.is_active = 1 OR mw.is_active IS NULL)
+             ORDER BY (mw.zone IS NULL OR mw.zone = '') DESC, mw.effective_from DESC LIMIT 1",
+            [$state, $state, $category, $effDate]
         );
-        if ($row && floatval($row['minimum_wage']) > 0) {
-            return floatval($row['minimum_wage']);
+        if ($row && floatval($row['wage']) > 0) {
+            return floatval($row['wage']);
         }
     } catch (\Throwable $e) {
         // Fall through to return 0
@@ -690,24 +716,100 @@ function _lookupMinWage($db, string $state, string $zone, string $category, stri
 
 /**
  * Legacy min wage check helper — kept for backward compatibility.
+ * Fixed to use the correct minimum_wages schema (state_id JOIN, worker_category, total_per_month).
  */
 function _checkMinWage($db, string $state, string $category, string $date, float $gross): ?string {
     if (!$state && !$category) return null;
-    try {
-        $row = $db->fetch(
-            "SELECT minimum_wage FROM minimum_wages
-             WHERE (state = ? OR state = 'All')
-             AND designation LIKE CONCAT('%', ?, '%')
-             AND effective_from <= ?
-             ORDER BY effective_from DESC LIMIT 1",
-            [$state ?: 'All', $category, $date ?: date('Y-m-d')]
-        );
-        $minWage = floatval($row['minimum_wage'] ?? 0);
-        if ($minWage > 0 && $gross > 0 && $gross < $minWage) {
-            return "Gross {$gross} is below minimum wage {$minWage} for {$category}";
-        }
-    } catch (\Throwable $e) {}
+    $minWage = _lookupMinWage($db, $state, '', $category, $date ?: date('Y-m-d'));
+    if ($minWage > 0 && $gross > 0 && $gross < $minWage) {
+        return "Gross {$gross} is below minimum wage {$minWage} for {$category}";
+    }
     return null;
+}
+
+/**
+ * Diagnostics for min-wage lookup — explains WHY the lookup returned 0.
+ * Returned to the UI so the user knows whether to run the sync, fix the
+ * state name, pick a different category, or select a zone.
+ */
+function _minWageDiagnostics($db, string $state, string $zone, string $category): array {
+    $diag = [
+        'state'              => $state,
+        'zone'               => $zone,
+        'category'           => $category,
+        'state_found'        => false,
+        'rows_for_state'     => 0,
+        'categories_for_state' => [],
+        'zones_for_state'    => [],
+        'category_matched'   => false,
+        'reason'             => '',
+    ];
+    if (!$state || !$category) {
+        $diag['reason'] = 'Missing state or worker category';
+        return $diag;
+    }
+    try {
+        $st = $db->fetch(
+            "SELECT id FROM states WHERE state_name = ? OR state_code = ? LIMIT 1",
+            [$state, $state]
+        );
+        $diag['state_found'] = !empty($st);
+        if (!$diag['state_found']) {
+            $diag['reason'] = "State '{$state}' not found in states table. Check the unit's State field or run the minimum-wage sync.";
+            return $diag;
+        }
+
+        $countRow = $db->fetch(
+            "SELECT COUNT(*) c FROM minimum_wages mw
+             JOIN states s ON s.id = mw.state_id
+             WHERE (s.state_name = ? OR s.state_code = ?)
+               AND (mw.is_active = 1 OR mw.is_active IS NULL)",
+            [$state, $state]
+        );
+        $diag['rows_for_state'] = (int)($countRow['c'] ?? 0);
+
+        if ($diag['rows_for_state'] === 0) {
+            $diag['reason'] = "No minimum_wages rows for state '{$state}'. Run the minimum-wage sync for this state.";
+            return $diag;
+        }
+
+        $catRows = $db->fetchAll(
+            "SELECT DISTINCT mw.worker_category FROM minimum_wages mw
+             JOIN states s ON s.id = mw.state_id
+             WHERE (s.state_name = ? OR s.state_code = ?)
+               AND (mw.is_active = 1 OR mw.is_active IS NULL)",
+            [$state, $state]
+        );
+        $diag['categories_for_state'] = array_map(function($r){ return $r['worker_category']; }, $catRows);
+
+        $zoneRows = $db->fetchAll(
+            "SELECT DISTINCT mw.zone FROM minimum_wages mw
+             JOIN states s ON s.id = mw.state_id
+             WHERE (s.state_name = ? OR s.state_code = ?)
+               AND mw.zone IS NOT NULL AND mw.zone <> ''
+               AND (mw.is_active = 1 OR mw.is_active IS NULL)",
+            [$state, $state]
+        );
+        $diag['zones_for_state'] = array_map(function($r){ return $r['zone']; }, $zoneRows);
+
+        // Does the requested category exist (case-insensitive)?
+        foreach ($diag['categories_for_state'] as $c) {
+            if (strtolower($c) === strtolower($category)) {
+                $diag['category_matched'] = true;
+                break;
+            }
+        }
+        if (!$diag['category_matched']) {
+            $list = $diag['categories_for_state'] ? implode(', ', $diag['categories_for_state']) : '(none)';
+            $diag['reason'] = "Category '{$category}' not found for state '{$state}'. Available categories: {$list}";
+            return $diag;
+        }
+
+        $diag['reason'] = 'OK — min wage should resolve. If still 0, check effective_from dates.';
+    } catch (\Throwable $e) {
+        $diag['reason'] = 'DB error during diagnostics: ' . $e->getMessage();
+    }
+    return $diag;
 }
 
 function _emptyResult(float $netSalary): array {

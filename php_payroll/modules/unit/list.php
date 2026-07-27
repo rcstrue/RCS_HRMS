@@ -383,8 +383,10 @@ try {
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Minimum Wage Zone</label>
-                        <input type="text" class="form-control" name="zone" id="add_zone" placeholder="e.g. Zone I, Zone II, Zone III (leave blank for state-wide rate)">
-                        <small class="text-muted">Used to look up the correct minimum wage for this unit's location. Leave blank to use state-wide rate.</small>
+                        <select class="form-select" name="zone" id="add_zone">
+                            <option value="">— State-wide rate (no zone) —</option>
+                        </select>
+                        <small class="text-muted" id="add_zone_help">Select the state first to load available zones from the minimum wage table. Leave blank to use the state-wide rate.</small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Address</label>
@@ -523,8 +525,10 @@ try {
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Minimum Wage Zone</label>
-                        <input type="text" class="form-control" name="zone" id="edit_zone" placeholder="e.g. Zone I, Zone II, Zone III (leave blank for state-wide rate)">
-                        <small class="text-muted">Used to look up the correct minimum wage for this unit's location. Leave blank to use state-wide rate.</small>
+                        <select class="form-select" name="zone" id="edit_zone">
+                            <option value="">— State-wide rate (no zone) —</option>
+                        </select>
+                        <small class="text-muted" id="edit_zone_help">Zones load from the minimum wage table for this unit's state. Leave blank to use the state-wide rate.</small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Address</label>
@@ -662,13 +666,70 @@ function generateUnitCodeForClient(clientId) {
 }
 
 // Global functions for onclick handlers
+
+// Load minimum-wage zones for a state into a <select> from api/mw-zones.
+// selectSel   = selector for the zone <select>
+// currentVal  = value to pre-select (used in edit modal)
+// helpSel     = selector for the small help text under the select
+window.loadMwZones = function(state, selectSel, currentVal, helpSel) {
+    var $sel = $(selectSel);
+    var $help = $(helpSel);
+    // reset to just the "state-wide" option
+    $sel.html('<option value="">— State-wide rate (no zone) —</option>');
+    if (!state) {
+        if ($help) $help.text('Select the state first to load available zones from the minimum wage table.');
+        return;
+    }
+    $sel.append('<option disabled>Loading zones…</option>');
+    if ($help) $help.text('Loading zones for ' + state + '…');
+    $.getJSON('index.php?page=api/mw-zones', { state: state })
+    .done(function(resp) {
+        $sel.find('option:disabled').remove();
+        if (!resp || !resp.success) {
+            if ($help) $help.text('Could not load zones — you can still save with state-wide rate.');
+            return;
+        }
+        var zones = resp.zones || [];
+        if (zones.length === 0) {
+            if ($help) $help.text(resp.state_found
+                ? 'No zone-specific rates for ' + state + ' — state-wide rate applies.'
+                : 'State not found in minimum wage table. Run the minimum-wage sync first.');
+            return;
+        }
+        zones.forEach(function(z) {
+            $sel.append('<option value="' + $('<div>').text(z).html() + '">' + $('<div>').text(z).html() + '</option>');
+        });
+        if (currentVal) {
+            $sel.val(currentVal);
+            if ($sel.val() !== currentVal) {
+                // value isn't in the list — add it so it isn't lost
+                $sel.append('<option value="' + $('<div>').text(currentVal).html() + '">' + $('<div>').text(currentVal).html() + ' (saved)</option>');
+                $sel.val(currentVal);
+            }
+        }
+        if ($help) $help.text(zones.length + ' zone(s) available for ' + state + '. Leave blank for state-wide rate.');
+    })
+    .fail(function() {
+        $sel.find('option:disabled').remove();
+        if ($help) $help.text('Could not load zones (network error). You can still save with state-wide rate.');
+    });
+};
+
+// Add form: load zones when state changes
+$(document).on('change', '#add_state', function() {
+    loadMwZones(this.value, '#add_zone', '', '#add_zone_help');
+});
+// Edit form: reload zones when state changes (clears previous selection)
+$(document).on('change', '#edit_state', function() {
+    loadMwZones(this.value, '#edit_zone', '', '#edit_zone_help');
+});
+
 window.editUnit = function(u) {
     $('#edit_unit_id').val(u.id);
     $('#edit_client_id').val(u.client_id);
     $('#edit_unit_name').val(u.unit_name || u.name);
     $('#edit_unit_code').val(u.unit_code || '');
     $('#edit_state').val(u.state || '');
-    $('#edit_zone').val(u.zone || '');
     $('#edit_city').val(u.city || '');
     $('#edit_address').val(u.address || '');
     $('#edit_pincode').val(u.pincode || '');
@@ -685,6 +746,8 @@ window.editUnit = function(u) {
     $('#edit_ot_calculation_type').val(u.ot_calculation_type || 'single_pay');
     $('#edit_ot_calculation_on').val(u.ot_calculation_on || 'basic_da');
     $('#edit_ot_hours_per_day').val(u.ot_hours_per_day || 8);
+    // Load zones for this unit's state, then pre-select the unit's saved zone
+    loadMwZones(u.state || '', '#edit_zone', u.zone || '', '#edit_zone_help');
     new bootstrap.Modal('#editUnitModal').show();
 };
 

@@ -114,6 +114,10 @@ if ($action === 'reverse_calc') {
     $result['pt_applicable']  = $ptApplicable;
     $result['lwf_applicable'] = $lwfApplicable;
 
+    // Diagnostic: explain WHY min wage is 0 (helps the user know whether to
+    // run the sync, fix the state, or pick a different category)
+    $result['min_wage_debug'] = _minWageDiagnostics($db, $unitState, $unitZone, $workerCategory);
+
     // If the calculator returned a hard error (e.g. target below min wage), surface it
     if (!empty($result['error'])) {
         echo json_encode([
