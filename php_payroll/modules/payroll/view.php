@@ -178,10 +178,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'detail') {
 }
 
 // Get filter parameters
-$month = isset($_GET['month']) ? (int)$_GET['month'] : (int)prev_month_num();
-$year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
-$clientFilter = isset($_GET['client']) ? sanitize($_GET['client']) : '';
-$unitFilter = isset($_GET['unit']) ? sanitize($_GET['unit']) : '';
+$month = getSessionFilter('month', prev_month_num());
+$year  = getSessionFilter('year', (int)date('Y'));
+$clientFilter = getSessionFilter('client', '');
+$unitFilter = getSessionFilter('unit', '');
 $statusFilter = isset($_GET['status']) ? sanitize($_GET['status']) : '';
 
 // Get clients for filter

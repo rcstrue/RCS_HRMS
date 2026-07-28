@@ -6,10 +6,10 @@
 $pageTitle = 'Bank Advice';
 
 // Get filter parameters
-$month = isset($_GET['month']) ? (int)$_GET['month'] : (int)prev_month_num();
-$year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
-$clientName = isset($_GET['client_name']) ? sanitize($_GET['client_name']) : '';
-$unitName = isset($_GET['unit_name']) ? sanitize($_GET['unit_name']) : '';
+$month = getSessionFilter('month', prev_month_num());
+$year  = getSessionFilter('year', (int)date('Y'));
+$clientName = getSessionFilter('client_name', '');
+$unitName = getSessionFilter('unit_name', '');
 
 // Get distinct month/year combos from payroll table
 $periods = $db->query(

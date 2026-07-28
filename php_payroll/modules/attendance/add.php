@@ -15,13 +15,13 @@ try {
     // Table doesn't exist
 }
 
-// Get selected filters - default to previous month
+// Get selected filters - default to previous month, remembered across pages
 $previousMonth = prev_month_num();
 $previousYear = prev_month_year();
-$selectedClient = isset($_GET['client_id']) ? (int)$_GET['client_id'] : null;
-$selectedUnit = isset($_GET['unit_id']) ? (int)$_GET['unit_id'] : null;
-$selectedMonth = isset($_GET['month']) ? (int)$_GET['month'] : $previousMonth;
-$selectedYear = isset($_GET['year']) ? (int)$_GET['year'] : $previousYear;
+$selectedClient = getSessionFilter('client_id', null);
+$selectedUnit = getSessionFilter('unit_id', null);
+$selectedMonth = getSessionFilter('month', $previousMonth);
+$selectedYear = getSessionFilter('year', $previousYear);
 
 // Ensure attendance_summary table exists
 try {
