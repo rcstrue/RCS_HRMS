@@ -177,28 +177,28 @@ if (isset($_GET['action']) && $_GET['action'] === 'detail') {
     exit;
 }
 
-// Get filter parameters
+// Get filter parameters (shared session memory with all other pages)
 $month = getSessionFilter('month', prev_month_num());
 $year  = getSessionFilter('year', (int)date('Y'));
-$clientFilter = getSessionFilter('client', '');
-$unitFilter = getSessionFilter('unit', '');
+$clientFilter = getSessionFilter('client_id', 0);
+$unitFilter   = getSessionFilter('unit_id', 0);
 $statusFilter = isset($_GET['status']) ? sanitize($_GET['status']) : '';
 
 // Get clients for filter
-$clients = $db->query("SELECT DISTINCT c.name as client_name FROM employees e LEFT JOIN clients c ON e.client_id = c.id WHERE c.name IS NOT NULL AND c.name != '' ORDER BY client_name")->fetchAll(PDO::FETCH_ASSOC);
+$clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
 
 // Build query
 $where = "p.month = :month AND p.year = :year";
 $params = [':month' => $month, ':year' => $year];
 
 if ($clientFilter) {
-    $where .= " AND c.name = :client";
-    $params[':client'] = $clientFilter;
+    $where .= " AND e.client_id = :client_id";
+    $params[':client_id'] = $clientFilter;
 }
 
 if ($unitFilter) {
-    $where .= " AND u.name = :unit";
-    $params[':unit'] = $unitFilter;
+    $where .= " AND e.unit_id = :unit_id";
+    $params[':unit_id'] = $unitFilter;
 }
 
 if ($statusFilter) {
@@ -244,9 +244,13 @@ foreach ($payrollData as $row) {
 // Get units for filter
 $units = [];
 if ($clientFilter) {
-    $stmt = $db->prepare("SELECT DISTINCT u.name as unit_name FROM employees e LEFT JOIN units u ON e.unit_id = u.id LEFT JOIN clients c ON e.client_id = c.id WHERE c.name = ? AND u.name IS NOT NULL ORDER BY unit_name");
-    $stmt->execute([$clientFilter]);
-    $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $units = $db->fetchAll("SELECT id, name FROM units WHERE client_id = ? AND is_active = 1 ORDER BY name", [$clientFilter]);
+} elseif ($clientFilter === 0 && $unitFilter > 0) {
+    // If unit selected but no client, show the unit's client units
+    $unitRow = $db->fetch("SELECT client_id FROM units WHERE id = ?", [$unitFilter]);
+    if ($unitRow) {
+        $units = $db->fetchAll("SELECT id, name FROM units WHERE client_id = ? AND is_active = 1 ORDER BY name", [$unitRow['client_id']]);
+    }
 }
 ?>
 
@@ -285,11 +289,11 @@ if ($clientFilter) {
                     
                     <div class="col-md-2">
                         <label class="form-label small">Client</label>
-                        <select class="form-select form-select-sm" name="client" id="clientFilter">
+                        <select class="form-select form-select-sm" name="client_id" id="clientFilter">
                             <option value="">All Clients</option>
                             <?php foreach ($clients as $c): ?>
-                            <option value="<?php echo sanitize($c['client_name']); ?>" <?php echo $clientFilter == $c['client_name'] ? 'selected' : ''; ?>>
-                                <?php echo sanitize($c['client_name']); ?>
+                            <option value="<?= (int)$c['id'] ?>" <?= $clientFilter == $c['id'] ? 'selected' : ''; ?>>
+                                <?= sanitize($c['name']) ?>
                             </option>
                             <?php endforeach; ?>
                         </select>
@@ -297,11 +301,11 @@ if ($clientFilter) {
                     
                     <div class="col-md-2">
                         <label class="form-label small">Unit</label>
-                        <select class="form-select form-select-sm" name="unit" id="unitFilter">
+                        <select class="form-select form-select-sm" name="unit_id" id="unitFilter">
                             <option value="">All Units</option>
                             <?php foreach ($units as $u): ?>
-                            <option value="<?php echo sanitize($u['unit_name']); ?>" <?php echo $unitFilter == $u['unit_name'] ? 'selected' : ''; ?>>
-                                <?php echo sanitize($u['unit_name']); ?>
+                            <option value="<?= (int)$u['id'] ?>" <?= $unitFilter == $u['id'] ? 'selected' : ''; ?>>
+                                <?= sanitize($u['name']) ?>
                             </option>
                             <?php endforeach; ?>
                         </select>
@@ -471,12 +475,13 @@ $(document).ready(function() {
 
 // Load units when client changes
 $('#clientFilter').change(function() {
-    var client = $(this).val();
-    if (client) {
-        $.get('index.php?page=api/units', {client_name: client}, function(data) {
+    var clientId = $(this).val();
+    if (clientId) {
+        $.get('index.php?page=api/units', {client_id: clientId}, function(resp) {
+            var data = resp.units || resp;
             var options = '<option value="">All Units</option>';
             data.forEach(function(u) {
-                options += '<option value="' + (u.unit_name || u.name) + '">' + (u.unit_name || u.name) + '</option>';
+                options += '<option value="' + u.id + '">' + u.name + '</option>';
             });
             $('#unitFilter').html(options);
         }, 'json');
