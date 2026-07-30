@@ -125,8 +125,9 @@ if ($unitId > 0) {
     }
 }
 $computedPaidDays = $attPresent + $attWO + $attExtra;
+$paidDaysWarning = '';
 if ($computedPaidDays > $vTotalDays) {
-    $validationErrors[] = "Paid days ($computedPaidDays) cannot exceed total days ($vTotalDays)";
+    $paidDaysWarning = "⚠ Paid days ($computedPaidDays) exceeds total days ($vTotalDays) — saved with override. ";
 }
 // OT monthly limit: ot_hours_per_day × total_days from unit config
 // (overtime_hours is a MONTHLY total, not per-day)
@@ -602,7 +603,7 @@ try {
 
     echo json_encode([
         'success' => true,
-        'message' => $otWarning . 'Payroll saved for ' . $employeeCode . ($loanDeductionTotal > 0 ? ' (Loan EMI ₹' . number_format($loanDeductionTotal, 2) . ' auto-deducted)' : ''),
+        'message' => $paidDaysWarning . $otWarning . 'Payroll saved for ' . $employeeCode . ($loanDeductionTotal > 0 ? ' (Loan EMI ₹' . number_format($loanDeductionTotal, 2) . ' auto-deducted)' : ''),
         'employee_code' => $employeeCode,
         'net_pay' => $payData['net_pay'],
         'gross_salary' => $payData['gross_salary'],
