@@ -8,14 +8,6 @@
 // Define redirect URL constant
 define('EMPLOYEE_LIST_URL', 'index.php?page=employee/list');
 
-// Get employee ID
-$employeeId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-
-if ($employeeId <= 0) {
-    setFlash('error', 'Invalid employee ID');
-    redirect(EMPLOYEE_LIST_URL);
-}
-
 // Require POST with date_of_leaving and reason
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     setFlash('error', 'Invalid request. Please use the Remove button on the Employee List page.');
@@ -25,6 +17,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 // CSRF check (Round 8)
 if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
     setFlash('error', 'Invalid request. Please refresh the page and try again.');
+    redirect(EMPLOYEE_LIST_URL);
+}
+
+// Read employee ID from POST (not GET)
+$employeeId = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+
+if ($employeeId <= 0) {
+    setFlash('error', 'Invalid employee ID');
     redirect(EMPLOYEE_LIST_URL);
 }
 

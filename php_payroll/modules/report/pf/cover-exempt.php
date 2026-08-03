@@ -63,7 +63,7 @@ if (isset($_GET['export'])) {
                 $emp['unit_name'] ?? '',
                 formatDate($emp['date_of_joining']),
                 $emp['gender'] == 'M' ? 'Male' : 'Female',
-                $emp['status'] === 'active' ? 'Active' : 'Inactive'
+                $emp['status'] === 'approved' ? 'Active' : 'Inactive'
             ]);
         }
 
@@ -105,7 +105,7 @@ if (isset($_GET['export'])) {
                 $emp['unit_name'] ?? '',
                 formatDate($emp['date_of_joining']),
                 $emp['gender'] == 'M' ? 'Male' : 'Female',
-                $emp['status'] === 'active' ? 'Active' : 'Inactive'
+                $emp['status'] === 'approved' ? 'Active' : 'Inactive'
             ]);
         }
     } catch (Exception $e) {
@@ -177,7 +177,7 @@ try {
 
     foreach ($coveredEmployees as $emp) {
         $coveredStats['total']++;
-        if ($emp['status'] === 'active') $coveredStats['active']++;
+        if ($emp['status'] === 'approved') $coveredStats['active']++;
         else $coveredStats['inactive']++;
         if ($emp['gender'] === 'M') $coveredStats['male']++;
         else $coveredStats['female']++;
@@ -225,7 +225,7 @@ try {
 
     foreach ($exemptEmployees as $emp) {
         $exemptStats['total']++;
-        if ($emp['status'] === 'active') $exemptStats['active']++;
+        if ($emp['status'] === 'approved') $exemptStats['active']++;
         else $exemptStats['inactive']++;
         if ($emp['gender'] === 'M') $exemptStats['male']++;
         else $exemptStats['female']++;
@@ -542,7 +542,7 @@ $exemptPct = $totalEmployees > 0 ? round(($exemptStats['total'] / $totalEmployee
                                     <td class="text-center"><?= $emp['gender'] === 'M' ? 'Male' : 'Female' ?></td>
                                     <td class="text-center"><?= formatDate($emp['date_of_joining']) ?></td>
                                     <td class="text-center">
-                                        <?php if ($emp['status'] === 'active'): ?>
+                                        <?php if ($emp['status'] === 'approved'): ?>
                                             <span class="badge bg-success">Active</span>
                                         <?php else: ?>
                                             <span class="badge bg-secondary">Inactive</span>

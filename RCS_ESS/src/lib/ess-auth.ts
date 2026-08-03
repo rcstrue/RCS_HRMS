@@ -219,7 +219,7 @@ export async function proactiveRefresh(): Promise<boolean> {
   // expiry. Just attempt a refresh; refresh.php reads the token from the
   // cookie and returns a new one (also set as a new cookie).
   try {
-    const resp = await fetch(`${API_BASE_URL}/api/ess/refresh.php`, {
+    const resp = await fetch(`${API_BASE_URL}/api/ess/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
       body: JSON.stringify({}), // token is in the cookie, not the body

@@ -34,7 +34,11 @@ const qrcode = require('qrcode-terminal');
 // ═══════════════════════════════════════════════════════════
 
 const PORT = process.env.PORT || 3000;
-const API_KEY = process.env.API_KEY || 'rcs-hrms-secret-key-2026';
+const API_KEY = process.env.API_KEY;
+if (!API_KEY) {
+    console.error('FATAL: API_KEY environment variable is required. Set it in .env or your deployment config.');
+    process.exit(1);
+}
 const BULK_DELAY_MS = process.env.BULK_DELAY_MS || 3000; // 3 seconds between bulk messages
 const MAX_FILE_SIZE_MB = 20; // Max file download size
 const LOG_DIR = path.join(__dirname, 'logs');

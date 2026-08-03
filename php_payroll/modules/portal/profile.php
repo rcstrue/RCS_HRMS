@@ -227,7 +227,7 @@ include '../../templates/header.php';
                             <span class="badge bg-light text-dark">
                                 <i class="bi bi-geo-alt me-1"></i><?php echo sanitize($employee['unit_name'] ?? 'N/A'); ?>
                             </span>
-                            <span class="badge bg-<?php echo $employee['status'] == 'active' ? 'success' : 'warning'; ?>">
+                            <span class="badge bg-<?php echo $employee['status'] == 'approved' ? 'success' : 'warning'; ?>">
                                 <?php echo ucfirst($employee['status']); ?>
                             </span>
                         </div>

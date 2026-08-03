@@ -166,9 +166,9 @@ class Payroll {
                 WHERE p.payroll_period_id = :period_id";
         $params = ['period_id' => $periodId];
 
-        // Apply filters
+        // Apply filters (use p.unit_id — payroll record's unit, not employee's current unit)
         if (!empty($filters['unit_id'])) {
-            $sql .= " AND e.unit_id = :unit_id";
+            $sql .= " AND p.unit_id = :unit_id";
             $params['unit_id'] = $filters['unit_id'];
         }
 
@@ -279,7 +279,7 @@ class Payroll {
                 LEFT JOIN unit_salary_formulas usf ON usf.unit_id = e.unit_id
                     AND usf.is_active = 1
                     AND (usf.effective_to IS NULL OR usf.effective_to >= CURDATE())
-                WHERE e.status IN ('approved', 'active')";
+                WHERE e.status = 'approved'";
 
         $params = [];
 
@@ -550,24 +550,16 @@ class Payroll {
                         }
                     }
 
-                    // Get advances for the period (scoped to unit_id to avoid double-deduction)
+                    // Get advances for the period (single query for all advance types)
                     $advance = $this->db->fetch(
-                        "SELECT COALESCE(SUM(adv1 + adv2 + dress_advance), 0) as total_advance
+                        "SELECT COALESCE(SUM(adv1 + adv2 + dress_advance), 0) as total_advance,
+                               COALESCE(office_advance, 0) as office_ded
                         FROM employee_advances
                         WHERE employee_id = :emp_id AND unit_id = :unit_id AND month = :month AND year = :year",
                         ['emp_id' => $emp['id'], 'unit_id' => $emp['unit_id'], 'month' => $period['month'], 'year' => $period['year']]
                     );
                     $salaryAdvance = $advance['total_advance'] ?? 0;
-
-                    // Get office deduction for the period (scoped to unit_id)
-                    $officeDeduction = 0;
-                    $officeAdv = $this->db->fetch(
-                        "SELECT COALESCE(office_advance, 0) as office_ded
-                         FROM employee_advances
-                         WHERE employee_id = :emp_id AND unit_id = :unit_id AND month = :month AND year = :year",
-                        ['emp_id' => $emp['id'], 'unit_id' => $emp['unit_id'], 'month' => $period['month'], 'year' => $period['year']]
-                    );
-                    $officeDeduction = floatval($officeAdv['office_ded'] ?? 0);
+                    $officeDeduction = floatval($advance['office_ded'] ?? 0);
 
                     // Get active loan EMI for this employee (Audit Issue #8 — include in total_deductions)
                     $loanEmi = 0;
@@ -596,17 +588,20 @@ class Payroll {
                     // Employer contributions
                     $employerContribution = round($pfEmployer + $epsEmployer + $edlisEmployer + $epfAdmin + $esiEmployer + $lwfEmployer, 2);
 
-                    // Bonus provision (8.33% of basic_da, max ₹7000)
+                    // Bonus provision (8.33% of full-month basic_da, max ₹7000)
+                    // Payment of Bonus Act: computed on monthly wages (full), not pro-rated
                     $bonusProvision = 0;
                     if ($emp['bonus_applicable'] ?? 0) {
-                        $bonusBase = min($basicDa, 7000);
+                        $fullMonthBasicDa = floatval($emp['basic_da'] ?? 0);
+                        $bonusBase = min($fullMonthBasicDa, 7000);
                         $bonusProvision = round($bonusBase * 8.33 / 100, 2);
                     }
 
-                    // Gratuity provision (4.81% of basic_da)
+                    // Gratuity provision (4.81% of full-month basic_da)
                     $gratuityProvision = 0;
                     if ($emp['gratuity_applicable'] ?? 0) {
-                        $gratuityProvision = round($basicDa * 4.81 / 100, 2);
+                        $fullMonthBasicDa = floatval($emp['basic_da'] ?? 0);
+                        $gratuityProvision = round($fullMonthBasicDa * 4.81 / 100, 2);
                     }
 
                     // CTC
@@ -633,7 +628,7 @@ class Payroll {
                     // Insert or update payroll record - matching database schema with basic_da column
                     $this->db->query(
                         "INSERT INTO payroll (
-                            payroll_period_id, employee_id, unit_id,
+                            payroll_period_id, employee_id, unit_id, month, year,
                             total_days, paid_days, unpaid_days, overtime_hours,
                             basic_da, hra, leave_encashment, bonus_encashment, washing_allowance,
                             overtime_amount, extra_days_amount, gross_earnings,
@@ -646,7 +641,7 @@ class Payroll {
                             salary_hold, payroll_dirty,
                             last_calculated_at, calculated_by, created_at
                         ) VALUES (
-                            :period_id, :emp_code, :unit_id,
+                            :period_id, :emp_code, :unit_id, :month, :year,
                             :total_days, :paid_days, :unpaid_days, :ot_hours,
                             :basic_da, :hra, :leave_encash, :bonus_encash, :washing,
                             :ot_amount, :extra_days_amount, :gross,
@@ -660,6 +655,8 @@ class Payroll {
                             NOW(), :user_id, NOW()
                         )
                         ON DUPLICATE KEY UPDATE
+                            month = VALUES(month),
+                            year = VALUES(year),
                             total_days = VALUES(total_days),
                             paid_days = VALUES(paid_days),
                             unpaid_days = VALUES(unpaid_days),
@@ -699,6 +696,8 @@ class Payroll {
                             'period_id' => $periodId,
                             'emp_code' => $emp['employee_code'],
                             'unit_id' => $emp['unit_id'],
+                            'month' => $period['month'],
+                            'year' => $period['year'],
                             'total_days' => $totalDays,
                             'paid_days' => $paidDays,
                             'unpaid_days' => $unpaidDays,

@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 'ess_expenses',
                 [
                     'status'      => 'approved',
-                    'approved_by' => $_SESSION['user_id'] ?? 'admin',
+                    'approved_by' => $_SESSION['user_id'] ?? null,
                     'approved_at' => date('Y-m-d H:i:s'),
                 ],
                 'id = :id',
@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 'ess_expenses',
                 [
                     'status'           => 'rejected',
-                    'rejected_by'      => $_SESSION['user_id'] ?? 'admin',
+                    'rejected_by'      => $_SESSION['user_id'] ?? null,
                     'rejection_reason' => $reason,
                 ],
                 'id = :id',
@@ -93,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         'ess_expenses',
                         [
                             'status'      => 'approved',
-                            'approved_by' => $_SESSION['user_id'] ?? 'admin',
+                            'approved_by' => $_SESSION['user_id'] ?? null,
                             'approved_at' => date('Y-m-d H:i:s'),
                         ],
                         'id = :id AND status = :status',

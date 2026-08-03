@@ -89,7 +89,7 @@ function deductLoansForPeriodUnit($db, $periodId, $unitId) {
                 e.id as employee_db_id
          FROM payroll p
          JOIN employees e ON p.employee_id = e.employee_code
-         WHERE p.payroll_period_id = ? AND e.unit_id = ?",
+         WHERE p.payroll_period_id = ? AND p.unit_id = ?",
         [$periodId, $unitId]
     );
     

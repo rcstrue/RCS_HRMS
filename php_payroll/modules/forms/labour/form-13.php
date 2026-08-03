@@ -79,7 +79,7 @@ try {
                         <?php foreach ($employees as $emp): ?>
                             <option value="<?= $emp['id'] ?>" <?= (isset($_GET['employee_id']) && $_GET['employee_id'] == $emp['id']) ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($emp['employee_code'] . ' — ' . $emp['full_name'] . ' (' . ($emp['client_name'] ?? '') . ')') ?>
-                                <?php if ($emp['status'] !== 'active'): ?> [<?= strtoupper($emp['status']) ?>]<?php endif; ?>
+                                <?php if ($emp['status'] !== 'approved'): ?> [<?= strtoupper($emp['status']) ?>]<?php endif; ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
@@ -179,7 +179,7 @@ try {
                         <div class="col-md-4">
                             <label class="form-label text-muted small mb-0">Status</label>
                             <p class="fw-semibold mb-0">
-                                <?php if ($selectedEmployee['status'] === 'active'): ?>
+                                <?php if ($selectedEmployee['status'] === 'approved'): ?>
                                     <span class="badge bg-success">Active</span>
                                 <?php else: ?>
                                     <span class="badge bg-secondary"><?= htmlspecialchars(ucfirst($selectedEmployee['status'])) ?></span>
