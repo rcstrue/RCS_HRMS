@@ -127,15 +127,14 @@ export default function CertificatesPage({ employeeId, employeeName }: Props) {
             </div>
             <div className="flex-shrink-0">
               <Button
-                size="sm"
-                className="bg-purple-600 hover:bg-purple-700 text-white h-9 px-3"
+                className="bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white h-11 px-5 text-sm font-semibold rounded-lg shadow-md"
                 onClick={handleDownloadRegistration}
                 disabled={regLoading}
               >
                 {regLoading ? (
-                  <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Loading</>
+                  <><Loader2 className="w-5 h-5 animate-spin mr-1.5" /> Loading...</>
                 ) : (
-                  <><Download className="w-4 h-4 mr-1" /> PDF</>
+                  <><Download className="w-5 h-5 mr-1.5" /> Download</>
                 )}
               </Button>
             </div>
