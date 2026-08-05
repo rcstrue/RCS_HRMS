@@ -32,12 +32,14 @@ import {
   CalendarX,
   Phone,
   MessageCircle,
+  FileDown,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { getFileUrl } from '@/lib/api/config';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { useExportCSV } from './hooks/useExportCSV';
+import { generateEmployeeRegistrationForm } from '@/lib/pdf/generateEmployeeRegistrationForm';
 import {
   fetchEmployees,
   fetchEmployeeById,
@@ -839,6 +841,15 @@ export default function DirectoryPage({
                         >
                           <CalendarX className="h-3.5 w-3.5" /> Remove
                         </button>
+                        <button
+                          type="button"
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-purple-300 bg-purple-50 px-3 py-2.5 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                          onClick={() => {
+                            try { generateEmployeeRegistrationForm(emp); } catch (e: unknown) { toast.error((e as Error).message || 'Failed to open registration form'); }
+                          }}
+                        >
+                          <FileDown className="h-3.5 w-3.5" /> Registration
+                        </button>
                       </div>
                     )}
 
@@ -859,6 +870,15 @@ export default function DirectoryPage({
                         >
                           <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
                         </a>
+                        <button
+                          type="button"
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-purple-300 bg-purple-50 px-3 py-2.5 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                          onClick={() => {
+                            try { generateEmployeeRegistrationForm(emp); } catch (e: unknown) { toast.error((e as Error).message || 'Failed to open registration form'); }
+                          }}
+                        >
+                          <FileDown className="h-3.5 w-3.5" /> Registration
+                        </button>
                       </div>
                     )}
                   </div>
