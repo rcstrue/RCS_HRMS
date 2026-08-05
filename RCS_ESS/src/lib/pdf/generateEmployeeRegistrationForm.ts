@@ -389,44 +389,6 @@ export function generateEmployeeRegistrationForm(emp: Employee): void {
   </button>
 </div>
 
-<script>
-(function() {
-  // Download PDF — uses browser print dialog
-  var btnDownload = document.getElementById('btnDownload');
-  if (btnDownload) {
-    btnDownload.addEventListener('click', function() {
-      window.print();
-    });
-  }
-
-  // Share via WhatsApp
-  var btnWA = document.getElementById('btnWhatsApp');
-  if (btnWA) {
-    btnWA.addEventListener('click', function() {
-      var text = encodeURIComponent(
-        'Employee Registration Form\\n' +
-        'Name: ' + document.title + '\\n' +
-        'View at: ' + window.location.href
-      );
-      window.open('https://wa.me/?text=' + text, '_blank');
-    });
-  }
-
-  // Native Share API (mobile / desktop)
-  var btnShare = document.getElementById('btnShare');
-  if (btnShare && navigator.share) {
-    btnShare.style.display = 'inline-flex';
-    btnShare.addEventListener('click', function() {
-      navigator.share({
-        title: document.title,
-        text: 'Employee Registration Form — ' + document.title,
-        url: window.location.href
-      }).catch(function(){});
-    });
-  }
-})();
-</script>
-
 <!-- ══════ PAGE 1 ══════ -->
 
 <!-- Top bar -->
@@ -594,6 +556,10 @@ export function generateEmployeeRegistrationForm(emp: Employee): void {
 </body>
 </html>`;
 
+  // Share context
+  const shareText = `Employee Registration Form\n${empName} (${empCode})\n${emp.designation ? 'Designation: ' + emp.designation : ''}\n${emp.unit_name ? 'Unit: ' + emp.unit_name : ''}`;
+  const shareUrl = 'https://join.rcsfacility.com';
+
   // Open print window
   const printWindow = window.open('', '_blank', 'width=800,height=1000');
   if (!printWindow) {
@@ -604,10 +570,39 @@ export function generateEmployeeRegistrationForm(emp: Employee): void {
   printWindow.document.write(htmlDoc);
   printWindow.document.close();
 
-  // Wait for content to fully load (especially images and logo)
-  printWindow.onload = () => {
-    setTimeout(() => {
+  // Attach button handlers from the PARENT window
+  // (scripts written via document.write don't reliably execute)
+  const doc = printWindow.document;
+
+  const btnDownload = doc.getElementById('btnDownload');
+  if (btnDownload) {
+    btnDownload.addEventListener('click', () => {
       printWindow.print();
-    }, 800);
-  };
+    });
+  }
+
+  const btnWA = doc.getElementById('btnWhatsApp');
+  if (btnWA) {
+    btnWA.addEventListener('click', () => {
+      const waText = encodeURIComponent(shareText);
+      window.open('https://wa.me/?text=' + waText, '_blank');
+    });
+  }
+
+  const btnShare = doc.getElementById('btnShare');
+  if (btnShare && navigator.share) {
+    btnShare.style.display = 'inline-flex';
+    btnShare.addEventListener('click', () => {
+      navigator.share({
+        title: `Registration — ${empName}`,
+        text: shareText,
+        url: shareUrl,
+      }).catch(() => {});
+    });
+  }
+
+  // Hide action bar during print
+  const styleEl = doc.createElement('style');
+  styleEl.textContent = `@media print { .action-bar { display: none !important; } body { padding-bottom: 0 !important; } }`;
+  doc.head.appendChild(styleEl);
 }
