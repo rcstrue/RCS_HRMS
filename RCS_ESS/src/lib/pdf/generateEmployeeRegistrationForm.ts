@@ -317,46 +317,12 @@ export function generateEmployeeRegistrationForm(emp: Employee): void {
     padding: 20px;
   }
 
-  /* ── Download button (top right, not printed) ── */
-  .download-float {
-    position: fixed;
-    top: 12px;
-    right: 16px;
-    z-index: 100;
-  }
-  .btn-download {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 10px 22px;
-    background: #0f3460;
-    color: #ffffff;
-    border: none;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    letter-spacing: 0.2px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-    transition: background 0.15s;
-  }
-  .btn-download:hover { background: #16213e; }
-
   @media print {
-    .download-float { display: none !important; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
 </style>
 </head>
 <body>
-
-<!-- ── Download Button (top right) ── -->
-<div class="download-float">
-  <button class="btn-download" id="btnDownload">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-    Download PDF
-  </button>
-</div>
 
 <!-- ══════ PAGE 1 ══════ -->
 
@@ -535,17 +501,8 @@ export function generateEmployeeRegistrationForm(emp: Employee): void {
   printWindow.document.write(htmlDoc);
   printWindow.document.close();
 
-  // Attach download handler from the parent window
-  const doc = printWindow.document;
-  const btnDownload = doc.getElementById('btnDownload');
-  if (btnDownload) {
-    btnDownload.addEventListener('click', () => {
-      printWindow.print();
-    });
-  }
-
-  // Inject print-hide rule
-  const styleEl = doc.createElement('style');
-  styleEl.textContent = '@media print { .download-float { display: none !important; } }';
-  doc.head.appendChild(styleEl);
+  // Auto-print after content loads (same pattern as certificates)
+  printWindow.onload = () => {
+    setTimeout(() => printWindow.print(), 500);
+  };
 }
