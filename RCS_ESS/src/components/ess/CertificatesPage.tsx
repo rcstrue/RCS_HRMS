@@ -111,7 +111,7 @@ export default function CertificatesPage({ employeeId, employeeName }: Props) {
       <Card className="border border-gray-200 overflow-hidden">
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl flex items-center justify-center bg-purple-50 text-purple-600">
+            <div className="flex-shrink-0 w-14 h-14 rounded-xl flex items-center justify-center bg-emerald-50 text-emerald-600">
               <FileDown className="w-8 h-8" />
             </div>
             <div className="flex-1 min-w-0">
@@ -127,7 +127,7 @@ export default function CertificatesPage({ employeeId, employeeName }: Props) {
             </div>
             <div className="flex-shrink-0">
               <Button
-                className="bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white h-11 px-5 text-sm font-semibold rounded-lg shadow-md"
+                className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white h-11 px-5 text-sm font-semibold rounded-lg shadow-md"
                 onClick={handleDownloadRegistration}
                 disabled={regLoading}
               >
