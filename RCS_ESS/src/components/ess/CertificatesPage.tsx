@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { fetchCertificateList, generateCertificate, type CertificateInfo } from '@/lib/ess-api';
+import { fetchCertificateList, generateCertificate, fetchEmployeeById, type CertificateInfo } from '@/lib/ess-api';
 import { generateCertificatePDF, getCertificateFileName } from '@/lib/pdf/generateCertificatePDF';
+import { generateEmployeeRegistrationForm } from '@/lib/pdf/generateEmployeeRegistrationForm';
 import type { CertificateData } from '@/lib/ess-api';
+import type { Employee } from '@/lib/ess-types';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, FileText, Award, BadgeCheck, Download, ShieldCheck } from 'lucide-react';
+import { Loader2, FileText, Award, BadgeCheck, Download, ShieldCheck, FileDown } from 'lucide-react';
 import { logger } from "@/lib/logger";
 
 // ── Certificate card config ───────────────────────────────────
@@ -36,6 +38,7 @@ export default function CertificatesPage({ employeeId, employeeName }: Props) {
   const [certificates, setCertificates] = useState<CertificateInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState<string | null>(null); // type being generated
+  const [regLoading, setRegLoading] = useState(false);
 
   useEffect(() => {
     fetchCertificateList().then(({ data, error }) => {
@@ -44,6 +47,26 @@ export default function CertificatesPage({ employeeId, employeeName }: Props) {
       setLoading(false);
     });
   }, []);
+
+  const handleDownloadRegistration = async () => {
+    setRegLoading(true);
+    try {
+      const { data, error } = await fetchEmployeeById(employeeId);
+      if (error) { toast.error(error); return; }
+      if (!data) { toast.error('Failed to fetch employee data'); return; }
+      generateEmployeeRegistrationForm(data as Employee);
+      toast.success('Registration form opened! Use the download button to save as PDF.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Pop-up') || msg.includes('popup')) {
+        toast.error('Please allow pop-ups in your browser to download the registration form.');
+      } else {
+        toast.error('Failed to open registration form. Please try again.');
+      }
+    } finally {
+      setRegLoading(false);
+    }
+  };
 
   const handleDownload = async (type: string) => {
     setGenerating(type);
@@ -76,17 +99,6 @@ export default function CertificatesPage({ employeeId, employeeName }: Props) {
     );
   }
 
-  // ── Empty state ──
-  if (certificates.length === 0) {
-    return (
-      <div className="px-4 pt-16 text-center">
-        <ShieldCheck className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-        <h3 className="text-base font-medium text-gray-500">No Certificates Available</h3>
-        <p className="text-sm text-gray-400 mt-1">Certificates are available for active employees only.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="px-4 pt-4 pb-24 space-y-3">
       {/* Header */}
@@ -95,8 +107,49 @@ export default function CertificatesPage({ employeeId, employeeName }: Props) {
         <p className="text-xs text-gray-500 mt-0.5">Download official documents issued by the company</p>
       </div>
 
+      {/* Registration Form Card — always available */}
+      <Card className="border border-gray-200 overflow-hidden">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-14 h-14 rounded-xl flex items-center justify-center bg-purple-50 text-purple-600">
+              <FileDown className="w-8 h-8" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold text-gray-800">Registration Form</h3>
+              <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+                Download your complete employee registration form with KYC &amp; bank documents
+              </p>
+              <div className="mt-2">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-50 text-green-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Available
+                </span>
+              </div>
+            </div>
+            <div className="flex-shrink-0">
+              <Button
+                size="sm"
+                className="bg-purple-600 hover:bg-purple-700 text-white h-9 px-3"
+                onClick={handleDownloadRegistration}
+                disabled={regLoading}
+              >
+                {regLoading ? (
+                  <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Loading</>
+                ) : (
+                  <><Download className="w-4 h-4 mr-1" /> PDF</>
+                )}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Certificate Cards */}
-      {certificates.map((cert) => {
+      {certificates.length === 0 ? (
+        <div className="px-2 py-6 text-center">
+          <ShieldCheck className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+          <p className="text-xs text-gray-400">No company certificates available. Certificates are shown for active employees.</p>
+        </div>
+      ) : certificates.map((cert) => {
         const isGenerating = generating === cert.type;
         const colors = CERT_COLORS[cert.type] || 'text-gray-600 bg-gray-50';
 
