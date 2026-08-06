@@ -23,8 +23,10 @@ $tables = [
     'employees' => [
         'label'    => 'Employees',
         'id_col'   => 'id',
+        'id_type'  => 'int',
         'name_col' => 'full_name',
         'code_col' => 'employee_code',
+        'code_type'=> 'int',
         'where'    => "t.status = 'approved'",
         'alias'    => 't',
         'match_fields' => [
@@ -41,7 +43,8 @@ $tables = [
     ],
     'epfo_members' => [
         'label'    => 'EPFO Members',
-        'id_col'   => 'id',
+        'id_col'   => 'uan',
+        'id_type'  => 'string',
         'name_col' => 'name',
         'code_col' => 'uan',
         'where'    => '1=1',
@@ -59,6 +62,7 @@ $tables = [
     'esic_ip_master' => [
         'label'    => 'ESIC IP Master',
         'id_col'   => 'id',
+        'id_type'  => 'int',
         'name_col' => 'ip_name',
         'code_col' => 'ip_number',
         'where'    => '1=1',
@@ -244,9 +248,15 @@ if (isset($_POST['action']) && $_POST['action'] === 'search') {
     }
     $selectSQL = implode(', ', $selectCols);
 
-    // JOIN with COLLATE for cross-table comparison
+    // JOIN — use CAST for INT columns to allow COLLATE string comparison
+    $srcColIsInt = ($tables[$source]['code_type'] ?? null) === 'int'
+        && $srcMatchCol === $srcCfg['code_col'];
+    $tgtColIsInt = ($tables[$target]['code_type'] ?? null) === 'int'
+        && $tgtMatchCol === $tgtCfg['code_col'];
+    $srcJoinCol = $srcColIsInt ? "CAST(s.{$srcMatchCol} AS CHAR)" : "s.{$srcMatchCol}";
+    $tgtJoinCol = $tgtColIsInt ? "CAST(t.{$tgtMatchCol} AS CHAR)" : "t.{$tgtMatchCol}";
     $joinSQL = "FROM {$target} t INNER JOIN {$source} s ON "
-        . "s.{$srcMatchCol} COLLATE utf8mb4_unicode_ci = t.{$tgtMatchCol} COLLATE utf8mb4_unicode_ci";
+        . "{$srcJoinCol} COLLATE utf8mb4_unicode_ci = {$tgtJoinCol} COLLATE utf8mb4_unicode_ci";
     $whereSQL = $tgtCfg['where'];
     $params = [];
 
@@ -351,17 +361,26 @@ if (isset($_POST['action']) && $_POST['action'] === 'update') {
     $details = [];
 
     foreach ($rows as $item) {
-        $targetId = (int)($item['target_id'] ?? 0);
-        $sourceId = (int)($item['source_id'] ?? 0);
-        if (!$targetId || !$sourceId) continue;
+        $tgtIdCfg = $tables[$target];
+        $srcIdCfg = $tables[$source];
+        $tgtIdIsInt = ($tgtIdCfg['id_type'] ?? 'int') === 'int';
+        $srcIdIsInt = ($srcIdCfg['id_type'] ?? 'int') === 'int';
+        $targetId = $tgtIdIsInt ? (int)($item['target_id'] ?? 0) : (string)($item['target_id'] ?? '');
+        $sourceId = $srcIdIsInt ? (int)($item['source_id'] ?? 0) : (string)($item['source_id'] ?? '');
+        if ($targetId === 0 || $targetId === '') continue;
+        if ($sourceId === 0 || $sourceId === '') continue;
+
+        // Use table's actual id_col instead of hardcoded 'id'
+        $tgtIdCol = $tgtIdCfg['id_col'];
+        $srcIdCol = $srcIdCfg['id_col'];
 
         // Read current target values
-        $tgtCols = [$tables[$target]['id_col']];
+        $tgtCols = [$tgtIdCol];
         foreach ($fields as $fk) {
             if (isset($commonFields[$fk])) $tgtCols[] = $commonFields[$fk]['target_col'];
         }
         $tgtColsStr = implode(', ', array_unique($tgtCols));
-        $currentRow = $db->fetch("SELECT $tgtColsStr FROM {$target} WHERE id = ?", [$targetId]);
+        $currentRow = $db->fetch("SELECT $tgtColsStr FROM {$target} WHERE {$tgtIdCol} = ?", [$targetId]);
         if (!$currentRow) continue;
 
         foreach ($fields as $fk) {
@@ -369,7 +388,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'update') {
             $tgtCol = $commonFields[$fk]['target_col'];
             $srcCol = $commonFields[$fk]['source_col'];
 
-            $srcRow = $db->fetch("SELECT {$srcCol} FROM {$source} WHERE id = ?", [$sourceId]);
+            $srcRow = $db->fetch("SELECT {$srcCol} FROM {$source} WHERE {$srcIdCol} = ?", [$sourceId]);
             if (!$srcRow) continue;
 
             $oldVal = $currentRow[$tgtCol] ?? '';
@@ -378,7 +397,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'update') {
             if ($newVal === '' || $newVal === null) { $skipped++; continue; }
             if ($oldVal === $newVal) { $skipped++; continue; }
 
-            $db->query("UPDATE {$target} SET {$tgtCol} = ? WHERE id = ?", [$newVal, $targetId]);
+            $db->query("UPDATE {$target} SET {$tgtCol} = ? WHERE {$tgtIdCol} = ?", [$newVal, $targetId]);
 
             try {
                 $db->insert('employee_data_sync_logs', [
@@ -448,8 +467,15 @@ if (isset($_GET['action']) && $_GET['action'] === 'export') {
     }
     $selectSQL = implode(', ', $selectCols);
 
+    // JOIN — same CAST logic for INT columns
+    $srcColIsInt = ($tables[$source]['code_type'] ?? null) === 'int'
+        && $srcMatchCol === $srcCfg['code_col'];
+    $tgtColIsInt = ($tables[$target]['code_type'] ?? null) === 'int'
+        && $tgtMatchCol === $tgtCfg['code_col'];
+    $srcJoinCol = $srcColIsInt ? "CAST(s.{$srcMatchCol} AS CHAR)" : "s.{$srcMatchCol}";
+    $tgtJoinCol = $tgtColIsInt ? "CAST(t.{$tgtMatchCol} AS CHAR)" : "t.{$tgtMatchCol}";
     $joinSQL = "FROM {$target} t INNER JOIN {$source} s ON "
-        . "s.{$srcMatchCol} COLLATE utf8mb4_unicode_ci = t.{$tgtMatchCol} COLLATE utf8mb4_unicode_ci";
+        . "{$srcJoinCol} COLLATE utf8mb4_unicode_ci = {$tgtJoinCol} COLLATE utf8mb4_unicode_ci";
 
     $rows = $db->fetchAll(
         "SELECT $selectSQL $joinSQL WHERE {$tgtCfg['where']} ORDER BY t.{$tgtCfg['code_col']}"
