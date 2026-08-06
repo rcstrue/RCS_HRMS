@@ -25,7 +25,7 @@ $tables = [
         'id_col'   => 'id',
         'name_col' => 'full_name',
         'code_col' => 'employee_code',
-        'where'    => "e.status = 'approved'",
+        'where'    => "t.status = 'approved'",
         'alias'    => 't',
         'match_fields' => [
             'uan'          => 'uan_number',
@@ -273,8 +273,9 @@ if (isset($_POST['action']) && $_POST['action'] === 'search') {
         "SELECT COUNT(*) $joinSQL WHERE $whereSQL", $params
     ) ?: 0;
 
-    // Sortable columns
+    // Sortable columns — index 0 = checkbox (not sortable, placeholder)
     $sortableCols = [
+        '',  // index 0: checkbox column (orderable:false, never sent)
         "t.{$tgtCfg['code_col']}", "t.{$tgtCfg['name_col']}",
         "s.{$srcCfg['code_col']}", "s.{$srcCfg['name_col']}",
     ];
@@ -282,7 +283,8 @@ if (isset($_POST['action']) && $_POST['action'] === 'search') {
         $sortableCols[] = "t.{$cols['target_col']}";
         $sortableCols[] = "s.{$cols['source_col']}";
     }
-    $orderSQL = $sortableCols[$orderCol] ?? "t.{$tgtCfg['code_col']}";
+    $orderCol = min($orderCol, count($sortableCols) - 1);
+    $orderSQL = $sortableCols[$orderCol] ?: "t.{$tgtCfg['code_col']}";
 
     $rows = $db->fetchAll(
         "SELECT $selectSQL $joinSQL WHERE $whereSQL ORDER BY $orderSQL $orderDir LIMIT ?, ?",
