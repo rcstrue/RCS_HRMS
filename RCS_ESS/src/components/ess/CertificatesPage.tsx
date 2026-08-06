@@ -134,7 +134,7 @@ export default function CertificatesPage({ employeeId, employeeName }: Props) {
                 {regLoading ? (
                   <><Loader2 className="w-5 h-5 animate-spin mr-1.5" /> Loading...</>
                 ) : (
-                  <><Download className="w-5 h-5 mr-1.5" /> Download</>
+                  <><Download className="w-5 h-5 mr-1.5" /> PDF</>
                 )}
               </Button>
             </div>
