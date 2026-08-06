@@ -247,9 +247,11 @@ function doSearch() {
 
     // Destroy and recreate
     if (syncTable) { syncTable.destroy(); syncTable = null; }
-    $('#syncTable thead tr').empty().append('<th style="width:40px"><input type="checkbox" class="form-check-input" id="checkAllRows"></th>');
+    // Clear thead so DataTables can rebuild from columns definition
+    $('#syncTable thead tr').empty();
 
     syncTable = $('#syncTable').DataTable({
+        destroy: true,
         processing: true,
         serverSide: true,
         order: [[1, 'asc']],
@@ -281,6 +283,11 @@ function doSearch() {
 
     // Re-bind checkAllRows after DataTable recreates thead
     $('#syncTable').on('draw.dt', function() {
+        // Inject checkAllRows checkbox into the first <th>
+        var firstTh = $('#syncTable thead tr th:first');
+        if (firstTh.length && !firstTh.find('#checkAllRows').length) {
+            firstTh.html('<input type="checkbox" class="form-check-input" id="checkAllRows">');
+        }
         $('#checkAllRows').off('change').on('change', function() {
             $('.row-check').prop('checked', this.checked);
             updateRowSelection();
