@@ -5,6 +5,9 @@ RewriteEngine On
 # Everything else that isn't a real file gets a proper 404.
 ErrorDocument 404 /404.html
 
+# ── Skip ALL processing for /hrms/ (PHP payroll app) ──
+RewriteRule ^hrms/ - [L]
+
 # ── Security: Block direct access to sensitive files ──
 <FilesMatch "^\.">
     Order allow,deny
