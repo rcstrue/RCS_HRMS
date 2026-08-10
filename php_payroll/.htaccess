@@ -13,4 +13,3 @@ ErrorDocument 404 /404.html
 RewriteRule ^config/ - [F,L]
 RewriteRule ^includes/ - [F,L]
 RewriteRule ^templates/ - [F,L]
-RewriteRule ^assets/ - [F,L]
