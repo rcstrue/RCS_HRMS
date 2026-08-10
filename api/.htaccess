@@ -1,1 +1,25 @@
 RewriteEngine On
+
+# ── Custom 404 handler for unknown paths ──
+# Only serve index.html for the root path and known entry points.
+# Everything else that isn't a real file gets a proper 404.
+ErrorDocument 404 /404.html
+
+# ── Security: Block direct access to sensitive files ──
+<FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# ── ESS API routing: append .php extension ──
+RewriteRule ^ess/(.*)$ ess/$1 [QSA,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ $1.php [QSA,L]
+
+# ── Cache control for API responses ──
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType application/json "access plus 0 seconds"
+</IfModule>

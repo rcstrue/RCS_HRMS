@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 — Page Not Found | RCS HRMS</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: #f8fafc;
+            color: #1e293b;
+            padding: 20px;
+        }
+        .container {
+            text-align: center;
+            max-width: 460px;
+        }
+        .code {
+            font-size: 96px;
+            font-weight: 800;
+            color: #e2e8f0;
+            line-height: 1;
+            margin-bottom: 8px;
+        }
+        h1 {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: #0f172a;
+        }
+        p {
+            font-size: 15px;
+            color: #64748b;
+            margin-bottom: 28px;
+            line-height: 1.5;
+        }
+        a {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 28px;
+            background: #059669;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            transition: background 0.15s;
+        }
+        a:hover { background: #047857; }
+        .logo {
+            width: 60px;
+            height: 60px;
+            border-radius: 14px;
+            object-fit: contain;
+            margin-bottom: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="/logo.png" alt="RCS" class="logo" onerror="this.style.display='none'">
+        <div class="code">404</div>
+        <h1>Page Not Found</h1>
+        <p>The page you're looking for doesn't exist or has been moved. Please check the URL and try again.</p>
+        <a href="/">← Go to Home</a>
+    </div>
+</body>
+</html>
