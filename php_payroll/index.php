@@ -465,6 +465,21 @@ if (!$isLoggedIn) {
     }
 }
 
+// ── 404 for truly unknown modules (before header, no HRMS chrome) ──
+$pageParts = explode('/', $page);
+$module = $pageParts[0] ?? '';
+$allModules = [
+    'dashboard', 'auth', 'employee', 'attendance', 'payroll', 'compliance',
+    'report', 'settings', 'profile', 'client', 'unit', 'forms', 'helpdesk',
+    'assets', 'recruitment', 'billing', 'ratecard', 'contract', 'deployment',
+    'announcement', 'requisition', 'advance', 'timesheet', 'leave', 'settlement',
+    'audit', 'notifications', 'portal', 'api', 'bulk-upload', 'expense', 'loan', 'entry'
+];
+if (!in_array($module, $allModules)) {
+    header("Location: /404.html");
+    exit;
+}
+
 // Include header template
 include dirname(__FILE__) . '/templates/header.php';
 
@@ -473,9 +488,8 @@ $pagePath = getSafeModulePath($page);
 if ($pagePath !== null) {
     include $pagePath;
 } else {
-    // Unknown module — redirect to custom 404 page
-    header("Location: /404.html");
-    exit;
+    // Known module but file not found (e.g. dashboard → dashboard/index.php)
+    include dirname(__FILE__) . '/modules/dashboard/index.php';
 }
 
 // Include footer template
