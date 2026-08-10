@@ -58,62 +58,6 @@ try {
         jsonOutput(array('success' => false, 'error' => 'Cannot modify this employee. Status: ' . $targetEmp['status']), 400);
     }
 
-    // ── Unit-scope verification (Round 6) ──────────────────────────────
-    // A manager/regional_manager may only exit/transfer employees in units they
-    // are allocated to. Admin bypasses. This prevents a manager from acting on
-    // employees in units outside their allocation.
-    $callerRole = strtolower((string) (getEmployeeRole($conn, $employeeId) ?? ''));
-    if ($callerRole !== 'admin') {
-        // Fetch the caller's allocated unit IDs from user_access (primary) +
-        // employee_city_allocations (fallback), same model as access.php.
-        $allocatedUnitIds = [];
-
-        // Primary: user_access table (access_type='unit')
-        $uaStmt = $conn->prepare("SELECT access_id FROM user_access WHERE user_id = ? AND access_type = 'unit'");
-        if ($uaStmt) {
-            $uaStmt->bind_param('s', $employeeId);
-            $uaStmt->execute();
-            $uaRes = $uaStmt->get_result();
-            while ($uaRow = $uaRes->fetch_assoc()) {
-                $uid = (int) $uaRow['access_id'];
-                if ($uid > 0) $allocatedUnitIds[$uid] = true;
-            }
-            $uaStmt->close();
-        }
-
-        // Fallback: employee_city_allocations (legacy) — read unit allocations
-        $ecaStmt = $conn->prepare("
-            SELECT allocation_value AS unit_value
-            FROM employee_city_allocations
-            WHERE employee_id = ? AND allocation_type = 'unit'
-        ");
-        if ($ecaStmt) {
-            $ecaStmt->bind_param('s', $employeeId);
-            $ecaStmt->execute();
-            $ecaRes = $ecaStmt->get_result();
-            while ($ecaRow = $ecaRes->fetch_assoc()) {
-                $uid = (int) $ecaRow['unit_value'];
-                if ($uid > 0) $allocatedUnitIds[$uid] = true;
-            }
-            $ecaStmt->close();
-        }
-
-        // The caller's own unit (from ess_employee_cache) is always allowed.
-        $ownUnitId = getEmployeeUnitId($employeeId, $conn);
-        if ($ownUnitId > 0) $allocatedUnitIds[$ownUnitId] = true;
-
-        $targetUnitId = (int) ($targetEmp['unit_id'] ?? 0);
-        if ($targetUnitId > 0 && !isset($allocatedUnitIds[$targetUnitId])) {
-            jsonOutput(array(
-                'success' => false,
-                'error'   => 'Access denied: the target employee is not in a unit you are allocated to.',
-            ), 403);
-        }
-
-        // For transfer, also verify the DESTINATION unit is in the caller's allocation
-        // (checked below after $newUnitId is parsed).
-    }
-
     // ── ACTION: EXIT ──────────────────────────────────────────
     if ($action === 'exit') {
         $exitDate = trim($input['exit_date'] ?? '');
@@ -206,15 +150,6 @@ try {
             if (!$clientRow) {
                 jsonOutput(array('success' => false, 'error' => 'Client not found.'), 404);
             }
-        }
-
-        // ── Destination unit scope check (Round 6) ────────────────────
-        // A non-admin manager may only transfer INTO a unit they are allocated to.
-        if ($callerRole !== 'admin' && $newUnitId > 0 && !isset($allocatedUnitIds[$newUnitId])) {
-            jsonOutput(array(
-                'success' => false,
-                'error'   => 'Access denied: you cannot transfer an employee into a unit you are not allocated to.',
-            ), 403);
         }
 
         // Build update query — only update what changed
