@@ -120,19 +120,12 @@ function getSafeModulePath($page) {
 }
 
 // Get and sanitize requested page
-$rawPage = isset($_GET['page']) ? $_GET['page'] : 'dashboard';
+$rawPage = isset($_GET['page']) ? $_GET['page'] : null;
 $page = sanitizePageParam($rawPage);
 
-// If page is invalid, show 404
+// If page param is empty/missing, default to dashboard
 if ($page === null) {
-    http_response_code(404);
-    $fourOhFour = $_SERVER['DOCUMENT_ROOT'] . '/404.html';
-    if (file_exists($fourOhFour)) {
-        readfile($fourOhFour);
-    } else {
-        echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>404 | RCS TRUE FACILITIES</title></head><body style="font-family:sans-serif;text-align:center;padding:80px 20px"><h1 style="font-size:72px;color:#1e3a8a">404</h1><h2>Page Not Found</h2><p>The page you requested does not exist.</p><a href="/" style="display:inline-block;margin-top:20px;padding:12px 28px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none">Go Home</a></body></html>';
-    }
-    exit;
+    $page = 'dashboard';
 }
 
 $action = isset($_GET['action']) ? sanitizePageParam($_GET['action']) : null;
@@ -466,17 +459,10 @@ if (!$isLoggedIn) {
     }
 }
 
-// Include header template
-include dirname(__FILE__) . '/templates/header.php';
-
-// Include page content with validated path
+// ── 404 check BEFORE including header (to avoid HRMS chrome on 404 page) ──
 $pagePath = getSafeModulePath($page);
-if ($pagePath !== null) {
-    include $pagePath;
-} else {
-    // Page not found — show custom 404 page
+if ($pagePath === null) {
     http_response_code(404);
-    ob_end_clean();
     $fourOhFour = $_SERVER['DOCUMENT_ROOT'] . '/404.html';
     if (file_exists($fourOhFour)) {
         readfile($fourOhFour);
@@ -485,6 +471,12 @@ if ($pagePath !== null) {
     }
     exit;
 }
+
+// Include header template
+include dirname(__FILE__) . '/templates/header.php';
+
+// Include page content
+include $pagePath;
 
 // Include footer template
 include dirname(__FILE__) . '/templates/footer.php';

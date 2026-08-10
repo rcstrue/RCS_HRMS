@@ -14,10 +14,3 @@ RewriteRule ^config/ - [F,L]
 RewriteRule ^includes/ - [F,L]
 RewriteRule ^templates/ - [F,L]
 RewriteRule ^assets/ - [F,L]
-
-# ── Route all non-file requests to index.php ──
-# /hrms/employee/list → index.php?page=employee/list
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteCond %{REQUEST_URI} !^/(404\.html|404\.shtml|favicon\.ico|robots\.txt)
-RewriteRule ^(.*)$ index.php?page=$1 [QSA,L]
