@@ -81,19 +81,18 @@ try {
             $uaStmt->close();
         }
 
-        // Fallback: employee_city_allocations (legacy) — join units by city
+        // Fallback: employee_city_allocations (legacy) — read unit allocations
         $ecaStmt = $conn->prepare("
-            SELECT DISTINCT u.id AS unit_id
-            FROM employee_city_allocations eca
-            JOIN units u ON LOWER(u.city) = LOWER(eca.city)
-            WHERE eca.employee_id = ?
+            SELECT allocation_value AS unit_value
+            FROM employee_city_allocations
+            WHERE employee_id = ? AND allocation_type = 'unit'
         ");
         if ($ecaStmt) {
             $ecaStmt->bind_param('s', $employeeId);
             $ecaStmt->execute();
             $ecaRes = $ecaStmt->get_result();
             while ($ecaRow = $ecaRes->fetch_assoc()) {
-                $uid = (int) $ecaRow['unit_id'];
+                $uid = (int) $ecaRow['unit_value'];
                 if ($uid > 0) $allocatedUnitIds[$uid] = true;
             }
             $ecaStmt->close();
