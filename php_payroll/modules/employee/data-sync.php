@@ -14,10 +14,12 @@ if (!in_array($roleCode, ['admin', 'hr', 'hr_executive'])) {
     exit;
 }
 
-// ── Self-heal: ensure log table exists ──
+// ── Self-heal: ensure log table exists with correct schema ──
 try { $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_logs` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    `employee_id` INT UNSIGNED NOT NULL,
+    `employee_id` INT UNSIGNED DEFAULT NULL,
+    `target_table` VARCHAR(50) DEFAULT NULL,
+    `target_record_id` VARCHAR(50) DEFAULT NULL,
     `field_name` VARCHAR(100) NOT NULL,
     `old_value` TEXT DEFAULT NULL,
     `new_value` TEXT DEFAULT NULL,
@@ -28,8 +30,14 @@ try { $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_logs` (
     `ip_address` VARCHAR(45) DEFAULT NULL,
     `remarks` VARCHAR(500) DEFAULT NULL,
     INDEX `idx_employee_id` (`employee_id`),
+    INDEX `idx_target` (`target_table`, `target_record_id`),
     INDEX `idx_updated_at` (`updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+// Migrate: add target_table and target_record_id if they don't exist yet
+try { $db->exec("ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`"); } catch (\Throwable $e) {}
+try { $db->exec("ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`"); } catch (\Throwable $e) {}
+try { $db->exec("ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)"); } catch (\Throwable $e) {}
 } catch (\Throwable $e) {}
 ?>
 
@@ -211,9 +219,17 @@ function doSearch() {
     // Build DataTable columns dynamically
     var baseCols = [
         { data: null, orderable: false, defaultContent: '', className: 'text-center',
-          render: function(d,t,r) { return '<input type="checkbox" class="form-check-input row-check" value="' + r.target_id + '|' + r.source_id + '">'; }
+          render: function(d,t,r) {
+              var dup = r.duplicate ? ' border border-warning' : '';
+              var warn = r.duplicate ? ' title="Duplicate match — multiple source records match this target"' : '';
+              return '<input type="checkbox" class="form-check-input row-check' + dup + '" value="' + r.target_id + '|' + r.source_id + '"' + warn + '>';
+          }
         },
-        { data: 'target_code', title: $('#targetLabel').text() + ' Code' },
+        { data: 'target_code', title: $('#targetLabel').text() + ' Code',
+          render: function(d,t,r) {
+              return d + (r.duplicate ? ' <i class="bi bi-exclamation-triangle-fill text-warning" title="Ambiguous: multiple source records match this target"></i>' : '');
+          }
+        },
         { data: 'target_name', title: $('#targetLabel').text() + ' Name' },
         { data: 'source_code', title: $('#sourceLabel').text() + ' Code' },
         { data: 'source_name', title: $('#sourceLabel').text() + ' Name' },
@@ -363,7 +379,19 @@ function doUpdate() {
         dataType: 'json',
         success: function(res) {
             if (res.success) {
-                showToast('Updated ' + res.updated + ' field(s), skipped ' + res.skipped + '.', 'success');
+                var msg = 'Updated ' + res.updated + ' field(s), skipped ' + res.skipped + '.';
+                if (res.failed > 0) {
+                    msg += ' <strong class="text-danger">Failed: ' + res.failed + '</strong>';
+                    if (res.errors && res.errors.length > 0) {
+                        msg += '<br><small>';
+                        res.errors.slice(0, 5).forEach(function(e) {
+                            msg += '⚠ ' + e.field + ': ' + e.error.substring(0, 80) + '<br>';
+                        });
+                        if (res.errors.length > 5) msg += '...and ' + (res.errors.length - 5) + ' more';
+                        msg += '</small>';
+                    }
+                }
+                showToast(msg, res.failed > 0 ? 'warning' : 'success');
                 syncTable.ajax.reload();
             } else {
                 showToast(res.error || 'Update failed.', 'danger');
