@@ -35,7 +35,6 @@ $tables = [
             'alt_mobile'   => 'alternate_mobile',
             'esic'         => 'esic_number',
             'aadhaar'      => 'aadhaar_number',
-            'pan'          => 'pan_number',
             'bank_account' => 'account_number',
             'ifsc'         => 'ifsc_code',
             'email'        => 'email',
@@ -86,7 +85,7 @@ $copyableFields = [
     'email'        => ['employees' => 'email',            'epfo_members' => 'email'],
     'father_name'  => ['employees' => 'father_name',      'epfo_members' => 'father_husband_name'],
     'aadhaar'      => ['employees' => 'aadhaar_number',    'epfo_members' => 'aadhaar'],
-    'pan'          => ['employees' => 'pan_number',       'epfo_members' => 'pan'],
+    'pan'          => ['epfo_members' => 'pan'],
     'esic'         => ['employees' => 'esic_number',       'esic_ip_master' => 'ip_number'],
     'bank_name'    => ['employees' => 'bank_name',        'esic_ip_master' => 'bank_name'],
 ];
@@ -255,7 +254,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'search') {
         && $tgtMatchCol === $tgtCfg['code_col'];
     $srcJoinCol = $srcColIsInt ? "CAST(s.{$srcMatchCol} AS CHAR)" : "s.{$srcMatchCol}";
     $tgtJoinCol = $tgtColIsInt ? "CAST(t.{$tgtMatchCol} AS CHAR)" : "t.{$tgtMatchCol}";
-    $joinSQL = "FROM {$target} t INNER JOIN {$source} s ON "
+    $joinSQL = "FROM {$target} t LEFT JOIN {$source} s ON "
         . "{$srcJoinCol} COLLATE utf8mb4_unicode_ci = {$tgtJoinCol} COLLATE utf8mb4_unicode_ci";
     $whereSQL = $tgtCfg['where'];
     $params = [];
@@ -280,7 +279,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'search') {
     }
 
     $totalRecords = (int)$db->fetchColumn(
-        "SELECT COUNT(*) $joinSQL WHERE $whereSQL", $params
+        "SELECT COUNT(*) $joinSQL WHERE $whereSQL AND s.{$srcCfg['id_col']} IS NOT NULL", $params
     ) ?: 0;
 
     // Sortable columns — index 0 = checkbox (not sortable, placeholder)
@@ -297,7 +296,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'search') {
     $orderSQL = $sortableCols[$orderCol] ?: "t.{$tgtCfg['code_col']}";
 
     $rows = $db->fetchAll(
-        "SELECT $selectSQL $joinSQL WHERE $whereSQL ORDER BY $orderSQL $orderDir LIMIT ?, ?",
+        "SELECT $selectSQL $joinSQL WHERE $whereSQL AND s.{$srcCfg['id_col']} IS NOT NULL ORDER BY $orderSQL $orderDir LIMIT ?, ?",
         array_merge($params, [$start, $length])
     );
 
@@ -474,11 +473,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'export') {
         && $tgtMatchCol === $tgtCfg['code_col'];
     $srcJoinCol = $srcColIsInt ? "CAST(s.{$srcMatchCol} AS CHAR)" : "s.{$srcMatchCol}";
     $tgtJoinCol = $tgtColIsInt ? "CAST(t.{$tgtMatchCol} AS CHAR)" : "t.{$tgtMatchCol}";
-    $joinSQL = "FROM {$target} t INNER JOIN {$source} s ON "
+    $joinSQL = "FROM {$target} t LEFT JOIN {$source} s ON "
         . "{$srcJoinCol} COLLATE utf8mb4_unicode_ci = {$tgtJoinCol} COLLATE utf8mb4_unicode_ci";
 
     $rows = $db->fetchAll(
-        "SELECT $selectSQL $joinSQL WHERE {$tgtCfg['where']} ORDER BY t.{$tgtCfg['code_col']}"
+        "SELECT $selectSQL $joinSQL WHERE {$tgtCfg['where']} AND s.{$srcCfg['id_col']} IS NOT NULL ORDER BY t.{$tgtCfg['code_col']}"
     );
 
     $csv = chr(0xEF) . chr(0xBB) . chr(0xBF);
