@@ -24,6 +24,7 @@ import DirectoryPage from './DirectoryPage';
 import NotificationsPage from './NotificationsPage';
 import HolidaysPage from './HolidaysPage';
 import EditProfilePage from './EditProfilePage';
+import IdCardPage from './IdCardPage';
 import RegularizationPage from './RegularizationPage';
 import UnitVisitsPage from './UnitVisitsPage';
 import ManpowerStatusPage from './ManpowerStatusPage';
@@ -304,9 +305,9 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
     if (data) setChangeRequests(data);
   }, [session?.employee?.id]);
 
-  // Fetch profile + change requests when navigating to profile or edit-profile
+  // Fetch profile + change requests when navigating to profile, edit-profile, or id-card
   useEffect(() => {
-    if (currentPage === 'profile' || currentPage === 'edit-profile') {
+    if (currentPage === 'profile' || currentPage === 'edit-profile' || currentPage === 'id-card') {
       loadFullProfile();
       loadChangeRequests();
     }
@@ -536,6 +537,9 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
         )}
         {currentPage === 'profile' && !profileLoading && (
           <ProfileView employee={profileEmployee || emp} role={role} onNavigate={navigate} pendingChangeRequests={changeRequests} />
+        )}
+        {currentPage === 'id-card' && (
+          <IdCardPage employee={profileEmployee || emp} role={role} />
         )}
         {currentPage === 'settings' && <SettingsView employee={emp} onLogout={clearSession} />}
       </main>

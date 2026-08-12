@@ -4,7 +4,6 @@ import { type ReactNode } from 'react';
 import { getRoleBadge, getInitials, formatDate } from './helpers';
 import { getFileUrl } from '@/lib/api/config';
 import { getFieldsBySection, type FieldEditRule, type FieldRule } from '@/lib/field-rules';
-import { IDCard } from '@/components/registration/IDCard';
 import DocumentsViewer from './DocumentsViewer';
 import ChangeRequestItem from './ChangeRequestItem';
 import type { Employee, EmployeeRole, ChangeRequest } from '@/lib/ess-types';
@@ -41,7 +40,6 @@ import {
   UserCheck,
   Clock,
   BadgeCheck,
-  IdCard as IdCardIcon,
 } from 'lucide-react';
 
 // ══════════════════════════════════════════════════════════════
@@ -333,21 +331,7 @@ export default function ProfileView({
       {/* ── 8. Documents Card ────────────────────────────────── */}
       <DocumentsViewer employee={employee} />
 
-      {/* ── 9. ID Card Section ───────────────────────────────── */}
-      {isApproved && (
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <IdCardIcon className="w-4 h-4" />
-              Employee ID Card
-            </h3>
-            {/* @ts-expect-error — IDCard expects registration Employee type, ESS Employee is compatible */}
-            <IDCard employee={employee as any} />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── 10. Pending Change Requests ──────────────────────── */}
+      {/* ── 9. Pending Change Requests ──────────────────────── */}
       {pendingRequests.length > 0 && (
         <Card className="border-0 shadow-sm">
           <CardContent className="p-4">

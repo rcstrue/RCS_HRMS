@@ -25,6 +25,7 @@ import {
   ClipboardCheck,
   TableProperties,
   Award,
+  IdCard,
 } from 'lucide-react';
 
 export const APP_VERSION = '1.0.0'; // Must match php_payroll/config/config.php APP_VERSION
@@ -52,6 +53,7 @@ export const MORE_MENU_ITEMS = [
   { key: 'send-notification', label: 'Send Notification', icon: Send, description: 'Broadcast notifications to employees' },
   { key: 'notifications', label: 'Notifications', icon: Bell, description: 'View your notifications' },
   { key: 'profile', label: 'My Profile', icon: UserCircle, description: 'View your profile details' },
+  { key: 'id-card', label: 'ID Card', icon: IdCard, description: 'View your employee ID card' },
   { key: 'settings', label: 'Settings', icon: Settings, description: 'App preferences' },
   { key: 'new-registration', label: 'New Registration', icon: UserPlus, description: 'Register a new employee' },
   { key: 'install-app', label: 'Install App', icon: Download, description: 'Add to home screen for quick access' },

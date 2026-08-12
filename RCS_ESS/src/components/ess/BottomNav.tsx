@@ -25,6 +25,7 @@ const MENU_COLORS: Record<string, { bg: string; icon: string; text: string; desc
   'holidays':         { bg: 'bg-pink-50',        icon: 'text-pink-600',    text: 'text-pink-900',    desc: 'text-pink-400' },
   'notifications':    { bg: 'bg-indigo-50',      icon: 'text-indigo-600',  text: 'text-indigo-900',  desc: 'text-indigo-400' },
   'profile':          { bg: 'bg-cyan-50',        icon: 'text-cyan-600',    text: 'text-cyan-900',    desc: 'text-cyan-400' },
+  'id-card':          { bg: 'bg-violet-50',      icon: 'text-violet-600',  text: 'text-violet-900',  desc: 'text-violet-400' },
   'settings':         { bg: 'bg-gray-100',       icon: 'text-gray-600',    text: 'text-gray-800',    desc: 'text-gray-400' },
   'new-registration': { bg: 'bg-fuchsia-50',     icon: 'text-fuchsia-600', text: 'text-fuchsia-900', desc: 'text-fuchsia-400' },
   'install-app':      { bg: 'bg-lime-50',        icon: 'text-lime-600',    text: 'text-lime-900',    desc: 'text-lime-400' },

@@ -14,6 +14,7 @@ import {
   Phone,
   UserCheck,
   Briefcase,
+  CreditCard,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -37,7 +38,7 @@ import type { Employee, ChangeRequest } from '@/lib/ess-types';
 import PageHeader from './PageHeader';
 
 // ══════════════════════════════════════════════════════════════
-// EditProfilePage Component
+// EditProfilePage — Simple pre-filled form grouped by section
 // ══════════════════════════════════════════════════════════════
 
 interface EditProfilePageProps {
@@ -53,7 +54,7 @@ const SECTION_ICONS: Record<string, React.ElementType> = {
   personal: User,
   employment: Briefcase,
   address: MapPin,
-  bank: Lock,
+  bank: CreditCard,
   emergency: Phone,
   nominee: UserCheck,
 };
@@ -66,24 +67,14 @@ export default function EditProfilePage({
   onBack,
 }: EditProfilePageProps) {
   const [saving, setSaving] = useState(false);
-  const [freeForm, setFreeForm] = useState<Record<string, string>>({});
-  const [approvalForms, setApprovalForms] = useState<Record<string, string>>({});
+  // All editable field values (free + admin_approval new values)
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
+  // Reason fields for admin_approval change requests
   const [reasonForms, setReasonForms] = useState<Record<string, string>>({});
+  // Which approval fields are showing the reason textarea
   const [showReason, setShowReason] = useState<Record<string, boolean>>({});
+  // Which field is currently submitting a change request
   const [submittingField, setSubmittingField] = useState<string | null>(null);
-
-  // Categorize fields by rule
-  const { freeFields, approvalFields, readonlyFields } = useMemo(() => {
-    const free: FieldRule[] = [];
-    const approval: FieldRule[] = [];
-    const readonly: FieldRule[] = [];
-    for (const f of FIELD_RULES) {
-      if (f.rule === 'free') free.push(f);
-      else if (f.rule === 'admin_approval') approval.push(f);
-      else readonly.push(f);
-    }
-    return { freeFields: free, approvalFields: approval, readonlyFields: readonly };
-  }, []);
 
   // Build a set of field names that have pending change requests
   const pendingFieldNames = useMemo(() => {
@@ -94,55 +85,46 @@ export default function EditProfilePage({
     return set;
   }, [pendingChangeRequests]);
 
-  // Initialize free form on mount
-  useEffect(() => {
-    const initial: Record<string, string> = {};
-    for (const f of freeFields) {
-      const val = (employee as unknown as Record<string, unknown>)[f.key];
-      initial[f.key] = (val as string) || '';
-    }
-    setFreeForm(initial);
-  }, [employee, freeFields]);
-
   // Get current employee value for a field
   const getValue = (key: string): string => {
     const val = (employee as unknown as Record<string, unknown>)[key];
     return (val as string) || '';
   };
 
-  // Group fields by section
-  const groupBySection = (fields: FieldRule[]): Record<string, FieldRule[]> => {
-    const groups: Record<string, FieldRule[]> = {};
-    for (const f of fields) {
-      if (!groups[f.section]) groups[f.section] = [];
-      groups[f.section].push(f);
+  // Initialize form with current values for all editable (free + admin_approval) fields
+  useEffect(() => {
+    const initial: Record<string, string> = {};
+    for (const f of FIELD_RULES) {
+      if (f.rule === 'free') {
+        initial[f.key] = getValue(f.key);
+      }
+      // admin_approval fields start empty (new value input)
     }
-    return groups;
+    setFormValues(initial);
+  }, [employee]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Group fields by section, preserving FIELD_SECTIONS order
+  const sectionsWithFields = useMemo(() => {
+    return FIELD_SECTIONS.map(sectionDef => {
+      const fields = FIELD_RULES.filter(f => f.section === sectionDef.key);
+      return { ...sectionDef, fields };
+    }).filter(s => s.fields.length > 0);
+  }, []);
+
+  // Handle input change
+  const updateField = (key: string, value: string) => {
+    setFormValues(prev => ({ ...prev, [key]: value }));
   };
 
-  const freeBySection = groupBySection(freeFields);
-  const approvalBySection = groupBySection(approvalFields);
-  const readonlyBySection = groupBySection(readonlyFields);
-
-  // Handle free field input change
-  const updateFreeField = (key: string, value: string) => {
-    setFreeForm(prev => ({ ...prev, [key]: value }));
-  };
-
-  // Handle approval field input change
-  const updateApprovalField = (key: string, value: string) => {
-    setApprovalForms(prev => ({ ...prev, [key]: value }));
-  };
-
-  // Save free fields
+  // Save all free fields
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Build the fields object, only including changed values
+      const freeFields = FIELD_RULES.filter(f => f.rule === 'free');
       const changed: Record<string, string | null> = {};
       for (const f of freeFields) {
         const current = getValue(f.key);
-        const newVal = freeForm[f.key] || '';
+        const newVal = formValues[f.key] || '';
         if (newVal !== current) {
           changed[f.key] = newVal || null;
         }
@@ -168,9 +150,9 @@ export default function EditProfilePage({
     }
   };
 
-  // Submit change request for admin_approval field
+  // Submit change request for an admin_approval field
   const handleSubmitRequest = async (field: FieldRule) => {
-    const newVal = approvalForms[field.key];
+    const newVal = formValues[field.key];
     if (!newVal || newVal === getValue(field.key)) {
       toast.info('Please enter a different value to request a change.');
       return;
@@ -186,7 +168,7 @@ export default function EditProfilePage({
       });
       if (result.success) {
         toast.success(`Change request submitted for ${field.label}`);
-        setApprovalForms(prev => {
+        setFormValues(prev => {
           const next = { ...prev };
           delete next[field.key];
           return next;
@@ -218,7 +200,7 @@ export default function EditProfilePage({
 
     if (field.inputType === 'select' && field.options) {
       return (
-        <Select value={value} onValueChange={onChange} disabled={disabled}>
+        <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
           <SelectTrigger id={inputId}>
             <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
           </SelectTrigger>
@@ -282,7 +264,6 @@ export default function EditProfilePage({
       );
     }
 
-    // Default: text
     return (
       <Input
         id={inputId}
@@ -295,234 +276,161 @@ export default function EditProfilePage({
     );
   };
 
-  // Render a section card for free fields
-  const renderFreeSection = (sectionKey: string, fields: FieldRule[]) => {
-    const sectionDef = FIELD_SECTIONS.find(s => s.key === sectionKey);
-    if (!sectionDef) return null;
-    const Icon = SECTION_ICONS[sectionKey] || User;
+  // Render a single field row
+  const renderField = (field: FieldRule) => {
+    const hasPending = pendingFieldNames.has(field.key);
+    const isSubmitting = submittingField === field.key;
+    const isShowingReason = showReason[field.key];
 
-    return (
-      <Card key={sectionKey} className="border-0 shadow-sm">
-        <CardContent className="p-4 space-y-4">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-            <Icon className="w-4 h-4" />
-            {sectionDef.label}
-          </h3>
-          {fields.map(field => (
-            <div key={field.key} className="space-y-2">
-              <Label htmlFor={`field-${field.key}`}>{field.label}</Label>
-              {renderInput(field, freeForm[field.key] || '', (v) => updateFreeField(field.key, v), false)}
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-    );
-  };
+    if (field.rule === 'readonly') {
+      // Read-only field: show current value in a disabled input
+      const val = getValue(field.key);
+      const displayVal = field.masked && val
+        ? val.length > 8
+          ? val.slice(0, 4) + ' **** ' + val.slice(-4)
+          : '****'
+        : val;
 
-  // Render a section card for approval fields
-  const renderApprovalSection = (sectionKey: string, fields: FieldRule[]) => {
-    const sectionDef = FIELD_SECTIONS.find(s => s.key === sectionKey);
-    if (!sectionDef) return null;
-    const Icon = SECTION_ICONS[sectionKey] || User;
+      return (
+        <div key={field.key} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
+          <div className="flex items-center gap-2">
+            <Lock className="w-3.5 h-3.5 text-gray-300 shrink-0" />
+            <span className="text-sm text-gray-500">{field.label}</span>
+          </div>
+          <span className="text-sm font-medium text-gray-700 truncate max-w-[200px]">
+            {displayVal || '—'}
+          </span>
+        </div>
+      );
+    }
 
-    return (
-      <Card key={`approval-${sectionKey}`} className="border-0 shadow-sm">
-        <CardContent className="p-4 space-y-4">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-            <Icon className="w-4 h-4" />
-            {sectionDef.label}
-            <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0 ml-auto">
-              Needs Approval
-            </Badge>
-          </h3>
-          {fields.map(field => {
-            const hasPending = pendingFieldNames.has(field.key);
-            const isSubmitting = submittingField === field.key;
-            const isShowingReason = showReason[field.key];
+    if (field.rule === 'admin_approval') {
+      // Admin approval field: show current value + new value input + request change
+      return (
+        <div key={field.key} className="space-y-2 border border-amber-100 rounded-lg p-3 bg-amber-50/30">
+          <div className="flex items-center justify-between">
+            <Label htmlFor={`approval-${field.key}`} className="text-sm font-medium">{field.label}</Label>
+            {hasPending && (
+              <Badge variant="outline" className="bg-amber-100 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
+                <Clock className="w-3 h-3 mr-0.5" />
+                Pending
+              </Badge>
+            )}
+          </div>
 
-            return (
-              <div key={field.key} className="space-y-2 border border-gray-100 rounded-lg p-3">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor={`approval-${field.key}`} className="text-sm">{field.label}</Label>
-                  {hasPending && (
-                    <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
-                      <Clock className="w-3 h-3 mr-0.5" />
-                      Pending Approval
-                    </Badge>
-                  )}
+          {/* Current value (read-only) */}
+          <p className="text-xs text-gray-400">Current: <span className="font-medium text-gray-600">{getValue(field.key) || '—'}</span></p>
+
+          {/* New value input */}
+          {renderInput(
+            field,
+            formValues[field.key] || '',
+            (v) => updateField(field.key, v),
+            hasPending,
+          )}
+
+          {/* Action buttons */}
+          {!hasPending && (
+            <>
+              {!isShowingReason ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full border-amber-200 text-amber-700 hover:bg-amber-100"
+                  onClick={() => setShowReason(prev => ({ ...prev, [field.key]: true }))}
+                  disabled={!formValues[field.key] || formValues[field.key] === getValue(field.key)}
+                >
+                  <Send className="w-3.5 h-3.5 mr-1.5" />
+                  Request Change
+                </Button>
+              ) : (
+                <div className="space-y-2">
+                  <Textarea
+                    placeholder="Reason for change (optional)"
+                    value={reasonForms[field.key] || ''}
+                    onChange={e => setReasonForms(prev => ({ ...prev, [field.key]: e.target.value }))}
+                    rows={2}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setShowReason(prev => ({ ...prev, [field.key]: false }))}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" />
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={() => handleSubmitRequest(field)}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                      ) : (
+                        <Send className="w-3.5 h-3.5 mr-1" />
+                      )}
+                      Submit
+                    </Button>
+                  </div>
                 </div>
+              )}
+            </>
+          )}
+        </div>
+      );
+    }
 
-                {/* Current value (read-only) */}
-                <div className="text-xs text-gray-400">Current value:</div>
-                <Input
-                  value={getValue(field.key)}
-                  disabled
-                  className="bg-gray-50 text-gray-600 text-sm"
-                />
-
-                {/* New value input */}
-                <div className="text-xs text-gray-400">New value:</div>
-                {renderInput(
-                  field,
-                  approvalForms[field.key] || '',
-                  (v) => updateApprovalField(field.key, v),
-                  hasPending,
-                )}
-
-                {/* Action buttons */}
-                {!hasPending && (
-                  <>
-                    {!isShowingReason ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full mt-1"
-                        onClick={() => setShowReason(prev => ({ ...prev, [field.key]: true }))}
-                        disabled={!approvalForms[field.key] || approvalForms[field.key] === getValue(field.key)}
-                      >
-                        <Send className="w-3.5 h-3.5 mr-1.5" />
-                        Request Change
-                      </Button>
-                    ) : (
-                      <div className="space-y-2">
-                        <Textarea
-                          placeholder="Reason for change (optional)"
-                          value={reasonForms[field.key] || ''}
-                          onChange={e => setReasonForms(prev => ({ ...prev, [field.key]: e.target.value }))}
-                          rows={2}
-                        />
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1"
-                            onClick={() => setShowReason(prev => ({ ...prev, [field.key]: false }))}
-                          >
-                            <X className="w-3.5 h-3.5 mr-1" />
-                            Cancel
-                          </Button>
-                          <Button
-                            size="sm"
-                            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                            onClick={() => handleSubmitRequest(field)}
-                            disabled={isSubmitting}
-                          >
-                            {isSubmitting ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
-                            ) : (
-                              <Send className="w-3.5 h-3.5 mr-1" />
-                            )}
-                            Submit Request
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-    );
-  };
-
-  // Render a section card for readonly fields
-  const renderReadonlySection = (sectionKey: string, fields: FieldRule[]) => {
-    const sectionDef = FIELD_SECTIONS.find(s => s.key === sectionKey);
-    if (!sectionDef) return null;
-    const Icon = SECTION_ICONS[sectionKey] || Lock;
-
+    // Free field: directly editable
     return (
-      <Card key={`readonly-${sectionKey}`} className="border-0 shadow-sm">
-        <CardContent className="p-4 space-y-2">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-            <Icon className="w-4 h-4" />
-            {sectionDef.label}
-            <Badge variant="outline" className="bg-gray-100 text-gray-500 border-gray-200 text-[10px] px-1.5 py-0 ml-auto">
-              <Lock className="w-3 h-3 mr-0.5" />
-              Read-only
-            </Badge>
-          </h3>
-          {fields.map(field => {
-            const val = getValue(field.key);
-            const displayVal = field.masked && val
-              ? val.length > 8
-                ? val.slice(0, 4) + ' **** ' + val.slice(-4)
-                : '****'
-              : val;
-
-            return (
-              <div key={field.key} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                <span className="text-sm text-gray-500">{field.label}</span>
-                <span className="text-sm font-medium text-gray-800 truncate max-w-[200px]">
-                  {displayVal || '—'}
-                </span>
-              </div>
-            );
-          })}
-          <p className="text-xs text-gray-400 pt-1">Contact admin to update these fields.</p>
-        </CardContent>
-      </Card>
+      <div key={field.key} className="space-y-1.5">
+        <Label htmlFor={`field-${field.key}`}>{field.label}</Label>
+        {renderInput(field, formValues[field.key] || '', (v) => updateField(field.key, v), false)}
+      </div>
     );
   };
-
-  // ── Order sections as per FIELD_SECTIONS ───────────────────
-  const orderedSections = FIELD_SECTIONS.map(s => s.key);
-
-  // Sections that have free fields
-  const freeSections = orderedSections.filter(s => freeBySection[s]?.length);
-  // Sections that have approval fields
-  const approvalSections = orderedSections.filter(s => approvalBySection[s]?.length);
-  // Sections that have readonly fields
-  const readonlySections = orderedSections.filter(s => readonlyBySection[s]?.length);
 
   return (
     <div className="space-y-4 pb-6">
       <PageHeader title="Edit Profile" subtitle="Update your information" onBack={onBack} />
 
-      {/* ── Section 1: Freely Editable Fields ────────────────── */}
-      {freeSections.length > 0 && (
-        <>
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-2 h-2 rounded-full bg-emerald-500" />
-            <h2 className="text-base font-semibold text-gray-800">Editable Fields</h2>
-            <span className="text-xs text-gray-400">(Save to update)</span>
-          </div>
-          <div className="space-y-3">
-            {freeSections.map(section => freeBySection[section] && renderFreeSection(section, freeBySection[section]))}
-          </div>
-        </>
-      )}
+      {/* Render each section as a card */}
+      {sectionsWithFields.map(section => {
+        const Icon = SECTION_ICONS[section.key] || User;
+        const hasReadonly = section.fields.some(f => f.rule === 'readonly');
+        const hasEditable = section.fields.some(f => f.rule !== 'readonly');
 
-      {/* ── Section 2: Admin Approval Fields ─────────────────── */}
-      {approvalSections.length > 0 && (
-        <>
-          <div className="flex items-center gap-2 mb-1 pt-2">
-            <div className="w-2 h-2 rounded-full bg-amber-400" />
-            <h2 className="text-base font-semibold text-gray-800">Fields Needing Approval</h2>
-            <span className="text-xs text-gray-400">(Request change)</span>
-          </div>
-          <div className="space-y-3">
-            {approvalSections.map(section => approvalBySection[section] && renderApprovalSection(section, approvalBySection[section]))}
-          </div>
-        </>
-      )}
+        return (
+          <Card key={section.key} className="border-0 shadow-sm">
+            <CardContent className="p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                <Icon className="w-4 h-4" />
+                {section.label}
+                {hasEditable && (
+                  <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px] px-1.5 py-0">
+                    Editable
+                  </Badge>
+                )}
+              </h3>
 
-      {/* ── Section 3: Read-Only Fields ──────────────────────── */}
-      {readonlySections.length > 0 && (
-        <>
-          <div className="flex items-center gap-2 mb-1 pt-2">
-            <Lock className="w-3.5 h-3.5 text-gray-400" />
-            <h2 className="text-base font-semibold text-gray-800">Read-Only Fields</h2>
-          </div>
-          <div className="space-y-3">
-            {readonlySections.map(section => readonlyBySection[section] && renderReadonlySection(section, readonlyBySection[section]))}
-          </div>
-        </>
-      )}
+              {/* Render all fields in this section */}
+              {section.fields.map(field => renderField(field))}
 
-      {/* ── Bottom Buttons ────────────────────────────────────── */}
+              {/* Hint for readonly fields */}
+              {hasReadonly && (
+                <p className="text-xs text-gray-400 pt-1">
+                  <Lock className="w-3 h-3 inline mr-1" />
+                  Locked fields require admin assistance to update.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+
+      {/* Bottom Buttons */}
       <div className="flex gap-3 pt-2">
         <Button
           variant="outline"
