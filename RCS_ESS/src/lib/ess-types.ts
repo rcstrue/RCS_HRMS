@@ -419,3 +419,17 @@ export interface TeamSummaryResponse {
   totals: TeamSummaryTotals;
   count: number;
 }
+
+export interface ChangeRequest {
+  id: number;
+  employee_id: number;
+  field_name: string;
+  old_value: string;
+  new_value: string;
+  reason?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  reviewed_at?: string;
+  reviewed_by?: number;
+  rejection_reason?: string;
+}

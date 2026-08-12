@@ -132,17 +132,11 @@ Thank you 🙏`;
       setCountdown(prev => Math.max(0, prev - 1));
     }, 1000);
 
-    // Call onComplete after WhatsApp redirect (5 seconds total)
-    const completeTimer = setTimeout(() => {
-      onComplete?.();
-    }, 5000);
-
     return () => {
       clearTimeout(timer);
       clearInterval(countdownTimer);
-      clearTimeout(completeTimer);
     };
-  }, [onComplete, openWhatsApp]);
+  }, [openWhatsApp]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-green-500 to-emerald-600">
@@ -184,6 +178,14 @@ Thank you 🙏`;
         >
           <MessageCircle className="w-5 h-5" />
           Open WhatsApp Now
+        </button>
+
+        {/* Continue Button */}
+        <button
+          onClick={() => onComplete?.()}
+          className="w-full bg-transparent border-2 border-white/50 text-white font-medium py-3 px-6 rounded-xl hover:bg-white/10 transition-all active:scale-95 flex items-center justify-center gap-2"
+        >
+          I've sent the message, continue →
         </button>
 
         {/* Employee Name */}

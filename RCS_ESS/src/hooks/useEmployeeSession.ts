@@ -49,6 +49,7 @@ export interface Employee {
 
 interface UseEmployeeSessionReturn {
   employee: Employee | null;
+  setEmployee: React.Dispatch<React.SetStateAction<Employee | null>>;
   isLoading: boolean;
   isLoggedIn: boolean;
   login: (mobileNumber: string, dateOfBirth: string) => Promise<{ success: boolean; error?: string }>;
@@ -196,6 +197,7 @@ export function useEmployeeSession(): UseEmployeeSessionReturn {
 
   return {
     employee,
+    setEmployee,
     isLoading,
     isLoggedIn: employee !== null,
     login,

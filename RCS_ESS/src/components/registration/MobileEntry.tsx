@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ProfilePhotoCapture } from '@/components/registration/ProfilePhotoCapture';
-import { uploadBase64Image, getFileUrl } from '@/lib/api/config';
+import { uploadBase64Image } from '@/lib/api/config';
 import { toast } from 'sonner';
 import { logger } from "@/lib/logger";
 

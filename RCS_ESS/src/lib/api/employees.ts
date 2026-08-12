@@ -138,3 +138,11 @@ export async function updateEmployeeRole(id: number, role: 'admin' | 'manager' |
     body: JSON.stringify({ role }),
   }));
 }
+
+// Login employee (mobile + birth year verification)
+export async function loginByBirthYear(mobileNumber: string, birthYear: string) {
+  return unwrap(apiRequest<{ success: boolean; employee?: Employee; error?: string }>('/employees/login-by-year', {
+    method: 'POST',
+    body: JSON.stringify({ mobile_number: mobileNumber, birth_year: birthYear }),
+  }));
+}

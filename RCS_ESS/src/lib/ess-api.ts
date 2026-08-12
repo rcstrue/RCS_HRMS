@@ -7,7 +7,7 @@ import type {
   ClientOption, UnitOption, Employee, AdvanceAllocation, EmployeeRole, UnitVisit,
   ChecklistCategory, VisitChecklistItem, VisitDashboardData,
   ManpowerEntry, ManpowerDashboardData,
-  TeamSummaryResponse
+  TeamSummaryResponse, ChangeRequest
 } from './ess-types';
 
 // ══════════════════════════════════════════════════════════════
@@ -637,4 +637,38 @@ export function verifyCertificate(code: string) {
       return { data: null, error: 'Invalid response' };
     }
   }).catch(() => ({ data: null, error: 'Network error. Please check your connection.' }));
+}
+
+// ===== Full Profile =====
+export async function fetchFullProfile(employee_id: number) {
+  return unwrap(apiRequest<Employee>(`/ess/profile-full?employee_id=${employee_id}`));
+}
+
+// ===== Profile Update (Free fields only) =====
+export async function updateProfile(data: {
+  employee_id: number;
+  fields: Record<string, string | null>;
+}) {
+  return unwrap(apiRequest<Employee>('/ess/profile', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }));
+}
+
+// ===== Change Requests =====
+export async function submitChangeRequest(data: {
+  employee_id: number;
+  field_name: string;
+  old_value: string;
+  new_value: string;
+  reason?: string;
+}) {
+  return unwrap(apiRequest<{ id: number; status: string }>('/ess/change-requests', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }));
+}
+
+export async function fetchChangeRequests(employee_id: number) {
+  return unwrap(apiRequest<ChangeRequest[]>(`/ess/change-requests?employee_id=${employee_id}`));
 }

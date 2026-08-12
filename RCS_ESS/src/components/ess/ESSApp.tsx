@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import type { ESSSession } from '@/lib/ess-types';
+import type { ESSSession, ChangeRequest } from '@/lib/ess-types';
 import { getFileUrl, resetSessionExpiredGuard } from '@/lib/api/config';
 import { stopProactiveRefresh } from '@/lib/ess-auth';
+import { fetchChangeRequests, updateProfile, submitChangeRequest } from '@/lib/ess-api';
 
 // Extracted modules
 import LoginScreen from './LoginScreen';
@@ -280,6 +281,21 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
     }
   }, [currentPage]);
 
+  // ── Change Requests ──
+  const [changeRequests, setChangeRequests] = useState<ChangeRequest[]>([]);
+  const loadChangeRequests = useCallback(async () => {
+    if (!session?.employee?.id) return;
+    const { data } = await fetchChangeRequests(session.employee.id);
+    if (data) setChangeRequests(data);
+  }, [session?.employee?.id]);
+
+  // Fetch change requests when navigating to profile or edit-profile
+  useEffect(() => {
+    if (currentPage === 'profile' || currentPage === 'edit-profile') {
+      loadChangeRequests();
+    }
+  }, [currentPage, loadChangeRequests]);
+
   // ── Dashboard ──
   const { dashboardData, dashboardLoading, checkInLoading, checkOutLoading, loadDashboardData, handleCheckIn, handleCheckOut } = useDashboard(session);
 
@@ -452,10 +468,21 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
         {currentPage === 'edit-profile' && (
           <EditProfilePage
             employee={emp}
-            onSave={(updated) => {
-              const merged = { ...emp, ...updated };
-              saveSession({ ...activeSession!, employee: merged });
-              toast.success('Profile updated successfully');
+            pendingChangeRequests={changeRequests}
+            onSaveFreeFields={async (fields) => {
+              const { data, error } = await updateProfile({ employee_id: emp.id, fields });
+              if (error) return { success: false, error };
+              // Update local session with saved values
+              const merged = { ...emp, ...fields };
+              saveSession({ ...activeSession!, employee: merged as typeof emp });
+              return { success: true };
+            }}
+            onSubmitChangeRequest={async (data) => {
+              const { error } = await submitChangeRequest({ employee_id: emp.id, ...data });
+              if (error) return { success: false, error };
+              // Refresh change requests
+              await loadChangeRequests();
+              return { success: true };
             }}
             onBack={() => navigate('profile')}
           />
@@ -482,7 +509,7 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
           />
         )}
         {currentPage === 'send-notification' && <SendNotificationPage />}
-        {currentPage === 'profile' && <ProfileView employee={emp} role={role} onNavigate={navigate} />}
+        {currentPage === 'profile' && <ProfileView employee={emp} role={role} onNavigate={navigate} pendingChangeRequests={changeRequests} />}
         {currentPage === 'settings' && <SettingsView employee={emp} onLogout={clearSession} />}
       </main>
 
