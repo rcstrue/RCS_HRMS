@@ -1,16 +1,15 @@
 import { useEffect, useState, useCallback } from 'react';
-import { CheckCircle2, MessageCircle, Loader2 } from 'lucide-react';
+import { CheckCircle2, MessageCircle, Loader2, LogIn } from 'lucide-react';
 import { RegistrationData, RELATIONSHIP_OPTIONS } from '@/types/registration';
 import { formatDateDDMMYYYY } from '@/lib/utils';
 
 interface SuccessPageProps {
   data: RegistrationData;
-  onComplete?: () => void;
+  onComplete?: (_callback?: () => void) => void;
 }
 
-export function SuccessPage({ data, onComplete }: SuccessPageProps) {
+export function SuccessPage({ data }: SuccessPageProps) {
   const [isRedirecting, setIsRedirecting] = useState(false);
-  const [countdown, setCountdown] = useState(1);
 
   // Format name for greeting
   const name = data.aadhaarDetails.fullName || 'Employee';
@@ -127,16 +126,14 @@ Thank you 🙏`;
       openWhatsApp();
     }, 1000);
 
-    // Countdown timer
-    const countdownTimer = setInterval(() => {
-      setCountdown(prev => Math.max(0, prev - 1));
-    }, 1000);
-
     return () => {
       clearTimeout(timer);
-      clearInterval(countdownTimer);
     };
   }, [openWhatsApp]);
+
+  const handleGoToLogin = () => {
+    window.location.hash = '#/ess';
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-green-500 to-emerald-600">
@@ -150,7 +147,7 @@ Thank you 🙏`;
 
         {/* Success Message */}
         <h1 className="text-2xl font-bold text-white mb-2">
-          Success!
+          Registration Successful!
         </h1>
         <p className="text-lg text-white/90 mb-2">
           Your form has been submitted successfully!
@@ -166,7 +163,7 @@ Thank you 🙏`;
           ) : (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Redirecting to WhatsApp in {countdown}s...</span>
+              <span>Redirecting to WhatsApp...</span>
             </>
           )}
         </div>
@@ -174,18 +171,19 @@ Thank you 🙏`;
         {/* WhatsApp Button */}
         <button
           onClick={openWhatsApp}
-          className="w-full bg-white text-green-600 font-semibold py-3 px-6 rounded-xl shadow-lg hover:bg-green-50 transition-all active:scale-95 flex items-center justify-center gap-2"
+          className="w-full bg-white text-green-600 font-semibold py-3 px-6 rounded-xl shadow-lg hover:bg-green-50 transition-all active:scale-95 flex items-center justify-center gap-2 mb-3"
         >
           <MessageCircle className="w-5 h-5" />
           Open WhatsApp Now
         </button>
 
-        {/* Continue Button */}
+        {/* Go to Login Button */}
         <button
-          onClick={() => onComplete?.()}
-          className="w-full bg-transparent border-2 border-white/50 text-white font-medium py-3 px-6 rounded-xl hover:bg-white/10 transition-all active:scale-95 flex items-center justify-center gap-2"
+          onClick={handleGoToLogin}
+          className="w-full bg-transparent border-2 border-white text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:bg-white/10 transition-all active:scale-95 flex items-center justify-center gap-2"
         >
-          I've sent the message, continue →
+          <LogIn className="w-5 h-5" />
+          Go to Login
         </button>
 
         {/* Employee Name */}

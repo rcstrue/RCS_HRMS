@@ -21,7 +21,6 @@ const Index = () => {
     employee,
     setEmployee,
     isLoading,
-    login,
     checkMobileExists,
   } = useEmployeeSession();
 
@@ -36,7 +35,7 @@ const Index = () => {
   const [isBirthYearLoading, setIsBirthYearLoading] = useState(false);
   const birthYearRef = useRef<HTMLInputElement>(null);
 
-  // 🔥 Check for saved registration progress on mount
+  // Check for saved registration progress on mount
   useEffect(() => {
     if (isLoading) return; // Wait for employee session to load
 
@@ -62,7 +61,7 @@ const Index = () => {
   }
 
   const handleMobileSubmit = (mobile: string, profilePicUrl?: string) => {
-    // 📌 Save mobile to localStorage for persistence
+    // Save mobile to localStorage for persistence
     localStorage.setItem(REGISTRATION_MOBILE_KEY, mobile);
 
     setRegistrationMobile(mobile);
@@ -70,17 +69,8 @@ const Index = () => {
     setView('registration');
   };
 
-  const handleLoginSubmit = async (mobile: string, dob: string) => {
-    const result = await login(mobile, dob);
-    if (result.success) {
-      setPostRegistrationMobile(mobile);
-      setView('birth-year-login');
-    }
-    return result;
-  };
-
   const handleRegistrationComplete = () => {
-    // ✅ Clear all saved registration data after final submit
+    // Clear all saved registration data after final submit
     localStorage.removeItem(REGISTRATION_DATA_KEY);
     localStorage.removeItem(REGISTRATION_MOBILE_KEY);
     localStorage.removeItem(REGISTRATION_STEP_KEY);
@@ -154,7 +144,6 @@ const Index = () => {
       return (
         <MobileEntry
           onMobileSubmit={handleMobileSubmit}
-          onLoginSubmit={handleLoginSubmit}
           checkMobileExists={checkMobileExists}
         />
       );
