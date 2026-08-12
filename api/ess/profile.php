@@ -25,24 +25,26 @@ if ($method === 'GET') {
         // IDOR: employee can only view own profile; managers/admins can view others
         $employeeId = scopedEmployeeId($authId, ESS_GUARD_ROLES_MANAGER, $conn);
 
+        // Only select columns confirmed to exist in the employees table.
+        // Columns like pf_number, emergency_contact_number, profile_completion,
+        // approved_at, approved_by, updated_at are NOT in the table yet.
         $stmt = $conn->prepare("
             SELECT e.id, e.employee_code, e.full_name, e.father_name, e.date_of_birth,
                    e.gender, e.blood_group, e.marital_status,
                    e.mobile_number, e.alternate_mobile, e.email,
-                   e.aadhaar_number, e.uan_number, e.esic_number, e.pf_number,
+                   e.aadhaar_number, e.uan_number, e.esic_number,
                    e.designation, e.department, e.employment_type, e.worker_category,
                    e.employee_role, e.app_role,
                    e.date_of_joining, e.confirmation_date, e.probation_period,
                    e.date_of_leaving, e.profile_pic_url, e.profile_pic_cropped_url,
                    e.aadhaar_front_url, e.aadhaar_back_url, e.bank_document_url,
-                   e.status, e.profile_completion,
+                   e.status,
                    e.bank_name, e.account_number, e.ifsc_code, e.account_holder_name,
                    e.address, e.pin_code, e.district, e.state AS emp_state,
                    e.client_id, e.unit_id,
-                   e.emergency_contact_name, e.emergency_contact_number, e.emergency_contact_relation,
+                   e.emergency_contact_name, e.emergency_contact_relation,
                    e.nominee_name, e.nominee_relationship, e.nominee_dob, e.nominee_contact,
-                   e.approved_at, e.approved_by,
-                   e.created_at, e.updated_at,
+                   e.created_at,
                    c.name AS client_name,
                    u.name AS unit_name, u.city AS unit_city, u.state AS unit_state
             FROM employees e
@@ -80,7 +82,7 @@ if ($method === 'GET') {
                 'aadhaar_number'              => $row['aadhaar_number'] ?? null,
                 'uan_number'                  => $row['uan_number'] ?? null,
                 'esic_number'                 => $row['esic_number'] ?? null,
-                'pf_number'                   => $row['pf_number'] ?? null,
+                'pf_number'                   => null, // column not in DB yet
                 'designation'                 => $row['designation'] ?? null,
                 'department'                  => $row['department'] ?? null,
                 'employment_type'             => $row['employment_type'] ?? null,
@@ -97,7 +99,7 @@ if ($method === 'GET') {
                 'aadhaar_back_url'            => $row['aadhaar_back_url'] ?? null,
                 'bank_document_url'           => $row['bank_document_url'] ?? null,
                 'status'                      => $row['status'] ?? null,
-                'profile_completion'          => $row['profile_completion'] ?? null,
+                'profile_completion'          => null, // column not in DB yet
                 'bank_name'                   => $row['bank_name'] ?? null,
                 'account_number'              => $row['account_number'] ?? null,
                 'ifsc_code'                   => $row['ifsc_code'] ?? null,
@@ -113,14 +115,15 @@ if ($method === 'GET') {
                 'city'                        => $row['unit_city'] ?? null,
                 'emergency_contact_name'      => $row['emergency_contact_name'] ?? null,
                 'emergency_contact_relation'  => $row['emergency_contact_relation'] ?? null,
+                'emergency_contact_number'    => null, // column not in DB yet
                 'nominee_name'                => $row['nominee_name'] ?? null,
                 'nominee_relationship'        => $row['nominee_relationship'] ?? null,
                 'nominee_dob'                 => $row['nominee_dob'] ?? null,
                 'nominee_contact'             => $row['nominee_contact'] ?? null,
-                'approved_at'                 => $row['approved_at'] ?? null,
-                'approved_by'                 => $row['approved_by'] ?? null,
-                'created_at'                  => $row['created_at'],
-                'updated_at'                  => $row['updated_at'],
+                'approved_at'                 => null, // column not in DB yet
+                'approved_by'                 => null, // column not in DB yet
+                'created_at'                  => $row['created_at'] ?? null,
+                'updated_at'                  => null, // column not in DB yet,
             ),
         ));
     } catch (\Throwable $e) {
@@ -182,7 +185,8 @@ if ($method === 'PUT' || $method === 'POST') {
         }
 
         // Add updated_at
-        $updateParts[] = "`updated_at` = NOW()";
+        // updated_at column may not exist — skip it to avoid SQL error
+        // $updateParts[] = "`updated_at` = NOW()";
 
         $sql = "UPDATE employees SET " . implode(', ', $updateParts) . " WHERE id = ?";
         $types .= 's';
