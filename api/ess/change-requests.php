@@ -167,5 +167,5 @@ try {
 
 } catch (\Throwable $e) {
     error_log('[ESS change-requests] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-    jsonOutput(array('success' => false, 'error' => 'Internal server error'), 500);
+    jsonOutput(array('success' => false, 'error' => 'Internal server error', 'debug' => $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()), 500);
 }

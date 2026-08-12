@@ -125,7 +125,7 @@ if ($method === 'GET') {
         ));
     } catch (\Throwable $e) {
         error_log('[ESS profile GET] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-        jsonOutput(array('success' => false, 'error' => 'Internal server error'), 500);
+        jsonOutput(array('success' => false, 'error' => 'Internal server error', 'debug' => $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()), 500);
     }
 }
 
@@ -208,7 +208,7 @@ if ($method === 'PUT' || $method === 'POST') {
 
     } catch (\Throwable $e) {
         error_log('[ESS profile PUT] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-        jsonOutput(array('success' => false, 'error' => 'Internal server error'), 500);
+        jsonOutput(array('success' => false, 'error' => 'Internal server error', 'debug' => $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()), 500);
     }
 }
 
