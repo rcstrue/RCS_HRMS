@@ -641,7 +641,7 @@ export function verifyCertificate(code: string) {
 
 // ===== Full Profile =====
 export async function fetchFullProfile(employee_id: number) {
-  return unwrap(apiRequest<Employee>(`/ess/profile-full?employee_id=${employee_id}`));
+  return unwrap(apiRequest<Employee>(`/ess/profile?employee_id=${employee_id}`));
 }
 
 // ===== Profile Update (Free fields only) =====
