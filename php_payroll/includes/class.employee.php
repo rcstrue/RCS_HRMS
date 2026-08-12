@@ -297,6 +297,7 @@ class Employee {
             'bonus_applicable' => !empty($data['bonus_applicable']) ? 1 : 0,
             'gratuity_applicable' => !empty($data['gratuity_applicable']) ? 1 : 0,
             'overtime_applicable' => !empty($data['overtime_applicable']) ? 1 : 0,
+            'updated_at' => date(DATETIME_FORMAT_DB),
         ];
     }
 
@@ -455,6 +456,7 @@ class Employee {
                     'bonus_applicable' => !empty($data['bonus_applicable']) ? 1 : 0,
                     'gratuity_applicable' => !empty($data['gratuity_applicable']) ? 1 : 0,
                     'overtime_applicable' => !empty($data['overtime_applicable']) ? 1 : 0,
+                    'updated_at' => date(DATETIME_FORMAT_DB),
                 ];
             }
         }
@@ -465,21 +467,28 @@ class Employee {
             // Update employee
             $this->db->update('employees', $dbData, SQL_WHERE_ID, ['id' => $id]);
             
-            // Update salary structure if provided and table exists
+            // Update salary structure if provided and table exists (with versioning)
             if (!empty($salaryData)) {
                 // Check if salary structure exists
                 $existing = $this->db->fetch(
-                    "SELECT id FROM employee_salary_structures WHERE employee_id = :id AND (effective_to IS NULL OR effective_to >= CURDATE())",
+                    "SELECT id, effective_from FROM employee_salary_structures 
+                     WHERE employee_id = :id AND (effective_to IS NULL OR effective_to >= CURDATE())",
                     ['id' => $id]
                 );
                 
                 if ($existing) {
-                    $this->db->update('employee_salary_structures', $salaryData, 'id = :id', ['id' => $existing['id']]);
-                } else {
-                    $salaryData['employee_id'] = $id;
-                    $salaryData['effective_from'] = date(DATE_FORMAT_DB);
-                    $this->db->insert('employee_salary_structures', $salaryData);
+                    // Close the old active record to preserve history
+                    $this->db->query(
+                        "UPDATE employee_salary_structures 
+                         SET effective_to = DATE_SUB(CURDATE(), INTERVAL 1 DAY), updated_at = NOW() 
+                         WHERE id = ?",
+                        [$existing['id']]
+                    );
                 }
+                // Insert new versioned record
+                $salaryData['employee_id']   = $id;
+                $salaryData['effective_from'] = date(DATE_FORMAT_DB);
+                $this->db->insert('employee_salary_structures', $salaryData);
             }
             
             $this->db->commit();

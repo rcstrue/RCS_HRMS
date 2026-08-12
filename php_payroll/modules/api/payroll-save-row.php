@@ -253,22 +253,42 @@ try {
     $ptApplicable  = !empty($data['pt_applicable']) ? 1 : 0;
     $lwfApplicable = !empty($data['lwf_applicable']) ? 1 : 0;
 
+    // Read current active salary structure for fields not present on payroll page
+    // (bonus_applicable, gratuity_applicable, overtime_applicable are statutory flags
+    //  set on the Employee Add/Edit page, not the payroll process-edit page)
+    $currentStruct = $db->fetch(
+        "SELECT bonus_applicable, gratuity_applicable, overtime_applicable
+         FROM employee_salary_structures
+         WHERE employee_id = ? AND (effective_to IS NULL OR effective_to >= CURDATE())
+         ORDER BY effective_from DESC LIMIT 1",
+        [$employeeId]
+    );
+
+    $overtimeApplicable = !empty($data['overtime_applicable']) ? 1
+        : (int)($currentStruct['overtime_applicable'] ?? 0);
+    $bonusApplicable    = !empty($data['bonus_applicable']) ? 1
+        : (int)($currentStruct['bonus_applicable'] ?? 0);
+    $gratuityApplicable = !empty($data['gratuity_applicable']) ? 1
+        : (int)($currentStruct['gratuity_applicable'] ?? 0);
+
     $salData = [
-        'employee_id'       => $employeeId,
-        'effective_from'    => $effFrom,
-        'effective_to'      => null,  // Current (no end date)
-        'basic_da'          => (float)($wageDetails['basic_da'] ?? 0),
-        'hra'               => (float)($wageDetails['hra'] ?? 0),
-        'leave_encashment'  => (float)($wageDetails['leave_encashment'] ?? 0),
-        'bonus_encashment'  => (float)($wageDetails['bonus_encashment'] ?? 0),
-        'washing_allowance' => (float)($wageDetails['washing_allowance'] ?? 0),
-        'gross_salary'      => $grossSalary,
-        'pf_applicable'     => $pfApplicable,
-        'esi_applicable'    => $esiApplicable,
-        'pt_applicable'     => $ptApplicable,
-        'lwf_applicable'    => $lwfApplicable,
-        'overtime_applicable'=> 1,
-        'updated_at'        => date('Y-m-d H:i:s'),
+        'employee_id'        => $employeeId,
+        'effective_from'     => $effFrom,
+        'effective_to'       => null,  // Current (no end date)
+        'basic_da'           => (float)($wageDetails['basic_da'] ?? 0),
+        'hra'                => (float)($wageDetails['hra'] ?? 0),
+        'leave_encashment'   => (float)($wageDetails['leave_encashment'] ?? 0),
+        'bonus_encashment'   => (float)($wageDetails['bonus_encashment'] ?? 0),
+        'washing_allowance'  => (float)($wageDetails['washing_allowance'] ?? 0),
+        'gross_salary'       => $grossSalary,
+        'pf_applicable'      => $pfApplicable,
+        'esi_applicable'     => $esiApplicable,
+        'pt_applicable'      => $ptApplicable,
+        'lwf_applicable'     => $lwfApplicable,
+        'overtime_applicable'=> $overtimeApplicable,
+        'bonus_applicable'   => $bonusApplicable,
+        'gratuity_applicable'=> $gratuityApplicable,
+        'updated_at'         => date('Y-m-d H:i:s'),
     ];
 
     if ($existingSal) {
