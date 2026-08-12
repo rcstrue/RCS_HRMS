@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import type { ESSSession, ChangeRequest } from '@/lib/ess-types';
 import { getFileUrl, resetSessionExpiredGuard } from '@/lib/api/config';
 import { stopProactiveRefresh } from '@/lib/ess-auth';
-import { fetchChangeRequests, updateProfile, submitChangeRequest } from '@/lib/ess-api';
+import { fetchChangeRequests, updateProfile, submitChangeRequest, fetchFullProfile } from '@/lib/ess-api';
 
 // Extracted modules
 import LoginScreen from './LoginScreen';
@@ -281,6 +281,21 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
     }
   }, [currentPage]);
 
+  // ── Full Profile (for ProfileView / EditProfilePage) ──
+  // Session only has basic fields from login. Profile page needs all fields.
+  const [profileEmployee, setProfileEmployee] = useState<typeof emp | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+
+  const loadFullProfile = useCallback(async () => {
+    if (!session?.employee?.id) return;
+    setProfileLoading(true);
+    const { data } = await fetchFullProfile(session.employee.id);
+    if (data) {
+      setProfileEmployee(data as typeof emp);
+    }
+    setProfileLoading(false);
+  }, [session?.employee?.id]);
+
   // ── Change Requests ──
   const [changeRequests, setChangeRequests] = useState<ChangeRequest[]>([]);
   const loadChangeRequests = useCallback(async () => {
@@ -289,12 +304,13 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
     if (data) setChangeRequests(data);
   }, [session?.employee?.id]);
 
-  // Fetch change requests when navigating to profile or edit-profile
+  // Fetch profile + change requests when navigating to profile or edit-profile
   useEffect(() => {
     if (currentPage === 'profile' || currentPage === 'edit-profile') {
+      loadFullProfile();
       loadChangeRequests();
     }
-  }, [currentPage, loadChangeRequests]);
+  }, [currentPage, loadFullProfile, loadChangeRequests]);
 
   // ── Dashboard ──
   const { dashboardData, dashboardLoading, checkInLoading, checkOutLoading, loadDashboardData, handleCheckIn, handleCheckOut } = useDashboard(session);
@@ -467,7 +483,7 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
         {currentPage === 'holidays' && <HolidaysPage />}
         {currentPage === 'edit-profile' && (
           <EditProfilePage
-            employee={emp}
+            employee={profileEmployee || emp}
             pendingChangeRequests={changeRequests}
             onSaveFreeFields={async (fields) => {
               const { data, error } = await updateProfile({ employee_id: emp.id, fields });
@@ -475,6 +491,9 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
               // Update local session with saved values
               const merged = { ...emp, ...fields };
               saveSession({ ...activeSession!, employee: merged as typeof emp });
+              // Also update profile employee
+              const profileMerged = profileEmployee ? { ...profileEmployee, ...fields } : merged;
+              setProfileEmployee(profileMerged as typeof emp);
               return { success: true };
             }}
             onSubmitChangeRequest={async (data) => {
@@ -509,7 +528,15 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
           />
         )}
         {currentPage === 'send-notification' && <SendNotificationPage />}
-        {currentPage === 'profile' && <ProfileView employee={emp} role={role} onNavigate={navigate} pendingChangeRequests={changeRequests} />}
+        {currentPage === 'profile' && profileLoading && (
+          <div className="flex flex-col items-center justify-center gap-3 py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+            <p className="text-sm text-muted-foreground">Loading profile...</p>
+          </div>
+        )}
+        {currentPage === 'profile' && !profileLoading && (
+          <ProfileView employee={profileEmployee || emp} role={role} onNavigate={navigate} pendingChangeRequests={changeRequests} />
+        )}
         {currentPage === 'settings' && <SettingsView employee={emp} onLogout={clearSession} />}
       </main>
 
