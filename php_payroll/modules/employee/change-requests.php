@@ -14,23 +14,21 @@ if (!isset($db) || !is_object($db)) { header("Location: index.php"); exit; }
 
 $pageTitle = 'Change Request Approvals';
 
-// ─── Async Notification Helper (fire-and-forget, returns instantly) ──────────
-function sendChangeRequestNotification(array $data) {
-    $baseUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
-    $endpoint = $baseUrl . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/') . '/modules/employee/change-request-notify.php';
-
-    $ch = curl_init($endpoint);
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => json_encode($data),
-        CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'X-Async-Notify: 1'],
-        CURLOPT_RETURNTRANSFER => false,
-        CURLOPT_TIMEOUT        => 1,   // max 1 second — don't block the approve action
-        CURLOPT_CONNECTTIMEOUT => 1,
-        CURLOPT_NOSIGNAL       => true,
-    ]);
-    curl_exec($ch);
-    curl_close($ch);
+// ─── In-App Notification Helper (INSERT into ess_notifications) ──────────
+function sendInAppNotification(int $employeeId, string $title, string $message, string $type = 'info', string $link = '') {
+    global $db;
+    try {
+        $db->insert('ess_notifications', [
+            'employee_id' => (string)$employeeId,
+            'title'       => $title,
+            'message'     => $message,
+            'type'        => $type,
+            'link'        => $link ?: null,
+            'is_read'     => 0,
+        ]);
+    } catch (Exception $e) {
+        error_log('[change-request in-app notif] ' . $e->getMessage());
+    }
 }
 
 // ─── POST Actions ────────────────────────────────────────────────────────────
@@ -107,18 +105,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     ['id' => $id]
                 );
 
-                // ── Notification to employee (fire-and-forget via fast curl) ──
-                $notifData = [
-                    'emp_name'  => $request['emp_name'],
-                    'email'     => $request['email'] ?? '',
-                    'mobile'    => $request['mobile_number'] ?? '',
-                    'field'     => $field,
-                    'newValue'   => $newValue,
-                    'oldValue'   => $request['old_value'] ?? '',
-                    'reason'    => '',
-                    'type'      => 'approved',
-                ];
-                sendChangeRequestNotification($notifData);
+                // ── In-App Notification to employee ──
+                $fieldLabel = ucfirst(str_replace('_', ' ', $field));
+                sendInAppNotification(
+                    (int)$request['employee_id'],
+                    "Change Request Approved — {$fieldLabel}",
+                    "Your change request for {$fieldLabel} has been APPROVED. New value: {$newValue}",
+                    'success',
+                    '/profile/change-requests'
+                );
 
                 // Audit log
                 if (function_exists('logActivity')) {
@@ -178,18 +173,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     ['id' => $id]
                 );
 
-                // ── Notification to employee (fire-and-forget via fast curl) ──
-                $notifData = [
-                    'emp_name'  => $request['emp_name'],
-                    'email'     => $request['email'] ?? '',
-                    'mobile'    => $request['mobile_number'] ?? '',
-                    'field'     => $field,
-                    'newValue'   => $request['new_value'] ?? '',
-                    'oldValue'   => $request['old_value'] ?? '',
-                    'reason'    => $reason,
-                    'type'      => 'rejected',
-                ];
-                sendChangeRequestNotification($notifData);
+                // ── In-App Notification to employee ──
+                $fieldLabel = ucfirst(str_replace('_', ' ', $field));
+                sendInAppNotification(
+                    (int)$request['employee_id'],
+                    "Change Request Rejected — {$fieldLabel}",
+                    "Your change request for {$fieldLabel} has been REJECTED. Reason: {$reason}",
+                    'danger',
+                    '/profile/change-requests'
+                );
 
                 if (function_exists('logActivity')) {
                     logActivity('reject_change_request', 'employee', $request['employee_id'],
