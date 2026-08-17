@@ -389,7 +389,7 @@ try {
             $diagInfo .= "Step2-emp{$eid} ERROR: " . $e->getMessage() . ". ";
         }
     }
-    $diagInfo .= 'Step2: found ' . count($empMap) . ' employees. '
+    $diagInfo .= 'Step2: found ' . count($empMap) . ' employees. ';
 
     // Step 3: Merge employee data into requests
     foreach ($rawRequests as $r) {
