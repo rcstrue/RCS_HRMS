@@ -328,13 +328,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 // ─── GET Filters ────────────────────────────────────────────────────────────
 
-// Use raw GET values (sanitize does htmlspecialchars which can break PDO binding)
+// Raw GET values — do NOT use sanitize() (htmlspecialchars breaks PDO binding)
 $fStatusRaw = trim($_GET['status'] ?? 'all');
 $fSearchRaw = trim($_GET['search'] ?? '');
 
 // Validate status against whitelist
 $fStatus = in_array($fStatusRaw, ['all', 'pending', 'approved', 'rejected'], true) ? $fStatusRaw : 'all';
-$fSearch = mb_substr($fSearchRaw, 0, 100); // limit search length
+$fSearch = substr($fSearchRaw, 0, 100); // limit search length
 
 // ─── Summary counts (independent query) ────────────────────────────────────
 
@@ -349,75 +349,61 @@ try {
     error_log('[change-requests] Count queries failed: ' . $e->getMessage());
 }
 
-// ─── Fetch requests — TWO-STEP approach (no JOINs on first step) ────────────
-// Step 1: Fetch from employee_change_requests only (guaranteed to work)
-// Step 2: Fetch employee names separately and merge
+// ─── Fetch requests — Ultra-safe approach ──────────────────────────────────
 
 $requests = [];
 $dbError  = '';
 $diagInfo = '';
 
-// Step 1: Fetch change requests without any JOINs
+// Step 1: Fetch change requests WITHOUT any JOINs, minimal query
 try {
-    $crWhere = ['1=1'];
-    $crParams = [];
+    // Build WHERE — keep it extremely simple
+    $sql = "SELECT * FROM employee_change_requests ORDER BY created_at DESC";
+    $params = [];
 
     if ($fStatus !== 'all') {
-        $crWhere[] = 'status = :crstatus';
-        $crParams['crstatus'] = $fStatus;
+        $sql = "SELECT * FROM employee_change_requests WHERE status = :crstatus ORDER BY created_at DESC";
+        $params['crstatus'] = $fStatus;
     }
 
-    if ($fSearch !== '') {
-        $crWhere[] = 'field_name LIKE :crsearch';
-        $crParams['crsearch'] = "%{$fSearch}%";
-    }
-
-    $crWhereSql = implode(' AND ', $crWhere);
-
-    $rawRequests = $db->fetchAll(
-        "SELECT * FROM employee_change_requests
-         WHERE {$crWhereSql}
-         ORDER BY
-            CASE WHEN status = 'pending' THEN 0 ELSE 1 END,
-            created_at DESC",
-        $crParams
-    );
+    $rawRequests = $db->fetchAll($sql, $params);
 
     $diagInfo .= 'Step1: fetched ' . count($rawRequests) . ' requests. ';
 
-    // Step 2: Get unique employee IDs and batch-fetch their names
-    $empIds = array_unique(array_map('intval', array_column($rawRequests, 'employee_id')));
-    $empMap = []; // employee_id => [full_name, employee_code, mobile_number, email, designation]
+    // Step 2: Get employee names (one query per unique employee_id for simplicity)
+    $empIds = [];
+    foreach ($rawRequests as $r) {
+        $eid = (int)$r['employee_id'];
+        if ($eid > 0 && !in_array($eid, $empIds)) $empIds[] = $eid;
+    }
+    $empMap = [];
 
-    if (!empty($empIds)) {
-        $idList = implode(',', array_map('intval', $empIds));
+    foreach ($empIds as $eid) {
         try {
-            $empRows = $db->fetchAll(
-                "SELECT id, full_name, employee_code, mobile_number, email, designation
-                 FROM employees WHERE id IN ({$idList})"
+            $emp = $db->fetch(
+                "SELECT id, full_name, employee_code, mobile_number, email, designation FROM employees WHERE id = :eid LIMIT 1",
+                ['eid' => $eid]
             );
-            foreach ($empRows as $emp) {
-                $empMap[$emp['id']] = $emp;
-            }
-            $diagInfo .= 'Step2: found ' . count($empMap) . ' employees. ';
+            if ($emp) $empMap[$eid] = $emp;
         } catch (Exception $e) {
-            error_log('[change-requests] Employee lookup failed: ' . $e->getMessage());
-            $diagInfo .= 'Step2 ERROR: ' . $e->getMessage();
+            $diagInfo .= "Step2-emp{$eid} ERROR: " . $e->getMessage() . ". ";
         }
     }
+    $diagInfo .= 'Step2: found ' . count($empMap) . ' employees. '
 
     // Step 3: Merge employee data into requests
     foreach ($rawRequests as $r) {
         $eid = (int)$r['employee_id'];
         $emp = $empMap[$eid] ?? [];
 
-        // Get reviewer name if available
+        // Get reviewer name
         $reviewerName = null;
-        if (!empty($r['reviewed_by'])) {
+        $revId = (int)($r['reviewed_by'] ?? 0);
+        if ($revId > 0) {
             try {
                 $rev = $db->fetch(
-                    "SELECT full_name FROM employees WHERE id = :rid",
-                    ['rid' => (int)$r['reviewed_by']]
+                    "SELECT full_name FROM employees WHERE id = :rid LIMIT 1",
+                    ['rid' => $revId]
                 );
                 if ($rev) $reviewerName = $rev['full_name'];
             } catch (Exception $e) { /* ignore */ }
@@ -441,15 +427,18 @@ try {
     $diagInfo .= 'FATAL: ' . $dbError;
 }
 
-// ─── Apply search filter on employee name (post-fetch, since we can't search on e.full_name in step 1) ──
+// ─── Apply search filter (post-fetch) ──
 if ($fSearch !== '' && !empty($requests)) {
-    $searchLower = mb_strtolower($fSearch);
-    $requests = array_filter($requests, function($r) use ($searchLower) {
-        return mb_strpos(mb_strtolower($r['emp_name'] ?? ''), $searchLower) !== false
-            || mb_strpos(mb_strtolower($r['employee_code'] ?? ''), $searchLower) !== false
-            || mb_strpos(mb_strtolower($r['field_name'] ?? ''), $searchLower) !== false;
-    });
-    $requests = array_values($requests); // re-index
+    $searchLower = strtolower($fSearch);
+    $filtered = [];
+    foreach ($requests as $r) {
+        if (strpos(strtolower($r['emp_name'] ?? ''), $searchLower) !== false
+            || strpos(strtolower($r['employee_code'] ?? ''), $searchLower) !== false
+            || strpos(strtolower($r['field_name'] ?? ''), $searchLower) !== false) {
+            $filtered[] = $r;
+        }
+    }
+    $requests = $filtered;
 }
 
 // ─── Field label map ────────────────────────────────────────────────────────
@@ -514,11 +503,12 @@ $fieldLabels = [
                 </div>
                 <?php endif; ?>
 
-                <?php if (empty($requests) && empty($dbError) && ($pendingCount + $approvedCount + $rejectedCount) > 0 && $fStatus === 'all'): ?>
+                <?php if (empty($requests) && empty($dbError) && ($pendingCount + $approvedCount + $rejectedCount) > 0): ?>
                 <div class="alert alert-warning">
                     <i class="bi bi-info-circle me-2"></i>
                     <strong>Debug Info:</strong> <?= htmlspecialchars($diagInfo) ?>
                     <br>Counts: Pending=<?= $pendingCount ?>, Approved=<?= $approvedCount ?>, Rejected=<?= $rejectedCount ?>
+                    <br>Status filter: <?= htmlspecialchars($fStatus) ?>
                     <br><small>If you see counts above but no rows below, please share this debug info with support.</small>
                 </div>
                 <?php endif; ?>
