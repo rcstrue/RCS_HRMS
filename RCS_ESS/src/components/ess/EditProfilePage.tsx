@@ -195,8 +195,8 @@ export default function EditProfilePage({
     const inputId = `field-${field.key}`;
 
     if (field.inputType === 'select' && field.options) {
-      // Only pass a valid option value; otherwise undefined (uncontrolled → shows placeholder)
-      const validValue = (value && field.options.includes(value)) ? value : undefined;
+      // Always pass a string to keep the Select controlled (avoid uncontrolled→controlled warning)
+      const validValue = (value && field.options.includes(value)) ? value : '';
       return (
         <Select value={validValue} onValueChange={onChange} disabled={disabled}>
           <SelectTrigger id={inputId}>

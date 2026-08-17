@@ -129,7 +129,8 @@ try {
              WHERE employee_id = ? AND field_name = ? AND status = 'pending'
              LIMIT 1"
         );
-        $dupStmt->bind_param('ss', (string)$employeeId, $fieldName);
+        $empIdStr = (string)$employeeId;
+        $dupStmt->bind_param('ss', $empIdStr, $fieldName);
         $dupStmt->execute();
         $dup = $dupStmt->get_result()->fetch_assoc();
         $dupStmt->close();
@@ -151,8 +152,9 @@ try {
         if (!$insStmt) {
             jsonOutput(array('success' => false, 'error' => 'Database error'), 500);
         }
+        $empIdStr = (string)$employeeId;
         $insStmt->bind_param('sssss',
-            (string)$employeeId, $fieldName, $oldValue, $newValue, $reason
+            $empIdStr, $fieldName, $oldValue, $newValue, $reason
         );
         $insStmt->execute();
         $newId = $insStmt->insert_id;
