@@ -14,6 +14,25 @@ if (!isset($db) || !is_object($db)) { header("Location: index.php"); exit; }
 
 $pageTitle = 'Change Request Approvals';
 
+// ─── Async Notification Helper (fire-and-forget, returns instantly) ──────────
+function sendChangeRequestNotification(array $data) {
+    $baseUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
+    $endpoint = $baseUrl . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/') . '/modules/employee/change-request-notify.php';
+
+    $ch = curl_init($endpoint);
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode($data),
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'X-Async-Notify: 1'],
+        CURLOPT_RETURNTRANSFER => false,
+        CURLOPT_TIMEOUT        => 1,   // max 1 second — don't block the approve action
+        CURLOPT_CONNECTTIMEOUT => 1,
+        CURLOPT_NOSIGNAL       => true,
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
 // ─── POST Actions ────────────────────────────────────────────────────────────
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -88,49 +107,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     ['id' => $id]
                 );
 
-                // ── Notification to employee ──
-                try {
-                    require_once __DIR__ . '/../../includes/class.notification.php';
-                    $notif = new Notification();
-
-                    // Email
-                    $empEmail = $request['email'];
-                    if (!empty($empEmail)) {
-                        $fieldLabel = ucfirst(str_replace('_', ' ', $field));
-                        $htmlBody = "
-                        <div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;'>
-                            <div style='background:#10b981;padding:20px;text-align:center;'>
-                                <h2 style='color:#fff;margin:0;'>RCS True Facilities Pvt Ltd</h2>
-                            </div>
-                            <div style='padding:25px;background:#f9fafb;border:1px solid #e5e7eb;'>
-                                <p>Dear {$request['emp_name']},</p>
-                                <p>Your change request has been <strong style='color:#10b981;'>APPROVED</strong>.</p>
-                                <table style='width:100%;border-collapse:collapse;margin:15px 0;'>
-                                    <tr><td style='padding:8px;border:1px solid #e5e7eb;background:#f3f4f6;font-weight:bold;'>Field</td>
-                                        <td style='padding:8px;border:1px solid #e5e7eb;'>{$fieldLabel}</td></tr>
-                                    <tr><td style='padding:8px;border:1px solid #e5e7eb;background:#f3f4f6;font-weight:bold;'>Old Value</td>
-                                        <td style='padding:8px;border:1px solid #e5e7eb;'>" . htmlspecialchars($request['old_value']) . "</td></tr>
-                                    <tr><td style='padding:8px;border:1px solid #e5e7eb;background:#f3f4f6;font-weight:bold;'>New Value</td>
-                                        <td style='padding:8px;border:1px solid #e5e7eb;'>" . htmlspecialchars($newValue) . "</td></tr>
-                                </table>
-                                <p>If you did not request this change, please contact HR immediately.</p>
-                            </div>
-                            <p style='text-align:center;color:#9ca3af;font-size:12px;'>This is an automated message from RCS HRMS Pro.</p>
-                        </div>";
-                        $notif->sendEmail($empEmail, "Change Request Approved — {$fieldLabel}", $htmlBody);
-                    }
-
-                    // WhatsApp
-                    $empMobile = $request['mobile_number'];
-                    if (!empty($empMobile)) {
-                        $fieldLabel = ucfirst(str_replace('_', ' ', $field));
-                        $waMsg = "Hello {$request['emp_name']},\n\nYour change request has been APPROVED.\n\nField: {$fieldLabel}\nNew Value: {$newValue}\n\n- RCS HRMS Pro";
-                        $notif->sendWhatsApp($empMobile, $waMsg);
-                    }
-                } catch (Exception $e) {
-                    // Log but don't fail the approval
-                    error_log('[Change Request Approval] Notification error: ' . $e->getMessage());
-                }
+                // ── Notification to employee (fire-and-forget via fast curl) ──
+                $notifData = [
+                    'emp_name'  => $request['emp_name'],
+                    'email'     => $request['email'] ?? '',
+                    'mobile'    => $request['mobile_number'] ?? '',
+                    'field'     => $field,
+                    'newValue'   => $newValue,
+                    'oldValue'   => $request['old_value'] ?? '',
+                    'reason'    => '',
+                    'type'      => 'approved',
+                ];
+                sendChangeRequestNotification($notifData);
 
                 // Audit log
                 if (function_exists('logActivity')) {
@@ -190,47 +178,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     ['id' => $id]
                 );
 
-                // ── Notification to employee ──
-                try {
-                    require_once __DIR__ . '/../../includes/class.notification.php';
-                    $notif = new Notification();
-
-                    $empEmail = $request['email'];
-                    if (!empty($empEmail)) {
-                        $fieldLabel = ucfirst(str_replace('_', ' ', $field));
-                        $htmlBody = "
-                        <div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;'>
-                            <div style='background:#ef4444;padding:20px;text-align:center;'>
-                                <h2 style='color:#fff;margin:0;'>RCS True Facilities Pvt Ltd</h2>
-                            </div>
-                            <div style='padding:25px;background:#f9fafb;border:1px solid #e5e7eb;'>
-                                <p>Dear {$request['emp_name']},</p>
-                                <p>Your change request has been <strong style='color:#ef4444;'>REJECTED</strong>.</p>
-                                <table style='width:100%;border-collapse:collapse;margin:15px 0;'>
-                                    <tr><td style='padding:8px;border:1px solid #e5e7eb;background:#f3f4f6;font-weight:bold;'>Field</td>
-                                        <td style='padding:8px;border:1px solid #e5e7eb;'>{$fieldLabel}</td></tr>
-                                    <tr><td style='padding:8px;border:1px solid #e5e7eb;background:#f3f4f6;font-weight:bold;'>Requested Value</td>
-                                        <td style='padding:8px;border:1px solid #e5e7eb;'>" . htmlspecialchars($request['new_value']) . "</td></tr>
-                                    <tr><td style='padding:8px;border:1px solid #e5e7eb;background:#f3f4f6;font-weight:bold;'>Rejection Reason</td>
-                                        <td style='padding:8px;border:1px solid #e5e7eb;'>" . htmlspecialchars($reason) . "</td></tr>
-                                </table>
-                                <p>If you believe this was an error, please contact HR.</p>
-                            </div>
-                            <p style='text-align:center;color:#9ca3af;font-size:12px;'>This is an automated message from RCS HRMS Pro.</p>
-                        </div>";
-                        $notif->sendEmail($empEmail, "Change Request Rejected — {$fieldLabel}", $htmlBody);
-                    }
-
-                    // WhatsApp
-                    $empMobile = $request['mobile_number'];
-                    if (!empty($empMobile)) {
-                        $fieldLabel = ucfirst(str_replace('_', ' ', $field));
-                        $waMsg = "Hello {$request['emp_name']},\n\nYour change request has been REJECTED.\n\nField: {$fieldLabel}\nReason: {$reason}\n\n- RCS HRMS Pro";
-                        $notif->sendWhatsApp($empMobile, $waMsg);
-                    }
-                } catch (Exception $e) {
-                    error_log('[Change Request Rejection] Notification error: ' . $e->getMessage());
-                }
+                // ── Notification to employee (fire-and-forget via fast curl) ──
+                $notifData = [
+                    'emp_name'  => $request['emp_name'],
+                    'email'     => $request['email'] ?? '',
+                    'mobile'    => $request['mobile_number'] ?? '',
+                    'field'     => $field,
+                    'newValue'   => $request['new_value'] ?? '',
+                    'oldValue'   => $request['old_value'] ?? '',
+                    'reason'    => $reason,
+                    'type'      => 'rejected',
+                ];
+                sendChangeRequestNotification($notifData);
 
                 if (function_exists('logActivity')) {
                     logActivity('reject_change_request', 'employee', $request['employee_id'],

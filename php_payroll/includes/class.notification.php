@@ -320,8 +320,8 @@ class Notification {
                 CURLOPT_URL => $botUrl,
                 CURLOPT_POST => true,
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 30,
-                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_TIMEOUT => 5,
+                CURLOPT_CONNECTTIMEOUT => 2,
                 CURLOPT_HTTPHEADER => [
                     'Content-Type: application/json',
                     'X-API-Key: ' . $apiKey
@@ -388,7 +388,7 @@ class Notification {
             CURLOPT_URL => $botUrl,
             CURLOPT_POST => true,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 30,
+            CURLOPT_TIMEOUT => 5,
             CURLOPT_HTTPHEADER => [
                 'Content-Type: application/json',
                 'X-API-Key: ' . $this->whatsappConfig['api_key']
