@@ -14,36 +14,16 @@ if (!isset($db) || !is_object($db)) { header("Location: index.php"); exit; }
 
 $pageTitle = 'Change Request Approvals';
 
-// ─── Ensure table exists ──────────────────────────────────────────────────────
-try {
-    $db->exec("CREATE TABLE IF NOT EXISTS employee_change_requests (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        employee_id INT NOT NULL,
-        field_name VARCHAR(100) NOT NULL,
-        old_value TEXT,
-        new_value TEXT NOT NULL,
-        reason TEXT,
-        status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        reviewed_at DATETIME NULL,
-        reviewed_by INT NULL,
-        rejection_reason TEXT NULL,
-        INDEX idx_employee_status (employee_id, status),
-        INDEX idx_field_pending (employee_id, field_name, status)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-} catch (Exception $e) {
-    error_log('[change-requests] Table create error: ' . $e->getMessage());
-}
-
 // ─── POST Actions ────────────────────────────────────────────────────────────
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // CSRF check
-    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+    $csrfToken = $_POST['csrf_token'] ?? '';
+    if (!validateCSRFToken($csrfToken)) {
         setFlash('error', 'Invalid request. Please refresh the page and try again.');
         redirect($_SERVER['REQUEST_URI'] ?? 'index.php?page=employee/change-requests');
     }
-    $action = sanitize($_POST['action']);
+    $action = $_POST['action'] ?? '';
 
     // ── Whitelist of fields that can be updated on approval ──
     $APPROVAL_FIELDS = [
@@ -169,7 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // ── 2. Reject ──────────────────────────────────────────────
     if ($action === 'reject') {
         $id     = (int) ($_POST['id'] ?? 0);
-        $reason = sanitize(trim($_POST['rejection_reason'] ?? ''));
+        $reason = trim($_POST['rejection_reason'] ?? '');
 
         if ($id > 0 && $reason !== '') {
             // Fetch request WITHOUT JOIN
@@ -271,10 +251,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($action === 'bulk_approve') {
         $ids = $_POST['selected_ids'] ?? [];
         if (!empty($ids) && is_array($ids)) {
-            $APPROVAL_FIELDS = [
-                'full_name', 'father_name', 'date_of_birth', 'gender',
-                'designation', 'department', 'profile_pic_url',
-            ];
             $count = 0;
             $errors = 0;
 
@@ -283,8 +259,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if ($id <= 0) continue;
 
                 $request = $db->fetch(
-                    "SELECT r.* FROM employee_change_requests r
-                     WHERE r.id = :id AND r.status = 'pending'
+                    "SELECT * FROM employee_change_requests
+                     WHERE id = :id AND status = 'pending'
                      LIMIT 1",
                     ['id' => $id]
                 );
@@ -334,7 +310,7 @@ $fSearchRaw = trim($_GET['search'] ?? '');
 
 // Validate status against whitelist
 $fStatus = in_array($fStatusRaw, ['all', 'pending', 'approved', 'rejected'], true) ? $fStatusRaw : 'all';
-$fSearch = substr($fSearchRaw, 0, 100); // limit search length
+$fSearch = substr($fSearchRaw, 0, 100);
 
 // ─── Summary counts (independent query) ────────────────────────────────────
 
@@ -349,46 +325,52 @@ try {
     error_log('[change-requests] Count queries failed: ' . $e->getMessage());
 }
 
-// ─── Fetch requests — Ultra-safe approach ──────────────────────────────────
+// ─── Fetch requests — 2-step approach (no JOINs) ──────────────────────────
 
 $requests = [];
 $dbError  = '';
 $diagInfo = '';
 
-// Step 1: Fetch change requests WITHOUT any JOINs, minimal query
 try {
-    // Build WHERE — keep it extremely simple
-    $sql = "SELECT * FROM employee_change_requests ORDER BY created_at DESC";
-    $params = [];
-
+    // Step 1: Fetch change requests WITHOUT any JOINs
     if ($fStatus !== 'all') {
-        $sql = "SELECT * FROM employee_change_requests WHERE status = :crstatus ORDER BY created_at DESC";
-        $params['crstatus'] = $fStatus;
+        $rawRequests = $db->fetchAll(
+            "SELECT * FROM employee_change_requests WHERE status = :crstatus ORDER BY created_at DESC",
+            ['crstatus' => $fStatus]
+        );
+    } else {
+        $rawRequests = $db->fetchAll(
+            "SELECT * FROM employee_change_requests ORDER BY created_at DESC"
+        );
     }
-
-    $rawRequests = $db->fetchAll($sql, $params);
 
     $diagInfo .= 'Step1: fetched ' . count($rawRequests) . ' requests. ';
 
-    // Step 2: Get employee names (one query per unique employee_id for simplicity)
+    // Step 2: Get unique employee IDs and batch-fetch
     $empIds = [];
     foreach ($rawRequests as $r) {
         $eid = (int)$r['employee_id'];
-        if ($eid > 0 && !in_array($eid, $empIds)) $empIds[] = $eid;
+        if ($eid > 0 && !in_array($eid, $empIds)) {
+            $empIds[] = $eid;
+        }
     }
     $empMap = [];
 
-    foreach ($empIds as $eid) {
+    if (!empty($empIds)) {
+        $idList = implode(',', array_map('intval', $empIds));
         try {
-            $emp = $db->fetch(
-                "SELECT id, full_name, employee_code, mobile_number, email, designation FROM employees WHERE id = :eid LIMIT 1",
-                ['eid' => $eid]
+            $empRows = $db->fetchAll(
+                "SELECT id, full_name, employee_code, mobile_number, email, designation
+                 FROM employees WHERE id IN ({$idList})"
             );
-            if ($emp) $empMap[$eid] = $emp;
+            foreach ($empRows as $emp) {
+                $empMap[$emp['id']] = $emp;
+            }
         } catch (Exception $e) {
-            $diagInfo .= "Step2-emp{$eid} ERROR: " . $e->getMessage() . ". ";
+            $diagInfo .= 'Step2 ERROR: ' . $e->getMessage();
         }
     }
+
     $diagInfo .= 'Step2: found ' . count($empMap) . ' employees. ';
 
     // Step 3: Merge employee data into requests
@@ -405,8 +387,12 @@ try {
                     "SELECT full_name FROM employees WHERE id = :rid LIMIT 1",
                     ['rid' => $revId]
                 );
-                if ($rev) $reviewerName = $rev['full_name'];
-            } catch (Exception $e) { /* ignore */ }
+                if ($rev) {
+                    $reviewerName = $rev['full_name'];
+                }
+            } catch (Exception $e) {
+                /* ignore */
+            }
         }
 
         $requests[] = array_merge($r, [
@@ -415,8 +401,6 @@ try {
             'mobile_number'     => $emp['mobile_number'] ?? '',
             'email'             => $emp['email'] ?? '',
             'emp_designation'   => $emp['designation'] ?? '',
-            'client_name'       => null,
-            'unit_name'         => null,
             'reviewed_by_name'  => $reviewerName,
         ]);
     }
@@ -452,6 +436,9 @@ $fieldLabels = [
     'department'      => 'Department',
     'profile_pic_url' => 'Profile Photo',
 ];
+
+// ─── Generate CSRF token for forms ──────────────────────────────────────────
+$csrfToken = generateCSRFToken();
 ?>
 
 <div class="page-header d-flex justify-content-between align-items-center">
@@ -497,19 +484,9 @@ $fieldLabels = [
                 <?php if (!empty($dbError)): ?>
                 <div class="alert alert-danger">
                     <i class="bi bi-exclamation-triangle me-2"></i>
-                    <strong>Database Error:</strong> Unable to fetch change requests. 
+                    <strong>Database Error:</strong> Unable to fetch change requests.
                     Error: <?= htmlspecialchars($dbError) ?>
                     <br><small>Debug: <?= htmlspecialchars($diagInfo) ?></small>
-                </div>
-                <?php endif; ?>
-
-                <?php if (empty($requests) && empty($dbError) && ($pendingCount + $approvedCount + $rejectedCount) > 0): ?>
-                <div class="alert alert-warning">
-                    <i class="bi bi-info-circle me-2"></i>
-                    <strong>Debug Info:</strong> <?= htmlspecialchars($diagInfo) ?>
-                    <br>Counts: Pending=<?= $pendingCount ?>, Approved=<?= $approvedCount ?>, Rejected=<?= $rejectedCount ?>
-                    <br>Status filter: <?= htmlspecialchars($fStatus) ?>
-                    <br><small>If you see counts above but no rows below, please share this debug info with support.</small>
                 </div>
                 <?php endif; ?>
 
@@ -535,14 +512,25 @@ $fieldLabels = [
                 <?php if (empty($requests)): ?>
                 <div class="text-center py-5">
                     <i class="bi bi-check-circle text-muted" style="font-size: 3rem;"></i>
-                    <p class="text-muted mt-2">No change requests found.</p>
+                    <p class="text-muted mt-2">
+                        <?php if (!empty($dbError)): ?>
+                            No change requests could be loaded.
+                        <?php elseif ($fStatus !== 'all'): ?>
+                            No <?= htmlspecialchars($fStatus) ?> change requests found.
+                        <?php else: ?>
+                            No change requests found.
+                        <?php endif; ?>
+                    </p>
+                    <?php if (empty($dbError) && ($pendingCount + $approvedCount + $rejectedCount) > 0): ?>
+                    <p class="text-muted small">Debug: <?= htmlspecialchars($diagInfo) ?></p>
+                    <?php endif; ?>
                 </div>
                 <?php else: ?>
 
                 <!-- Bulk actions (only for pending) -->
                 <?php if ($fStatus === 'all' || $fStatus === 'pending'): ?>
                 <form method="POST" id="bulkForm" action="?page=employee/change-requests<?= $fStatus !== 'all' ? '&status=' . $fStatus : '' ?>">
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(getCSRFToken()) ?>">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                     <input type="hidden" name="action" value="bulk_approve">
                     <div class="d-flex gap-2 mb-3">
                         <button type="button" class="btn btn-sm btn-success" onclick="bulkApprove()">
@@ -594,7 +582,6 @@ $fieldLabels = [
                                             <strong><?= htmlspecialchars($r['emp_name']) ?></strong>
                                             <div class="small text-muted">
                                                 <?= htmlspecialchars($r['employee_code'] ?: 'EMP-' . $r['employee_id']) ?>
-                                                <?php if ($r['client_name']): ?> · <?= htmlspecialchars($r['client_name']) ?><?php endif; ?>
                                             </div>
                                         </div>
                                     </div>
@@ -604,13 +591,15 @@ $fieldLabels = [
                                         <?= htmlspecialchars($fieldLabels[$r['field_name']] ?? ucfirst(str_replace('_', ' ', $r['field_name']))) ?>
                                     </span>
                                 </td>
-                                <td><?php if ($r['field_name'] === 'profile_pic_url' && $r['old_value']): ?>
+                                <td>
+                                    <?php if ($r['field_name'] === 'profile_pic_url' && $r['old_value']): ?>
                                         <img src="<?= htmlspecialchars($r['old_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="Old">
                                     <?php else: ?>
                                         <code><?= htmlspecialchars($r['old_value'] ?: '—') ?></code>
                                     <?php endif; ?>
                                 </td>
-                                <td><?php if ($r['field_name'] === 'profile_pic_url' && $r['new_value']): ?>
+                                <td>
+                                    <?php if ($r['field_name'] === 'profile_pic_url' && $r['new_value']): ?>
                                         <img src="<?= htmlspecialchars($r['new_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="New">
                                     <?php else: ?>
                                         <code class="text-primary"><?= htmlspecialchars($r['new_value']) ?></code>
@@ -685,7 +674,7 @@ $fieldLabels = [
                 <div class="modal-body">
                     <input type="hidden" name="action" value="reject">
                     <input type="hidden" name="id" id="rejectId">
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(getCSRFToken()) ?>">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                     <p class="mb-3">Please provide a reason for rejecting this change request. The employee will be notified.</p>
                     <div class="mb-3">
                         <label for="rejection_reason" class="form-label fw-bold">Rejection Reason <span class="text-danger">*</span></label>
@@ -711,13 +700,13 @@ $fieldLabels = [
     const selectAll = document.getElementById('selectAll');
     if (selectAll) {
         selectAll.addEventListener('change', function() {
-            document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = this.checked);
+            document.querySelectorAll('.row-checkbox').forEach(function(cb) { cb.checked = this.checked; }.bind(this));
             updateSelectedCount();
         });
     }
 
     // Individual checkboxes
-    document.querySelectorAll('.row-checkbox').forEach(cb => {
+    document.querySelectorAll('.row-checkbox').forEach(function(cb) {
         cb.addEventListener('change', updateSelectedCount);
     });
 
@@ -737,7 +726,7 @@ $fieldLabels = [
 
         form.appendChild(createInput('action', 'approve'));
         form.appendChild(createInput('id', id));
-        form.appendChild(createInput('csrf_token', '<?= htmlspecialchars(getCSRFToken()) ?>'));
+        form.appendChild(createInput('csrf_token', '<?= htmlspecialchars($csrfToken) ?>'));
 
         document.body.appendChild(form);
         form.submit();
