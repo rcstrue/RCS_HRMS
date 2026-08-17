@@ -95,10 +95,9 @@ export default function EditProfilePage({
   useEffect(() => {
     const initial: Record<string, string> = {};
     for (const f of FIELD_RULES) {
-      if (f.rule === 'free') {
+      if (f.rule === 'free' || f.rule === 'admin_approval') {
         initial[f.key] = getValue(f.key);
       }
-      // admin_approval fields start empty (new value input)
     }
     setFormValues(initial);
   }, [employee]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -168,11 +167,8 @@ export default function EditProfilePage({
       });
       if (result.success) {
         toast.success(`Change request submitted for ${field.label}`);
-        setFormValues(prev => {
-          const next = { ...prev };
-          delete next[field.key];
-          return next;
-        });
+        // Reset field back to current value (pre-filled)
+        setFormValues(prev => ({ ...prev, [field.key]: getValue(field.key) }));
         setReasonForms(prev => {
           const next = { ...prev };
           delete next[field.key];

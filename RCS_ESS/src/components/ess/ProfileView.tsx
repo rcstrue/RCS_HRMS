@@ -30,6 +30,7 @@ import {
   Leaf,
   Pencil,
   CreditCard,
+  IdCard,
   Lock,
   CircleDot,
   User,
@@ -352,10 +353,14 @@ export default function ProfileView({
       )}
 
       {/* ── 11. Action Buttons ────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-3 pt-1">
+      <div className="grid grid-cols-2 gap-3 pt-1">
         <Button variant="outline" className="w-full" onClick={() => onNavigate('edit-profile')}>
           <Pencil className="w-4 h-4" />
           <span className="text-xs">Edit Profile</span>
+        </Button>
+        <Button variant="outline" className="w-full" onClick={() => onNavigate('id-card')}>
+          <IdCard className="w-4 h-4" />
+          <span className="text-xs">ID Card</span>
         </Button>
         <Button variant="outline" className="w-full" onClick={() => onNavigate('settings')}>
           <Settings className="w-4 h-4" />
