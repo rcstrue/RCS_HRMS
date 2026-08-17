@@ -14,6 +14,27 @@ if (!isset($db) || !is_object($db)) { header("Location: index.php"); exit; }
 
 $pageTitle = 'Change Request Approvals';
 
+// ─── Ensure table exists ──────────────────────────────────────────────────────
+try {
+    $db->exec("CREATE TABLE IF NOT EXISTS employee_change_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id INT NOT NULL,
+        field_name VARCHAR(100) NOT NULL,
+        old_value TEXT,
+        new_value TEXT NOT NULL,
+        reason TEXT,
+        status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        reviewed_at DATETIME NULL,
+        reviewed_by INT NULL,
+        rejection_reason TEXT NULL,
+        INDEX idx_employee_status (employee_id, status),
+        INDEX idx_field_pending (employee_id, field_name, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (Exception $e) {
+    error_log('[change-requests] Table create error: ' . $e->getMessage());
+}
+
 // ─── POST Actions ────────────────────────────────────────────────────────────
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -27,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // ── Whitelist of fields that can be updated on approval ──
     $APPROVAL_FIELDS = [
         'full_name', 'father_name', 'date_of_birth', 'gender',
-        'designation', 'department',
+        'designation', 'department', 'profile_pic_url',
     ];
 
     // ── 1. Approve ─────────────────────────────────────────────
@@ -228,7 +249,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if (!empty($ids) && is_array($ids)) {
             $APPROVAL_FIELDS = [
                 'full_name', 'father_name', 'date_of_birth', 'gender',
-                'designation', 'department',
+                'designation', 'department', 'profile_pic_url',
             ];
             $count = 0;
             $errors = 0;
@@ -307,23 +328,50 @@ $whereSql = implode(' AND ', $where);
 
 // ─── Fetch requests ─────────────────────────────────────────────────────────
 
-$requests = $db->fetchAll(
-    "SELECT r.*,
-            e.full_name AS emp_name, e.employee_code, e.mobile_number, e.email,
-            e.designation AS emp_designation, e.client_id,
-            c.name AS client_name, u.name AS unit_name,
-            reviewer.full_name AS reviewed_by_name
-     FROM employee_change_requests r
-     JOIN employees e ON e.id = r.employee_id
-     LEFT JOIN clients c ON c.id = e.client_id
-     LEFT JOIN units u   ON u.id = e.unit_id
-     LEFT JOIN employees reviewer ON reviewer.id = r.reviewed_by
-     WHERE {$whereSql}
-     ORDER BY
-        CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END,
-        r.created_at DESC",
-    $params
-);
+// Fetch requests — try full query with JOINs, fallback to simple query
+$requests = [];
+try {
+    $requests = $db->fetchAll(
+        "SELECT r.*,
+                e.full_name AS emp_name, e.employee_code, e.mobile_number, e.email,
+                e.designation AS emp_designation, e.client_id,
+                c.name AS client_name, u.name AS unit_name,
+                reviewer.full_name AS reviewed_by_name
+         FROM employee_change_requests r
+         JOIN employees e ON e.id = r.employee_id
+         LEFT JOIN clients c ON c.id = e.client_id
+         LEFT JOIN units u   ON u.id = e.unit_id
+         LEFT JOIN employees reviewer ON reviewer.id = r.reviewed_by
+         WHERE {$whereSql}
+         ORDER BY
+            CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END,
+            r.created_at DESC",
+        $params
+    );
+} catch (Exception $e) {
+    error_log('[change-requests] Full query failed: ' . $e->getMessage());
+    // Fallback: query without JOINs to clients/units tables (they may not exist)
+    try {
+        $requests = $db->fetchAll(
+            "SELECT r.*,
+                    e.full_name AS emp_name, e.employee_code, e.mobile_number, e.email,
+                    e.designation AS emp_designation, e.client_id,
+                    NULL AS client_name, NULL AS unit_name,
+                    reviewer.full_name AS reviewed_by_name
+             FROM employee_change_requests r
+             JOIN employees e ON e.id = r.employee_id
+             LEFT JOIN employees reviewer ON reviewer.id = r.reviewed_by
+             WHERE {$whereSql}
+             ORDER BY
+                CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END,
+                r.created_at DESC",
+            $params
+        );
+    } catch (Exception $e2) {
+        error_log('[change-requests] Fallback query also failed: ' . $e2->getMessage());
+        $requests = [];
+    }
+}
 
 // ─── Summary counts ──────────────────────────────────────────────────────────
 
@@ -341,12 +389,13 @@ foreach ($requests as $r) {
 // ─── Field label map ────────────────────────────────────────────────────────
 
 $fieldLabels = [
-    'full_name'     => 'Full Name',
-    'father_name'   => "Father's Name",
-    'date_of_birth' => 'Date of Birth',
-    'gender'        => 'Gender',
-    'designation'   => 'Designation',
-    'department'    => 'Department',
+    'full_name'       => 'Full Name',
+    'father_name'     => "Father's Name",
+    'date_of_birth'   => 'Date of Birth',
+    'gender'          => 'Gender',
+    'designation'     => 'Designation',
+    'department'      => 'Department',
+    'profile_pic_url' => 'Profile Photo',
 ];
 ?>
 
@@ -481,8 +530,18 @@ $fieldLabels = [
                                         <?= htmlspecialchars($fieldLabels[$r['field_name']] ?? ucfirst(str_replace('_', ' ', $r['field_name']))) ?>
                                     </span>
                                 </td>
-                                <td><code><?= htmlspecialchars($r['old_value'] ?: '—') ?></code></td>
-                                <td><code class="text-primary"><?= htmlspecialchars($r['new_value']) ?></code></td>
+                                <td><?php if ($r['field_name'] === 'profile_pic_url' && $r['old_value']): ?>
+                                        <img src="<?= htmlspecialchars($r['old_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="Old">
+                                    <?php else: ?>
+                                        <code><?= htmlspecialchars($r['old_value'] ?: '—') ?></code>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?php if ($r['field_name'] === 'profile_pic_url' && $r['new_value']): ?>
+                                        <img src="<?= htmlspecialchars($r['new_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="New">
+                                    <?php else: ?>
+                                        <code class="text-primary"><?= htmlspecialchars($r['new_value']) ?></code>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="small text-muted"><?= htmlspecialchars($r['reason'] ?: '—') ?></td>
                                 <td>
                                     <?php if ($r['status'] === 'pending'): ?>

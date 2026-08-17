@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   Loader2,
   Save,
   X,
-  Lock,
   Send,
   Clock,
   User,
@@ -14,7 +13,9 @@ import {
   Phone,
   UserCheck,
   Briefcase,
-  CreditCard,
+  Camera,
+  Upload,
+  CheckCircle2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -35,10 +36,11 @@ import {
   type FieldRule,
 } from '@/lib/field-rules';
 import type { Employee, ChangeRequest } from '@/lib/ess-types';
+import { getFileUrl } from '@/lib/api/config';
 import PageHeader from './PageHeader';
 
 // ══════════════════════════════════════════════════════════════
-// EditProfilePage — Simple pre-filled form grouped by section
+// EditProfilePage — Only editable fields, grouped by section
 // ══════════════════════════════════════════════════════════════
 
 interface EditProfilePageProps {
@@ -54,7 +56,6 @@ const SECTION_ICONS: Record<string, React.ElementType> = {
   personal: User,
   employment: Briefcase,
   address: MapPin,
-  bank: CreditCard,
   emergency: Phone,
   nominee: UserCheck,
 };
@@ -67,16 +68,14 @@ export default function EditProfilePage({
   onBack,
 }: EditProfilePageProps) {
   const [saving, setSaving] = useState(false);
-  // All editable field values (free + admin_approval new values)
   const [formValues, setFormValues] = useState<Record<string, string>>({});
-  // Reason fields for admin_approval change requests
   const [reasonForms, setReasonForms] = useState<Record<string, string>>({});
-  // Which approval fields are showing the reason textarea
   const [showReason, setShowReason] = useState<Record<string, boolean>>({});
-  // Which field is currently submitting a change request
   const [submittingField, setSubmittingField] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [pendingPhotoUrl, setPendingPhotoUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Build a set of field names that have pending change requests
   const pendingFieldNames = useMemo(() => {
     const set = new Set<string>();
     for (const r of pendingChangeRequests) {
@@ -85,13 +84,12 @@ export default function EditProfilePage({
     return set;
   }, [pendingChangeRequests]);
 
-  // Get current employee value for a field
   const getValue = (key: string): string => {
     const val = (employee as unknown as Record<string, unknown>)[key];
     return (val as string) || '';
   };
 
-  // Initialize form with current values for all editable (free + admin_approval) fields
+  // Initialize form with current values for all editable fields (free + admin_approval)
   useEffect(() => {
     const initial: Record<string, string> = {};
     for (const f of FIELD_RULES) {
@@ -102,15 +100,14 @@ export default function EditProfilePage({
     setFormValues(initial);
   }, [employee]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Group fields by section, preserving FIELD_SECTIONS order
+  // Only show sections that have at least one editable field
   const sectionsWithFields = useMemo(() => {
     return FIELD_SECTIONS.map(sectionDef => {
-      const fields = FIELD_RULES.filter(f => f.section === sectionDef.key);
+      const fields = FIELD_RULES.filter(f => f.section === sectionDef.key && f.rule !== 'readonly');
       return { ...sectionDef, fields };
     }).filter(s => s.fields.length > 0);
   }, []);
 
-  // Handle input change
   const updateField = (key: string, value: string) => {
     setFormValues(prev => ({ ...prev, [key]: value }));
   };
@@ -167,7 +164,6 @@ export default function EditProfilePage({
       });
       if (result.success) {
         toast.success(`Change request submitted for ${field.label}`);
-        // Reset field back to current value (pre-filled)
         setFormValues(prev => ({ ...prev, [field.key]: getValue(field.key) }));
         setReasonForms(prev => {
           const next = { ...prev };
@@ -175,6 +171,9 @@ export default function EditProfilePage({
           return next;
         });
         setShowReason(prev => ({ ...prev, [field.key]: false }));
+        if (field.key === 'profile_pic_url') {
+          setPendingPhotoUrl(null);
+        }
       } else {
         toast.error(result.error || 'Failed to submit change request');
       }
@@ -182,6 +181,54 @@ export default function EditProfilePage({
       toast.error('An unexpected error occurred');
     } finally {
       setSubmittingField(null);
+    }
+  };
+
+  // ── Profile Photo Upload ──
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be less than 5MB');
+      return;
+    }
+
+    setUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('photo', file);
+      formData.append('employee_id', String(employee.id));
+
+      const API_BASE = (import.meta as Record<string, Record<string, string>>).env?.VITE_API_BASE_URL ?? '';
+      const API_KEY = (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY ?? '';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ess_token') || '' : '';
+
+      const resp = await fetch(`${API_BASE}/api/ess/upload.php`, {
+        method: 'POST',
+        headers: { 'X-API-KEY': API_KEY, 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+
+      const json = await resp.json();
+      if (json.success && json.data?.url) {
+        setPendingPhotoUrl(json.data.url);
+        setFormValues(prev => ({ ...prev, profile_pic_url: json.data.url }));
+        toast.success('Photo uploaded. Click "Request Change" to submit for approval.');
+      } else {
+        toast.error(json.error || 'Upload failed');
+      }
+    } catch {
+      toast.error('Upload failed. Please try again.');
+    } finally {
+      setUploadingPhoto(false);
+      // Reset file input so the same file can be selected again
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -195,7 +242,6 @@ export default function EditProfilePage({
     const inputId = `field-${field.key}`;
 
     if (field.inputType === 'select' && field.options) {
-      // Always pass a string to keep the Select controlled (avoid uncontrolled→controlled warning)
       const validValue = (value && field.options.includes(value)) ? value : '';
       return (
         <Select value={validValue} onValueChange={onChange} disabled={disabled}>
@@ -276,34 +322,140 @@ export default function EditProfilePage({
 
   // Render a single field row
   const renderField = (field: FieldRule) => {
+    // Skip readonly fields entirely
+    if (field.rule === 'readonly') return null;
+
     const hasPending = pendingFieldNames.has(field.key);
     const isSubmitting = submittingField === field.key;
     const isShowingReason = showReason[field.key];
 
-    if (field.rule === 'readonly') {
-      // Read-only field: show current value in a disabled input
-      const val = getValue(field.key);
-      const displayVal = field.masked && val
-        ? val.length > 8
-          ? val.slice(0, 4) + ' **** ' + val.slice(-4)
-          : '****'
-        : val;
+    // ── Special: Profile Photo ──
+    if (field.inputType === 'photo') {
+      const currentPhoto = getValue(field.key);
+      const displayPhoto = pendingPhotoUrl || currentPhoto;
+      const photoChanged = !!pendingPhotoUrl && pendingPhotoUrl !== currentPhoto;
 
       return (
-        <div key={field.key} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
-          <div className="flex items-center gap-2">
-            <Lock className="w-3.5 h-3.5 text-gray-300 shrink-0" />
-            <span className="text-sm text-gray-500">{field.label}</span>
+        <div key={field.key} className="space-y-3 border border-amber-100 rounded-lg p-3 bg-amber-50/30">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-medium">{field.label}</Label>
+            {hasPending && (
+              <Badge variant="outline" className="bg-amber-100 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
+                <Clock className="w-3 h-3 mr-0.5" />
+                Pending
+              </Badge>
+            )}
           </div>
-          <span className="text-sm font-medium text-gray-700 truncate max-w-[200px]">
-            {displayVal || '—'}
-          </span>
+
+          {/* Photo preview */}
+          <div className="flex items-center gap-4">
+            <div className="w-20 h-20 rounded-full bg-gray-100 border-2 border-gray-200 overflow-hidden flex-shrink-0">
+              {displayPhoto ? (
+                <img
+                  src={getFileUrl(displayPhoto)}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                  onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-gray-300">
+                  <User className="w-8 h-8" />
+                </div>
+              )}
+            </div>
+            <div className="flex-1 space-y-2">
+              {!hasPending && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full border-dashed"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingPhoto}
+                  >
+                    {uploadingPhoto ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                    ) : (
+                      <Camera className="w-3.5 h-3.5 mr-1.5" />
+                    )}
+                    {uploadingPhoto ? 'Uploading...' : 'Choose New Photo'}
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handlePhotoSelect}
+                  />
+                  {photoChanged && (
+                    <p className="text-xs text-emerald-600 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      New photo ready. Submit below.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Submit change request button */}
+          {!hasPending && photoChanged && (
+            !isShowingReason ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full border-amber-200 text-amber-700 hover:bg-amber-100"
+                onClick={() => setShowReason(prev => ({ ...prev, [field.key]: true }))}
+              >
+                <Send className="w-3.5 h-3.5 mr-1.5" />
+                Request Change
+              </Button>
+            ) : (
+              <div className="space-y-2">
+                <Textarea
+                  placeholder="Reason for change (optional)"
+                  value={reasonForms[field.key] || ''}
+                  onChange={e => setReasonForms(prev => ({ ...prev, [field.key]: e.target.value }))}
+                  rows={2}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => {
+                      setShowReason(prev => ({ ...prev, [field.key]: false }));
+                      setPendingPhotoUrl(null);
+                      setFormValues(prev => ({ ...prev, profile_pic_url: getValue('profile_pic_url') }));
+                    }}
+                  >
+                    <X className="w-3.5 h-3.5 mr-1" />
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => handleSubmitRequest(field)}
+                    disabled={isSubmitting || uploadingPhoto}
+                  >
+                    {isSubmitting ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5 mr-1" />
+                    )}
+                    Submit
+                  </Button>
+                </div>
+              </div>
+            )
+          )}
         </div>
       );
     }
 
+    // ── Admin approval field ──
     if (field.rule === 'admin_approval') {
-      // Admin approval field: show current value + new value input + request change
       return (
         <div key={field.key} className="space-y-2 border border-amber-100 rounded-lg p-3 bg-amber-50/30">
           <div className="flex items-center justify-between">
@@ -316,10 +468,8 @@ export default function EditProfilePage({
             )}
           </div>
 
-          {/* Current value (read-only) */}
           <p className="text-xs text-gray-400">Current: <span className="font-medium text-gray-600">{getValue(field.key) || '—'}</span></p>
 
-          {/* New value input */}
           {renderInput(
             field,
             formValues[field.key] || '',
@@ -327,7 +477,6 @@ export default function EditProfilePage({
             hasPending,
           )}
 
-          {/* Action buttons */}
           {!hasPending && (
             <>
               {!isShowingReason ? (
@@ -381,7 +530,7 @@ export default function EditProfilePage({
       );
     }
 
-    // Free field: directly editable
+    // ── Free field (directly editable) ──
     return (
       <div key={field.key} className="space-y-1.5">
         <Label htmlFor={`field-${field.key}`}>{field.label}</Label>
@@ -394,11 +543,8 @@ export default function EditProfilePage({
     <div className="space-y-4 pb-6">
       <PageHeader title="Edit Profile" subtitle="Update your information" onBack={onBack} />
 
-      {/* Render each section as a card */}
       {sectionsWithFields.map(section => {
         const Icon = SECTION_ICONS[section.key] || User;
-        const hasReadonly = section.fields.some(f => f.rule === 'readonly');
-        const hasEditable = section.fields.some(f => f.rule !== 'readonly');
 
         return (
           <Card key={section.key} className="border-0 shadow-sm">
@@ -406,23 +552,12 @@ export default function EditProfilePage({
               <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
                 <Icon className="w-4 h-4" />
                 {section.label}
-                {hasEditable && (
-                  <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px] px-1.5 py-0">
-                    Editable
-                  </Badge>
-                )}
+                <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px] px-1.5 py-0">
+                  Editable
+                </Badge>
               </h3>
 
-              {/* Render all fields in this section */}
               {section.fields.map(field => renderField(field))}
-
-              {/* Hint for readonly fields */}
-              {hasReadonly && (
-                <p className="text-xs text-gray-400 pt-1">
-                  <Lock className="w-3 h-3 inline mr-1" />
-                  Locked fields require admin assistance to update.
-                </p>
-              )}
             </CardContent>
           </Card>
         );
