@@ -18,14 +18,16 @@ $pageTitle = 'Change Request Approvals';
 function sendInAppNotification(int $employeeId, string $title, string $message, string $type = 'info', string $link = '') {
     global $db;
     try {
-        $sql = "INSERT INTO ess_notifications (employee_id, title, message, type, link, created_at, is_read)
-                VALUES (:employee_id, :title, :message, :type, :link, NOW(), 0)";
+        // Use the same format as ESS notifications.php: employee_id, title, message, type, link, created_at
+        $linkVal = $link ?: '';
+        $sql = "INSERT INTO ess_notifications (employee_id, title, message, type, link, created_at)
+                VALUES (:employee_id, :title, :message, :type, :link, NOW())";
         $db->query($sql, [
             'employee_id' => (string)$employeeId,
             'title'       => $title,
             'message'     => $message,
             'type'        => $type,
-            'link'        => $link ?: null,
+            'link'        => $linkVal,
         ]);
     } catch (Exception $e) {
         error_log('[change-request in-app notif] ' . $e->getMessage());

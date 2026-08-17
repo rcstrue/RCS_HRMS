@@ -272,7 +272,7 @@ export async function uploadBase64Image(
   folder: string = 'documents'
 ): Promise<{ url: string | null; error: string | null }> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/upload/base64`, {
+    const response = await fetch(`${API_BASE_URL}/api/ess/upload-base64`, {
       method: 'POST',
       credentials: 'include', // Round 10: send the ess_jwt HttpOnly cookie
       headers: (() => {
