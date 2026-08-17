@@ -482,7 +482,13 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
           />
         )}
         {currentPage === 'holidays' && <HolidaysPage />}
-        {currentPage === 'edit-profile' && (
+        {currentPage === 'edit-profile' && profileLoading && (
+          <div className="flex flex-col items-center justify-center gap-3 py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+            <p className="text-sm text-muted-foreground">Loading profile...</p>
+          </div>
+        )}
+        {currentPage === 'edit-profile' && !profileLoading && (
           <EditProfilePage
             employee={profileEmployee || emp}
             pendingChangeRequests={changeRequests}

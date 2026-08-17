@@ -152,7 +152,7 @@ try {
             jsonOutput(array('success' => false, 'error' => 'Database error'), 500);
         }
         $insStmt->bind_param('sssss',
-            (string)$employeeId, $fieldName, $oldValue, $newValue, $reason ?: null
+            (string)$employeeId, $fieldName, $oldValue, $newValue, $reason
         );
         $insStmt->execute();
         $newId = $insStmt->insert_id;
@@ -167,5 +167,5 @@ try {
 
 } catch (\Throwable $e) {
     error_log('[ESS change-requests] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-    jsonOutput(array('success' => false, 'error' => 'Internal server error'), 500);
+    jsonOutput(array('success' => false, 'error' => 'Internal server error', 'debug' => $e->getMessage()), 500);
 }
