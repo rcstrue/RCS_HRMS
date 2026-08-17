@@ -79,8 +79,11 @@ export function getFileUrl(path: string | null | undefined): string | null {
     return path;
   }
 
-  // Remove leading /uploads/ if present (server sometimes returns "/uploads/profile/xxx.jpg")
-  const cleanPath = path.replace(/^\/uploads\//, '');
+  // Normalize path: strip various prefixes that the server may return
+  const cleanPath = path
+    .replace(/^\/uploads\//, '')          // admin: /uploads/profile/xxx.jpg
+    .replace(/^assets\/uploads\//, '')     // old ESS: assets/uploads/profiles/xxx.jpg
+    .replace(/^uploads\//, '');           // variant: uploads/profiles/xxx.jpg
 
   // Construct full URL: https://join.rcsfacility.com/uploads/profile/xxx.jpg
   return `${FILES_BASE_URL}/${cleanPath}`;

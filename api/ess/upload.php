@@ -73,8 +73,9 @@ try {
     $employeeId = (int)($_POST['employee_id'] ?? $authId);
     $filename = "profile_{$employeeId}_" . bin2hex(random_bytes(8)) . ".{$extension}";
 
-    // Upload directory — relative to API root
-    $uploadDir = __DIR__ . '/../assets/uploads/profiles/';
+    // Upload directory — use the shared /uploads/profiles/ directory
+    // (same as admin upload, so getFileUrl() in ESS can construct the correct URL)
+    $uploadDir = dirname(__DIR__) . '/uploads/profiles/';
     if (!is_dir($uploadDir)) {
         mkdir($uploadDir, 0755, true);
     }
@@ -85,8 +86,8 @@ try {
         jsonOutput(array('success' => false, 'error' => 'Failed to save uploaded file'), 500);
     }
 
-    // Return URL relative to API base
-    $url = "assets/uploads/profiles/{$filename}";
+    // Return URL that getFileUrl() expects: a sub-path under /uploads/
+    $url = "profiles/{$filename}";
 
     jsonOutput(array(
         'success' => true,

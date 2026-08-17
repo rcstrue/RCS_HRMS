@@ -326,10 +326,25 @@ if ($fSearch !== '') {
 
 $whereSql = implode(' AND ', $where);
 
+// ─── Summary counts (independent of filtered query) ────────────────────────────
+
+$pendingCount  = 0;
+$approvedCount = 0;
+$rejectedCount = 0;
+try {
+    $pendingCount  = (int)$db->fetchColumn("SELECT COUNT(*) FROM employee_change_requests WHERE status = 'pending'") ?: 0;
+    $approvedCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM employee_change_requests WHERE status = 'approved'") ?: 0;
+    $rejectedCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM employee_change_requests WHERE status = 'rejected'") ?: 0;
+} catch (Exception $e) {
+    error_log('[change-requests] Count queries failed: ' . $e->getMessage());
+}
+
 // ─── Fetch requests ─────────────────────────────────────────────────────────
 
-// Fetch requests — try full query with JOINs, fallback to simple query
 $requests = [];
+$dbError = '';
+
+// Strategy 1: Full query with all JOINs
 try {
     $requests = $db->fetchAll(
         "SELECT r.*,
@@ -350,12 +365,13 @@ try {
     );
 } catch (Exception $e) {
     error_log('[change-requests] Full query failed: ' . $e->getMessage());
-    // Fallback: query without JOINs to clients/units tables (they may not exist)
+
+    // Strategy 2: Without clients/units JOINs
     try {
         $requests = $db->fetchAll(
             "SELECT r.*,
                     e.full_name AS emp_name, e.employee_code, e.mobile_number, e.email,
-                    e.designation AS emp_designation, e.client_id,
+                    e.designation AS emp_designation,
                     NULL AS client_name, NULL AS unit_name,
                     reviewer.full_name AS reviewed_by_name
              FROM employee_change_requests r
@@ -368,21 +384,29 @@ try {
             $params
         );
     } catch (Exception $e2) {
-        error_log('[change-requests] Fallback query also failed: ' . $e2->getMessage());
-        $requests = [];
-    }
-}
+        error_log('[change-requests] Fallback 1 failed: ' . $e2->getMessage());
 
-// ─── Summary counts ──────────────────────────────────────────────────────────
-
-$pendingCount = 0;
-$approvedCount = 0;
-$rejectedCount = 0;
-foreach ($requests as $r) {
-    switch ($r['status']) {
-        case 'pending':  $pendingCount++;  break;
-        case 'approved': $approvedCount++; break;
-        case 'rejected': $rejectedCount++; break;
+        // Strategy 3: Simplest possible query — no reviewer JOIN
+        try {
+            $requests = $db->fetchAll(
+                "SELECT r.*,
+                        e.full_name AS emp_name, e.employee_code, e.mobile_number, e.email,
+                        e.designation AS emp_designation,
+                        NULL AS client_name, NULL AS unit_name,
+                        NULL AS reviewed_by_name
+                 FROM employee_change_requests r
+                 JOIN employees e ON e.id = r.employee_id
+                 WHERE {$whereSql}
+                 ORDER BY
+                    CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END,
+                    r.created_at DESC",
+                $params
+            );
+        } catch (Exception $e3) {
+            error_log('[change-requests] Fallback 2 failed: ' . $e3->getMessage());
+            $dbError = $e3->getMessage();
+            $requests = [];
+        }
     }
 }
 
@@ -439,6 +463,15 @@ $fieldLabels = [
                 </div>
             </div>
             <div class="card-body">
+                <?php if (!empty($dbError)): ?>
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <strong>Database Error:</strong> Unable to fetch change requests. 
+                    Error: <?= htmlspecialchars($dbError) ?>
+                    <br><small>Please contact the system administrator.</small>
+                </div>
+                <?php endif; ?>
+
                 <!-- Search -->
                 <form method="GET" class="row g-2 mb-3">
                     <input type="hidden" name="page" value="employee/change-requests">
