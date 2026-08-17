@@ -55,17 +55,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($action === 'approve') {
         $id = (int) ($_POST['id'] ?? 0);
         if ($id > 0) {
+            // Fetch request WITHOUT JOIN, then get employee separately
             $request = $db->fetch(
-                "SELECT r.*, e.full_name AS emp_name, e.email, e.mobile_number,
-                        e.employee_code, e.designation
-                 FROM employee_change_requests r
-                 JOIN employees e ON e.id = r.employee_id
-                 WHERE r.id = :id AND r.status = 'pending'
-                 LIMIT 1",
+                "SELECT * FROM employee_change_requests
+                 WHERE id = :id AND status = 'pending' LIMIT 1",
                 ['id' => $id]
             );
 
             if ($request) {
+                // Fetch employee info separately
+                $empInfo = $db->fetch(
+                    "SELECT full_name, email, mobile_number, employee_code, designation
+                     FROM employees WHERE id = :eid LIMIT 1",
+                    ['eid' => (int)$request['employee_id']]
+                );
+                if ($empInfo) {
+                    $request['emp_name']      = $empInfo['full_name'];
+                    $request['email']         = $empInfo['email'];
+                    $request['mobile_number'] = $empInfo['mobile_number'];
+                    $request['employee_code'] = $empInfo['employee_code'];
+                    $request['designation']   = $empInfo['designation'];
+                } else {
+                    $request['emp_name'] = 'Employee #' . $request['employee_id'];
+                }
                 $field = $request['field_name'];
                 $newValue = $request['new_value'];
 
@@ -160,17 +172,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $reason = sanitize(trim($_POST['rejection_reason'] ?? ''));
 
         if ($id > 0 && $reason !== '') {
+            // Fetch request WITHOUT JOIN
             $request = $db->fetch(
-                "SELECT r.*, e.full_name AS emp_name, e.email, e.mobile_number,
-                        e.employee_code, e.designation
-                 FROM employee_change_requests r
-                 JOIN employees e ON e.id = r.employee_id
-                 WHERE r.id = :id AND r.status = 'pending'
-                 LIMIT 1",
+                "SELECT * FROM employee_change_requests
+                 WHERE id = :id AND status = 'pending' LIMIT 1",
                 ['id' => $id]
             );
 
             if ($request) {
+                // Fetch employee info separately
+                $empInfo = $db->fetch(
+                    "SELECT full_name, email, mobile_number, employee_code, designation
+                     FROM employees WHERE id = :eid LIMIT 1",
+                    ['eid' => (int)$request['employee_id']]
+                );
+                if ($empInfo) {
+                    $request['emp_name']      = $empInfo['full_name'];
+                    $request['email']         = $empInfo['email'];
+                    $request['mobile_number'] = $empInfo['mobile_number'];
+                    $request['employee_code'] = $empInfo['employee_code'];
+                    $request['designation']   = $empInfo['designation'];
+                } else {
+                    $request['emp_name'] = 'Employee #' . $request['employee_id'];
+                }
                 $field = $request['field_name'];
 
                 // Mark request as rejected
@@ -304,29 +328,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 // ─── GET Filters ────────────────────────────────────────────────────────────
 
-$fStatus = sanitize($_GET['status'] ?? 'all');
-$fSearch = sanitize(trim($_GET['search'] ?? ''));
+// Use raw GET values (sanitize does htmlspecialchars which can break PDO binding)
+$fStatusRaw = trim($_GET['status'] ?? 'all');
+$fSearchRaw = trim($_GET['search'] ?? '');
 
-// ─── Build WHERE clause ─────────────────────────────────────────────────────
+// Validate status against whitelist
+$fStatus = in_array($fStatusRaw, ['all', 'pending', 'approved', 'rejected'], true) ? $fStatusRaw : 'all';
+$fSearch = mb_substr($fSearchRaw, 0, 100); // limit search length
 
-$where  = ['1=1'];
-$params = [];
-
-if ($fStatus !== 'all' && in_array($fStatus, ['pending', 'approved', 'rejected'], true)) {
-    $where[]  = 'r.status = :status';
-    $params['status'] = $fStatus;
-}
-
-if ($fSearch !== '') {
-    $where[] = '(e.full_name LIKE :search1 OR e.employee_code LIKE :search2 OR r.field_name LIKE :search3)';
-    $params['search1'] = "%{$fSearch}%";
-    $params['search2'] = "%{$fSearch}%";
-    $params['search3'] = "%{$fSearch}%";
-}
-
-$whereSql = implode(' AND ', $where);
-
-// ─── Summary counts (independent of filtered query) ────────────────────────────
+// ─── Summary counts (independent query) ────────────────────────────────────
 
 $pendingCount  = 0;
 $approvedCount = 0;
@@ -339,75 +349,107 @@ try {
     error_log('[change-requests] Count queries failed: ' . $e->getMessage());
 }
 
-// ─── Fetch requests ─────────────────────────────────────────────────────────
+// ─── Fetch requests — TWO-STEP approach (no JOINs on first step) ────────────
+// Step 1: Fetch from employee_change_requests only (guaranteed to work)
+// Step 2: Fetch employee names separately and merge
 
 $requests = [];
-$dbError = '';
+$dbError  = '';
+$diagInfo = '';
 
-// Strategy 1: Full query with all JOINs
+// Step 1: Fetch change requests without any JOINs
 try {
-    $requests = $db->fetchAll(
-        "SELECT r.*,
-                e.full_name AS emp_name, e.employee_code, e.mobile_number, e.email,
-                e.designation AS emp_designation, e.client_id,
-                c.name AS client_name, u.name AS unit_name,
-                reviewer.full_name AS reviewed_by_name
-         FROM employee_change_requests r
-         JOIN employees e ON e.id = r.employee_id
-         LEFT JOIN clients c ON c.id = e.client_id
-         LEFT JOIN units u   ON u.id = e.unit_id
-         LEFT JOIN employees reviewer ON reviewer.id = r.reviewed_by
-         WHERE {$whereSql}
+    $crWhere = ['1=1'];
+    $crParams = [];
+
+    if ($fStatus !== 'all') {
+        $crWhere[] = 'status = :crstatus';
+        $crParams['crstatus'] = $fStatus;
+    }
+
+    if ($fSearch !== '') {
+        $crWhere[] = 'field_name LIKE :crsearch';
+        $crParams['crsearch'] = "%{$fSearch}%";
+    }
+
+    $crWhereSql = implode(' AND ', $crWhere);
+
+    $rawRequests = $db->fetchAll(
+        "SELECT * FROM employee_change_requests
+         WHERE {$crWhereSql}
          ORDER BY
-            CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END,
-            r.created_at DESC",
-        $params
+            CASE WHEN status = 'pending' THEN 0 ELSE 1 END,
+            created_at DESC",
+        $crParams
     );
-} catch (Exception $e) {
-    error_log('[change-requests] Full query failed: ' . $e->getMessage());
 
-    // Strategy 2: Without clients/units JOINs
-    try {
-        $requests = $db->fetchAll(
-            "SELECT r.*,
-                    e.full_name AS emp_name, e.employee_code, e.mobile_number, e.email,
-                    e.designation AS emp_designation,
-                    NULL AS client_name, NULL AS unit_name,
-                    reviewer.full_name AS reviewed_by_name
-             FROM employee_change_requests r
-             JOIN employees e ON e.id = r.employee_id
-             LEFT JOIN employees reviewer ON reviewer.id = r.reviewed_by
-             WHERE {$whereSql}
-             ORDER BY
-                CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END,
-                r.created_at DESC",
-            $params
-        );
-    } catch (Exception $e2) {
-        error_log('[change-requests] Fallback 1 failed: ' . $e2->getMessage());
+    $diagInfo .= 'Step1: fetched ' . count($rawRequests) . ' requests. ';
 
-        // Strategy 3: Simplest possible query — no reviewer JOIN
+    // Step 2: Get unique employee IDs and batch-fetch their names
+    $empIds = array_unique(array_map('intval', array_column($rawRequests, 'employee_id')));
+    $empMap = []; // employee_id => [full_name, employee_code, mobile_number, email, designation]
+
+    if (!empty($empIds)) {
+        $idList = implode(',', array_map('intval', $empIds));
         try {
-            $requests = $db->fetchAll(
-                "SELECT r.*,
-                        e.full_name AS emp_name, e.employee_code, e.mobile_number, e.email,
-                        e.designation AS emp_designation,
-                        NULL AS client_name, NULL AS unit_name,
-                        NULL AS reviewed_by_name
-                 FROM employee_change_requests r
-                 JOIN employees e ON e.id = r.employee_id
-                 WHERE {$whereSql}
-                 ORDER BY
-                    CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END,
-                    r.created_at DESC",
-                $params
+            $empRows = $db->fetchAll(
+                "SELECT id, full_name, employee_code, mobile_number, email, designation
+                 FROM employees WHERE id IN ({$idList})"
             );
-        } catch (Exception $e3) {
-            error_log('[change-requests] Fallback 2 failed: ' . $e3->getMessage());
-            $dbError = $e3->getMessage();
-            $requests = [];
+            foreach ($empRows as $emp) {
+                $empMap[$emp['id']] = $emp;
+            }
+            $diagInfo .= 'Step2: found ' . count($empMap) . ' employees. ';
+        } catch (Exception $e) {
+            error_log('[change-requests] Employee lookup failed: ' . $e->getMessage());
+            $diagInfo .= 'Step2 ERROR: ' . $e->getMessage();
         }
     }
+
+    // Step 3: Merge employee data into requests
+    foreach ($rawRequests as $r) {
+        $eid = (int)$r['employee_id'];
+        $emp = $empMap[$eid] ?? [];
+
+        // Get reviewer name if available
+        $reviewerName = null;
+        if (!empty($r['reviewed_by'])) {
+            try {
+                $rev = $db->fetch(
+                    "SELECT full_name FROM employees WHERE id = :rid",
+                    ['rid' => (int)$r['reviewed_by']]
+                );
+                if ($rev) $reviewerName = $rev['full_name'];
+            } catch (Exception $e) { /* ignore */ }
+        }
+
+        $requests[] = array_merge($r, [
+            'emp_name'          => $emp['full_name'] ?? ('Employee #' . $eid),
+            'employee_code'     => $emp['employee_code'] ?? '',
+            'mobile_number'     => $emp['mobile_number'] ?? '',
+            'email'             => $emp['email'] ?? '',
+            'emp_designation'   => $emp['designation'] ?? '',
+            'client_name'       => null,
+            'unit_name'         => null,
+            'reviewed_by_name'  => $reviewerName,
+        ]);
+    }
+
+} catch (Exception $e) {
+    $dbError = $e->getMessage();
+    error_log('[change-requests] Fetch failed: ' . $dbError);
+    $diagInfo .= 'FATAL: ' . $dbError;
+}
+
+// ─── Apply search filter on employee name (post-fetch, since we can't search on e.full_name in step 1) ──
+if ($fSearch !== '' && !empty($requests)) {
+    $searchLower = mb_strtolower($fSearch);
+    $requests = array_filter($requests, function($r) use ($searchLower) {
+        return mb_strpos(mb_strtolower($r['emp_name'] ?? ''), $searchLower) !== false
+            || mb_strpos(mb_strtolower($r['employee_code'] ?? ''), $searchLower) !== false
+            || mb_strpos(mb_strtolower($r['field_name'] ?? ''), $searchLower) !== false;
+    });
+    $requests = array_values($requests); // re-index
 }
 
 // ─── Field label map ────────────────────────────────────────────────────────
@@ -468,7 +510,16 @@ $fieldLabels = [
                     <i class="bi bi-exclamation-triangle me-2"></i>
                     <strong>Database Error:</strong> Unable to fetch change requests. 
                     Error: <?= htmlspecialchars($dbError) ?>
-                    <br><small>Please contact the system administrator.</small>
+                    <br><small>Debug: <?= htmlspecialchars($diagInfo) ?></small>
+                </div>
+                <?php endif; ?>
+
+                <?php if (empty($requests) && empty($dbError) && ($pendingCount + $approvedCount + $rejectedCount) > 0 && $fStatus === 'all'): ?>
+                <div class="alert alert-warning">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>Debug Info:</strong> <?= htmlspecialchars($diagInfo) ?>
+                    <br>Counts: Pending=<?= $pendingCount ?>, Approved=<?= $approvedCount ?>, Rejected=<?= $rejectedCount ?>
+                    <br><small>If you see counts above but no rows below, please share this debug info with support.</small>
                 </div>
                 <?php endif; ?>
 
