@@ -165,7 +165,7 @@ define('MSG_OPERATION_FAILED', 'Operation failed. Please try again.');
 // ============================================
 // Upload Paths
 // ============================================
-define('UPLOAD_PATH_PROFILE', 'uploads/profiles/');
+define('UPLOAD_PATH_PROFILE', 'uploads/profile/');
 define('UPLOAD_PATH_DOCUMENTS', 'uploads/documents/');
 define('UPLOAD_PATH_TEMP', 'uploads/temp/');
 define('MAX_FILE_SIZE_UPLOAD', 5242880); // 5MB

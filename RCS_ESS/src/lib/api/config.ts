@@ -79,11 +79,12 @@ export function getFileUrl(path: string | null | undefined): string | null {
     return path;
   }
 
-  // Normalize path: strip various prefixes that the server may return
-  const cleanPath = path
-    .replace(/^\/uploads\//, '')          // admin: /uploads/profile/xxx.jpg
-    .replace(/^assets\/uploads\//, '')     // old ESS: assets/uploads/profiles/xxx.jpg
-    .replace(/^uploads\//, '');           // variant: uploads/profiles/xxx.jpg
+  // Normalize: strip all known prefixes to get just "profile/filename"
+  let cleanPath = path
+    .replace(/^assets\/uploads\//, '')   // old ESS: assets/uploads/profiles/xxx
+    .replace(/^\/uploads\//, '')          // admin: /uploads/profile/xxx
+    .replace(/^uploads\//, '')            // variant: uploads/profiles/xxx
+    .replace(/^profiles\//, 'profile/');  // old upload typo: profiles/ → profile/
 
   // Construct full URL: https://join.rcsfacility.com/uploads/profile/xxx.jpg
   return `${FILES_BASE_URL}/${cleanPath}`;

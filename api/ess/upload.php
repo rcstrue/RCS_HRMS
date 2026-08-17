@@ -73,9 +73,10 @@ try {
     $employeeId = (int)($_POST['employee_id'] ?? $authId);
     $filename = "profile_{$employeeId}_" . bin2hex(random_bytes(8)) . ".{$extension}";
 
-    // Upload directory — use the shared /uploads/profiles/ directory
-    // (same as admin upload, so getFileUrl() in ESS can construct the correct URL)
-    $uploadDir = dirname(__DIR__) . '/uploads/profiles/';
+    // Upload directory — shared /uploads/profile/ on web root
+    // api/ess/upload.php → go up 2 levels to web root (public_html/)
+    // Admin saves to uploads/profile/ too (see crop-save.php)
+    $uploadDir = dirname(__DIR__, 2) . '/uploads/profile/';
     if (!is_dir($uploadDir)) {
         mkdir($uploadDir, 0755, true);
     }
@@ -86,8 +87,8 @@ try {
         jsonOutput(array('success' => false, 'error' => 'Failed to save uploaded file'), 500);
     }
 
-    // Return URL that getFileUrl() expects: a sub-path under /uploads/
-    $url = "profiles/{$filename}";
+    // Return URL that getFileUrl() expects: sub-path under /uploads/
+    $url = "profile/{$filename}";
 
     jsonOutput(array(
         'success' => true,
