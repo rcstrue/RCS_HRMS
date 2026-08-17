@@ -78,6 +78,9 @@
                 $pendingExpenses = 0;
                 try { $pendingExpenses = (int)($db->fetchColumn("SELECT COUNT(*) FROM ess_expenses WHERE status = 'pending'") ?: 0); } catch(Exception $e) {}
 
+                $pendingChangeRequests = 0;
+                try { $pendingChangeRequests = (int)($db->fetchColumn("SELECT COUNT(*) FROM employee_change_requests WHERE status = 'pending'") ?: 0); } catch(Exception $e) {}
+
                 $annUnreadCount = 0;
                 try {
                     $sbRole = $_SESSION['role_code'] ?? '';
@@ -115,10 +118,19 @@
 
                 <!-- EMPLOYEES -->
                 <?php if (showMenu($auth, 'employee')): ?>
-                <li class="sidebar-item <?php echo in_array($pageRoot, $employeeModules) ? 'active' : ''; ?>">
-                    <a href="index.php?page=employee/index" class="sidebar-link">
+                <li class="sidebar-item has-submenu <?php echo in_array($pageRoot, $employeeModules) ? 'open' : ''; ?>">
+                    <a href="#" class="sidebar-link">
                         <i class="bi bi-people"></i><span>Employees</span>
+                        <i class="bi bi-chevron-down ms-auto sub-arrow"></i>
                     </a>
+                    <ul class="sidebar-submenu">
+                        <li><a href="index.php?page=employee/index" class="<?php echo strpos($page,'employee/index') === 0 || $page === 'employee/index' ? 'active' : ''; ?>">
+                            <i class="bi bi-people me-1"></i>Employee List
+                        </a></li>
+                        <li><a href="index.php?page=employee/change-requests" class="<?php echo strpos($page,'employee/change-requests') === 0 ? 'active' : ''; ?>">
+                            <i class="bi bi-arrow-repeat me-1"></i>Change Requests <?= sidebarBadge($pendingChangeRequests) ?>
+                        </a></li>
+                    </ul>
                 </li>
                 <?php endif; ?>
 
@@ -420,6 +432,7 @@
                             'employee/designation'=> 'Designations',
                             'employee/run-designation-migration'=> 'Run Designation Migration',
                             'employee/esic-import'=> 'Import ESIC IP Data',
+                            'employee/change-requests'=> 'Change Requests',
                             'employee/data-sync' => 'Data Matching',
                             // Attendance
                             'attendance/add'    => 'Add Attendance',
