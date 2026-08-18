@@ -78,9 +78,6 @@
                 $pendingExpenses = 0;
                 try { $pendingExpenses = (int)($db->fetchColumn("SELECT COUNT(*) FROM ess_expenses WHERE status = 'pending'") ?: 0); } catch(Exception $e) {}
 
-                $pendingChangeRequests = 0;
-                try { $pendingChangeRequests = (int)($db->fetchColumn("SELECT COUNT(*) FROM employee_change_requests WHERE status = 'pending'") ?: 0); } catch(Exception $e) {}
-
                 $annUnreadCount = 0;
                 try {
                     $sbRole = $_SESSION['role_code'] ?? '';
@@ -126,9 +123,6 @@
                     <ul class="sidebar-submenu">
                         <li><a href="index.php?page=employee/index" class="<?php echo strpos($page,'employee/index') === 0 || $page === 'employee/index' ? 'active' : ''; ?>">
                             <i class="bi bi-people me-1"></i>Employee List
-                        </a></li>
-                        <li><a href="index.php?page=employee/change-requests" class="<?php echo strpos($page,'employee/change-requests') === 0 ? 'active' : ''; ?>">
-                            <i class="bi bi-arrow-repeat me-1"></i>Change Requests <?= sidebarBadge($pendingChangeRequests) ?>
                         </a></li>
                     </ul>
                 </li>

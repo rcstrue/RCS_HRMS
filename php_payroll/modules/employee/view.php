@@ -6,6 +6,14 @@
 
 $pageTitle = 'Employee Details';
 
+// Helper: build correct upload URL (DB stores relative paths like 'profile/xxx.jpg')
+function viewUploadUrl($path) {
+    if (empty($path)) return '';
+    if (preg_match('#^https?://#i', $path)) return $path;
+    if (strpos($path, '/uploads/') === 0) return $path;
+    return '/uploads/' . ltrim($path, '/');
+}
+
 // Define constant for employee view URL to avoid duplication
 define('EMPLOYEE_VIEW_URL', 'index.php?page=employee/view&id=');
 
@@ -196,9 +204,9 @@ $statusLabels = [
         <div class="card mb-3">
             <div class="card-body text-center">
                 <?php if (!empty($emp['profile_pic_cropped_url'])): ?>
-                <img src="<?php echo sanitize($emp['profile_pic_cropped_url']); ?>" alt="Employee" class="rounded-circle mb-2" style="width: 100px; height: 100px; object-fit: cover; border: 3px solid #dee2e6;">
+                <img src="<?php echo viewUploadUrl($emp['profile_pic_cropped_url']); ?>" alt="Employee" class="rounded-circle mb-2" style="width: 100px; height: 100px; object-fit: cover; border: 3px solid #dee2e6;">
                 <?php elseif (!empty($emp['profile_pic_url'])): ?>
-                <img src="<?php echo sanitize($emp['profile_pic_url']); ?>" alt="Employee" class="rounded-circle mb-2" style="width: 100px; height: 100px; object-fit: cover; border: 3px solid #dee2e6;">
+                <img src="<?php echo viewUploadUrl($emp['profile_pic_url']); ?>" alt="Employee" class="rounded-circle mb-2" style="width: 100px; height: 100px; object-fit: cover; border: 3px solid #dee2e6;">
                 <?php else: ?>
                 <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mx-auto mb-2" style="width: 100px; height: 100px; font-size: 36px;">
                     <?php echo strtoupper(substr($emp['full_name'] ?? 'U', 0, 1)); ?>
@@ -512,15 +520,15 @@ $statusLabels = [
                     <div class="col-md-3 mb-3 text-center">
                         <label class="text-muted small d-block" id="lbl-profile">Profile Photo</label>
                         <?php if (!empty($emp['profile_pic_cropped_url'])): ?>
-                        <a href="<?php echo sanitize($emp['profile_pic_cropped_url']); ?>" target="blank">
-                            <img id="doc-profile" src="<?php echo sanitize($emp['profile_pic_cropped_url']); ?>" data-field="profile_pic_cropped_url" alt="Profile photo of <?php echo sanitize($emp['full_name'] ?? 'Employee'); ?>" class="img-thumbnail" style="max-height: 120px;">
+                        <a href="<?php echo viewUploadUrl($emp['profile_pic_cropped_url']); ?>" target="blank">
+                            <img id="doc-profile" src="<?php echo viewUploadUrl($emp['profile_pic_cropped_url']); ?>" data-field="profile_pic_cropped_url" alt="Profile photo of <?php echo sanitize($emp['full_name'] ?? 'Employee'); ?>" class="img-thumbnail" style="max-height: 120px;">
                         </a>
                         <button type="button" class="btn btn-xs btn-outline-primary mt-1" onclick="cropDocImage('profile_pic_cropped_url', document.getElementById('doc-profile'))">
                             <i class="bi bi-crop"></i> Crop
                         </button>
                         <?php elseif (!empty($emp['profile_pic_url'])): ?>
-                        <a href="<?php echo sanitize($emp['profile_pic_url']); ?>" target="_blank">
-                            <img id="doc-profile" src="<?php echo sanitize($emp['profile_pic_url']); ?>" data-field="profile_pic_url" alt="Profile photo of <?php echo sanitize($emp['full_name'] ?? 'Employee'); ?>" class="img-thumbnail" style="max-height: 120px;">
+                        <a href="<?php echo viewUploadUrl($emp['profile_pic_url']); ?>" target="_blank">
+                            <img id="doc-profile" src="<?php echo viewUploadUrl($emp['profile_pic_url']); ?>" data-field="profile_pic_url" alt="Profile photo of <?php echo sanitize($emp['full_name'] ?? 'Employee'); ?>" class="img-thumbnail" style="max-height: 120px;">
                         </a>
                         <button type="button" class="btn btn-xs btn-outline-primary mt-1" onclick="cropDocImage('profile_pic_url', document.getElementById('doc-profile'))">
                             <i class="bi bi-crop"></i> Crop
@@ -536,8 +544,8 @@ $statusLabels = [
                     <div class="col-md-3 mb-3 text-center">
                         <label class="text-muted small d-block" id="lbl-aadhaarfront">Aadhaar Front</label>
                         <?php if (!empty($emp['aadhaar_front_url'])): ?>
-                        <a href="<?php echo sanitize($emp['aadhaar_front_url']); ?>" target="_blank">
-                            <img id="doc-aadhaar-front" src="<?php echo sanitize($emp['aadhaar_front_url']); ?>" data-field="aadhaar_front_url" alt="Aadhaar card front side" class="img-thumbnail" style="max-height: 120px;">
+                        <a href="<?php echo viewUploadUrl($emp['aadhaar_front_url']); ?>" target="_blank">
+                            <img id="doc-aadhaar-front" src="<?php echo viewUploadUrl($emp['aadhaar_front_url']); ?>" data-field="aadhaar_front_url" alt="Aadhaar card front side" class="img-thumbnail" style="max-height: 120px;">
                         </a>
                         <button type="button" class="btn btn-xs btn-outline-primary mt-1" onclick="cropDocImage('aadhaar_front_url', document.getElementById('doc-aadhaar-front'))">
                             <i class="bi bi-crop"></i> Crop
@@ -553,8 +561,8 @@ $statusLabels = [
                     <div class="col-md-3 mb-3 text-center">
                         <label class="text-muted small d-block" id="lbl-aadhaarback">Aadhaar Back</label>
                         <?php if (!empty($emp['aadhaar_back_url'])): ?>
-                        <a href="<?php echo sanitize($emp['aadhaar_back_url']); ?>" target="_blank">
-                            <img id="doc-aadhaar-back" src="<?php echo sanitize($emp['aadhaar_back_url']); ?>" data-field="aadhaar_back_url" alt="Aadhaar card back side" class="img-thumbnail" style="max-height: 120px;">
+                        <a href="<?php echo viewUploadUrl($emp['aadhaar_back_url']); ?>" target="_blank">
+                            <img id="doc-aadhaar-back" src="<?php echo viewUploadUrl($emp['aadhaar_back_url']); ?>" data-field="aadhaar_back_url" alt="Aadhaar card back side" class="img-thumbnail" style="max-height: 120px;">
                         </a>
                         <button type="button" class="btn btn-xs btn-outline-primary mt-1" onclick="cropDocImage('aadhaar_back_url', document.getElementById('doc-aadhaar-back'))">
                             <i class="bi bi-crop"></i> Crop
@@ -570,8 +578,8 @@ $statusLabels = [
                     <div class="col-md-3 mb-3 text-center">
                         <label class="text-muted small d-block" id="lbl-bankdoc">Bank Passbook</label>
                         <?php if (!empty($emp['bank_document_url'])): ?>
-                        <a href="<?php echo sanitize($emp['bank_document_url']); ?>" target="_blank">
-                            <img id="doc-bank" src="<?php echo sanitize($emp['bank_document_url']); ?>" data-field="bank_document_url" alt="Bank passbook image" class="img-thumbnail" style="max-height: 120px;">
+                        <a href="<?php echo viewUploadUrl($emp['bank_document_url']); ?>" target="_blank">
+                            <img id="doc-bank" src="<?php echo viewUploadUrl($emp['bank_document_url']); ?>" data-field="bank_document_url" alt="Bank passbook image" class="img-thumbnail" style="max-height: 120px;">
                         </a>
                         <button type="button" class="btn btn-xs btn-outline-primary mt-1" onclick="cropDocImage('bank_document_url', document.getElementById('doc-bank'))">
                             <i class="bi bi-crop"></i> Crop

@@ -36,10 +36,10 @@ export function useNotifications(employeeId: number) {
   // Fetch from backend
   const fetchNotifications = useCallback(async () => {
     if (!employeeId) return;
-    const { data, error } = await unwrap<{
+    const { data, error } = unwrap<{
       items: Array<{ id: number; title: string; message: string; type: string; is_read: boolean; created_at: string }>;
       unread_count: number;
-    }>(apiRequest(`/ess/notifications?employee_id=${employeeId}&limit=50`));
+    }>(await apiRequest(`/ess/notifications?employee_id=${employeeId}&limit=50`));
 
     if (!error && data) {
       const notifs: Notification[] = (data.items || []).map(item => ({
@@ -58,8 +58,8 @@ export function useNotifications(employeeId: number) {
   // Fetch unread count only (lightweight)
   const fetchUnreadCount = useCallback(async () => {
     if (!employeeId) return;
-    const { data, error } = await unwrap<{ unread_count: number }>(
-      apiRequest(`/ess/notifications?employee_id=${employeeId}&limit=1`)
+    const { data, error } = unwrap<{ unread_count: number }>(
+      await apiRequest(`/ess/notifications?employee_id=${employeeId}&limit=1`)
     );
     if (!error && data) {
       setUnreadCount(data.unread_count || 0);
@@ -98,7 +98,7 @@ export function useNotifications(employeeId: number) {
 
       // Only call backend for non-local notifications
       if (!id.startsWith('local-')) {
-        unwrap(apiRequest('/ess/notifications', {
+        unwrap(await apiRequest('/ess/notifications', {
           method: 'PUT',
           body: JSON.stringify({ id: parseInt(id), employee_id: String(employeeId) }),
         }));
@@ -111,7 +111,7 @@ export function useNotifications(employeeId: number) {
   const markAllRead = useCallback(async () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     setUnreadCount(0);
-    unwrap(apiRequest('/ess/notifications', {
+    unwrap(await apiRequest('/ess/notifications', {
       method: 'PUT',
       body: JSON.stringify({ mark_all: true, employee_id: String(employeeId) }),
     }));

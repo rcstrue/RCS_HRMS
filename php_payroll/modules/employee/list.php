@@ -9,6 +9,14 @@
 
 $pageTitle = 'Employees';
 
+// Helper: build correct upload URL (DB stores relative paths like 'profile/xxx.jpg')
+function listUploadUrl($path) {
+    if (empty($path)) return '';
+    if (preg_match('#^https?://#i', $path)) return $path;
+    if (strpos($path, '/uploads/') === 0) return $path;
+    return '/uploads/' . ltrim($path, '/');
+}
+
 // Define available columns for the visibility dropdown
 // NOTE: Add new columns here when adding new fields to the employee table
 // 'default' => true means column is visible by default
@@ -334,10 +342,10 @@ try {
                                 <td data-column="full_name" <?php echo $availableColumns['full_name']['default'] ? '' : 'style="display:none;"'; ?>>
                                     <div class="d-flex align-items-center">
                                         <?php
-                                        $picUrl = !empty($emp['profile_pic_cropped_url']) ? $emp['profile_pic_cropped_url'] : (!empty($emp['profile_pic_url']) ? $emp['profile_pic_url'] : '');
+                                        $picUrl = !empty($emp['profile_pic_cropped_url']) ? listUploadUrl($emp['profile_pic_cropped_url']) : (!empty($emp['profile_pic_url']) ? listUploadUrl($emp['profile_pic_url']) : '');
                                         if (!empty($picUrl)):
                                         ?>
-                                        <img src="<?php echo sanitize($picUrl); ?>" alt="<?php echo sanitize($emp['full_name'] ?? ''); ?>" class="me-2 rounded-circle" style="width:32px;height:32px;object-fit:cover;flex-shrink:0;cursor:pointer;transition:transform .2s;" loading="lazy" onclick="openProfileSlider('<?php echo sanitize($picUrl); ?>', '<?php echo sanitize(addslashes($emp['full_name'] ?? 'Employee')); ?>')" onerror="this.style.display='none';">
+                                        <img src="<?php echo htmlspecialchars($picUrl); ?>" alt="<?php echo sanitize($emp['full_name'] ?? ''); ?>" class="me-2 rounded-circle" style="width:32px;height:32px;object-fit:cover;flex-shrink:0;cursor:pointer;transition:transform .2s;" loading="lazy" onclick="openProfileSlider('<?php echo htmlspecialchars(addslashes($picUrl), ENT_QUOTES); ?>', '<?php echo sanitize(addslashes($emp['full_name'] ?? 'Employee')); ?>')" onerror="this.style.display='none';">
                                         <?php endif; ?>
                                         <div>
                                             <div class="fw-medium"><?php echo sanitize($emp['full_name'] ?? '-'); ?></div>

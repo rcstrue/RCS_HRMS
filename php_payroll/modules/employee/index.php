@@ -30,6 +30,18 @@
             </a>
         </div>
         <div class="col-lg-3 col-md-4 col-sm-6 col-6">
+            <a href="index.php?page=employee/change-requests" class="text-decoration-none">
+                <div class="card module-card h-100">
+                    <div class="card-body">
+                        <div class="mod-icon bg-warning-soft"><i class="bi bi-arrow-repeat"></i></div>
+                        <div class="mod-title">Change Requests</div>
+                        <div class="mod-desc">Review &amp; approve employee changes</div>
+                    </div>
+                    <i class="bi bi-arrow-right mod-arrow"></i>
+                </div>
+            </a>
+        </div>
+        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
             <a href="index.php?page=employee/import" class="text-decoration-none">
                 <div class="card module-card h-100">
                     <div class="card-body">
