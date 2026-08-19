@@ -22,7 +22,7 @@ function sendInAppNotification(int $employeeId, string $title, string $message, 
         $linkVal = $link ?: '';
         $sql = "INSERT INTO ess_notifications (employee_id, title, message, type, link, created_at)
                 VALUES (:employee_id, :title, :message, :type, :link, NOW())";
-        $db->query($sql, [
+        $db->exec($sql, [
             'employee_id' => (string)$employeeId,
             'title'       => $title,
             'message'     => $message,
@@ -547,14 +547,14 @@ $csrfToken = generateCSRFToken();
                                 </td>
                                 <td>
                                     <?php if ($r['field_name'] === 'profile_pic_url' && $r['old_value']): ?>
-                                        <img src="<?= htmlspecialchars($r['old_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="Old">
+                                        <img src="/uploads/<?= htmlspecialchars($r['old_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="Old">
                                     <?php else: ?>
                                         <code><?= htmlspecialchars($r['old_value'] ?: '—') ?></code>
                                     <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if ($r['field_name'] === 'profile_pic_url' && $r['new_value']): ?>
-                                        <img src="<?= htmlspecialchars($r['new_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="New">
+                                        <img src="/uploads/<?= htmlspecialchars($r['new_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="New">
                                     <?php else: ?>
                                         <code class="text-primary"><?= htmlspecialchars($r['new_value']) ?></code>
                                     <?php endif; ?>
