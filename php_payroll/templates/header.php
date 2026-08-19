@@ -115,16 +115,10 @@
 
                 <!-- EMPLOYEES -->
                 <?php if (showMenu($auth, 'employee')): ?>
-                <li class="sidebar-item has-submenu <?php echo in_array($pageRoot, $employeeModules) ? 'open' : ''; ?>">
-                    <a href="#" class="sidebar-link">
+                <li class="sidebar-item <?php echo in_array($pageRoot, $employeeModules) ? 'active' : ''; ?>">
+                    <a href="index.php?page=employee/index" class="sidebar-link">
                         <i class="bi bi-people"></i><span>Employees</span>
-                        <i class="bi bi-chevron-down ms-auto sub-arrow"></i>
                     </a>
-                    <ul class="sidebar-submenu">
-                        <li><a href="index.php?page=employee/index" class="<?php echo strpos($page,'employee/index') === 0 || $page === 'employee/index' ? 'active' : ''; ?>">
-                            <i class="bi bi-people me-1"></i>Employee List
-                        </a></li>
-                    </ul>
                 </li>
                 <?php endif; ?>
 
