@@ -97,6 +97,22 @@ try { $db->exec("ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`
     </div>
 </div>
 
+<!-- Status Filter (hidden until search) -->
+<div class="card mb-3 d-none" id="statusFilterCard">
+    <div class="card-body py-2 d-flex align-items-center gap-3 flex-wrap">
+        <span class="small text-muted"><i class="bi bi-funnel me-1"></i>Row Filter:</span>
+        <div class="btn-group btn-group-sm" id="statusFilterBtns">
+            <button type="button" class="btn btn-outline-secondary active" data-filter="all">All</button>
+            <button type="button" class="btn btn-outline-warning" data-filter="can_update">
+                <i class="bi bi-arrow-repeat me-1"></i>Can Update
+            </button>
+            <button type="button" class="btn btn-outline-success" data-filter="already_same">
+                <i class="bi bi-check-circle me-1"></i>Already Same
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Field Selection + Action Bar (hidden until search) -->
 <div class="card mb-3 d-none" id="fieldCard">
     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
@@ -152,6 +168,7 @@ $_jsCode = <<<'JSEOF'
 var syncTable = null;
 var currentConfig = null;
 var selectedFields = [];
+var currentStatusFilter = 'all';
 
 // ── Load table list on init ──
 $(document).ready(function() {
@@ -214,7 +231,11 @@ function doSearch() {
     buildFieldCheckboxes(currentConfig.copyable_fields);
 
     // Show panels
-    $('#fieldCard, #tableCard').removeClass('d-none');
+    $('#fieldCard, #tableCard, #statusFilterCard').removeClass('d-none');
+
+    // Reset status filter to All
+    currentStatusFilter = 'all';
+    $('#statusFilterBtns .btn').removeClass('active').filter('[data-filter="all"]').addClass('active');
 
     // Build DataTable columns dynamically
     var baseCols = [
@@ -280,6 +301,7 @@ function doSearch() {
                 d.source = source;
                 d.target = target;
                 d.match_by = matchBy;
+                d.status_filter = currentStatusFilter;
             },
             error: function(xhr) {
                 showToast('Error loading data: ' + (xhr.statusText || 'Unknown'), 'danger');
@@ -430,6 +452,16 @@ function doExport() {
         }
     });
 }
+
+// ── Status Filter Buttons ──
+$(document).on('click', '#statusFilterBtns .btn', function() {
+    var filter = $(this).data('filter');
+    if (filter === currentStatusFilter) return;
+    currentStatusFilter = filter;
+    $('#statusFilterBtns .btn').removeClass('active');
+    $(this).addClass('active');
+    if (syncTable) syncTable.ajax.reload();
+});
 
 // ── Toast ──
 function showToast(msg, type) {

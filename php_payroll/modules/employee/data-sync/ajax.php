@@ -77,13 +77,12 @@ $tables = [
 ];
 
 // Copyable fields: semantic key => [table => column_name]
-// NOTE: 'esic' is intentionally NOT here — ip_number is UNIQUE in esic_ip_master.
-// ESIC/IP number should only be used as a match field, never overwritten by sync.
 $copyableFields = [
     'uan'          => ['employees' => 'uan_number',      'epfo_members' => 'uan',              'esic_ip_master' => 'uan'],
     'mobile'       => ['employees' => 'mobile_number',    'epfo_members' => 'mobile',           'esic_ip_master' => 'mobile'],
     'bank_account' => ['employees' => 'account_number',    'epfo_members' => 'bank_account',     'esic_ip_master' => 'account_number'],
     'ifsc'         => ['employees' => 'ifsc_code',        'epfo_members' => 'ifsc_code',        'esic_ip_master' => 'ifsc_code'],
+    'esic'         => ['employees' => 'esic_number',      'esic_ip_master' => 'ip_number'],
     'email'        => ['employees' => 'email',            'epfo_members' => 'email'],
     'father_name'  => ['employees' => 'father_name',      'epfo_members' => 'father_husband_name'],
     'aadhaar'      => ['employees' => 'aadhaar_number',    'epfo_members' => 'aadhaar'],
@@ -96,6 +95,7 @@ $fieldLabels = [
     'mobile'       => 'Mobile Number',
     'bank_account' => 'Bank Account',
     'ifsc'         => 'IFSC Code',
+    'esic'         => 'ESIC Number',
     'email'        => 'Email',
     'father_name'  => 'Father/Husband Name',
     'aadhaar'      => 'Aadhaar',
@@ -279,6 +279,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'search') {
     $start  = (int)($_POST['start'] ?? 0);
     $length = (int)($_POST['length'] ?? 25);
     $search = trim($_POST['search']['value'] ?? '');
+    $statusFilter = $_POST['status_filter'] ?? 'all';
     $orderCol = (int)($_POST['order'][0]['column'] ?? 0);
     $orderDir = strtoupper($_POST['order'][0]['dir'] ?? 'asc') === 'DESC' ? 'DESC' : 'ASC';
 
@@ -321,6 +322,23 @@ if (isset($_POST['action']) && $_POST['action'] === 'search') {
             $params[] = $like;
         }
         $whereSQL .= " AND (" . implode(' OR ', $clauses) . ")";
+    }
+
+    // Status filter: "can_update" = at least one field differs or target empty; "already_same" = all fields same or source empty
+    if ($statusFilter === 'can_update' || $statusFilter === 'already_same') {
+        $fieldConditions = [];
+        foreach ($commonFields as $key => $cols) {
+            $tc = "t.{$cols['target_col']}";
+            $sc = "s.{$cols['source_col']}";
+            // A field is "updatable" when: (both non-empty and different) OR (target empty and source not empty)
+            $fieldConditions[] = "(($tc != $sc AND $tc IS NOT NULL AND $tc != '' AND $sc IS NOT NULL AND $sc != '') OR ($tc IS NULL OR $tc = '') AND $sc IS NOT NULL AND $sc != '')";
+        }
+        if ($statusFilter === 'can_update') {
+            $whereSQL .= " AND (" . implode(' OR ', $fieldConditions) . ")";
+        } else {
+            // already_same: NOT can_update for ANY field
+            $whereSQL .= " AND NOT (" . implode(' OR ', $fieldConditions) . ")";
+        }
     }
 
     // Detect duplicate matches (ambiguous rows)
