@@ -180,6 +180,11 @@ $tab = $_GET['tab'] ?? 'sms';
         </a>
     </li>
     <li class="nav-item">
+        <a class="nav-link <?php echo $tab == 'push' ? 'active' : ''; ?>" href="?page=notifications/center&tab=push">
+            <i class="bi bi-bell me-1"></i>Push Notifications
+        </a>
+    </li>
+    <li class="nav-item">
         <a class="nav-link <?php echo $tab == 'logs' ? 'active' : ''; ?>" href="?page=notifications/center&tab=logs">
             <i class="bi bi-clock-history me-1"></i>Logs
         </a>
@@ -430,6 +435,339 @@ $tab = $_GET['tab'] ?? 'sms';
         </div>
         <?php endif; ?>
         
+        <!-- Push Notifications Tab -->
+        <?php if ($tab == 'push'): ?>
+        <?php
+        // Self-heal tables
+        try { $db->exec("CREATE TABLE IF NOT EXISTS `push_subscriptions` (
+            `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            `employee_id` VARCHAR(20) NOT NULL,
+            `endpoint` VARCHAR(500) NOT NULL,
+            `p256dh_key` VARCHAR(200) NOT NULL,
+            `auth_key` VARCHAR(200) NOT NULL,
+            `user_agent` VARCHAR(500) DEFAULT '',
+            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY `uk_endpoint` (`endpoint`(255)),
+            INDEX `idx_employee` (`employee_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch (\Throwable $e) {}
+
+        try { $db->exec("CREATE TABLE IF NOT EXISTS `push_notification_queue` (
+            `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            `title` VARCHAR(255) NOT NULL,
+            `body` TEXT NOT NULL,
+            `url` VARCHAR(500) DEFAULT '/',
+            `icon` VARCHAR(500) DEFAULT '/logo.png',
+            `target` VARCHAR(50) DEFAULT 'all',
+            `employee_ids` TEXT DEFAULT NULL,
+            `status` ENUM('pending','sending','completed','failed') DEFAULT 'pending',
+            `sent_count` INT UNSIGNED DEFAULT 0,
+            `failed_count` INT UNSIGNED DEFAULT 0,
+            `expired_count` INT UNSIGNED DEFAULT 0,
+            `errors` TEXT DEFAULT NULL,
+            `scheduled_at` DATETIME DEFAULT NULL,
+            `sent_at` DATETIME DEFAULT NULL,
+            `created_by` VARCHAR(50) NOT NULL,
+            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX `idx_status` (`status`),
+            INDEX `idx_scheduled` (`scheduled_at`, `status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch (\Throwable $e) {}
+
+        // Handle push actions
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+            $pushAction = $_POST['action'];
+
+            if ($pushAction === 'send_push') {
+                $title = $_POST['push_title'] ?? '';
+                $body  = $_POST['push_body'] ?? '';
+                $url   = $_POST['push_url'] ?? '/';
+                $target = $_POST['push_target'] ?? 'all';
+                $employeeIds = $_POST['push_employee_ids'] ?? '';
+                $schedule = $_POST['push_schedule'] ?? '';
+
+                if (empty($title) || empty($body)) {
+                    setFlash('error', 'Title and body are required.');
+                    redirect('index.php?page=notifications/center&tab=push');
+                }
+
+                $db->insert('push_notification_queue', [
+                    'title'        => $title,
+                    'body'         => $body,
+                    'url'          => $url,
+                    'target'       => $target,
+                    'employee_ids' => $target === 'selected' ? $employeeIds : null,
+                    'status'       => empty($schedule) ? 'pending' : 'pending',
+                    'scheduled_at' => empty($schedule) ? null : $schedule . ':00',
+                    'created_by'   => $_SESSION['first_name'] ?? $_SESSION['user_id'] ?? 'admin',
+                ]);
+
+                setFlash('success', 'Push notification queued' . (empty($schedule) ? '' : ' for ' . sanitize($schedule)) . '.');
+                redirect('index.php?page=notifications/center&tab=push');
+            }
+
+            if ($pushAction === 'send_now') {
+                $queueId = (int)($_POST['queue_id'] ?? 0);
+                if ($queueId) {
+                    setFlash('info', 'Processing push notification #' . $queueId . '...');
+                    redirect('index.php?page=notifications/center&tab=push&process=' . $queueId);
+                }
+            }
+        }
+
+        // Process push notification immediately if requested
+        if (isset($_GET['process'])) {
+            $queueId = (int)$_GET['process'];
+            $item = $db->fetch("SELECT * FROM push_notification_queue WHERE id = ?", [$queueId]);
+            if ($item && $item['status'] === 'pending') {
+                require_once APP_ROOT . '/includes/class.webpush.php';
+                $vapidPriv = getSetting('push_vapid_private_key');
+                $vapidPub  = getSetting('push_vapid_public_key');
+                $vapidSub  = getSetting('push_vapid_subject') ?: 'mailto:hr@rcsfacility.com';
+
+                if (!$vapidPriv || !$vapidPub) {
+                    setFlash('error', 'VAPID keys not configured. Generate them first.');
+                    redirect('index.php?page=notifications/center&tab=push');
+                }
+
+                try {
+                    $wp = new WebPush($vapidPriv, $vapidPub, $vapidSub);
+
+                    // Get subscriptions based on target
+                    $subs = [];
+                    if ($item['target'] === 'all') {
+                        $subs = $db->fetchAll("SELECT * FROM push_subscriptions");
+                    } elseif ($item['target'] === 'selected' && !empty($item['employee_ids'])) {
+                        $ids = explode(',', $item['employee_ids']);
+                        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                        $subs = $db->fetchAll("SELECT * FROM push_subscriptions WHERE employee_id IN ($placeholders)", $ids);
+                    }
+
+                    if (empty($subs)) {
+                        $db->exec("UPDATE push_notification_queue SET status = 'failed', errors = 'No subscribers found', sent_at = NOW() WHERE id = ?", [$queueId]);
+                        setFlash('warning', 'No push subscribers found.');
+                        redirect('index.php?page=notifications/center&tab=push');
+                    }
+
+                    $db->exec("UPDATE push_notification_queue SET status = 'sending' WHERE id = ?", [$queueId]);
+
+                    $stats = $wp->sendBatch($subs, $item['title'], $item['body'], $item['url'], $item['icon']);
+
+                    // Clean expired subscriptions
+                    if ($stats['expired'] > 0) {
+                        // Remove expired subscriptions (those with 404/410)
+                        foreach ($subs as $sub) {
+                            $testResult = $wp->send($sub, '', '');
+                            if (!empty($testResult['expired'])) {
+                                $db->exec("DELETE FROM push_subscriptions WHERE endpoint = ?", [$sub['endpoint']]);
+                            }
+                        }
+                    }
+
+                    $db->exec("UPDATE push_notification_queue SET status = 'completed', sent_count = ?, failed_count = ?, expired_count = ?, errors = ?, sent_at = NOW() WHERE id = ?", [
+                        $stats['sent'], $stats['failed'], $stats['expired'],
+                        json_encode(array_slice($stats['errors'], 0, 10)), $queueId
+                    ]);
+
+                    setFlash('success', "Push sent: {$stats['sent']} delivered, {$stats['failed']} failed, {$stats['expired']} expired.");
+                } catch (\Throwable $e) {
+                    $db->exec("UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?", [$e->getMessage(), $queueId]);
+                    setFlash('error', 'Push failed: ' . $e->getMessage());
+                }
+                redirect('index.php?page=notifications/center&tab=push');
+            }
+        }
+
+        // Get stats
+        $subscriberCount = (int)($db->fetchColumn("SELECT COUNT(*) FROM (SELECT COUNT(*) c FROM push_subscriptions GROUP BY employee_id) t") ?: 0);
+        $subscriptionCount = (int)($db->fetchColumn("SELECT COUNT(*) FROM push_subscriptions") ?: 0);
+        $pendingCount = (int)($db->fetchColumn("SELECT COUNT(*) FROM push_notification_queue WHERE status = 'pending'") ?: 0);
+        $vapidPubKey = getSetting('push_vapid_public_key');
+        $vapidConfigured = !empty($vapidPubKey);
+
+        // Get recent push history
+        $pushHistory = $db->fetchAll("SELECT * FROM push_notification_queue ORDER BY created_at DESC LIMIT 20") ?: [];
+        ?>
+
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0"><i class="bi bi-bell me-2"></i>Push Notification Setup</h5>
+                <?php if (!$vapidConfigured): ?>
+                <a href="index.php?page=notifications/push-generate-keys" class="btn btn-warning btn-sm"
+                   onclick="if(!confirm('Generate new VAPID keys? This only needs to be done once.')) return false;">
+                    <i class="bi bi-key me-1"></i>Generate VAPID Keys
+                </a>
+                <?php else: ?>
+                <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>VAPID Configured</span>
+                <?php endif; ?>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 text-center">
+                    <div class="col-md-4">
+                        <div class="p-3 bg-light rounded">
+                            <i class="bi bi-people-fill text-primary" style="font-size:1.5rem;"></i>
+                            <h4 class="mb-0"><?php echo $subscriberCount; ?></h4>
+                            <small class="text-muted">Subscribed Employees</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 bg-light rounded">
+                            <i class="bi bi-phone text-success" style="font-size:1.5rem;"></i>
+                            <h4 class="mb-0"><?php echo $subscriptionCount; ?></h4>
+                            <small class="text-muted">Active Devices</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 bg-light rounded">
+                            <i class="bi bi-clock text-warning" style="font-size:1.5rem;"></i>
+                            <h4 class="mb-0"><?php echo $pendingCount; ?></h4>
+                            <small class="text-muted">Pending in Queue</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-send me-2"></i>Send Push Notification</h5>
+            </div>
+            <div class="card-body">
+                <?php if (!$vapidConfigured): ?>
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <strong>VAPID keys not configured.</strong> Push notifications require VAPID keys to work.
+                    Employees must also subscribe from the ESS app.
+                    <br><a href="index.php?page=notifications/push-generate-keys" class="btn btn-warning btn-sm mt-2"
+                       onclick="if(!confirm('Generate VAPID keys now?')) return false;">
+                        <i class="bi bi-key me-1"></i>Generate Keys Now
+                    </a>
+                </div>
+                <?php endif; ?>
+                <form method="POST">
+                    <?php echo getCSRFTokenField(); ?>
+                    <input type="hidden" name="action" value="send_push">
+
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <div class="mb-3">
+                                <label class="form-label">Title <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="push_title" required
+                                       placeholder="e.g., Salary Credited" maxlength="100">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Message <span class="text-danger">*</span></label>
+                                <textarea class="form-control" name="push_body" rows="3" required
+                                          placeholder="e.g., Your salary for June 2025 has been credited." maxlength="500"></textarea>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">Target</label>
+                                <select class="form-select" name="push_target" id="pushTarget">
+                                    <option value="all">All Subscribers</option>
+                                    <option value="selected">Specific Employees</option>
+                                </select>
+                            </div>
+                            <div class="mb-3 d-none" id="employeeIdsGroup">
+                                <label class="form-label">Employee IDs</label>
+                                <input type="text" class="form-control" name="push_employee_ids"
+                                       placeholder="Comma-separated: 4,12,25">
+                                <small class="text-muted">Enter employee IDs from HRMS</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Deep Link URL</label>
+                                <input type="text" class="form-control" name="push_url" value="/#ess"
+                                       placeholder="/#ess">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Schedule (optional)</label>
+                                <input type="datetime-local" class="form-control" name="push_schedule">
+                                <small class="text-muted">Leave empty to send immediately</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary" <?php echo !$vapidConfigured ? 'disabled' : ''; ?>>
+                            <i class="bi bi-send me-1"></i>Queue Push Notification
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Push History -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-clock-history me-2"></i>Push History</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>Title</th>
+                                <th>Target</th>
+                                <th>Sent</th>
+                                <th>Failed</th>
+                                <th>Status</th>
+                                <th>Scheduled</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($pushHistory)): ?>
+                            <tr><td colspan="8" class="text-center py-3 text-muted">No push notifications yet</td></tr>
+                            <?php else: foreach ($pushHistory as $ph): ?>
+                            <tr>
+                                <td>#<?php echo $ph['id']; ?></td>
+                                <td><strong><?php echo sanitize($ph['title']); ?></strong><br><small class="text-muted"><?php echo sanitize(substr($ph['body'], 0, 60)); ?>...</small></td>
+                                <td><span class="badge bg-secondary"><?php echo sanitize($ph['target']); ?></span></td>
+                                <td><?php echo (int)$ph['sent_count']; ?></td>
+                                <td><?php echo (int)$ph['failed_count']; ?></td>
+                                <td>
+                                    <?php
+                                    $statusColors = ['pending' => 'warning', 'sending' => 'info', 'completed' => 'success', 'failed' => 'danger'];
+                                    ?>
+                                    <span class="badge bg-<?php echo $statusColors[$ph['status']] ?? 'secondary'; ?>">
+                                        <?php echo ucfirst($ph['status']); ?>
+                                    </span>
+                                </td>
+                                <td><small><?php echo $ph['scheduled_at'] ? formatDateTime($ph['scheduled_at']) : 'Immediate'; ?></small></td>
+                                <td>
+                                    <?php if ($ph['status'] === 'pending' && $vapidConfigured): ?>
+                                    <form method="POST" class="d-inline">
+                                        <?php echo getCSRFTokenField(); ?>
+                                        <input type="hidden" name="action" value="send_now">
+                                        <input type="hidden" name="queue_id" value="<?php echo $ph['id']; ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-primary" title="Send Now">
+                                            <i class="bi bi-lightning"></i>
+                                        </button>
+                                    </form>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cron Setup Instructions -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="bi bi-terminal me-2"></i>Cron Job Setup</h5>
+            </div>
+            <div class="card-body">
+                <p>For scheduled push notifications, add this cron job:</p>
+                <pre class="bg-dark text-light p-3 rounded"><code>*/5 * * * * cd /home/user/public_html/hrms && php scripts/cron-push-notifications.php >> /dev/null 2>&1</code></pre>
+                <small class="text-muted">This runs every 5 minutes and processes any pending push notifications whose scheduled time has arrived.</small>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- Logs Tab -->
         <?php if ($tab == 'logs'): ?>
         <div class="card">
@@ -569,6 +907,10 @@ $tab = $_GET['tab'] ?? 'sms';
 $(document).ready(function() {
     $('textarea[name="message"]').on('input', function() {
         $('#smsCharCount').text($(this).val().length);
+    });
+    // Push target toggle
+    $('#pushTarget').on('change', function() {
+        $('#employeeIdsGroup').toggleClass('d-none', $(this).val() !== 'selected');
     });
 });
 </script>
