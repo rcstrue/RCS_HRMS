@@ -1,4 +1,15 @@
-<?php $pageTitle = 'Employees'; ?>
+<?php
+$pageTitle = 'Employees';
+
+// Get pending change requests count for badge
+$pendingChangeRequests = 0;
+try {
+    $pendingChangeRequests = (int)($db->fetchColumn("SELECT COUNT(*) FROM employee_change_requests WHERE status = 'pending'") ?: 0);
+} catch (Exception $e) {
+    // Table might not exist yet
+    $pendingChangeRequests = 0;
+}
+?>
 <div class="container-fluid py-4">
     <div class="hub-header">
         <h4><i class="bi bi-people me-2"></i>Employees</h4>
@@ -30,11 +41,16 @@
             </a>
         </div>
         <div class="col-lg-3 col-md-4 col-sm-6 col-6">
-            <a href="index.php?page=employee/change-requests" class="text-decoration-none">
+            <a href="index.php?page=employee/change-requests" class="text-decoration-none position-relative">
                 <div class="card module-card h-100">
                     <div class="card-body">
                         <div class="mod-icon bg-warning-soft"><i class="bi bi-arrow-repeat"></i></div>
-                        <div class="mod-title">Change Requests</div>
+                        <div class="mod-title d-flex align-items-center gap-2">
+                            Change Requests
+                            <?php if ($pendingChangeRequests > 0): ?>
+                                <span class="badge bg-danger rounded-pill" style="font-size:0.7em;padding:2px 7px;"><?php echo $pendingChangeRequests; ?></span>
+                            <?php endif; ?>
+                        </div>
                         <div class="mod-desc">Review &amp; approve employee changes</div>
                     </div>
                     <i class="bi bi-arrow-right mod-arrow"></i>

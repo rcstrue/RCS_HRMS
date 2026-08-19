@@ -37,6 +37,9 @@ function _handleGetAnnouncements(): void
     $employeeId = requireAuth();
     $conn = getDbConnection();
 
+    // Ensure required tables exist (auto-create if missing)
+    _ensureAnnouncementsSchema($conn);
+
     $scopeFilter = $_GET['target_scope'] ?? '';
     $priorityFilter = $_GET['priority'] ?? '';
     [$page, $limit, $offset] = getPaginationParams();
@@ -219,4 +222,52 @@ function _handleCreateAnnouncement(): void
             'message' => 'Announcement created successfully'
         ]
     ]);
+}
+
+// ─── Schema Auto-Creation ──────────────────────────────────────────────────────
+
+function _ensureAnnouncementsSchema(mysqli $conn): void
+{
+    $dbName = DB_NAME;
+
+    // Check and create ess_announcements table if missing
+    $tableCheck = $conn->query(
+        "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = '{$dbName}' AND TABLE_NAME = 'ess_announcements'"
+    );
+    if ($tableCheck && $tableCheck->num_rows === 0) {
+        $conn->query("
+            CREATE TABLE ess_announcements (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                content TEXT,
+                created_by VARCHAR(50),
+                target_scope VARCHAR(50) DEFAULT 'all',
+                target_id VARCHAR(100) DEFAULT NULL,
+                priority VARCHAR(20) DEFAULT 'normal',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_scope (target_scope, target_id),
+                INDEX idx_created (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    }
+    if ($tableCheck) $tableCheck->free();
+
+    // Check and create ess_announcement_reads table if missing
+    $readsCheck = $conn->query(
+        "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = '{$dbName}' AND TABLE_NAME = 'ess_announcement_reads'"
+    );
+    if ($readsCheck && $readsCheck->num_rows === 0) {
+        $conn->query("
+            CREATE TABLE ess_announcement_reads (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                announcement_id INT NOT NULL,
+                user_id VARCHAR(50) NOT NULL,
+                read_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_ann_user (announcement_id, user_id),
+                INDEX idx_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    }
+    if ($readsCheck) $readsCheck->free();
 }

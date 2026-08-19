@@ -79,6 +79,9 @@ function _handleGet(): void
     $authId = requireAuth();
     $conn = getDbConnection();
 
+    // Ensure schema columns exist before querying (needed for broadcast_id, sender_id, target_type)
+    _ensureColumns($conn);
+
     // Only admin and manager roles can access
     $role = getEmployeeRole($conn, $authId);
     if (!in_array($role, ['admin', 'manager'])) {
