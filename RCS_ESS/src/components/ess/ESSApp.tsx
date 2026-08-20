@@ -32,7 +32,7 @@ import SendNotificationPage from './SendNotificationPage';
 import TeamMonthlyPage from './TeamMonthlyPage';
 import PayslipPage from './PayslipPage';
 import CertificatesPage from './CertificatesPage';
-import { InstallBanner, PermissionDialog } from './InstallBanner';
+import { InstallBanner, PermissionDialog, NotificationBanner } from './InstallBanner';
 
 // Hook
 import { useDashboard } from './hooks/useDashboard';
@@ -429,6 +429,13 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
                 onInstall={pwa.install}
                 onDismiss={pwa.dismiss}
                 isIOS={pwa.state.isIOS}
+              />
+            )}
+            {/* Push Notification Banner — for ALL users, not just PWA */}
+            {pwa.shouldShowNotifBanner && currentPage === 'dashboard' && (
+              <NotificationBanner
+                onEnable={pwa.requestNotificationPermission}
+                onDismiss={pwa.dismissNotification}
               />
             )}
             <DashboardHome

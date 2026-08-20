@@ -251,3 +251,67 @@ export function PermissionDialog({
     </Dialog>
   );
 }
+
+// ══════════════════════════════════════════════════════════════
+// NotificationBanner — Lightweight banner for ALL logged-in users
+// (not just PWA-installed). Asks to enable push notifications.
+// ══════════════════════════════════════════════════════════════
+
+export function NotificationBanner({
+  onEnable,
+  onDismiss,
+}: {
+  onEnable: () => Promise<boolean>;
+  onDismiss: () => void;
+}) {
+  const [enabling, setEnabling] = useState(false);
+
+  const handleEnable = async () => {
+    setEnabling(true);
+    try {
+      const granted = await onEnable();
+      if (granted) {
+        toast.success('Push notifications enabled!');
+      }
+    } catch {
+      toast.error('Could not enable notifications.');
+    } finally {
+      setEnabling(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+      <div className="flex items-center justify-center w-10 h-10 rounded-full bg-amber-100 shrink-0">
+        <Bell className="w-5 h-5 text-amber-600" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-amber-800">Enable Push Notifications</p>
+        <p className="text-xs text-amber-600 mt-0.5">
+          Get alerts for salary credits, attendance & announcements
+        </p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <Button
+          size="sm"
+          className="h-8 px-3 bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium gap-1.5"
+          onClick={handleEnable}
+          disabled={enabling}
+        >
+          {enabling ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Bell className="w-3.5 h-3.5" />
+          )}
+          Enable
+        </Button>
+        <button
+          onClick={onDismiss}
+          className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-amber-100 transition-colors"
+        >
+          <X className="w-4 h-4 text-amber-600" />
+        </button>
+      </div>
+    </div>
+  );
+}

@@ -18,13 +18,16 @@ export interface PwaInstallState {
   isIOS: boolean;           // iOS Safari (no native prompt)
   isInStandaloneMode: boolean;
   dismissed: boolean;       // User dismissed the banner
+  notificationDismissed: boolean; // User dismissed the notification banner
   permissions: {
     camera: PermissionState | 'unavailable';
     geolocation: PermissionState | 'unavailable';
+    notifications: PermissionState | 'unavailable';
   };
 }
 
 const DISMISSED_KEY = 'ess_install_dismissed';
+const NOTIF_DISMISSED_KEY = 'ess_notif_dismissed';
 const PERMISSIONS_REQUESTED_KEY = 'ess_permissions_requested';
 
 export function usePwaInstall() {
@@ -36,9 +39,11 @@ export function usePwaInstall() {
     isIOS: false,
     isInStandaloneMode: false,
     dismissed: false,
+    notificationDismissed: false,
     permissions: {
       camera: 'unavailable',
       geolocation: 'unavailable',
+      notifications: 'unavailable',
     },
   });
 
@@ -66,7 +71,8 @@ export function usePwaInstall() {
   useEffect(() => {
     try {
       const dismissed = localStorage.getItem(DISMISSED_KEY) === 'true';
-      setState((prev) => ({ ...prev, dismissed }));
+      const notifDismissed = localStorage.getItem(NOTIF_DISMISSED_KEY) === 'true';
+      setState((prev) => ({ ...prev, dismissed, notificationDismissed: notifDismissed }));
     } catch { /* ignore */ }
   }, []);
 
@@ -92,8 +98,12 @@ export function usePwaInstall() {
 
   // ── Check permission states ──
   const checkPermissions = useCallback(async () => {
-    const perms = { camera: 'unavailable' as const, geolocation: 'unavailable' as const };
+    const perms: { camera: PermissionState | 'unavailable'; geolocation: PermissionState | 'unavailable'; notifications: PermissionState | 'unavailable' } = { camera: 'unavailable', geolocation: 'unavailable', notifications: 'unavailable' };
     try {
+      // Notification permission (may not be in navigator.permissions on all browsers)
+      if ('Notification' in window) {
+        perms.notifications = Notification.permission as PermissionState;
+      }
       if (navigator.permissions) {
         const [cam, geo] = await Promise.all([
           navigator.permissions.query({ name: 'camera' as PermissionName }).catch(() => null),
@@ -107,11 +117,17 @@ export function usePwaInstall() {
     return perms;
   }, []);
 
+  // Always check notification permission (used by the lightweight notif banner for all users)
+  useEffect(() => {
+    checkPermissions();
+  }, [checkPermissions]);
+
+  // Also check camera/geo if installed as PWA
   useEffect(() => {
     if (state.isInstalled || state.isInStandaloneMode) {
       checkPermissions();
     }
-  }, [state.isInstalled, state.isInStandaloneMode, checkPermissions]);
+  }, [state.isInstalled, state.isInStandaloneMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Install PWA (Chrome native prompt) ──
   const install = useCallback(async () => {
@@ -190,13 +206,39 @@ export function usePwaInstall() {
     return results;
   }, [checkPermissions]);
 
-  // ── Show permission dialog? ──
-  // Only show if installed AND not already asked AND at least one permission is not yet granted
-  const needsAnyPermission =
-    state.permissions.camera !== 'granted' || state.permissions.geolocation !== 'granted';
-  const shouldShowPermissions = state.isInstalled && !permissionsRequested && needsAnyPermission;
+  // ── Dismiss notification banner ──
+  const dismissNotification = useCallback(() => {
+    try { localStorage.setItem(NOTIF_DISMISSED_KEY, 'true'); } catch { /* ignore */ }
+    setState((prev) => ({ ...prev, notificationDismissed: true }));
+  }, []);
 
-  // ── Show install banner?
+  // ── Request notification permission only (lightweight, for non-PWA users) ──
+  const requestNotificationPermission = useCallback(async (): Promise<boolean> => {
+    try {
+      if ('Notification' in window) {
+        const perm = await Notification.requestPermission();
+        await checkPermissions();
+        // Notify push hook
+        window.dispatchEvent(new CustomEvent('ess:permissions-requested'));
+        return perm === 'granted';
+      }
+    } catch { /* ignore */ }
+    return false;
+  }, [checkPermissions]);
+
+  // ── Show PWA permission dialog? (camera + geo, PWA-installed only) ──
+  const needsDevicePermissions =
+    state.permissions.camera !== 'granted' || state.permissions.geolocation !== 'granted';
+  const shouldShowPermissions = state.isInstalled && !permissionsRequested && needsDevicePermissions;
+
+  // ── Show notification enable banner? (for ALL logged-in users, not just PWA) ──
+  // Show if: notifications not granted, not blocked, not dismissed
+  const shouldShowNotifBanner =
+    state.permissions.notifications !== 'granted' &&
+    state.permissions.notifications !== 'denied' &&
+    !state.notificationDismissed;
+
+  // ── Show install banner? ──
   // Always show unless dismissed or already installed in standalone mode
   const shouldShowInstall = !state.dismissed && !state.isInStandaloneMode;
 
@@ -204,10 +246,13 @@ export function usePwaInstall() {
     state,
     shouldShowInstall,
     shouldShowPermissions,
+    shouldShowNotifBanner,
     install,
     dismiss,
+    dismissNotification,
     resetDismiss,
     requestPermissions,
+    requestNotificationPermission,
     checkPermissions,
   };
 }
