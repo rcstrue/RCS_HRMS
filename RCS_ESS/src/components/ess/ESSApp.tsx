@@ -38,6 +38,7 @@ import { InstallBanner, PermissionDialog } from './InstallBanner';
 import { useDashboard } from './hooks/useDashboard';
 import { usePwaInstall } from './hooks/usePwaInstall';
 import { useNotifications } from './hooks/useNotifications';
+import { usePushNotifications } from './hooks/usePushNotifications';
 
 // Access
 import { AccessProvider, useAccess } from '@/contexts/AccessContext';
@@ -201,6 +202,9 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
 
   // ── PWA Install (must be before navigate which references pwa) ──
   const pwa = usePwaInstall();
+
+  // ── Push Notifications (auto-subscribes after login) ──
+  const push = usePushNotifications(session?.employee?.id);
 
   const navigate = useCallback((page: string) => {
     if (page === 'logout') { clearSession(); return; }

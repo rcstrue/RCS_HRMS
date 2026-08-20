@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   AlertCircle,
   ShieldCheck,
+  Bell,
 } from 'lucide-react';
 
 // ══════════════════════════════════════════════════════════════
@@ -103,18 +104,23 @@ export function PermissionDialog({
   currentPermissions,
 }: {
   open: boolean;
-  onRequest: () => Promise<{ camera: boolean; geolocation: boolean }>;
+  onRequest: () => Promise<{ camera: boolean; geolocation: boolean; notifications: boolean }>;
   onSkip: () => void;
   currentPermissions: { camera: PermissionState | 'unavailable'; geolocation: PermissionState | 'unavailable' };
 }) {
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<{ camera: boolean; geolocation: boolean } | null>(null);
+  const [results, setResults] = useState<{ camera: boolean; geolocation: boolean; notifications: boolean } | null>(null);
 
   const handleRequest = async () => {
     setLoading(true);
     try {
       const res = await onRequest();
       setResults(res);
+      if (res.notifications) {
+        toast.success('Push notifications enabled');
+      } else {
+        toast.info('Notifications blocked. You can enable them in device Settings.');
+      }
       if (res.geolocation) {
         toast.success('Location access granted');
       } else {
@@ -156,6 +162,28 @@ export function PermissionDialog({
         </DialogHeader>
 
         <div className="space-y-3 py-2">
+          {/* Push Notifications */}
+          <div className="flex items-start gap-3 p-3 rounded-xl border bg-gray-50">
+            <div className="flex items-center justify-center w-9 h-9 rounded-full bg-amber-100 shrink-0">
+              <Bell className="w-4.5 h-4.5 text-amber-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-900">Push Notifications</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Receive alerts for salary, attendance & announcements
+              </p>
+              {results && (
+                <p className={`text-xs mt-1 font-medium ${results.notifications ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {results.notifications ? (
+                    <><CheckCircle2 className="w-3 h-3 inline mr-0.5" /> Enabled</>
+                  ) : (
+                    <><AlertCircle className="w-3 h-3 inline mr-0.5" /> Blocked — enable in device settings</>
+                  )}
+                </p>
+              )}
+            </div>
+          </div>
+
           {/* GPS / Location */}
           <div className="flex items-start gap-3 p-3 rounded-xl border bg-gray-50">
             <div className="flex items-center justify-center w-9 h-9 rounded-full bg-sky-100 shrink-0">

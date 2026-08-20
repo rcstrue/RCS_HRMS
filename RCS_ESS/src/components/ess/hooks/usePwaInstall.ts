@@ -145,10 +145,19 @@ export function usePwaInstall() {
 
   // ── Request permissions after install ──
   const requestPermissions = useCallback(async () => {
-    const results: { camera: boolean; geolocation: boolean } = {
+    const results: { camera: boolean; geolocation: boolean; notifications: boolean } = {
       camera: false,
       geolocation: false,
+      notifications: false,
     };
+
+    // Request notification permission (for push notifications)
+    try {
+      if ('Notification' in window) {
+        const perm = await Notification.requestPermission();
+        results.notifications = perm === 'granted';
+      }
+    } catch { results.notifications = false; }
 
     // Request geolocation
     try {
@@ -169,6 +178,9 @@ export function usePwaInstall() {
         results.camera = true;
       }
     } catch { results.camera = false; }
+
+    // Dispatch event so push hook can react to permission grant
+    window.dispatchEvent(new CustomEvent('ess:permissions-requested'));
 
     // Mark as requested so we don't ask again (persisted across sessions)
     try { localStorage.setItem(PERMISSIONS_REQUESTED_KEY, 'true'); } catch { /* ignore */ }

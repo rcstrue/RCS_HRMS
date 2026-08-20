@@ -3,12 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RCS Registration App</title>
-    <meta name="description" content="RCS Facility Employee Registration Portal" />
-    <meta name="author" content="RCS Facility" />
 
-    <meta property="og:title" content="RCS Registration App" />
-    <meta property="og:description" content="RCS Facility Employee Registration Portal" />
+    <!-- ── Content Security Policy (Round 5, fixed R11) ──────────────────── -->
+    <!-- Single-line: backslash continuations are invalid in HTML attributes. -->
+    <!-- style-src 'unsafe-inline' is required because React + shadcn inject  -->
+    <!-- inline styles. fonts.googleapis.com is used for the Inter font.       -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';" />
+
+    <title>RCS ESS — Employee Self Service</title>
+    <meta name="description" content="RCS True Facilities — Employee Self Service Portal" />
+    <meta name="author" content="RCS True Facilities Pvt Ltd" />
+
+    <meta property="og:title" content="RCS ESS — Employee Self Service" />
+    <meta property="og:description" content="RCS True Facilities — Employee Self Service Portal" />
     <meta property="og:type" content="website" />
 
     <meta name="twitter:card" content="summary_large_image" />
@@ -23,10 +31,10 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
-    <script type="module" crossorigin src="/assets/index-hqMNSh3T.js"></script>
+    <script type="module" crossorigin src="/assets/index-DkHIsiRt.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-viRqxWsp.js">
-    <link rel="modulepreload" crossorigin href="/assets/ui-SeZ7IrNo.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-CZu-9As8.css">
+    <link rel="modulepreload" crossorigin href="/assets/ui-B5_7jP7n.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-DNn5UJWt.css">
   </head>
 
   <body>
