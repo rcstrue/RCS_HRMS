@@ -262,9 +262,21 @@ class WebPush
         if (!$key) throw new \RuntimeException('Key generation failed: ' . openssl_error_string());
 
         $details = openssl_pkey_get_details($key);
-        $pubRaw = $details['key']; // 65 bytes
 
-        // Extract raw private key bytes
+        // $details['key'] is a PEM string, not raw bytes.
+        // Decode the PEM to DER, then extract the raw 65-byte uncompressed point.
+        $pubPem = $details['key'];
+        $pubDer = base64_decode(preg_replace('/^-+\s*.*?\s*-+$/m', '', $pubPem));
+        if (strlen($pubDer) < 65) {
+            throw new \RuntimeException('Public key DER too short: ' . strlen($pubDer) . ' bytes');
+        }
+        // P-256 SPKI DER is 91 bytes; the raw uncompressed point is the last 65 bytes (0x04 || x || y)
+        $pubRaw = substr($pubDer, -65);
+        if (strlen($pubRaw) !== 65 || $pubRaw[0] !== "\x04") {
+            throw new \RuntimeException('Invalid P-256 public key point extracted');
+        }
+
+        // Extract raw private key bytes (32-byte scalar d)
         openssl_pkey_export($key, $pem);
         $privRes = openssl_pkey_get_private($pem);
         $privDetails = openssl_pkey_get_details($privRes);
