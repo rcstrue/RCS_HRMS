@@ -61,13 +61,15 @@ export function usePushNotifications(employeeId: number | undefined) {
 
   /**
    * Fetch VAPID public key from the API.
+   * NOTE: PHP returns { success, data: { vapid_public_key } } — must unwrap.
    */
   const fetchVapidKey = useCallback(async (): Promise<string> => {
-    const { data, error } = await apiRequest<{ vapid_public_key: string }>('/ess/push-vapid');
-    if (error || !data?.vapid_public_key) {
+    const { data, error } = await apiRequest<{ success: boolean; data?: { vapid_public_key: string } }>('/ess/push-vapid');
+    const key = data?.data?.vapid_public_key || (data as Record<string, unknown>)?.vapid_public_key as string | undefined;
+    if (error || !key) {
       throw new Error('VAPID public key not available: ' + (error || 'empty'));
     }
-    return data.vapid_public_key;
+    return key;
   }, []);
 
   /**
