@@ -132,18 +132,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Get notification logs — wrap in try-catch since table may not exist yet
-$logs = [];
-try {
-    $logsStmt = $db->query("SELECT * FROM notification_logs ORDER BY created_at DESC LIMIT 100");
-    $logs = $logsStmt ? $logsStmt->fetchAll(PDO::FETCH_ASSOC) : [];
-} catch (PDOException $e) {
-    // notification_logs table does not exist yet — show empty logs
-    $logs = [];
-}
-
 // Get current tab
 $tab = $_GET['tab'] ?? 'sms';
+
+// Lazy-load notification logs only when viewing the logs tab
+$logs = [];
+if ($tab === 'logs') {
+    try {
+        $logsStmt = $db->query("SELECT * FROM notification_logs ORDER BY created_at DESC LIMIT 100");
+        $logs = $logsStmt ? $logsStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+    } catch (PDOException $e) {
+        $logs = [];
+    }
+}
+
+// Load WhatsApp bot status once (cached for 60s in session to avoid slow cURL on every load)
+$waBot = $_SESSION['wa_bot_cache'] ?? null;
+if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
+    $waBot = $notification->getWhatsAppBotStatus();
+    $_SESSION['wa_bot_cache'] = $waBot;
+    $_SESSION['wa_bot_cache_time'] = time();
+}
 ?>
 
 <div class="page-header">
@@ -269,7 +278,6 @@ $tab = $_GET['tab'] ?? 'sms';
         
         <!-- WhatsApp Tab -->
         <?php if ($tab == 'whatsapp'): ?>
-        <?php $waBot = $notification->getWhatsAppBotStatus(); ?>
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="card-title mb-0"><i class="bi bi-whatsapp me-2"></i>WhatsApp Message</h5>
@@ -345,92 +353,86 @@ $tab = $_GET['tab'] ?? 'sms';
         
         <!-- Bulk Actions Tab -->
         <?php if ($tab == 'bulk'): ?>
-        <div class="row">
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header bg-primary text-white">
-                        <h5 class="card-title mb-0"><i class="bi bi-phone me-2"></i>Bulk SMS</h5>
-                    </div>
-                    <div class="card-body">
-                        <form method="POST">
-            <?php echo getCSRFTokenField(); ?>
-                            <input type="hidden" name="action" value="bulk_sms">
-                            
-                            <div class="mb-3">
-                                <label class="form-label">SMS Type</label>
-                                <select class="form-select" name="sms_type">
-                                    <option value="salary_credit">Salary Credit Notification</option>
-                                    <option value="attendance_alert">Attendance Alert</option>
-                                    <option value="pf_update">PF Update</option>
-                                </select>
-                            </div>
-                            
-                            <div class="row mb-3">
-                                <div class="col-6">
-                                    <label class="form-label">Month</label>
-                                    <select class="form-select" name="month">
-                                        <?php for ($m = 1; $m <= 12; $m++): ?>
-                                        <option value="<?php echo $m; ?>" <?php echo $m == prev_month_num() ? 'selected' : ''; ?>>
-                                            <?php echo date('F', mktime(0, 0, 0, $m, 1)); ?>
-                                        </option>
-                                        <?php endfor; ?>
-                                    </select>
-                                </div>
-                                <div class="col-6">
-                                    <label class="form-label">Year</label>
-                                    <select class="form-select" name="year">
-                                        <?php for ($y = date('Y'); $y >= date('Y') - 1; $y--): ?>
-                                        <option value="<?php echo $y; ?>"><?php echo $y; ?></option>
-                                        <?php endfor; ?>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <button type="submit" class="btn btn-primary w-100" onclick="return confirm('Send bulk SMS to all employees?')">
-                                <i class="bi bi-send me-1"></i>Send Bulk SMS
-                            </button>
-                        </form>
-                    </div>
-                </div>
+        <div class="card mb-3">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0"><i class="bi bi-phone me-2"></i>Bulk SMS</h5>
             </div>
-            
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header bg-success text-white">
-                        <h5 class="card-title mb-0"><i class="bi bi-envelope me-2"></i>Send Payslips by Email</h5>
-                    </div>
-                    <div class="card-body">
-                        <form method="POST">
+            <div class="card-body">
+                <form method="POST">
             <?php echo getCSRFTokenField(); ?>
-                            <input type="hidden" name="action" value="send_payslips">
-                            
-                            <div class="row mb-3">
-                                <div class="col-6">
-                                    <label class="form-label">Month</label>
-                                    <select class="form-select" name="payslip_month">
-                                        <?php for ($m = 1; $m <= 12; $m++): ?>
-                                        <option value="<?php echo $m; ?>" <?php echo $m == prev_month_num() ? 'selected' : ''; ?>>
-                                            <?php echo date('F', mktime(0, 0, 0, $m, 1)); ?>
-                                        </option>
-                                        <?php endfor; ?>
-                                    </select>
-                                </div>
-                                <div class="col-6">
-                                    <label class="form-label">Year</label>
-                                    <select class="form-select" name="payslip_year">
-                                        <?php for ($y = date('Y'); $y >= date('Y') - 1; $y--): ?>
-                                        <option value="<?php echo $y; ?>"><?php echo $y; ?></option>
-                                        <?php endfor; ?>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <button type="submit" class="btn btn-success w-100" onclick="return confirm('Send payslips to all employees via email?')">
-                                <i class="bi bi-envelope me-1"></i>Send Payslips
-                            </button>
-                        </form>
+                    <input type="hidden" name="action" value="bulk_sms">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">SMS Type</label>
+                        <select class="form-select" name="sms_type">
+                            <option value="salary_credit">Salary Credit Notification</option>
+                            <option value="attendance_alert">Attendance Alert</option>
+                            <option value="pf_update">PF Update</option>
+                        </select>
                     </div>
-                </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Month</label>
+                            <select class="form-select" name="month">
+                                <?php for ($m = 1; $m <= 12; $m++): ?>
+                                <option value="<?php echo $m; ?>" <?php echo $m == prev_month_num() ? 'selected' : ''; ?>>
+                                    <?php echo date('F', mktime(0, 0, 0, $m, 1)); ?>
+                                </option>
+                                <?php endfor; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Year</label>
+                            <select class="form-select" name="year">
+                                <?php for ($y = date('Y'); $y >= date('Y') - 1; $y--): ?>
+                                <option value="<?php echo $y; ?>"><?php echo $y; ?></option>
+                                <?php endfor; ?>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary" onclick="return confirm('Send bulk SMS to all employees?')">
+                        <i class="bi bi-send me-1"></i>Send Bulk SMS
+                    </button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5 class="card-title mb-0"><i class="bi bi-envelope me-2"></i>Send Payslips by Email</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+            <?php echo getCSRFTokenField(); ?>
+                    <input type="hidden" name="action" value="send_payslips">
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Month</label>
+                            <select class="form-select" name="payslip_month">
+                                <?php for ($m = 1; $m <= 12; $m++): ?>
+                                <option value="<?php echo $m; ?>" <?php echo $m == prev_month_num() ? 'selected' : ''; ?>>
+                                    <?php echo date('F', mktime(0, 0, 0, $m, 1)); ?>
+                                </option>
+                                <?php endfor; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Year</label>
+                            <select class="form-select" name="payslip_year">
+                                <?php for ($y = date('Y'); $y >= date('Y') - 1; $y--): ?>
+                                <option value="<?php echo $y; ?>"><?php echo $y; ?></option>
+                                <?php endfor; ?>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-success" onclick="return confirm('Send payslips to all employees via email?')">
+                        <i class="bi bi-envelope me-1"></i>Send Payslips
+                    </button>
+                </form>
             </div>
         </div>
         <?php endif; ?>
@@ -831,7 +833,6 @@ $tab = $_GET['tab'] ?? 'sms';
                 <h5 class="card-title mb-0"><i class="bi bi-whatsapp me-2"></i>WhatsApp Bot</h5>
             </div>
             <div class="card-body">
-                <?php $waBot = $notification->getWhatsAppBotStatus(); ?>
                 <?php if ($waBot['connected']): ?>
                 <div class="text-center mb-3">
                     <i class="bi bi-check-circle-fill text-success" style="font-size:2rem;"></i>
@@ -903,14 +904,22 @@ $tab = $_GET['tab'] ?? 'sms';
     </div>
 </div>
 
-<script>
-$(document).ready(function() {
-    $('textarea[name="message"]').on('input', function() {
-        $('#smsCharCount').text($(this).val().length);
-    });
+<?php
+// Use $inlineJS so jQuery code runs inside footer's $(document).ready()
+$inlineJS = "
+    // SMS character counter
+    var smsArea = document.querySelector('textarea[name=\"message\"]');
+    var smsCount = document.getElementById('smsCharCount');
+    if (smsArea && smsCount) {
+        smsArea.addEventListener('input', function() { smsCount.textContent = this.value.length; });
+    }
     // Push target toggle
-    $('#pushTarget').on('change', function() {
-        $('#employeeIdsGroup').toggleClass('d-none', $(this).val() !== 'selected');
-    });
-});
-</script>
+    var pushSel = document.getElementById('pushTarget');
+    var empGroup = document.getElementById('employeeIdsGroup');
+    if (pushSel && empGroup) {
+        pushSel.addEventListener('change', function() {
+            empGroup.classList.toggle('d-none', this.value !== 'selected');
+        });
+    }
+";
+?>
