@@ -385,12 +385,15 @@ function reverseCalculateSalary(
             if (abs($basicDa - $basicDaPrev) < 0.01 && $iter > 0) {
                 $errorCode = 'TARGET_NOT_ACHIEVABLE';
                 $totalDeductionsNow = $pfDed + $esiDed + $ptAmount + $lwfAmount;
-                $maxGrossPossible = round($basicDa * (1 + $BONUS_PCT/100 + $LEAVE_MAX_PCT/100 + $HRA_MAX_PCT/100), 2);
+                // Max gross multiplier from the REAL component caps:
+                // basic + bonus 8.33% + leave 11.23% + HRA 80.44%
+                $maxGrossFactor = 1 + $BONUS_PCT/100 + $LEAVE_MAX_PCT/100 + $HRA_MAX_PCT/100;
+                $maxGrossPossible = round($basicDa * $maxGrossFactor, 2);
                 $maxNetPossible = round($maxGrossPossible - $totalDeductionsNow, 2);
                 $errorMsg = "Target net salary ₹" . number_format($netSalary, 2)
                           . " cannot be achieved with the current salary component limits. "
                           . "Maximum achievable with Basic+DA=₹" . number_format($basicDa, 2)
-                          . ", Bonus=8.33%, Leave=11.23%, HRA=40% is ₹" . number_format($maxNetPossible, 2)
+                          . ", Bonus=8.33%, Leave=11.23%, HRA=80.44% is ₹" . number_format($maxNetPossible, 2)
                           . " (shortfall of ₹" . number_format($netSalary - $maxNetPossible, 2) . "). "
                           . "Please increase the target net salary or adjust the unit's worker category.";
                 break;
@@ -398,9 +401,10 @@ function reverseCalculateSalary(
             $basicDaPrev = $basicDa;
 
             // Estimate required basic_da so that max_gross - deductions = target
-            // max_gross ≈ basic_da * 1.5956
+            // max_gross ≈ basic_da × (1 + bonus% + leave% + HRA% caps)
             $totalDeductionsNow = $pfDed + $esiDed + $ptAmount + $lwfAmount;
-            $requiredBasic = ($netSalary + $totalDeductionsNow) / 1.5956;
+            $maxGrossFactor = 1 + $BONUS_PCT/100 + $LEAVE_MAX_PCT/100 + $HRA_MAX_PCT/100;
+            $requiredBasic = ($netSalary + $totalDeductionsNow) / $maxGrossFactor;
             if ($requiredBasic <= $minWage) {
                 // Required basic is at or below min_wage — target should be achievable
                 // at min_wage level. We shouldn't be here — break to avoid infinite loop.
@@ -612,16 +616,22 @@ function _lookupPT($db, string $state, float $salaryEstimate): float {
 
 /**
  * Look up LWF employee contribution for a state.
+ * Schema: lwf_rates (state_id FK → states, employee_share, effective_from, is_active).
  */
 function _lookupLWF($db, string $state): float {
     if (!$state) return 0;
     try {
         $row = $db->fetch(
-            "SELECT employee_contribution FROM lwf_rates
-             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1",
+            "SELECT lr.employee_share
+             FROM lwf_rates lr
+             JOIN states s ON s.id = lr.state_id
+             WHERE (LOWER(s.state_name) = LOWER(?) OR LOWER(s.state_code) = LOWER(?))
+             AND lr.is_active = 1
+             AND lr.effective_from <= CURDATE()
+             ORDER BY lr.effective_from DESC LIMIT 1",
             [$state, $state]
         );
-        return floatval($row['employee_contribution'] ?? 0);
+        return floatval($row['employee_share'] ?? 0);
     } catch (\Throwable $e) {
         return 0;
     }

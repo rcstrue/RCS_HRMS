@@ -28,13 +28,12 @@ if (isset($_GET['export'])) {
     try {
         for ($m = 1; $m <= 12; $m++) {
             $period = $db->fetch(
-                "SELECT pp.id FROM payroll_periods pp
-                 WHERE pp.month = :month AND pp.year = :year AND pp.status = 'Processed'
-                 LIMIT 1",
+                "SELECT COUNT(*) as recs FROM payroll
+                 WHERE month = :month AND year = :year",
                 ['month' => $m, 'year' => $year]
             );
 
-            if (!$period) {
+            if (!$period || (int)$period['recs'] === 0) {
                 $monthName = date('F', mktime(0, 0, 0, $m, 1));
                 fputcsv($output, [$monthName, 0, 0, 0, 0, '', '', 0, 'Not Processed']);
                 continue;
@@ -67,9 +66,9 @@ if (isset($_GET['export'])) {
                 $challan = $db->fetch(
                     "SELECT challan_no, challan_date, amount_paid, status
                      FROM pf_remissions
-                     WHERE payroll_period_id = :periodId
+                     WHERE month = :month AND year = :year
                      LIMIT 1",
-                    ['periodId' => $period['id']]
+                    ['month' => $m, 'year' => $year]
                 );
                 if ($challan) {
                     $challanNo = $challan['challan_no'] ?? '';

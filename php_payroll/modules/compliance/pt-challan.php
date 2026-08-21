@@ -33,37 +33,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $year = intval($_POST['year']);
         
         // Get employees with PT applicable in the selected state
+        // (columns verified against live schema: payroll has gross_salary/net_pay/
+        //  professional_tax; employees has no is_pt_applicable/current_state —
+        //  PT flag lives in employee_salary_structures)
         $employees = $db->fetchAll(
             "SELECT e.id, e.employee_code, e.full_name, e.gender,
-                    COALESCE(u.state, e.current_state, e.permanent_state) as emp_state,
-                    p.gross_salary, p.net_salary, p.pt_employee,
+                    COALESCE(u.state, e.state) as emp_state,
+                    p.gross_salary, p.net_pay, p.professional_tax,
                     c.name as client_name
              FROM payroll p
              JOIN employees e ON p.employee_id = e.employee_code
              LEFT JOIN clients c ON e.client_id = c.id
-             LEFT JOIN units u ON e.unit_id = u.id
+             LEFT JOIN units u ON p.unit_id = u.id
+             LEFT JOIN employee_salary_structures ess ON ess.employee_id = e.id
+                 AND (ess.effective_to IS NULL OR ess.effective_to >= LAST_DAY(CONCAT(:year2, '-', :month2, '-01')))
              WHERE p.month = :month AND p.year = :year
-                AND e.is_pt_applicable = 1
-                AND (u.state = :state OR e.current_state = :state OR e.permanent_state = :state)
+                AND ess.pt_applicable = 1
+                AND u.state = :state
              ORDER BY e.full_name",
-            ['month' => $month, 'year' => $year, 'state' => $state]
+            ['month' => $month, 'year' => $year, 'year2' => $year, 'month2' => $month, 'state' => $state]
         );
-        
-        // Calculate PT based on state slabs
+
+        // Calculate PT based on state slabs (professional_tax_rates —
+        // professional_tax_slabs does not exist in the schema)
         $ptSlabs = $db->fetchAll(
-            "SELECT * FROM professional_tax_slabs 
-             WHERE state = :state AND is_active = 1
-             ORDER BY salary_from",
+            "SELECT ptr.salary_from, ptr.salary_to, ptr.pt_amount
+             FROM professional_tax_rates ptr
+             JOIN states s ON s.id = ptr.state_id
+             WHERE (s.state_code = :state OR s.state_name = :state)
+               AND ptr.is_active = 1
+               AND ptr.effective_from <= CURDATE()
+               AND ptr.gender_specific = 'All'
+             ORDER BY ptr.salary_from",
             ['state' => $state]
         );
-        
+
         $ptData = [];
         $totalPT = 0;
         $maleCount = 0;
         $femaleCount = 0;
-        
+
         foreach ($employees as $emp) {
-            $gross = floatval($emp['net_salary'] ?? 0); // PT calculated on net/gross
+            // PT is calculated on GROSS salary (not net)
+            $gross = floatval($emp['gross_salary'] ?? 0);
             
             // Find applicable PT slab
             $ptAmount = 0;
@@ -185,7 +197,11 @@ $preview = $_SESSION['pt_preview'] ?? null;
 
 // Get states with PT slabs
 $states = $db->fetchAll(
-    "SELECT DISTINCT state FROM professional_tax_slabs WHERE is_active = 1 ORDER BY state"
+    "SELECT DISTINCT s.state_name AS state
+     FROM professional_tax_rates ptr
+     JOIN states s ON s.id = ptr.state_id
+     WHERE ptr.is_active = 1
+     ORDER BY s.state_name"
 );
 ?>
 
@@ -343,7 +359,11 @@ $states = $db->fetchAll(
                         <tbody>
                             <?php 
                             $allSlabs = $db->fetchAll(
-                                "SELECT * FROM professional_tax_slabs WHERE is_active = 1 ORDER BY state, salary_from"
+                                "SELECT s.state_name AS state, ptr.salary_from, ptr.salary_to, ptr.pt_amount
+                                 FROM professional_tax_rates ptr
+                                 JOIN states s ON s.id = ptr.state_id
+                                 WHERE ptr.is_active = 1
+                                 ORDER BY s.state_name, ptr.salary_from"
                             );
                             $current = '';
                             foreach ($allSlabs as $s): 

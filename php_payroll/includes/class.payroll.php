@@ -503,7 +503,7 @@ class Payroll {
                     $esiEmployer = 0;
                     $actualGrossSalary = floatval($emp['gross_salary'] ?? 0);
 
-                    if (($emp['esi_applicable'] ?? 0) && $actualGrossSalary <= $this->esiRates['wage_ceiling']) {
+                    if (($emp['esi_applicable'] ?? 0) && $actualGrossSalary > 0 && $actualGrossSalary <= $this->esiRates['wage_ceiling']) {
                         $esiEmployee = round($grossWithOT * $this->esiRates['employee_share'] / 100, 2);
                         $esiEmployer = round($grossWithOT * $this->esiRates['employer_share'] / 100, 2);
                     }
@@ -608,11 +608,17 @@ class Payroll {
                     $ctc = round($grossWithOT + $employerContribution + $bonusProvision + $gratuityProvision, 2);
 
                     // Minimum wage check (Audit Issue #14)
+                    // Schema: minimum_wages (state_id FK → states, worker_category,
+                    // total_per_month / basic_per_month+vda_per_month)
                     $minWage = $this->db->fetch(
-                        "SELECT mw.minimum_wage FROM minimum_wages mw
-                         WHERE (mw.state = :state OR mw.state = 'All')
-                         AND mw.designation LIKE CONCAT('%', :cat, '%')
+                        "SELECT COALESCE(NULLIF(mw.total_per_month, 0),
+                                          COALESCE(mw.basic_per_month, 0) + COALESCE(mw.vda_per_month, 0), 0) AS minimum_wage
+                         FROM minimum_wages mw
+                         JOIN states s ON s.id = mw.state_id
+                         WHERE (LOWER(s.state_name) = LOWER(:state) OR LOWER(s.state_code) = LOWER(:state))
+                         AND LOWER(mw.worker_category) = LOWER(:cat)
                          AND mw.effective_from <= :dt
+                         AND (mw.is_active = 1 OR mw.is_active IS NULL)
                          ORDER BY mw.effective_from DESC LIMIT 1",
                         ['state' => ($emp['unit_state'] ?? ''), 'cat' => ($emp['worker_category'] ?? ''), 'dt' => $period['end_date']]
                     );

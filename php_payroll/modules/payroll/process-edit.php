@@ -119,15 +119,20 @@ if ($unitId > 0) {
         $unitState = $unitInfo['state'] ?? '';
         $unitStatePtApplicable = !empty($unitInfo['state_pt_applicable']);
     }
-    // Fetch PT slabs for this state
+    // Fetch PT slabs for this state (professional_tax_rates joined to states —
+    // the professional_tax_slabs table does not exist in the schema)
     if ($unitStatePtApplicable && $unitState) {
         try {
             $ptSlabs = $db->fetchAll(
-                "SELECT min_gross, max_gross, pt_amount
-                 FROM professional_tax_slabs
-                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
-                 ORDER BY min_gross",
-                [$unitState, ucfirst(strtolower($unitState))]
+                "SELECT ptr.salary_from AS min_gross, ptr.salary_to AS max_gross, ptr.pt_amount
+                 FROM professional_tax_rates ptr
+                 JOIN states s ON s.id = ptr.state_id
+                 WHERE (LOWER(s.state_code) = LOWER(?) OR LOWER(s.state_name) = LOWER(?))
+                 AND ptr.is_active = 1
+                 AND ptr.effective_from <= CURDATE()
+                 AND ptr.gender_specific = 'All'
+                 ORDER BY ptr.salary_from",
+                [$unitState, $unitState]
             );
         } catch (Exception $e) {}
     }
@@ -744,12 +749,8 @@ $monthLabel = $monthNames[$month] ?? '';
             $attExtra    = floatval($att['total_extra'] ?? 0);
             $attOtHours  = floatval($att['overtime_hours'] ?? 0);
 
-            // If existing payroll, prefer existing attendance numbers
-            if (!empty($existing)) {
-                $attPresent = $attPresent ?: floatval($existing['total_present'] ?? 0);
-                $attWO      = $attWO ?: floatval($existing['total_wo'] ?? 0);
-                $attExtra   = $attExtra ?: floatval($existing['total_extra'] ?? 0);
-            }
+            // Attendance comes from attendance_summary only — the payroll table
+            // has no total_present/total_wo/total_extra columns to fall back on.
 
             $paidDays = $attPresent + $attWO + $attExtra;
 
@@ -1124,7 +1125,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             return 0;
         }
-        // Fallback: state-code-based hardcoded slabs (same as class.payroll.php)
+        // Fallback: state-code-based hardcoded slabs, ONLY for states we know.
+        // Unknown states → ₹0 (no PT) — never guess a Maharashtra-style default.
         var st = (UNIT_STATE || '').toUpperCase();
         if (st === 'MH' || st === 'MAHARASHTRA') {
             return grossSalary > 10000 ? 200 : 0;
@@ -1145,8 +1147,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (st === 'GJ' || st === 'GUJARAT') {
             return grossSalary > 12000 ? 200 : 0;
         }
-        // Default: Maharashtra-style
-        return grossSalary > 10000 ? 200 : 0;
+        return 0;
     }
 
     // ── Calculate a single row ──────────────────────────────────
