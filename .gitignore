@@ -6,6 +6,7 @@ Thumbs.db
 *~
 .vscode/
 .idea/
+.zcode/
 
 # AI tool index files (auto-generated, noisy diffs)
 .ai/
