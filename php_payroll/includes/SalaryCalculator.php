@@ -316,7 +316,7 @@ function reverseCalculateSalary(
             break;
         }
 
-        // ── Level 3: + HRA (remaining balance, up to 40% of basic_da) ──
+        // ── Level 3: + HRA (remaining balance, up to HRA_MAX_PCT of basic_da) ──
         $levelReached = 3;
         $maxHra = round($basicDa * $HRA_MAX_PCT / 100, 2);
         $gap = round($netSalary - $net2, 2);

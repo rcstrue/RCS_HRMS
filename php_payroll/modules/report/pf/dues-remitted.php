@@ -139,19 +139,16 @@ try {
             'challan_date' => '',
             'difference' => 0,
             'status' => 'Not Processed',
-            'period_id' => null,
         ];
 
+        // Check if payroll data exists for this month (no dependency on payroll_periods table)
         $period = $db->fetch(
-            "SELECT pp.id FROM payroll_periods pp
-             WHERE pp.month = :month AND pp.year = :year AND pp.status = 'Processed'
-             LIMIT 1",
+            "SELECT COUNT(*) as recs FROM payroll
+             WHERE month = :month AND year = :year",
             ['month' => $m, 'year' => $year]
         );
 
-        if ($period) {
-            $entry['period_id'] = $period['id'];
-
+        if ($period && (int)$period['recs'] > 0) {
             $summary = $db->fetch(
                 "SELECT COUNT(DISTINCT p.employee_id) as total_employees,
                         SUM(p.basic_da) as total_wages,
@@ -172,14 +169,14 @@ try {
                                    ($summary['total_admin'] ?? 0);
             $entry['status'] = 'Dues Calculated';
 
-            // Check for remittance record
+            // Check for remittance record — use month/year instead of payroll_period_id
             try {
                 $challan = $db->fetch(
                     "SELECT challan_no, challan_date, amount_paid, status
                      FROM pf_remissions
-                     WHERE payroll_period_id = :periodId
+                     WHERE month = :month AND year = :year
                      LIMIT 1",
-                    ['periodId' => $period['id']]
+                    ['month' => $m, 'year' => $year]
                 );
                 if ($challan) {
                     $entry['challan_no'] = $challan['challan_no'] ?? '';

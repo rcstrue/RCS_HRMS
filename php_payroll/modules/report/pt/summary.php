@@ -29,18 +29,13 @@ if (isset($_GET['export'])) {
     exit;
 }
 
-// Get monthly PT summary
+// Get monthly PT summary — iterate months 1-12 directly (payroll_periods table
+// may not exist; the live engine keys payroll rows by month/year).
 $monthlySummary = [];
 $annualEmpCount = 0;
 $annualTotalPT = 0;
 
-try {
-    $periods = $db->fetchAll("SELECT * FROM payroll_periods WHERE year = ? ORDER BY month", [$year]);
-} catch (Exception $e) {
-    $periods = [];
-}
-
-foreach ($periods as $period) {
+for ($m = 1; $m <= 12; $m++) {
     try {
         $stats = $db->fetch("
             SELECT COUNT(DISTINCT p.employee_id) as emp_count,
@@ -48,22 +43,22 @@ foreach ($periods as $period) {
             FROM payroll p
             JOIN employees e ON e.employee_code = p.employee_id
             WHERE p.month = ? AND p.year = ? AND e.status = 'approved'
-        ", [$period['month'], $period['year']]);
+        ", [$m, $year]);
 
-        // Try to get challan info
+        // Try to get challan info — pt_challans stores month/year, not payroll_period_id
         $challan = null;
         try {
             $challan = $db->fetch("
                 SELECT challan_no, payment_date, status FROM pt_challans
-                WHERE payroll_period_id = ? LIMIT 1
-            ", [$period['id']]);
+                WHERE month = ? AND year = ? LIMIT 1
+            ", [$m, $year]);
         } catch (Exception $e) {
             $challan = null;
         }
 
         $monthlySummary[] = [
-            'month' => $period['month'],
-            'month_name' => $monthNames[$period['month']] ?? '',
+            'month' => $m,
+            'month_name' => $monthNames[$m] ?? '',
             'emp_count' => $stats['emp_count'],
             'total_pt' => $stats['total_pt'],
             'challan_no' => $challan['challan_no'] ?? '-',
@@ -75,8 +70,8 @@ foreach ($periods as $period) {
         $annualTotalPT += $stats['total_pt'];
     } catch (Exception $e) {
         $monthlySummary[] = [
-            'month' => $period['month'],
-            'month_name' => $monthNames[$period['month']] ?? '',
+            'month' => $m,
+            'month_name' => $monthNames[$m] ?? '',
             'emp_count' => 0, 'total_pt' => 0,
             'challan_no' => '-', 'payment_date' => '-', 'status' => 'Error'
         ];
