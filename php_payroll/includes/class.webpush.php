@@ -154,7 +154,10 @@ class WebPush
             'private_key_type' => OPENSSL_KEYTYPE_EC,
         ]);
         $ephemeralDetails = openssl_pkey_get_details($ephemeral);
-        $localPublicKeyRaw = $ephemeralDetails['key']; // 65 bytes uncompressed (0x04...)
+        // Build raw 65-byte uncompressed point from ec.x / ec.y (raw binary, not PEM)
+        $x = str_pad($ephemeralDetails['ec']['x'], 32, "\x00", STR_PAD_LEFT);
+        $y = str_pad($ephemeralDetails['ec']['y'], 32, "\x00", STR_PAD_LEFT);
+        $localPublicKeyRaw = "\x04" . $x . $y; // 65 bytes
 
         // 2. ECDH: compute shared secret
         $userPubKeyPem = $this->rawEcKeyToPem($userPublicKey);
@@ -195,8 +198,6 @@ class WebPush
         // 7. Build result: rs(2 bytes) || ephemeral_pub(65) || padding(N) || ciphertext || tag(16)
         $padLen = random_int(0, 3200);
         $pad = str_repeat("\x00", $padLen);
-        $recordSize = pack('n', 0); // placeholder, not used in aes128gcm
-
         return pack('n', $padLen) . $localPublicKeyRaw . $pad . $ciphertext . $tag;
     }
 
@@ -263,25 +264,27 @@ class WebPush
 
         $details = openssl_pkey_get_details($key);
 
-        // $details['key'] is a PEM string, not raw bytes.
-        // Decode the PEM to DER, then extract the raw 65-byte uncompressed point.
-        $pubPem = $details['key'];
-        $pubDer = base64_decode(preg_replace('/^-+\s*.*?\s*-+$/m', '', $pubPem));
-        if (strlen($pubDer) < 65) {
-            throw new \RuntimeException('Public key DER too short: ' . strlen($pubDer) . ' bytes');
-        }
-        // P-256 SPKI DER is 91 bytes; the raw uncompressed point is the last 65 bytes (0x04 || x || y)
-        $pubRaw = substr($pubDer, -65);
-        if (strlen($pubRaw) !== 65 || $pubRaw[0] !== "\x04") {
-            throw new \RuntimeException('Invalid P-256 public key point extracted');
-        }
+        // Build raw 65-byte uncompressed point from ec.x / ec.y.
+        // In PHP 8.0+ these are raw binary (big-endian), not hex strings.
+        // Do NOT use $details['key'] — that is PEM text.
+        $x = str_pad($details['ec']['x'], 32, "\x00", STR_PAD_LEFT);
+        $y = str_pad($details['ec']['y'], 32, "\x00", STR_PAD_LEFT);
+        $pubRaw = "\x04" . $x . $y; // 65 bytes: uncompressed point prefix + X + Y
 
-        // Extract raw private key bytes (32-byte scalar d)
+        // Extract raw 32-byte private scalar.
+        // In PHP 8.0+ ec.d is raw binary; in PHP 7.x it may be hex.
+        // Detect by length: if > 32 bytes it must be hex.
         openssl_pkey_export($key, $pem);
         $privRes = openssl_pkey_get_private($pem);
         $privDetails = openssl_pkey_get_details($privRes);
-        $privHex = str_pad($privDetails['ec']['d'], 64, '0', STR_PAD_LEFT);
-        $privRaw = hex2bin($privHex);
+        $privD = $privDetails['ec']['d'];
+        if (strlen($privD) > 32) {
+            // Hex string (PHP 7.x or certain OpenSSL builds)
+            $privRaw = hex2bin(str_pad($privD, 64, '0', STR_PAD_LEFT));
+        } else {
+            // Raw binary (PHP 8.0+)
+            $privRaw = str_pad($privD, 32, "\x00", STR_PAD_LEFT);
+        }
 
         return [
             'public_key'  => self::base64UrlEncode($pubRaw),
