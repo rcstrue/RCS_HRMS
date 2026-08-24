@@ -531,6 +531,8 @@ if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
                     redirect('index.php?page=notifications/center&tab=push');
                 }
 
+                set_time_limit(300); // 5 min for push sends (uncatchable fatal if exceeded)
+
                 try {
                     $wp = new WebPush($vapidPriv, $vapidPub, $vapidSub);
 
@@ -554,15 +556,10 @@ if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
 
                     $stats = $wp->sendBatch($subs, $item['title'], $item['body'], $item['url'], $item['icon']);
 
-                    // Clean expired subscriptions
-                    if ($stats['expired'] > 0) {
-                        // Remove expired subscriptions (those with 404/410)
-                        foreach ($subs as $sub) {
-                            $testResult = $wp->send($sub, '', '');
-                            if (!empty($testResult['expired'])) {
-                                $db->exec("DELETE FROM push_subscriptions WHERE endpoint = ?", [$sub['endpoint']]);
-                            }
-                        }
+                    // Clean expired subscriptions (tracked during sendBatch, no second pass needed)
+                    if (!empty($stats['expired_endpoints'])) {
+                        $epPh = implode(',', array_fill(0, count($stats['expired_endpoints']), '?'));
+                        $db->exec("DELETE FROM push_subscriptions WHERE endpoint IN ($epPh)", $stats['expired_endpoints']);
                     }
 
                     $db->exec("UPDATE push_notification_queue SET status = 'completed', sent_count = ?, failed_count = ?, expired_count = ?, errors = ?, sent_at = NOW() WHERE id = ?", [

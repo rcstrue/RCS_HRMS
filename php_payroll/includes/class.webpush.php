@@ -111,17 +111,21 @@ class WebPush
     {
         $sent = $failed = $expired = 0;
         $errors = [];
+        $expiredEndpoints = [];
         foreach ($subscriptions as $sub) {
             $result = $this->send($sub, $title, $body, $url, $icon);
             if ($result['success']) {
                 $sent++;
             } else {
                 $failed++;
-                if (!empty($result['expired'])) $expired++;
+                if (!empty($result['expired'])) {
+                    $expired++;
+                    $expiredEndpoints[] = $sub['endpoint'];
+                }
                 $errors[] = $result['error'] ?? 'Unknown';
             }
         }
-        return ['sent' => $sent, 'failed' => $failed, 'expired' => $expired, 'errors' => $errors];
+        return ['sent' => $sent, 'failed' => $failed, 'expired' => $expired, 'errors' => $errors, 'expired_endpoints' => $expiredEndpoints];
     }
 
     // ── VAPID JWT (RFC 8292) ────────────────────────────────────────

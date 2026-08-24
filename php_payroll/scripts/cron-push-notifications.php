@@ -64,17 +64,10 @@ foreach ($pending as $item) {
 
         $stats = $wp->sendBatch($subs, $item['title'], $item['body'], $item['url'], $item['icon']);
 
-        // Clean up expired subscriptions
-        $expiredEndpoints = [];
-        foreach ($subs as $sub) {
-            $testResult = $wp->send($sub, '', '');
-            if (!empty($testResult['expired'])) {
-                $expiredEndpoints[] = $sub['endpoint'];
-            }
-        }
-        if (!empty($expiredEndpoints)) {
-            $epPh = implode(',', array_fill(0, count($expiredEndpoints), '?'));
-            $db->exec("DELETE FROM push_subscriptions WHERE endpoint IN ($epPh)", $expiredEndpoints);
+        // Clean expired subscriptions (tracked during sendBatch, no second pass needed)
+        if (!empty($stats['expired_endpoints'])) {
+            $epPh = implode(',', array_fill(0, count($stats['expired_endpoints']), '?'));
+            $db->exec("DELETE FROM push_subscriptions WHERE endpoint IN ($epPh)", $stats['expired_endpoints']);
         }
 
         $db->exec("UPDATE push_notification_queue SET status = 'completed', sent_count = ?, failed_count = ?, expired_count = ?, errors = ?, sent_at = NOW() WHERE id = ?", [
