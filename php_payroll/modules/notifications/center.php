@@ -9,12 +9,6 @@
 
 $pageTitle = 'Notification Center';
 
-// DEBUG: confirm this deployed file is loaded
-error_log('[push-debug] center.php LOADED, method=' . $_SERVER['REQUEST_METHOD']
-    . ' tab=' . ($_GET['tab'] ?? 'NONE')
-    . ' process=' . ($_GET['process'] ?? 'NONE')
-    . ' post_action=' . ($_POST['action'] ?? 'NONE'));
-
 // Check access - only admin and hr_executive can access this page
 if (!in_array($_SESSION['role_code'], ['admin', 'hr_executive'])) {
     setFlash('error', 'Access denied. You do not have permission to access this page.');
@@ -25,14 +19,11 @@ $notification = new Notification();
 
 // Handle actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    error_log('[push-debug] POST handler entered, action=' . ($_POST['action'] ?? 'NONE'));
     // CSRF check (Round 9)
     if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
-        error_log('[push-debug] CSRF FAILED, redirecting');
         setFlash('error', 'Invalid request. Please refresh the page and try again.');
         redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
     }
-    error_log('[push-debug] CSRF passed');
     $action = $_POST['action'] ?? '';
     
     if ($action === 'send_sms') {
@@ -480,9 +471,23 @@ if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
             `sent_at` DATETIME DEFAULT NULL,
             `created_by` VARCHAR(50) NOT NULL,
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+            `attempt_count` INT UNSIGNED DEFAULT 0,
+            `max_attempts` TINYINT UNSIGNED DEFAULT 5,
+            `next_retry_at` DATETIME DEFAULT NULL,
+            `last_error` TEXT DEFAULT NULL,
             INDEX `idx_status` (`status`),
-            INDEX `idx_scheduled` (`scheduled_at`, `status`)
+            INDEX `idx_scheduled` (`scheduled_at`, `status`),
+            INDEX `idx_retry` (`next_retry_at`, `status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch (\Throwable $e) {}
+
+        // Migrate: add retry columns if they don't exist (for existing installs)
+        $queueCols = $db->fetchAll("SHOW COLUMNS FROM push_notification_queue");
+        $queueColNames = array_column($queueCols, 'Field');
+        foreach (['attempt_count' => "INT UNSIGNED DEFAULT 0", 'max_attempts' => "TINYINT UNSIGNED DEFAULT 5", 'next_retry_at' => "DATETIME DEFAULT NULL", 'last_error' => "TEXT DEFAULT NULL"] as $col => $def) {
+            if (!in_array($col, $queueColNames)) {
+                try { $db->exec("ALTER TABLE push_notification_queue ADD COLUMN `$col` $def"); } catch (\Throwable $e) {}
+            }
+        }
 
         // Handle push actions
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -512,106 +517,13 @@ if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
                     'created_by'   => $_SESSION['first_name'] ?? $_SESSION['user_id'] ?? 'admin',
                 ]);
 
-                setFlash('success', 'Push notification queued' . (empty($schedule) ? '' : ' for ' . sanitize($schedule)) . '.');
+                setFlash('success', 'Push notification queued' . (empty($schedule) ? ' — will be sent within 5 minutes' : ' for ' . sanitize($schedule)) . '.');
                 redirect('index.php?page=notifications/center&tab=push');
-            }
-
-            if ($pushAction === 'send_now') {
-                $queueId = (int)($_POST['queue_id'] ?? 0);
-                error_log("[push-debug] send_now POST, queueId=$queueId");
-                if ($queueId) {
-                    setFlash('info', 'Processing push notification #' . $queueId . '...');
-                    redirect('index.php?page=notifications/center&tab=push&process=' . $queueId);
-                } else {
-                    error_log('[push-debug] send_now POST: queueId was 0/empty');
-                }
             }
         }
 
-        // Process push notification immediately if requested
-        if (isset($_GET['process'])) {
-            $queueId = (int)$_GET['process'];
-            error_log("[push-debug] process block reached, queueId=$queueId");
-
-            $item = $db->fetch("SELECT * FROM push_notification_queue WHERE id = ?", [$queueId]);
-            error_log('[push-debug] fetch result: ' . ($item ? "id={$item['id']} status={$item['status']} target={$item['target']}" : 'NULL/false'));
-
-            if (!$item) {
-                error_log("[push-debug] ABORT: queue item #$queueId not found");
-                setFlash('error', 'Notification not found.');
-                redirect('index.php?page=notifications/center&tab=push');
-            }
-
-            if ($item['status'] !== 'pending') {
-                error_log("[push-debug] ABORT: status is '{$item['status']}', not 'pending'");
-                setFlash('warning', "Notification #{$queueId} is already '{$item['status']}'.");
-                redirect('index.php?page=notifications/center&tab=push');
-            }
-
-            require_once APP_ROOT . '/includes/class.webpush.php';
-            error_log('[push-debug] class.webpush.php loaded, APP_ROOT=' . APP_ROOT);
-
-            $vapidPriv = getSetting('push_vapid_private_key');
-            $vapidPub  = getSetting('push_vapid_public_key');
-            $vapidSub  = getSetting('push_vapid_subject') ?: 'mailto:hr@rcsfacility.com';
-            error_log('[push-debug] VAPID keys: priv=' . ($vapidPriv ? 'Y' : 'N') . ' pub=' . ($vapidPub ? 'Y' : 'N'));
-
-            if (!$vapidPriv || !$vapidPub) {
-                setFlash('error', 'VAPID keys not configured. Generate them first.');
-                redirect('index.php?page=notifications/center&tab=push');
-            }
-
-            set_time_limit(300); // 5 min for push sends (uncatchable fatal if exceeded)
-
-            try {
-                $wp = new WebPush($vapidPriv, $vapidPub, $vapidSub);
-                error_log('[push-debug] WebPush instantiated');
-
-                // Get subscriptions based on target
-                $subs = [];
-                if ($item['target'] === 'all') {
-                    $subs = $db->fetchAll("SELECT * FROM push_subscriptions");
-                } elseif ($item['target'] === 'selected' && !empty($item['employee_ids'])) {
-                    $ids = explode(',', $item['employee_ids']);
-                    $placeholders = implode(',', array_fill(0, count($ids), '?'));
-                    $subs = $db->fetchAll("SELECT * FROM push_subscriptions WHERE employee_id IN ($placeholders)", $ids);
-                }
-                error_log('[push-debug] found ' . count($subs) . ' subscriptions for target=' . $item['target']);
-
-                if (empty($subs)) {
-                    error_log('[push-debug] ABORT: no subscribers');
-                    $db->exec("UPDATE push_notification_queue SET status = 'failed', errors = 'No subscribers found', sent_at = NOW() WHERE id = ?", [$queueId]);
-                    setFlash('warning', 'No push subscribers found.');
-                    redirect('index.php?page=notifications/center&tab=push');
-                }
-
-                $db->exec("UPDATE push_notification_queue SET status = 'sending' WHERE id = ?", [$queueId]);
-                error_log('[push-debug] status set to sending, calling sendBatch...');
-
-                $stats = $wp->sendBatch($subs, $item['title'], $item['body'], $item['url'], $item['icon']);
-                error_log('[push-debug] sendBatch done: sent=' . $stats['sent'] . ' failed=' . $stats['failed'] . ' expired=' . $stats['expired']);
-
-                // Clean expired subscriptions (tracked during sendBatch, no second pass needed)
-                if (!empty($stats['expired_endpoints'])) {
-                    $epPh = implode(',', array_fill(0, count($stats['expired_endpoints']), '?'));
-                    $db->exec("DELETE FROM push_subscriptions WHERE endpoint IN ($epPh)", $stats['expired_endpoints']);
-                }
-
-                $db->exec("UPDATE push_notification_queue SET status = 'completed', sent_count = ?, failed_count = ?, expired_count = ?, errors = ?, sent_at = NOW() WHERE id = ?", [
-                    $stats['sent'], $stats['failed'], $stats['expired'],
-                    json_encode(array_slice($stats['errors'], 0, 10)), $queueId
-                ]);
-                error_log('[push-debug] queue updated to completed');
-
-                setFlash('success', "Push sent: {$stats['sent']} delivered, {$stats['failed']} failed, {$stats['expired']} expired.");
-            } catch (\Throwable $e) {
-                error_log('[push-debug] EXCEPTION: ' . $e->getMessage());
-                $db->exec("UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?", [$e->getMessage(), $queueId]);
-                setFlash('error', 'Push failed: ' . $e->getMessage());
-            }
-            error_log('[push-debug] redirecting back to push tab');
-            redirect('index.php?page=notifications/center&tab=push');
-        }
+        // All sending is handled by the cron worker (scripts/cron-push-notifications.php)
+        // This page only queues notifications and displays history.
 
         // Get stats
         $subscriberCount = (int)($db->fetchColumn("SELECT COUNT(*) FROM (SELECT COUNT(*) c FROM push_subscriptions GROUP BY employee_id) t") ?: 0);
@@ -749,7 +661,7 @@ if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
                                 <th>Failed</th>
                                 <th>Status</th>
                                 <th>Scheduled</th>
-                                <th>Action</th>
+                                <th>Attempts</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -769,19 +681,16 @@ if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
                                     <span class="badge bg-<?php echo $statusColors[$ph['status']] ?? 'secondary'; ?>">
                                         <?php echo ucfirst($ph['status']); ?>
                                     </span>
+                                    <?php if ($ph['status'] === 'failed' && !empty($ph['last_error'])): ?>
+                                        <br><small class="text-danger" title="<?php echo sanitize($ph['last_error']); ?>"><i class="bi bi-exclamation-circle"></i> <?php echo sanitize(substr($ph['last_error'], 0, 40)); ?>...</small>
+                                    <?php endif; ?>
                                 </td>
                                 <td><small><?php echo $ph['scheduled_at'] ? formatDateTime($ph['scheduled_at']) : 'Immediate'; ?></small></td>
                                 <td>
-                                    <?php if ($ph['status'] === 'pending' && $vapidConfigured): ?>
-                                    <form method="POST" class="d-inline">
-                                        <?php echo getCSRFTokenField(); ?>
-                                        <input type="hidden" name="action" value="send_now">
-                                        <input type="hidden" name="queue_id" value="<?php echo $ph['id']; ?>">
-                                        <button type="submit" class="btn btn-sm btn-outline-primary" title="Send Now">
-                                            <i class="bi bi-lightning"></i>
-                                        </button>
-                                    </form>
-                                    <?php endif; ?>
+                                    <?php $attempts = (int)($ph['attempt_count'] ?? 0); $maxAttempts = (int)($ph['max_attempts'] ?? 5); ?>
+                                    <small class="<?php echo $attempts > 0 ? 'text-warning' : 'text-muted'; ?>">
+                                        <?php echo $attempts; ?>/<?php echo $maxAttempts; ?>
+                                    </small>
                                 </td>
                             </tr>
                             <?php endforeach; endif; ?>
@@ -794,12 +703,20 @@ if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
         <!-- Cron Setup Instructions -->
         <div class="card mt-3">
             <div class="card-header">
-                <h5 class="card-title mb-0"><i class="bi bi-terminal me-2"></i>Cron Job Setup</h5>
+                <h5 class="card-title mb-0"><i class="bi bi-terminal me-2"></i>Delivery Worker</h5>
             </div>
             <div class="card-body">
-                <p>For scheduled push notifications, add this cron job:</p>
-                <pre class="bg-dark text-light p-3 rounded"><code>*/5 * * * * cd /home/user/public_html/hrms && php scripts/cron-push-notifications.php >> /dev/null 2>&1</code></pre>
-                <small class="text-muted">This runs every 5 minutes and processes any pending push notifications whose scheduled time has arrived.</small>
+                <p>All push notifications are delivered by a <strong>cron worker</strong> — never by the browser. Add this cron job:</p>
+                <pre class="bg-dark text-light p-3 rounded"><code>*/2 * * * * cd /home/user/public_html/hrms && php scripts/cron-push-notifications.php >> /var/log/push-cron.log 2>&1</code></pre>
+                <small class="text-muted">
+                    Runs every 2 minutes. Picks up pending (and scheduled) notifications, sends them, retries on failure (up to 5 attempts with exponential backoff), and cleans expired subscriptions automatically.
+                </small>
+                <?php if ($pendingCount > 0): ?>
+                <div class="alert alert-info mt-2 mb-0">
+                    <i class="bi bi-info-circle me-1"></i>
+                    <strong><?php echo $pendingCount; ?></strong> notification(s) pending. They will be sent automatically by the cron worker within 2 minutes.
+                </div>
+                <?php endif; ?>
             </div>
         </div>
         <?php endif; ?>
