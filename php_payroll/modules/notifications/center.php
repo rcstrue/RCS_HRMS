@@ -9,6 +9,12 @@
 
 $pageTitle = 'Notification Center';
 
+// DEBUG: confirm this deployed file is loaded
+error_log('[push-debug] center.php LOADED, method=' . $_SERVER['REQUEST_METHOD']
+    . ' tab=' . ($_GET['tab'] ?? 'NONE')
+    . ' process=' . ($_GET['process'] ?? 'NONE')
+    . ' post_action=' . ($_POST['action'] ?? 'NONE'));
+
 // Check access - only admin and hr_executive can access this page
 if (!in_array($_SESSION['role_code'], ['admin', 'hr_executive'])) {
     setFlash('error', 'Access denied. You do not have permission to access this page.');
@@ -19,11 +25,14 @@ $notification = new Notification();
 
 // Handle actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    error_log('[push-debug] POST handler entered, action=' . ($_POST['action'] ?? 'NONE'));
     // CSRF check (Round 9)
     if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        error_log('[push-debug] CSRF FAILED, redirecting');
         setFlash('error', 'Invalid request. Please refresh the page and try again.');
         redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
     }
+    error_log('[push-debug] CSRF passed');
     $action = $_POST['action'] ?? '';
     
     if ($action === 'send_sms') {
