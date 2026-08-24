@@ -199,7 +199,7 @@ function _resolveTargetLabels(mysqli $conn, array &$broadcasts, array $broadcast
             case 'unit':
                 $labelMap = _fetchBroadcastLabels(
                     $conn, $ids,
-                    'INNER JOIN employees e ON CAST(e.id AS CHAR) = n.employee_id
+                    'INNER JOIN employees e ON CAST(e.id AS CHAR) COLLATE utf8mb4_unicode_ci = n.employee_id COLLATE utf8mb4_unicode_ci
                      INNER JOIN units u ON u.id = e.unit_id',
                     'u.name'
                 );
@@ -208,7 +208,7 @@ function _resolveTargetLabels(mysqli $conn, array &$broadcasts, array $broadcast
             case 'client':
                 $labelMap = _fetchBroadcastLabels(
                     $conn, $ids,
-                    'INNER JOIN employees e ON CAST(e.id AS CHAR) = n.employee_id
+                    'INNER JOIN employees e ON CAST(e.id AS CHAR) COLLATE utf8mb4_unicode_ci = n.employee_id COLLATE utf8mb4_unicode_ci
                      INNER JOIN clients c ON c.id = e.client_id',
                     'c.name'
                 );
@@ -217,7 +217,7 @@ function _resolveTargetLabels(mysqli $conn, array &$broadcasts, array $broadcast
             case 'city':
                 $labelMap = _fetchBroadcastLabels(
                     $conn, $ids,
-                    'INNER JOIN employees e ON CAST(e.id AS CHAR) = n.employee_id
+                    'INNER JOIN employees e ON CAST(e.id AS CHAR) COLLATE utf8mb4_unicode_ci = n.employee_id COLLATE utf8mb4_unicode_ci
                      INNER JOIN units u ON u.id = e.unit_id',
                     'u.city',
                     'AND u.city IS NOT NULL AND u.city != \'\''
@@ -227,7 +227,7 @@ function _resolveTargetLabels(mysqli $conn, array &$broadcasts, array $broadcast
             case 'state':
                 $labelMap = _fetchBroadcastLabels(
                     $conn, $ids,
-                    'INNER JOIN employees e ON CAST(e.id AS CHAR) = n.employee_id',
+                    'INNER JOIN employees e ON CAST(e.id AS CHAR) COLLATE utf8mb4_unicode_ci = n.employee_id COLLATE utf8mb4_unicode_ci',
                     'e.state',
                     'AND e.state IS NOT NULL AND e.state != \'\''
                 );
@@ -236,7 +236,7 @@ function _resolveTargetLabels(mysqli $conn, array &$broadcasts, array $broadcast
             case 'individual':
                 $labels = _fetchBroadcastLabels(
                     $conn, $ids,
-                    'INNER JOIN employees e ON CAST(e.id AS CHAR) = n.employee_id',
+                    'INNER JOIN employees e ON CAST(e.id AS CHAR) COLLATE utf8mb4_unicode_ci = n.employee_id COLLATE utf8mb4_unicode_ci',
                     'e.full_name'
                 );
                 // Truncate long individual lists
