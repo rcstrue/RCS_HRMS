@@ -2,9 +2,8 @@
 /**
  * RCS HRMS — Cron Worker: Process Pending Push Notifications
  * 
- * Run via cron every 2 minutes:
- *   2 * * * * cd /path/to/hrms && php scripts/cron-push-notifications.php >> /var/log/push-cron.log 2>&1
- *   (use crontab -e and set minute field to */2 for every-2-min)
+ * Run via cron every 2 minutes (set crontab minute to every-2nd-minute):
+ *   cd /path/to/hrms && php scripts/cron-push-notifications.php >> /var/log/push-cron.log 2>&1
  *
  * Architecture:
  *   - Admin queues notifications (status = 'pending')
