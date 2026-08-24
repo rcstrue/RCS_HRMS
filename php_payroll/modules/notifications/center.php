@@ -509,9 +509,12 @@ if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
 
             if ($pushAction === 'send_now') {
                 $queueId = (int)($_POST['queue_id'] ?? 0);
+                error_log("[push-debug] send_now POST, queueId=$queueId");
                 if ($queueId) {
                     setFlash('info', 'Processing push notification #' . $queueId . '...');
                     redirect('index.php?page=notifications/center&tab=push&process=' . $queueId);
+                } else {
+                    error_log('[push-debug] send_now POST: queueId was 0/empty');
                 }
             }
         }
@@ -519,61 +522,86 @@ if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
         // Process push notification immediately if requested
         if (isset($_GET['process'])) {
             $queueId = (int)$_GET['process'];
-            $item = $db->fetch("SELECT * FROM push_notification_queue WHERE id = ?", [$queueId]);
-            if ($item && $item['status'] === 'pending') {
-                require_once APP_ROOT . '/includes/class.webpush.php';
-                $vapidPriv = getSetting('push_vapid_private_key');
-                $vapidPub  = getSetting('push_vapid_public_key');
-                $vapidSub  = getSetting('push_vapid_subject') ?: 'mailto:hr@rcsfacility.com';
+            error_log("[push-debug] process block reached, queueId=$queueId");
 
-                if (!$vapidPriv || !$vapidPub) {
-                    setFlash('error', 'VAPID keys not configured. Generate them first.');
+            $item = $db->fetch("SELECT * FROM push_notification_queue WHERE id = ?", [$queueId]);
+            error_log('[push-debug] fetch result: ' . ($item ? "id={$item['id']} status={$item['status']} target={$item['target']}" : 'NULL/false'));
+
+            if (!$item) {
+                error_log("[push-debug] ABORT: queue item #$queueId not found");
+                setFlash('error', 'Notification not found.');
+                redirect('index.php?page=notifications/center&tab=push');
+            }
+
+            if ($item['status'] !== 'pending') {
+                error_log("[push-debug] ABORT: status is '{$item['status']}', not 'pending'");
+                setFlash('warning', "Notification #{$queueId} is already '{$item['status']}'.");
+                redirect('index.php?page=notifications/center&tab=push');
+            }
+
+            require_once APP_ROOT . '/includes/class.webpush.php';
+            error_log('[push-debug] class.webpush.php loaded, APP_ROOT=' . APP_ROOT);
+
+            $vapidPriv = getSetting('push_vapid_private_key');
+            $vapidPub  = getSetting('push_vapid_public_key');
+            $vapidSub  = getSetting('push_vapid_subject') ?: 'mailto:hr@rcsfacility.com';
+            error_log('[push-debug] VAPID keys: priv=' . ($vapidPriv ? 'Y' : 'N') . ' pub=' . ($vapidPub ? 'Y' : 'N'));
+
+            if (!$vapidPriv || !$vapidPub) {
+                setFlash('error', 'VAPID keys not configured. Generate them first.');
+                redirect('index.php?page=notifications/center&tab=push');
+            }
+
+            set_time_limit(300); // 5 min for push sends (uncatchable fatal if exceeded)
+
+            try {
+                $wp = new WebPush($vapidPriv, $vapidPub, $vapidSub);
+                error_log('[push-debug] WebPush instantiated');
+
+                // Get subscriptions based on target
+                $subs = [];
+                if ($item['target'] === 'all') {
+                    $subs = $db->fetchAll("SELECT * FROM push_subscriptions");
+                } elseif ($item['target'] === 'selected' && !empty($item['employee_ids'])) {
+                    $ids = explode(',', $item['employee_ids']);
+                    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                    $subs = $db->fetchAll("SELECT * FROM push_subscriptions WHERE employee_id IN ($placeholders)", $ids);
+                }
+                error_log('[push-debug] found ' . count($subs) . ' subscriptions for target=' . $item['target']);
+
+                if (empty($subs)) {
+                    error_log('[push-debug] ABORT: no subscribers');
+                    $db->exec("UPDATE push_notification_queue SET status = 'failed', errors = 'No subscribers found', sent_at = NOW() WHERE id = ?", [$queueId]);
+                    setFlash('warning', 'No push subscribers found.');
                     redirect('index.php?page=notifications/center&tab=push');
                 }
 
-                set_time_limit(300); // 5 min for push sends (uncatchable fatal if exceeded)
+                $db->exec("UPDATE push_notification_queue SET status = 'sending' WHERE id = ?", [$queueId]);
+                error_log('[push-debug] status set to sending, calling sendBatch...');
 
-                try {
-                    $wp = new WebPush($vapidPriv, $vapidPub, $vapidSub);
+                $stats = $wp->sendBatch($subs, $item['title'], $item['body'], $item['url'], $item['icon']);
+                error_log('[push-debug] sendBatch done: sent=' . $stats['sent'] . ' failed=' . $stats['failed'] . ' expired=' . $stats['expired']);
 
-                    // Get subscriptions based on target
-                    $subs = [];
-                    if ($item['target'] === 'all') {
-                        $subs = $db->fetchAll("SELECT * FROM push_subscriptions");
-                    } elseif ($item['target'] === 'selected' && !empty($item['employee_ids'])) {
-                        $ids = explode(',', $item['employee_ids']);
-                        $placeholders = implode(',', array_fill(0, count($ids), '?'));
-                        $subs = $db->fetchAll("SELECT * FROM push_subscriptions WHERE employee_id IN ($placeholders)", $ids);
-                    }
-
-                    if (empty($subs)) {
-                        $db->exec("UPDATE push_notification_queue SET status = 'failed', errors = 'No subscribers found', sent_at = NOW() WHERE id = ?", [$queueId]);
-                        setFlash('warning', 'No push subscribers found.');
-                        redirect('index.php?page=notifications/center&tab=push');
-                    }
-
-                    $db->exec("UPDATE push_notification_queue SET status = 'sending' WHERE id = ?", [$queueId]);
-
-                    $stats = $wp->sendBatch($subs, $item['title'], $item['body'], $item['url'], $item['icon']);
-
-                    // Clean expired subscriptions (tracked during sendBatch, no second pass needed)
-                    if (!empty($stats['expired_endpoints'])) {
-                        $epPh = implode(',', array_fill(0, count($stats['expired_endpoints']), '?'));
-                        $db->exec("DELETE FROM push_subscriptions WHERE endpoint IN ($epPh)", $stats['expired_endpoints']);
-                    }
-
-                    $db->exec("UPDATE push_notification_queue SET status = 'completed', sent_count = ?, failed_count = ?, expired_count = ?, errors = ?, sent_at = NOW() WHERE id = ?", [
-                        $stats['sent'], $stats['failed'], $stats['expired'],
-                        json_encode(array_slice($stats['errors'], 0, 10)), $queueId
-                    ]);
-
-                    setFlash('success', "Push sent: {$stats['sent']} delivered, {$stats['failed']} failed, {$stats['expired']} expired.");
-                } catch (\Throwable $e) {
-                    $db->exec("UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?", [$e->getMessage(), $queueId]);
-                    setFlash('error', 'Push failed: ' . $e->getMessage());
+                // Clean expired subscriptions (tracked during sendBatch, no second pass needed)
+                if (!empty($stats['expired_endpoints'])) {
+                    $epPh = implode(',', array_fill(0, count($stats['expired_endpoints']), '?'));
+                    $db->exec("DELETE FROM push_subscriptions WHERE endpoint IN ($epPh)", $stats['expired_endpoints']);
                 }
-                redirect('index.php?page=notifications/center&tab=push');
+
+                $db->exec("UPDATE push_notification_queue SET status = 'completed', sent_count = ?, failed_count = ?, expired_count = ?, errors = ?, sent_at = NOW() WHERE id = ?", [
+                    $stats['sent'], $stats['failed'], $stats['expired'],
+                    json_encode(array_slice($stats['errors'], 0, 10)), $queueId
+                ]);
+                error_log('[push-debug] queue updated to completed');
+
+                setFlash('success', "Push sent: {$stats['sent']} delivered, {$stats['failed']} failed, {$stats['expired']} expired.");
+            } catch (\Throwable $e) {
+                error_log('[push-debug] EXCEPTION: ' . $e->getMessage());
+                $db->exec("UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?", [$e->getMessage(), $queueId]);
+                setFlash('error', 'Push failed: ' . $e->getMessage());
             }
+            error_log('[push-debug] redirecting back to push tab');
+            redirect('index.php?page=notifications/center&tab=push');
         }
 
         // Get stats
