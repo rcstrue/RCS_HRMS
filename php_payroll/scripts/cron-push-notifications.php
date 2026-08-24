@@ -15,6 +15,7 @@
 
 define('RCS_HRMS', true);
 require_once __DIR__ . '/../config/config.php';
+require_once APP_ROOT . '/includes/database.php';
 require_once APP_ROOT . '/includes/class.webpush.php';
 
 $now = date('Y-m-d H:i:s');
