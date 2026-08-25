@@ -24,9 +24,6 @@ $method = $_SERVER['REQUEST_METHOD'];
 try {
     validateApiKey();
 
-    // ── One-time schema migration (not on every request) ──
-    _ensureSchema(getDbConnection());
-
     switch ($method) {
         case 'GET':
             _handleGet();
@@ -42,33 +39,11 @@ try {
     jsonOutput(['success' => false, 'error' => 'Internal server error: ' . $e->getMessage()], 500);
 }
 
-// ─── One-time schema setup (runs once, safe to re-run) ──────────────────────
-
-function _ensureSchema(mysqli $conn): void
-{
-    // marked_by column
-    $col = $conn->query("SHOW COLUMNS FROM ess_attendance LIKE 'marked_by'");
-    if ($col->num_rows === 0) {
-        $conn->query("ALTER TABLE ess_attendance ADD COLUMN marked_by VARCHAR(20) DEFAULT NULL AFTER note");
-        $conn->query("ALTER TABLE ess_attendance ADD INDEX idx_marked_by (marked_by)");
-    }
-    $col->close();
-
-    // Unique constraint on (employee_id, date) to prevent duplicates
-    $idx = $conn->query("SHOW INDEX FROM ess_attendance WHERE Key_name = 'uk_emp_date'");
-    if ($idx->num_rows === 0) {
-        // Remove any duplicates first
-        $conn->query("
-            DELETE t1 FROM ess_attendance t1
-            INNER JOIN ess_attendance t2
-            WHERE t1.employee_id = t2.employee_id
-              AND t1.date = t2.date
-              AND t1.id < t2.id
-        ");
-        $conn->query("ALTER TABLE ess_attendance ADD UNIQUE KEY uk_emp_date (employee_id, date)");
-    }
-    $idx->close();
-}
+// ─── Schema notes (run once manually if needed) ───────────────────────────
+// ALTER TABLE ess_attendance ADD COLUMN marked_by VARCHAR(20) DEFAULT NULL AFTER note;
+// ALTER TABLE ess_attendance ADD INDEX idx_marked_by (marked_by);
+// DELETE t1 FROM ess_attendance t1 INNER JOIN ess_attendance t2 ON t1.employee_id = t2.employee_id AND t1.date = t2.date AND t1.id < t2.id;
+// ALTER TABLE ess_attendance ADD UNIQUE KEY uk_emp_date (employee_id, date);
 
 // ─── GET: Fetch employees + their attendance for a date ──────────────────────
 
