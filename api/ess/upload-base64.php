@@ -59,7 +59,7 @@ if (empty($base64Data)) {
 }
 
 // ── Validate folder (whitelist) ──────────────────────────────────────────
-$allowedFolders = ['profile', 'aadhaar', 'bank', 'documents', 'signature'];
+$allowedFolders = ['profile', 'aadhaar', 'bank', 'documents', 'signature', 'unit-visits'];
 if (!in_array($folder, $allowedFolders, true)) {
     echo json_encode(['success' => false, 'error' => 'Invalid folder: ' . $folder]);
     exit;
