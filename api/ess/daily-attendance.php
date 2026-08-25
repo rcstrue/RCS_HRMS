@@ -8,8 +8,15 @@
  * GET:  Fetch employees for a unit + date with existing attendance
  * POST: Bulk-save attendance records for a date
  *
- * Pattern: mirrors team-summary.php exactly (auth, access check, response shape).
- * Auto-creates/alters ess_attendance table as needed (no manual SQL required).
+ * IMPORTANT: ess_attendance is a SHARED table with employee clock-in/check-out.
+ * Clock-in/out (attendance.php) may create MULTIPLE records per employee per day
+ * (e.g. multiple check-ins). Therefore we do NOT rely on a UNIQUE(employee_id,date)
+ * constraint. Instead, we look up existing supervisor-marked records by checking
+ * marked_by IS NOT NULL, and only update those. This coexists safely with
+ * employee self-attendance records.
+ *
+ * Schema requirement: marked_by column must exist. Run migration separately:
+ *   ALTER TABLE ess_attendance ADD COLUMN marked_by VARCHAR(50) DEFAULT NULL AFTER note;
  */
 
 require_once __DIR__ . '/cors.php';
@@ -23,52 +30,24 @@ try {
     validateApiKey();
 
     switch ($method) {
-        case 'GET':
-            _handleGet();
-            break;
-        case 'POST':
-            _handleSave();
-            break;
+        case 'GET':  _handleGet();  break;
+        case 'POST': _handleSave(); break;
         default:
             jsonOutput(['success' => false, 'error' => 'Method not allowed'], 405);
     }
 } catch (\Throwable $e) {
-    $errMsg = $e->getMessage();
-    error_log('[api/ess/daily-attendance] ' . $errMsg . ' in ' . $e->getFile() . ':' . $e->getLine());
-    jsonOutput(['success' => false, 'error' => $errMsg . ' (' . $e->getFile() . ':' . $e->getLine() . ')'], 500);
+    // Log full technical details server-side only
+    error_log('[daily-attendance] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    // Return safe user-facing error — never expose paths or stack traces
+    jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
 }
 
-// ─── Helper: Ensure ess_attendance table has required schema ────────────────
-// The ess_attendance table already exists (used by attendance.php for check-in/check-out).
-// We only need to add: marked_by column, and UNIQUE KEY on (employee_id, date).
-// This is safe to run on every request — it's idempotent (IF NOT EXISTS / column checks).
-
-function _ensureSchema(mysqli $conn): void
-{
-    // 1. Add marked_by column if missing
-    $col = $conn->query("SHOW COLUMNS FROM ess_attendance LIKE 'marked_by'");
-    if ($col->num_rows === 0) {
-        $conn->query("ALTER TABLE ess_attendance ADD COLUMN marked_by VARCHAR(50) DEFAULT NULL AFTER note");
-    }
-    $col->free();
-
-       // 2. Add UNIQUE KEY on (employee_id, date) if missing
-    //    First, dedupe any existing duplicates (keep latest row)
-    $idx = $conn->query("SHOW INDEX FROM ess_attendance WHERE Key_name = 'uk_emp_date'");
-    if ($idx->num_rows === 0) {
-        // Delete older duplicates, keeping the row with highest id
-        $conn->query("
-            DELETE t1 FROM ess_attendance t1
-            INNER JOIN ess_attendance t2
-            ON t1.employee_id = t2.employee_id AND t1.date = t2.date AND t1.id < t2.id
-        ");
-        $conn->query("ALTER TABLE ess_attendance ADD UNIQUE KEY uk_emp_date (employee_id, date)");
-    }
-    $idx->free();
-}
+// ─── Valid attendance statuses for supervisor marking ─────────────────────
+const VALID_STATUSES = ['present', 'absent', 'half_day', 'leave', 'weekly_off', 'holiday'];
 
 // ─── Helper: Check if caller has access to a unit ──────────────────────────
 // Exact copy of team-summary.php's _checkUnitAccess (proven working pattern).
+// Preserves all 4 access tiers: user_access (name + id), legacy, client-level, own-unit.
 
 function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string $callerRole): bool
 {
@@ -91,7 +70,7 @@ function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string 
 
     if (empty($unitName)) return false;
 
-    // Check 1: user_access by unit name (existing)
+    // Check 1: user_access by unit name
     if (!empty($employeeCode)) {
         $accStmt = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id = ?");
         $accStmt->bind_param('ss', $employeeCode, $unitName);
@@ -117,7 +96,7 @@ function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string 
     $legacyStmt->close();
     if ($hasLegacy) return true;
 
-    // Check 3: Manager has access to ANY unit under the same client → allow all client units
+    // Check 3: Client-level access
     if ($unitClientId > 0 && !empty($employeeCode)) {
         $clientStmt = $conn->prepare("
             SELECT 1 FROM units u
@@ -141,6 +120,36 @@ function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string 
     return ($ownRow && (int)$ownRow['unit_id'] === $unitId);
 }
 
+// ─── Helper: Validate date string and check business rules ────────────────
+// Returns validated date string or null (and outputs error).
+
+function _validateDate(string $date, bool $isPost): ?string
+{
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        jsonOutput(['success' => false, 'error' => 'Invalid date format. Use YYYY-MM-DD'], 400);
+        return null;
+    }
+
+    $parts = explode('-', $date);
+    $year  = (int)$parts[0];
+    $month = (int)$parts[1];
+    $day   = (int)$parts[2];
+
+    if (!checkdate($month, $day, $year)) {
+        jsonOutput(['success' => false, 'error' => 'Invalid date — not a real calendar date'], 400);
+        return null;
+    }
+
+    // Block future dates for marking attendance (business rule)
+    $today = date('Y-m-d');
+    if ($date > $today) {
+        jsonOutput(['success' => false, 'error' => 'Cannot mark attendance for a future date'], 400);
+        return null;
+    }
+
+    return $date;
+}
+
 // ─── GET: Fetch employees + their attendance for a date ──────────────────────
 
 function _handleGet(): void
@@ -148,18 +157,17 @@ function _handleGet(): void
     $employeeId = requireAuth();
     $conn = getDbConnection();
 
-    // Auth check (same as team-summary)
     $callerRole = getEmployeeRole($conn, $employeeId);
     if (!in_array($callerRole, ['manager', 'supervisor', 'regional_manager', 'admin'], true)) {
         jsonOutput(['success' => false, 'error' => 'Access denied'], 403);
     }
 
-    $date   = $_GET['date'] ?? date('Y-m-d');
-    $unitId = (int)($_GET['unit_id'] ?? 0);
+    $rawDate = $_GET['date'] ?? date('Y-m-d');
+    $unitId  = (int)($_GET['unit_id'] ?? 0);
 
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-        jsonOutput(['success' => false, 'error' => 'Invalid date format. Use YYYY-MM-DD'], 400);
-    }
+    $date = _validateDate($rawDate, false);
+    if ($date === null) return;
+
     if ($unitId <= 0) {
         jsonOutput(['success' => false, 'error' => 'unit_id is required'], 400);
     }
@@ -168,99 +176,70 @@ function _handleGet(): void
         jsonOutput(['success' => false, 'error' => 'Access denied to this unit'], 403);
     }
 
-    // Ensure schema is ready
-    _ensureSchema($conn);
-
-    // Fetch active employees in this unit (same query pattern as team-summary)
-    $empStmt = $conn->prepare("
-        SELECT e.id, e.employee_code, e.full_name, e.designation,
-               e.worker_category,
-               u.name AS unit_name
+    // Single JOIN query: employees + attendance in one round-trip.
+    // Uses LEFT JOIN on ess_attendance WHERE marked_by IS NOT NULL to get
+    // supervisor-marked records only (ignores employee self-attendance).
+    $stmt = $conn->prepare("
+        SELECT
+            e.id, e.employee_code, e.full_name, e.designation, e.worker_category,
+            u.name AS unit_name,
+            att.id    AS att_id,
+            att.status AS att_status,
+            att.note   AS att_note,
+            att.marked_by AS att_marked_by
         FROM employees e
         JOIN units u ON u.id = e.unit_id
+        LEFT JOIN ess_attendance att
+            ON att.employee_id = e.id
+            AND att.date = ?
+            AND att.marked_by IS NOT NULL
         WHERE e.unit_id = ?
           AND e.status IN ('approved', 'active')
         ORDER BY e.full_name ASC
     ");
-    $empStmt->bind_param('i', $unitId);
-    $empStmt->execute();
-    $employees = [];
-    while ($row = $empStmt->get_result()->fetch_assoc()) {
-        $employees[] = [
-            'id'             => (int)$row['id'],
-            'employee_code'  => $row['employee_code'] ?? '',
-            'full_name'      => $row['full_name'] ?? '',
-            'designation'    => $row['designation'] ?? '',
-            'worker_category'=> $row['worker_category'] ?? '',
-            'unit_name'      => $row['unit_name'] ?? '',
-        ];
-    }
-    $empStmt->close();
+    $stmt->bind_param('si', $date, $unitId);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
-    // Fetch existing attendance for these employees on this date
-    $empIds = array_map(fn($e) => $e['id'], $employees);
-    $attendanceMap = [];
-    if (!empty($empIds)) {
-        $placeholders = implode(',', array_fill(0, count($empIds), '?'));
-        $attStmt = $conn->prepare("
-            SELECT id, employee_id, status, note, marked_by
-            FROM ess_attendance
-            WHERE employee_id IN ($placeholders) AND date = ?
-        ");
-        $params = array_map('strval', $empIds);
-        $params[] = $date;
-        $types = str_repeat('s', count($empIds)) . 's';
-        $attStmt->bind_param($types, ...$params);
-        $attStmt->execute();
-        while ($row = $attStmt->get_result()->fetch_assoc()) {
-            $attendanceMap[$row['employee_id']] = [
-                'id'        => (int)$row['id'],
-                'status'    => $row['status'] ?? '',
-                'note'      => $row['note'] ?? '',
-                'marked_by' => $row['marked_by'] ?? '',
-            ];
-        }
-        $attStmt->close();
-    }
-
-    // Merge: attach attendance to each employee
     $items = [];
-    foreach ($employees as $emp) {
-        $att = $attendanceMap[(string)$emp['id']] ?? null;
-        $items[] = [
-            'employee_id'     => $emp['id'],
-            'employee_code'   => $emp['employee_code'],
-            'full_name'       => $emp['full_name'],
-            'designation'     => $emp['designation'],
-            'worker_category' => $emp['worker_category'],
-            'unit_name'       => $emp['unit_name'],
-            'status'          => $att ? $att['status'] : '',
-            'note'            => $att ? $att['note'] : '',
-            'attendance_id'   => $att ? $att['id'] : null,
-            'marked_by'       => $att ? $att['marked_by'] : '',
-        ];
-    }
+    $summary = ['present' => 0, 'absent' => 0, 'half_day' => 0, 'leave' => 0, 'weekly_off' => 0, 'holiday' => 0, 'unmarked' => 0];
 
-    // Summary counts
-    $summary = ['present' => 0, 'absent' => 0, 'half_day' => 0, 'leave' => 0, 'unmarked' => 0];
-    foreach ($items as $item) {
-        switch ($item['status']) {
-            case 'present': case 'late': $summary['present']++; break;
-            case 'absent':                   $summary['absent']++; break;
-            case 'half_day':                 $summary['half_day']++; break;
-            case 'leave':                    $summary['leave']++; break;
-            default:                         $summary['unmarked']++; break;
+    while ($row = $result->fetch_assoc()) {
+        $status = $row['att_status'] ?? '';
+        $items[] = [
+            'employee_id'     => (int)$row['id'],
+            'employee_code'   => $row['employee_code'] ?? '',
+            'full_name'       => $row['full_name'] ?? '',
+            'designation'     => $row['designation'] ?? '',
+            'worker_category' => $row['worker_category'] ?? '',
+            'unit_name'       => $row['unit_name'] ?? '',
+            'status'          => $status,
+            'note'            => $row['att_note'] ?? '',
+            'attendance_id'   => $row['att_id'] !== null ? (int)$row['att_id'] : null,
+            'marked_by'       => $row['att_marked_by'] ?? '',
+        ];
+
+        // Summary tally (consistent with all 6 valid statuses)
+        switch ($status) {
+            case 'present': case 'late': $summary['present']++;     break;
+            case 'absent':                   $summary['absent']++;     break;
+            case 'half_day':                 $summary['half_day']++;   break;
+            case 'leave':                    $summary['leave']++;      break;
+            case 'weekly_off':               $summary['weekly_off']++; break;
+            case 'holiday':                  $summary['holiday']++;    break;
+            default:                         $summary['unmarked']++;   break;
         }
     }
+    $stmt->close();
 
     jsonOutput([
         'success' => true,
         'data' => [
-            'date'        => $date,
-            'unit_id'     => $unitId,
-            'unit_name'   => $items[0]['unit_name'] ?? '',
-            'items'       => $items,
-            'summary'     => $summary,
+            'date'      => $date,
+            'unit_id'   => $unitId,
+            'unit_name' => $items[0]['unit_name'] ?? '',
+            'items'     => $items,
+            'summary'   => $summary,
         ]
     ]);
 }
@@ -273,19 +252,18 @@ function _handleSave(): void
     $input = getInput();
     $conn = getDbConnection();
 
-    // Auth check (same as team-summary)
     $callerRole = getEmployeeRole($conn, $employeeId);
     if (!in_array($callerRole, ['manager', 'supervisor', 'regional_manager', 'admin'], true)) {
         jsonOutput(['success' => false, 'error' => 'Access denied'], 403);
     }
 
-    $date   = trim($input['date'] ?? '');
-    $unitId = (int)($input['unit_id'] ?? 0);
+    $rawDate = trim($input['date'] ?? '');
+    $unitId  = (int)($input['unit_id'] ?? 0);
     $records = $input['records'] ?? [];
 
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-        jsonOutput(['success' => false, 'error' => 'Invalid date format'], 400);
-    }
+    $date = _validateDate($rawDate, true);
+    if ($date === null) return;
+
     if ($unitId <= 0) {
         jsonOutput(['success' => false, 'error' => 'Unit ID is required'], 400);
     }
@@ -297,44 +275,95 @@ function _handleSave(): void
         jsonOutput(['success' => false, 'error' => 'Access denied to this unit'], 403);
     }
 
-    // Ensure schema is ready
-    _ensureSchema($conn);
-
-    $validStatuses = ['present', 'absent', 'half_day', 'leave', 'weekly_off', 'holiday'];
-    $saved = 0;
+    // ── Per-employee validation + transactional save ──
+    $saved  = 0;
     $errors = [];
 
-    // Upsert using INSERT ... ON DUPLICATE KEY UPDATE
-    // (requires UNIQUE KEY uk_emp_date on (employee_id, date) — ensured by _ensureSchema)
-    $upsertStmt = $conn->prepare("
-        INSERT INTO ess_attendance (employee_id, date, status, note, marked_by, created_at)
-        VALUES (?, ?, ?, ?, ?, NOW())
-        ON DUPLICATE KEY UPDATE
-            status = VALUES(status),
-            note = VALUES(note),
-            marked_by = VALUES(marked_by),
-            updated_at = NOW()
-    ");
+    // Prepare statements outside the loop
+    // 1. Verify employee belongs to unit
+    $verifyStmt = $conn->prepare('
+        SELECT 1 FROM employees WHERE id = ? AND unit_id = ? AND status IN (\'approved\', \'active\') LIMIT 1
+    ');
 
-    foreach ($records as $idx => $rec) {
-        $empId  = (int)($rec['employee_id'] ?? 0);
-        $status = trim($rec['status'] ?? '');
-        $note   = trim($rec['note'] ?? '');
+    // 2. Find existing supervisor-marked record for this employee+date
+    $findStmt = $conn->prepare('
+        SELECT id FROM ess_attendance
+        WHERE employee_id = ? AND date = ? AND marked_by IS NOT NULL
+        LIMIT 1
+    ');
 
-        if ($empId <= 0) {
-            $errors[] = "Row $idx: missing employee_id";
-            continue;
+    // 3. Update existing record (only daily-attendance-owned fields)
+    $updateStmt = $conn->prepare('
+        UPDATE ess_attendance SET status = ?, note = ?, marked_by = ?, updated_at = NOW()
+        WHERE id = ?
+    ');
+
+    // 4. Insert new supervisor-marked record
+    $insertStmt = $conn->prepare('
+        INSERT INTO ess_attendance (employee_id, date, status, note, marked_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+    ');
+
+    $conn->begin_transaction();
+    $rolledBack = false;
+
+    try {
+        foreach ($records as $idx => $rec) {
+            $empId  = (int)($rec['employee_id'] ?? 0);
+            $status = trim($rec['status'] ?? '');
+            $note   = trim($rec['note'] ?? '');
+
+            if ($empId <= 0) {
+                $errors[] = "Row $idx: missing employee_id";
+                continue;
+            }
+            if (!in_array($status, VALID_STATUSES, true)) {
+                $errors[] = "Row $idx: invalid status '$status'";
+                continue;
+            }
+
+            // ── Verify employee belongs to the requested unit ──
+            $verifyStmt->bind_param('ii', $empId, $unitId);
+            $verifyStmt->execute();
+            $belongs = $verifyStmt->get_result()->num_rows > 0;
+            if (!$belongs) {
+                $errors[] = "Row $idx: employee_id $empId does not belong to unit $unitId";
+                continue;
+            }
+
+            // ── Upsert: check for existing supervisor-marked record ──
+            $findStmt->bind_param('ss', (string)$empId, $date);
+            $findStmt->execute();
+            $existing = $findStmt->get_result()->fetch_assoc();
+
+            if ($existing) {
+                // Update only daily-attendance-owned fields.
+                // Do NOT touch check_in, check_out, latitude, longitude — preserves clock-in/out data.
+                $updateStmt->bind_param('sssi', $status, $note, (string)$employeeId, (int)$existing['id']);
+                $updateStmt->execute();
+            } else {
+                // Insert new record. Does NOT set check_in/check_out — those remain NULL.
+                // This record is distinct from clock-in/out records (which have marked_by = NULL).
+                $insertStmt->bind_param('sssss', (string)$empId, $date, $status, $note, (string)$employeeId);
+                $insertStmt->execute();
+            }
+            $saved++;
         }
-        if (!in_array($status, $validStatuses, true)) {
-            $errors[] = "Row $idx: invalid status '$status'";
-            continue;
-        }
 
-        $upsertStmt->bind_param('sssss', (string)$empId, $date, $status, $note, (string)$employeeId);
-        $upsertStmt->execute();
-        $saved++;
+        $conn->commit();
+    } catch (\Throwable $e) {
+        if (!$rolledBack) {
+            $conn->rollback();
+            $rolledBack = true;
+        }
+        error_log('[daily-attendance save] ' . $e->getMessage());
+        jsonOutput(['success' => false, 'error' => 'Failed to save attendance. Please try again.'], 500);
+    } finally {
+        $verifyStmt->close();
+        $findStmt->close();
+        $updateStmt->close();
+        $insertStmt->close();
     }
-    $upsertStmt->close();
 
     jsonOutput([
         'success' => true,

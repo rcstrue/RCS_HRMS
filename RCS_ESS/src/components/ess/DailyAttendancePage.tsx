@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   CalendarDays, CheckCircle2, XCircle, Clock,
-  Save, ChevronLeft, ChevronRight, Loader2, Users, Building2
+  Save, ChevronLeft, ChevronRight, Loader2, Users, Building2,
+  AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
@@ -15,6 +16,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 import PageHeader from './PageHeader';
 import { fetchDailyAttendance, saveDailyAttendance, fetchClients, fetchUnits } from '@/lib/ess-api';
@@ -40,19 +51,51 @@ const STATUS_OPTIONS: { value: DailyAttendanceStatus; label: string; color: stri
   { value: 'holiday',    label: 'Holiday',   color: 'bg-purple-100 text-purple-700 border-purple-300',      icon: <CalendarDays className="w-3.5 h-3.5" /> },
 ];
 
-function getToday(): string {
-  return new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD
+/** Timezone-safe: builds YYYY-MM-DD from local clock without any Date parsing. */
+function getTodayLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
+/** Shift date by N days using pure string math — no Date parsing of the input. */
 function shiftDate(dateStr: string, days: number): string {
-  const d = new Date(dateStr + 'T00:00:00');
-  d.setDate(d.getDate() + days);
-  return d.toLocaleDateString('sv-SE');
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days); // local timezone
+  const ny = dt.getFullYear();
+  const nm = String(dt.getMonth() + 1).padStart(2, '0');
+  const nd = String(dt.getDate()).padStart(2, '0');
+  return `${ny}-${nm}-${nd}`;
 }
 
+/** Parse YYYY-MM-DD in local timezone for display. */
 function formatDateDisplay(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Compare two local status maps to detect if there are unsaved changes. */
+function hasUnsavedChanges(
+  localStatuses: Record<number, DailyAttendanceStatus | ''>,
+  serverData: DailyAttendanceEmployee[]
+): boolean {
+  for (const emp of serverData) {
+    const serverStatus = (emp.status || '') as DailyAttendanceStatus | '';
+    const localStatus = localStatuses[emp.employee_id];
+    // If key missing in localStatuses, it means no change was made (treated as '')
+    const effectiveLocal = localStatus ?? '';
+    if (effectiveLocal !== serverStatus) return true;
+  }
+  // Also check if localStatuses has entries not in serverData (shouldn't happen, but be safe)
+  const serverIds = new Set(serverData.map(e => e.employee_id));
+  for (const id of Object.keys(localStatuses)) {
+    const numId = Number(id);
+    if (!serverIds.has(numId) && localStatuses[numId]) return true;
+  }
+  return false;
 }
 
 export default function DailyAttendancePage({ employeeId }: Props) {
@@ -68,7 +111,7 @@ export default function DailyAttendancePage({ employeeId }: Props) {
   const [filtersLoading, setFiltersLoading] = useState(true);
 
   // ── Date ──
-  const [date, setDate] = useState(getToday);
+  const [date, setDate] = useState(getTodayLocal);
 
   // ── Attendance data ──
   const [employees, setEmployees] = useState<DailyAttendanceEmployee[]>([]);
@@ -77,6 +120,13 @@ export default function DailyAttendancePage({ employeeId }: Props) {
   const [localStatuses, setLocalStatuses] = useState<Record<number, DailyAttendanceStatus | ''>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // ── Dialog states ──
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const [dialogMessage, setDialogMessage] = useState('');
+
+  // ── Track if this is initial load (don't warn on first load) ──
+  const initialLoadDone = useRef(false);
 
   // ── Load clients + units (like TeamMonthlyPage) ──
   const loadFilters = useCallback(async () => {
@@ -89,7 +139,7 @@ export default function DailyAttendancePage({ employeeId }: Props) {
       ]);
       setClients(clientsRes.data ?? []);
       setUnits(unitsRes.data ?? []);
-      // Auto-select first client + unit if not already selected
+      // Auto-select first client if not already selected
       if (clientsRes.data && clientsRes.data.length > 0 && !selectedClientId) {
         setSelectedClientId(clientsRes.data[0].id);
       }
@@ -114,22 +164,43 @@ export default function DailyAttendancePage({ employeeId }: Props) {
     }
   }, [filteredUnits, selectedUnitId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Client change handler ──
+  // ── Confirmation before navigation if unsaved changes ──
+  const confirmBeforeAction = useCallback((action: () => void, message: string) => {
+    if (initialLoadDone.current && hasUnsavedChanges(localStatuses, employees)) {
+      setDialogMessage(message);
+      setPendingAction(() => action);
+    } else {
+      action();
+    }
+  }, [localStatuses, employees]);
+
+  // ── Client change handler (with unsaved-changes guard) ──
   const handleClientChange = (val: string) => {
     const cid = parseInt(val);
-    setSelectedClientId(cid);
-    setSelectedUnitId(null);
-    setEmployees([]);
-    setSummary(null);
-    setLocalStatuses({});
+    confirmBeforeAction(() => {
+      setSelectedClientId(cid);
+      setSelectedUnitId(null);
+      setEmployees([]);
+      setSummary(null);
+      setLocalStatuses({});
+    }, 'You have unsaved attendance changes. Changing client will discard them. Continue?');
   };
 
-  // ── Unit change handler ──
+  // ── Unit change handler (with unsaved-changes guard) ──
   const handleUnitChange = (val: string) => {
-    setSelectedUnitId(parseInt(val));
-    setEmployees([]);
-    setSummary(null);
-    setLocalStatuses({});
+    confirmBeforeAction(() => {
+      setSelectedUnitId(parseInt(val));
+      setEmployees([]);
+      setSummary(null);
+      setLocalStatuses({});
+    }, 'You have unsaved attendance changes. Changing unit will discard them. Continue?');
+  };
+
+  // ── Date change handler (with unsaved-changes guard) ──
+  const handleDateChange = (newDate: string) => {
+    confirmBeforeAction(() => {
+      setDate(newDate);
+    }, 'You have unsaved attendance changes. Changing date will discard them. Continue?');
   };
 
   // ── No units after access loaded ──
@@ -150,6 +221,7 @@ export default function DailyAttendancePage({ employeeId }: Props) {
         init[emp.employee_id] = (emp.status || '') as DailyAttendanceStatus | '';
       }
       setLocalStatuses(init);
+      initialLoadDone.current = true;
     }
     setLoading(false);
   }, [selectedUnitId, date]);
@@ -181,8 +253,20 @@ export default function DailyAttendancePage({ employeeId }: Props) {
       return;
     }
 
+    // Warn about unmarked employees (point 9)
+    const unmarked = employees.length - records.length;
+    if (unmarked > 0) {
+      setDialogMessage(`${unmarked} employee${unmarked > 1 ? 's are' : ' is'} still unmarked. Save only the marked attendance?`);
+      setPendingAction(() => () => doSave(records));
+      return;
+    }
+
+    await doSave(records);
+  };
+
+  const doSave = async (records: { employee_id: number; status: DailyAttendanceStatus }[]) => {
     setSaving(true);
-    const { data, error } = await saveDailyAttendance(selectedUnitId, date, records as { employee_id: number; status: DailyAttendanceStatus }[]);
+    const { data, error } = await saveDailyAttendance(selectedUnitId!, date, records);
     if (error) { toast.error(error); setSaving(false); return; }
     if (data) {
       if (data.errors.length > 0) {
@@ -190,9 +274,25 @@ export default function DailyAttendancePage({ employeeId }: Props) {
       } else {
         toast.success(`${data.saved} attendance records saved`);
       }
-      loadData();
+      // Reload to sync server state (don't warn — user just saved)
+      initialLoadDone.current = false;
+      await loadData();
     }
     setSaving(false);
+  };
+
+  // ── Dialog handlers ──
+  const handleDialogConfirm = () => {
+    if (pendingAction) {
+      pendingAction();
+    }
+    setPendingAction(null);
+    setDialogMessage('');
+  };
+
+  const handleDialogCancel = () => {
+    setPendingAction(null);
+    setDialogMessage('');
   };
 
   const unmarkedCount = employees.filter(
@@ -203,6 +303,23 @@ export default function DailyAttendancePage({ employeeId }: Props) {
     <div className="space-y-4 pb-20 md:pb-6">
       <PageHeader title="Daily Attendance" subtitle="Mark employee attendance for your units" />
 
+      {/* ── Confirmation Dialog ── */}
+      <AlertDialog open={!!pendingAction} onOpenChange={(open) => { if (!open) handleDialogCancel(); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              Unsaved Changes
+            </AlertDialogTitle>
+            <AlertDialogDescription>{dialogMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleDialogCancel}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDialogConfirm}>Continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* ── Date / Client / Unit Card ── */}
       <Card className="border-0 shadow-sm">
         <CardContent className="p-3 space-y-2">
@@ -211,16 +328,17 @@ export default function DailyAttendancePage({ employeeId }: Props) {
             <CalendarDays className="w-4 h-4 text-gray-500 shrink-0" />
             <span className="text-[13px] font-semibold text-gray-700 w-12 shrink-0">Date</span>
             <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-2 py-1.5">
-              <button onClick={() => setDate(d => shiftDate(d, -1))} className="p-1 rounded hover:bg-gray-200 transition-colors active:scale-90">
+              <button onClick={() => handleDateChange(shiftDate(date, -1))} className="p-1 rounded hover:bg-gray-200 transition-colors active:scale-90">
                 <ChevronLeft className="w-5 h-5 text-gray-600" />
               </button>
               <input
                 type="date"
                 value={date}
-                onChange={e => setDate(e.target.value)}
+                max={getTodayLocal()}
+                onChange={e => handleDateChange(e.target.value)}
                 className="w-full text-center text-[13px] font-bold text-gray-900 bg-transparent border-none outline-none p-0 tabular-nums"
               />
-              <button onClick={() => setDate(d => shiftDate(d, 1))} className="p-1 rounded hover:bg-gray-200 transition-colors active:scale-90">
+              <button onClick={() => handleDateChange(shiftDate(date, 1))} className="p-1 rounded hover:bg-gray-200 transition-colors active:scale-90">
                 <ChevronRight className="w-5 h-5 text-gray-600" />
               </button>
             </div>
@@ -302,6 +420,8 @@ export default function DailyAttendancePage({ employeeId }: Props) {
           <SummaryChip label="Absent" count={summary.absent} color="red" />
           <SummaryChip label="Half Day" count={summary.half_day} color="amber" />
           <SummaryChip label="Leave" count={summary.leave} color="sky" />
+          {summary.weekly_off > 0 && <SummaryChip label="Weekly Off" count={summary.weekly_off} color="gray" />}
+          {summary.holiday > 0 && <SummaryChip label="Holiday" count={summary.holiday} color="purple" />}
           {unmarkedCount > 0 && <SummaryChip label="Unmarked" count={unmarkedCount} color="gray" />}
         </div>
       )}
@@ -420,6 +540,7 @@ function SummaryChip({ label, count, color }: { label: string; count: number; co
     amber: 'bg-amber-50 text-amber-700',
     sky: 'bg-sky-50 text-sky-700',
     gray: 'bg-gray-100 text-gray-500',
+    purple: 'bg-purple-50 text-purple-700',
   };
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${colorMap[color] ?? colorMap.gray}`}>

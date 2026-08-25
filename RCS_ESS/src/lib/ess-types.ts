@@ -121,6 +121,8 @@ export interface DailyAttendanceSummary {
   absent: number;
   half_day: number;
   leave: number;
+  weekly_off: number;
+  holiday: number;
   unmarked: number;
 }
 
