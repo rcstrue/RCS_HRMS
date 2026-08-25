@@ -19,6 +19,7 @@ const MENU_COLORS: Record<string, { bg: string; icon: string; text: string; desc
   'helpdesk':         { bg: 'bg-sky-50',         icon: 'text-sky-600',     text: 'text-sky-900',     desc: 'text-sky-400' },
   'unit-visits':      { bg: 'bg-teal-50',        icon: 'text-teal-600',    text: 'text-teal-900',    desc: 'text-teal-400' },
   'manpower-status':  { bg: 'bg-blue-50',        icon: 'text-blue-600',    text: 'text-blue-900',    desc: 'text-blue-400' },
+  'daily-attendance': { bg: 'bg-emerald-50',     icon: 'text-emerald-600', text: 'text-emerald-900', desc: 'text-emerald-400' },
   'team-monthly':      { bg: 'bg-indigo-50',       icon: 'text-indigo-600',  text: 'text-indigo-900',  desc: 'text-indigo-400' },
   'send-notification':{ bg: 'bg-violet-50',      icon: 'text-violet-600',  text: 'text-violet-900',  desc: 'text-violet-400' },
   'regularization':   { bg: 'bg-orange-50',      icon: 'text-orange-600',  text: 'text-orange-900',  desc: 'text-orange-400' },
@@ -56,6 +57,7 @@ export default function BottomNav({ currentPage, showMoreMenu, setShowMoreMenu, 
     if (item.key === 'install-app') return !isInstalled;
     if (item.key === 'unit-visits') return canViewEmployees;
     if (item.key === 'manpower-status') return canViewEmployees;
+    if (item.key === 'daily-attendance') return canViewEmployees;
     if (item.key === 'team-monthly') return canViewEmployees;
     if (item.key === 'send-notification') return canSendNotification;
     return true;

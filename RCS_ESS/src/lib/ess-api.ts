@@ -7,7 +7,8 @@ import type {
   ClientOption, UnitOption, Employee, AdvanceAllocation, EmployeeRole, UnitVisit,
   ChecklistCategory, VisitChecklistItem, VisitDashboardData,
   ManpowerEntry, ManpowerDashboardData,
-  TeamSummaryResponse, ChangeRequest
+  TeamSummaryResponse, ChangeRequest,
+  DailyAttendanceResponse, DailyAttendanceSaveResponse, DailyAttendanceStatus
 } from './ess-types';
 
 // ══════════════════════════════════════════════════════════════
@@ -671,4 +672,27 @@ export async function submitChangeRequest(data: {
 
 export async function fetchChangeRequests(employee_id: number) {
   return unwrap(apiRequest<ChangeRequest[]>(`/ess/change-requests?employee_id=${employee_id}`));
+}
+
+// ===== Daily Attendance (Supervisor/Manager) =====
+
+export async function fetchDailyAttendance(unitId: number, date: string) {
+  const params = new URLSearchParams({ unit_id: String(unitId), date });
+  return unwrap<DailyAttendanceResponse>(
+    apiRequest<DailyAttendanceResponse>(`/ess/daily-attendance?${params}`)
+  );
+}
+
+export async function saveDailyAttendance(
+  unitId: number,
+  date: string,
+  records: { employee_id: number; status: DailyAttendanceStatus; note?: string }[]
+) {
+  return unwrap<DailyAttendanceSaveResponse>(
+    apiRequest<DailyAttendanceSaveResponse>('/ess/daily-attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, unit_id: unitId, records }),
+    })
+  );
 }

@@ -26,6 +26,7 @@ import {
   TableProperties,
   Award,
   IdCard,
+  UserCheck,
 } from 'lucide-react';
 
 export const APP_VERSION = '1.0.0'; // Must match php_payroll/config/config.php APP_VERSION
@@ -47,6 +48,7 @@ export const MORE_MENU_ITEMS = [
   { key: 'helpdesk', label: 'Help Desk', icon: CircleHelp, description: 'Submit support tickets' },
   { key: 'unit-visits', label: 'Unit Visit Checklist', icon: MapPin, description: 'Submit visit checklists' },
   { key: 'manpower-status', label: 'Manpower Status', icon: ClipboardList, description: 'Daily manpower budget & actual' },
+  { key: 'daily-attendance', label: 'Daily Attendance', icon: UserCheck, description: 'Mark present/absent for employees' },
   { key: 'team-monthly', label: 'Team Attendance', icon: TableProperties, description: 'Attendance & advances for team' },
   { key: 'regularization', label: 'Regularization', icon: FileEdit, description: 'Regularize missed check-ins' },
   { key: 'holidays', label: 'Holidays', icon: PartyPopper, description: 'Company holiday calendar' },

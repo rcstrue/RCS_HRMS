@@ -30,6 +30,7 @@ import UnitVisitsPage from './UnitVisitsPage';
 import ManpowerStatusPage from './ManpowerStatusPage';
 import SendNotificationPage from './SendNotificationPage';
 import TeamMonthlyPage from './TeamMonthlyPage';
+import DailyAttendancePage from './DailyAttendancePage';
 import PayslipPage from './PayslipPage';
 import CertificatesPage from './CertificatesPage';
 import { InstallBanner, PermissionDialog, NotificationBanner } from './InstallBanner';
@@ -537,6 +538,9 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
             employeeId={emp.id}
             unitIds={access.allocation?.units ?? []}
           />
+        )}
+        {currentPage === 'daily-attendance' && (
+          <DailyAttendancePage employeeId={emp.id} />
         )}
         {currentPage === 'team-monthly' && (
           <TeamMonthlyPage

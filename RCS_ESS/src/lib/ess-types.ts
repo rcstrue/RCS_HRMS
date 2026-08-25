@@ -100,6 +100,46 @@ export interface AttendanceSummary {
   leave_days: number;
 }
 
+// ===== Daily Attendance (Supervisor/Manager marking) =====
+export type DailyAttendanceStatus = 'present' | 'absent' | 'half_day' | 'leave' | 'weekly_off' | 'holiday';
+
+export interface DailyAttendanceEmployee {
+  employee_id: number;
+  employee_code: string;
+  full_name: string;
+  designation: string;
+  worker_category: string;
+  unit_name: string;
+  status: string;          // current saved status (empty if unmarked)
+  note: string;
+  attendance_id: number | null;
+  marked_by: string;
+}
+
+export interface DailyAttendanceSummary {
+  present: number;
+  absent: number;
+  half_day: number;
+  leave: number;
+  unmarked: number;
+}
+
+export interface DailyAttendanceResponse {
+  date: string;
+  unit_id: number;
+  unit_name: string;
+  items: DailyAttendanceEmployee[];
+  summary: DailyAttendanceSummary;
+}
+
+export interface DailyAttendanceSaveResponse {
+  saved: number;
+  total: number;
+  errors: string[];
+  date: string;
+  unit_id: number;
+}
+
 // ===== Leaves =====
 // NOTE: PHP Admin uses 'PL' (Privilege Leave), ESS uses 'EL' (Earned Leave).
 // They refer to the SAME leave type. The backend handles mapping via mapLeaveCode().
