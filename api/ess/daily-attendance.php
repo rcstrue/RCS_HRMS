@@ -3,21 +3,19 @@
  * ESS API — Daily Attendance (Supervisor/Manager)
  *
  * Allows supervisors and managers to mark daily attendance
- * (Present/Absent/Half Day/Leave) for employees under their units.
+ * (Present/Absent/Half Day/Leave/Weekly Off/Holiday) for employees in their units.
  *
  * GET:  Fetch employees for a unit + date with existing attendance
  * POST: Bulk-save attendance records for a date
  *
- * Access control: mirrors access.php resolution exactly.
- * Allocation source: user_access table (user_id = employee_code, access_id = unit name or ID)
- * Fallback: employee_city_allocations, then own unit.
+ * Pattern: mirrors team-summary.php exactly (auth, access check, response shape).
+ * Auto-creates/alters ess_attendance table as needed (no manual SQL required).
  */
 
 require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/security-headers.php';
-require_once __DIR__ . '/auth-guard.php';
+require_once __DIR__ . '/helpers.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -35,22 +33,126 @@ try {
             jsonOutput(['success' => false, 'error' => 'Method not allowed'], 405);
     }
 } catch (\Throwable $e) {
-    error_log('[ESS daily-attendance] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-    jsonOutput(['success' => false, 'error' => 'Internal server error: ' . $e->getMessage()], 500);
+    $errMsg = $e->getMessage();
+    error_log('[api/ess/daily-attendance] ' . $errMsg . ' in ' . $e->getFile() . ':' . $e->getLine());
+    jsonOutput(['success' => false, 'error' => $errMsg . ' (' . $e->getFile() . ':' . $e->getLine() . ')'], 500);
 }
 
-// ─── Schema notes (run once manually if needed) ───────────────────────────
-// ALTER TABLE ess_attendance ADD COLUMN marked_by VARCHAR(20) DEFAULT NULL AFTER note;
-// ALTER TABLE ess_attendance ADD INDEX idx_marked_by (marked_by);
-// DELETE t1 FROM ess_attendance t1 INNER JOIN ess_attendance t2 ON t1.employee_id = t2.employee_id AND t1.date = t2.date AND t1.id < t2.id;
-// ALTER TABLE ess_attendance ADD UNIQUE KEY uk_emp_date (employee_id, date);
+// ─── Helper: Ensure ess_attendance table has required schema ────────────────
+// The ess_attendance table already exists (used by attendance.php for check-in/check-out).
+// We only need to add: marked_by column, and UNIQUE KEY on (employee_id, date).
+// This is safe to run on every request — it's idempotent (IF NOT EXISTS / column checks).
+
+function _ensureSchema(mysqli $conn): void
+{
+    // 1. Add marked_by column if missing
+    $col = $conn->query("SHOW COLUMNS FROM ess_attendance LIKE 'marked_by'");
+    if ($col->num_rows === 0) {
+        $conn->query("ALTER TABLE ess_attendance ADD COLUMN marked_by VARCHAR(50) DEFAULT NULL AFTER note");
+    }
+    $col->free();
+
+       // 2. Add UNIQUE KEY on (employee_id, date) if missing
+    //    First, dedupe any existing duplicates (keep latest row)
+    $idx = $conn->query("SHOW INDEX FROM ess_attendance WHERE Key_name = 'uk_emp_date'");
+    if ($idx->num_rows === 0) {
+        // Delete older duplicates, keeping the row with highest id
+        $conn->query("
+            DELETE t1 FROM ess_attendance t1
+            INNER JOIN ess_attendance t2
+            ON t1.employee_id = t2.employee_id AND t1.date = t2.date AND t1.id < t2.id
+        ");
+        $conn->query("ALTER TABLE ess_attendance ADD UNIQUE KEY uk_emp_date (employee_id, date)");
+    }
+    $idx->free();
+}
+
+// ─── Helper: Check if caller has access to a unit ──────────────────────────
+// Exact copy of team-summary.php's _checkUnitAccess (proven working pattern).
+
+function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string $callerRole): bool
+{
+    if ($callerRole === 'admin' || $callerRole === 'regional_manager') return true;
+
+    $codeStmt = $conn->prepare('SELECT employee_code FROM ess_employee_cache WHERE employee_id = ?');
+    $codeStmt->bind_param('s', $employeeId);
+    $codeStmt->execute();
+    $codeRow = $codeStmt->get_result()->fetch_assoc();
+    $codeStmt->close();
+    $employeeCode = trim($codeRow['employee_code'] ?? '');
+
+    $nameStmt = $conn->prepare('SELECT id, name, client_id FROM units WHERE id = ?');
+    $nameStmt->bind_param('i', $unitId);
+    $nameStmt->execute();
+    $unitRow = $nameStmt->get_result()->fetch_assoc();
+    $unitName = trim($unitRow['name'] ?? '');
+    $unitClientId = (int)($unitRow['client_id'] ?? 0);
+    $nameStmt->close();
+
+    if (empty($unitName)) return false;
+
+    // Check 1: user_access by unit name (existing)
+    if (!empty($employeeCode)) {
+        $accStmt = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id = ?");
+        $accStmt->bind_param('ss', $employeeCode, $unitName);
+        $accStmt->execute();
+        $hasAccess = $accStmt->get_result()->num_rows > 0;
+        $accStmt->close();
+        if ($hasAccess) return true;
+
+        // Check 1b: user_access by unit ID (numeric string)
+        $accStmt2 = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id = ?");
+        $accStmt2->bind_param('ss', $employeeCode, (string)$unitId);
+        $accStmt2->execute();
+        $hasAccess2 = $accStmt2->get_result()->num_rows > 0;
+        $accStmt2->close();
+        if ($hasAccess2) return true;
+    }
+
+    // Check 2: employee_city_allocations (legacy)
+    $legacyStmt = $conn->prepare("SELECT 1 FROM employee_city_allocations WHERE employee_id = ? AND allocation_type = 'unit' AND allocation_value = ?");
+    $legacyStmt->bind_param('ss', $employeeId, $unitName);
+    $legacyStmt->execute();
+    $hasLegacy = $legacyStmt->get_result()->num_rows > 0;
+    $legacyStmt->close();
+    if ($hasLegacy) return true;
+
+    // Check 3: Manager has access to ANY unit under the same client → allow all client units
+    if ($unitClientId > 0 && !empty($employeeCode)) {
+        $clientStmt = $conn->prepare("
+            SELECT 1 FROM units u
+            INNER JOIN user_access ua ON ua.access_type = 'unit' AND (ua.access_id = u.name OR ua.access_id = CAST(u.id AS CHAR))
+            WHERE u.client_id = ? AND ua.user_id = ?
+            LIMIT 1
+        ");
+        $clientStmt->bind_param('is', $unitClientId, $employeeCode);
+        $clientStmt->execute();
+        $hasClientAccess = $clientStmt->get_result()->num_rows > 0;
+        $clientStmt->close();
+        if ($hasClientAccess) return true;
+    }
+
+    // Check 4: Own unit
+    $ownStmt = $conn->prepare('SELECT unit_id FROM ess_employee_cache WHERE employee_id = ?');
+    $ownStmt->bind_param('s', $employeeId);
+    $ownStmt->execute();
+    $ownRow = $ownStmt->get_result()->fetch_assoc();
+    $ownStmt->close();
+    return ($ownRow && (int)$ownRow['unit_id'] === $unitId);
+}
 
 // ─── GET: Fetch employees + their attendance for a date ──────────────────────
 
 function _handleGet(): void
 {
-    $employeeId = requireRole(ESS_GUARD_ROLES_SUPERVISOR);
+    $employeeId = requireAuth();
     $conn = getDbConnection();
+
+    // Auth check (same as team-summary)
+    $callerRole = getEmployeeRole($conn, $employeeId);
+    if (!in_array($callerRole, ['manager', 'supervisor', 'regional_manager', 'admin'], true)) {
+        jsonOutput(['success' => false, 'error' => 'Access denied'], 403);
+    }
 
     $date   = $_GET['date'] ?? date('Y-m-d');
     $unitId = (int)($_GET['unit_id'] ?? 0);
@@ -58,13 +160,18 @@ function _handleGet(): void
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
         jsonOutput(['success' => false, 'error' => 'Invalid date format. Use YYYY-MM-DD'], 400);
     }
-
-    // Access check (same resolution as access.php)
-    if (!_checkUnitAccess($employeeId, $unitId, $conn)) {
-        jsonOutput(['success' => false, 'error' => 'Access denied for this unit'], 403);
+    if ($unitId <= 0) {
+        jsonOutput(['success' => false, 'error' => 'unit_id is required'], 400);
     }
 
-    // Fetch active employees in this unit
+    if (!_checkUnitAccess($conn, $employeeId, $unitId, $callerRole)) {
+        jsonOutput(['success' => false, 'error' => 'Access denied to this unit'], 403);
+    }
+
+    // Ensure schema is ready
+    _ensureSchema($conn);
+
+    // Fetch active employees in this unit (same query pattern as team-summary)
     $empStmt = $conn->prepare("
         SELECT e.id, e.employee_code, e.full_name, e.designation,
                e.worker_category,
@@ -96,7 +203,7 @@ function _handleGet(): void
     if (!empty($empIds)) {
         $placeholders = implode(',', array_fill(0, count($empIds), '?'));
         $attStmt = $conn->prepare("
-            SELECT id, employee_id, status, note, check_in, marked_by
+            SELECT id, employee_id, status, note, marked_by
             FROM ess_attendance
             WHERE employee_id IN ($placeholders) AND date = ?
         ");
@@ -110,8 +217,7 @@ function _handleGet(): void
                 'id'        => (int)$row['id'],
                 'status'    => $row['status'] ?? '',
                 'note'      => $row['note'] ?? '',
-                'check_in'  => $row['check_in'] ?? '',
-                'marked_by'=> $row['marked_by'] ?? '',
+                'marked_by' => $row['marked_by'] ?? '',
             ];
         }
         $attStmt->close();
@@ -163,9 +269,15 @@ function _handleGet(): void
 
 function _handleSave(): void
 {
-    $employeeId = requireRole(ESS_GUARD_ROLES_SUPERVISOR);
+    $employeeId = requireAuth();
     $input = getInput();
     $conn = getDbConnection();
+
+    // Auth check (same as team-summary)
+    $callerRole = getEmployeeRole($conn, $employeeId);
+    if (!in_array($callerRole, ['manager', 'supervisor', 'regional_manager', 'admin'], true)) {
+        jsonOutput(['success' => false, 'error' => 'Access denied'], 403);
+    }
 
     $date   = trim($input['date'] ?? '');
     $unitId = (int)($input['unit_id'] ?? 0);
@@ -181,19 +293,22 @@ function _handleSave(): void
         jsonOutput(['success' => false, 'error' => 'Records array is required'], 400);
     }
 
-    // Access check (same resolution as access.php)
-    if (!_checkUnitAccess($employeeId, $unitId, $conn)) {
-        jsonOutput(['success' => false, 'error' => 'Access denied for this unit'], 403);
+    if (!_checkUnitAccess($conn, $employeeId, $unitId, $callerRole)) {
+        jsonOutput(['success' => false, 'error' => 'Access denied to this unit'], 403);
     }
+
+    // Ensure schema is ready
+    _ensureSchema($conn);
 
     $validStatuses = ['present', 'absent', 'half_day', 'leave', 'weekly_off', 'holiday'];
     $saved = 0;
     $errors = [];
 
-    // Single prepared statement for upsert (atomic, no race condition)
+    // Upsert using INSERT ... ON DUPLICATE KEY UPDATE
+    // (requires UNIQUE KEY uk_emp_date on (employee_id, date) — ensured by _ensureSchema)
     $upsertStmt = $conn->prepare("
-        INSERT INTO ess_attendance (employee_id, date, status, note, marked_by, check_in, created_at)
-        VALUES (?, ?, ?, ?, ?, '00:00:00', NOW())
+        INSERT INTO ess_attendance (employee_id, date, status, note, marked_by, created_at)
+        VALUES (?, ?, ?, ?, ?, NOW())
         ON DUPLICATE KEY UPDATE
             status = VALUES(status),
             note = VALUES(note),
@@ -231,92 +346,4 @@ function _handleSave(): void
             'unit_id'=> $unitId,
         ]
     ]);
-}
-
-// ─── Access check: mirrors access.php resolution exactly ─────────────────────
-// Instead of resolving ALL allowed units and comparing, we verify
-// that the specific requested unit is accessible by the user.
-// This matches team-summary.php's _checkUnitAccess pattern.
-
-function _checkUnitAccess(string $employeeId, int $unitId, mysqli $conn): bool
-{
-    if ($unitId <= 0) return false;
-
-    // Get employee_code + role info
-    $empStmt = $conn->prepare('SELECT employee_code, app_role, designation FROM employees WHERE id = ?');
-    $intId = (int)$employeeId;
-    $empStmt->bind_param('i', $intId);
-    $empStmt->execute();
-    $empRow = $empStmt->get_result()->fetch_assoc();
-    $empStmt->close();
-
-    $employeeCode = trim($empRow['employee_code'] ?? '');
-    $role = strtolower(trim($empRow['app_role'] ?? ''));
-    $designation = strtolower(trim($empRow['designation'] ?? ''));
-
-    if (empty($employeeCode)) return false;
-
-    // Get the unit name and client_id for the requested unit
-    $unitStmt = $conn->prepare('SELECT name, client_id FROM units WHERE id = ? AND is_active = 1');
-    $unitStmt->bind_param('i', $unitId);
-    $unitStmt->execute();
-    $unitRow = $unitStmt->get_result()->fetch_assoc();
-    $unitStmt->close();
-
-    $unitName = trim($unitRow['name'] ?? '');
-    $unitClientId = (int)($unitRow['client_id'] ?? 0);
-    if (empty($unitName)) return false;
-
-    // Check 1: user_access by unit name (PRIMARY — same as access.php)
-    $accStmt = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id = ?");
-    $accStmt->bind_param('ss', $employeeCode, $unitName);
-    $accStmt->execute();
-    $hasAccess = $accStmt->get_result()->num_rows > 0;
-    $accStmt->close();
-    if ($hasAccess) return true;
-
-    // Check 2: user_access by unit ID (numeric string — e.g. access_id = '137')
-    $accStmt2 = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id = ?");
-    $accStmt2->bind_param('ss', $employeeCode, (string)$unitId);
-    $accStmt2->execute();
-    $hasAccess2 = $accStmt2->get_result()->num_rows > 0;
-    $accStmt2->close();
-    if ($hasAccess2) return true;
-
-    // Check 3: employee_city_allocations (legacy — same as access.php fallback)
-    $legacyStmt = $conn->prepare("SELECT 1 FROM employee_city_allocations WHERE employee_id = ? AND allocation_type = 'unit' AND allocation_value = ?");
-    $legacyStmt->bind_param('ss', $employeeId, $unitName);
-    $legacyStmt->execute();
-    $hasLegacy = $legacyStmt->get_result()->num_rows > 0;
-    $legacyStmt->close();
-    if ($hasLegacy) return true;
-
-    // Check 4: Client-level access (same as team-summary.php)
-    // If manager has ANY unit under the same client → allow all client units
-    if ($unitClientId > 0) {
-        $clientStmt = $conn->prepare("
-            SELECT 1 FROM units u
-            INNER JOIN user_access ua ON ua.access_type = 'unit' AND (ua.access_id = u.name OR ua.access_id = CAST(u.id AS CHAR))
-            WHERE u.client_id = ? AND ua.user_id = ?
-            LIMIT 1
-        ");
-        $clientStmt->bind_param('is', $unitClientId, $employeeCode);
-        $clientStmt->execute();
-        $hasClientAccess = $clientStmt->get_result()->num_rows > 0;
-        $clientStmt->close();
-        if ($hasClientAccess) return true;
-    }
-
-    // Check 5: Own unit (for HK Supervisor / Forklift / manager with no allocations)
-    $isManager = in_array($role, ['manager', 'supervisor', 'regional_manager'], true);
-    $isAutoAssign = (strpos($designation, 'hk supervisor') !== false
-                  || strpos($designation, 'forklift driver') !== false
-                  || strpos($designation, 'fork lift driver') !== false);
-
-    if ($isManager || $isAutoAssign) {
-        $ownUnit = getEmployeeUnitId($employeeId, $conn);
-        if ($ownUnit === $unitId) return true;
-    }
-
-    return false;
 }
