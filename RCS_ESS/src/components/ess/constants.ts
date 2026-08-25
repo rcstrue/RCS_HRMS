@@ -39,7 +39,7 @@ export const NAV_ITEMS = [
 ] as const;
 
 export const MORE_MENU_ITEMS = [
-  { key: 'attendance', label: 'Attendance', icon: Clock, description: 'View attendance history' },
+  { key: 'attendance', label: 'My Attendance', icon: Clock, description: 'View attendance history' },
   { key: 'leaves', label: 'Leave', icon: CalendarDays, description: 'Apply & track leave requests' },
   { key: 'payslip', label: 'Payslip', icon: FileText, description: 'View & download payslips' },
   { key: 'certificates', label: 'Certificates', icon: Award, description: 'Download your certificates' },

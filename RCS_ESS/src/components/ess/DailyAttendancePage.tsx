@@ -6,7 +6,7 @@ import {
   Save, ChevronLeft, ChevronRight, Loader2, Users
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { PageHeader } from './PageHeader';
+import PageHeader from './PageHeader';
 import { fetchDailyAttendance, saveDailyAttendance } from '@/lib/ess-api';
 import { useAccess } from '@/contexts/AccessContext';
 import type {
