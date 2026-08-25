@@ -32,7 +32,7 @@ try {
     }
 } catch (\Throwable $e) {
     error_log('[ESS daily-attendance] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-    jsonOutput(['success' => false, 'error' => 'Internal server error'], 500);
+    jsonOutput(['success' => false, 'error' => 'Internal server error: ' . $e->getMessage()], 500);
 }
 
 // ─── Ensure table has marked_by column ───────────────────────────────────────
@@ -87,8 +87,7 @@ function _handleGet(): void
         FROM employees e
         JOIN units u ON u.id = e.unit_id
         WHERE e.unit_id = ?
-          AND e.status = 'active'
-          AND e.approved = 1
+          AND e.status IN ('approved', 'active')
         ORDER BY e.full_name ASC
     ");
     $empStmt->bind_param('i', $unitId);
