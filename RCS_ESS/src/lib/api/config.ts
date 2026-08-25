@@ -318,7 +318,9 @@ export async function uploadBase64Image(
       return { url: null, error: data?.error || 'Upload failed' };
     }
 
-    return { url: data?.url || null, error: null };
+    // PHP returns { success, data: { url } } — url is nested inside data.data
+    const fileUrl = data?.data?.url || data?.url || null;
+    return { url: fileUrl, error: null };
   } catch (error) {
     logger.error('Upload Error:', error);
     return { url: null, error: 'Upload failed. Please try again.' };
