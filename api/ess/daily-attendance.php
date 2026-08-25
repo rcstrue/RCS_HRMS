@@ -7,6 +7,10 @@
  *
  * GET:  Fetch employees for a unit + date with existing attendance
  * POST: Bulk-save attendance records for a date
+ *
+ * Access control: mirrors access.php resolution exactly.
+ * Allocation source: user_access table (user_id = employee_code, access_id = unit name or ID)
+ * Fallback: employee_city_allocations, then own unit.
  */
 
 require_once __DIR__ . '/cors.php';
@@ -19,6 +23,9 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 try {
     validateApiKey();
+
+    // ── One-time schema migration (not on every request) ──
+    _ensureSchema(getDbConnection());
 
     switch ($method) {
         case 'GET':
@@ -35,16 +42,32 @@ try {
     jsonOutput(['success' => false, 'error' => 'Internal server error: ' . $e->getMessage()], 500);
 }
 
-// ─── Ensure table has marked_by column ───────────────────────────────────────
+// ─── One-time schema setup (runs once, safe to re-run) ──────────────────────
 
-function ensureMarkedByColumn(mysqli $conn): void
+function _ensureSchema(mysqli $conn): void
 {
+    // marked_by column
     $col = $conn->query("SHOW COLUMNS FROM ess_attendance LIKE 'marked_by'");
     if ($col->num_rows === 0) {
         $conn->query("ALTER TABLE ess_attendance ADD COLUMN marked_by VARCHAR(20) DEFAULT NULL AFTER note");
         $conn->query("ALTER TABLE ess_attendance ADD INDEX idx_marked_by (marked_by)");
     }
     $col->close();
+
+    // Unique constraint on (employee_id, date) to prevent duplicates
+    $idx = $conn->query("SHOW INDEX FROM ess_attendance WHERE Key_name = 'uk_emp_date'");
+    if ($idx->num_rows === 0) {
+        // Remove any duplicates first
+        $conn->query("
+            DELETE t1 FROM ess_attendance t1
+            INNER JOIN ess_attendance t2
+            WHERE t1.employee_id = t2.employee_id
+              AND t1.date = t2.date
+              AND t1.id < t2.id
+        ");
+        $conn->query("ALTER TABLE ess_attendance ADD UNIQUE KEY uk_emp_date (employee_id, date)");
+    }
+    $idx->close();
 }
 
 // ─── GET: Fetch employees + their attendance for a date ──────────────────────
@@ -53,30 +76,17 @@ function _handleGet(): void
 {
     $employeeId = requireRole(ESS_GUARD_ROLES_SUPERVISOR);
     $conn = getDbConnection();
-    ensureMarkedByColumn($conn);
 
     $date   = $_GET['date'] ?? date('Y-m-d');
     $unitId = (int)($_GET['unit_id'] ?? 0);
 
-    // Validate date
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
         jsonOutput(['success' => false, 'error' => 'Invalid date format. Use YYYY-MM-DD'], 400);
     }
 
-    // Access: determine which units this user can see
-    $allowedUnitIds = _getAllowedUnitIds($employeeId, $conn);
-    if (empty($allowedUnitIds)) {
-        jsonOutput(['success' => false, 'error' => 'No unit allocation found'], 403);
-    }
-
-    // If a specific unit_id is requested, verify it's in allowed list
-    if ($unitId > 0 && !in_array($unitId, $allowedUnitIds, true)) {
+    // Access check (same resolution as access.php)
+    if (!_checkUnitAccess($employeeId, $unitId, $conn)) {
         jsonOutput(['success' => false, 'error' => 'Access denied for this unit'], 403);
-    }
-
-    // If no unit specified, use first allowed unit
-    if ($unitId === 0) {
-        $unitId = $allowedUnitIds[0];
     }
 
     // Fetch active employees in this unit
@@ -181,13 +191,11 @@ function _handleSave(): void
     $employeeId = requireRole(ESS_GUARD_ROLES_SUPERVISOR);
     $input = getInput();
     $conn = getDbConnection();
-    ensureMarkedByColumn($conn);
 
     $date   = trim($input['date'] ?? '');
     $unitId = (int)($input['unit_id'] ?? 0);
     $records = $input['records'] ?? [];
 
-    // Validate
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
         jsonOutput(['success' => false, 'error' => 'Invalid date format'], 400);
     }
@@ -198,15 +206,25 @@ function _handleSave(): void
         jsonOutput(['success' => false, 'error' => 'Records array is required'], 400);
     }
 
-    // Access: verify unit is in allowed list
-    $allowedUnitIds = _getAllowedUnitIds($employeeId, $conn);
-    if (!in_array($unitId, $allowedUnitIds, true)) {
+    // Access check (same resolution as access.php)
+    if (!_checkUnitAccess($employeeId, $unitId, $conn)) {
         jsonOutput(['success' => false, 'error' => 'Access denied for this unit'], 403);
     }
 
     $validStatuses = ['present', 'absent', 'half_day', 'leave', 'weekly_off', 'holiday'];
     $saved = 0;
     $errors = [];
+
+    // Single prepared statement for upsert (atomic, no race condition)
+    $upsertStmt = $conn->prepare("
+        INSERT INTO ess_attendance (employee_id, date, status, note, marked_by, check_in, created_at)
+        VALUES (?, ?, ?, ?, ?, '00:00:00', NOW())
+        ON DUPLICATE KEY UPDATE
+            status = VALUES(status),
+            note = VALUES(note),
+            marked_by = VALUES(marked_by),
+            updated_at = NOW()
+    ");
 
     foreach ($records as $idx => $rec) {
         $empId  = (int)($rec['employee_id'] ?? 0);
@@ -222,41 +240,11 @@ function _handleSave(): void
             continue;
         }
 
-        // Check if a record already exists for this employee+date
-        $checkStmt = $conn->prepare("
-            SELECT id FROM ess_attendance
-            WHERE employee_id = ? AND date = ?
-            ORDER BY id DESC LIMIT 1
-        ");
-        $checkStmt->bind_param('ss', (string)$empId, $date);
-        $checkStmt->execute();
-        $existing = $checkStmt->get_result()->fetch_assoc();
-        $checkStmt->close();
-
-        if ($existing) {
-            // Update existing record (only if it was supervisor-marked or no check_in)
-            $attId = (int)$existing['id'];
-            $updateStmt = $conn->prepare("
-                UPDATE ess_attendance
-                SET status = ?, note = ?, marked_by = ?, updated_at = NOW()
-                WHERE id = ?
-            ");
-            $updateStmt->bind_param('sssi', $status, $note, (string)$employeeId, $attId);
-            $updateStmt->execute();
-            $updateStmt->close();
-            $saved++;
-        } else {
-            // Insert new record
-            $insertStmt = $conn->prepare("
-                INSERT INTO ess_attendance (employee_id, date, status, note, marked_by, check_in, created_at)
-                VALUES (?, ?, ?, ?, ?, '00:00:00', NOW())
-            ");
-            $insertStmt->bind_param('sssss', (string)$empId, $date, $status, $note, (string)$employeeId);
-            $insertStmt->execute();
-            $insertStmt->close();
-            $saved++;
-        }
+        $upsertStmt->bind_param('sssss', (string)$empId, $date, $status, $note, (string)$employeeId);
+        $upsertStmt->execute();
+        $saved++;
     }
+    $upsertStmt->close();
 
     jsonOutput([
         'success' => true,
@@ -270,85 +258,90 @@ function _handleSave(): void
     ]);
 }
 
-// ─── Helper: Get allowed unit IDs for a user ──────────────────────────────────
+// ─── Access check: mirrors access.php resolution exactly ─────────────────────
+// Instead of resolving ALL allowed units and comparing, we verify
+// that the specific requested unit is accessible by the user.
+// This matches team-summary.php's _checkUnitAccess pattern.
 
-function _getAllowedUnitIds(string $employeeId, mysqli $conn): array
+function _checkUnitAccess(string $employeeId, int $unitId, mysqli $conn): bool
 {
-    $unitIds = [];
+    if ($unitId <= 0) return false;
 
-    // ── Get employee_code (user_access stores employee_code, not numeric ID) ──
-    $codeStmt = $conn->prepare('SELECT employee_code, app_role, designation FROM employees WHERE id = ?');
+    // Get employee_code + role info
+    $empStmt = $conn->prepare('SELECT employee_code, app_role, designation FROM employees WHERE id = ?');
     $intId = (int)$employeeId;
-    $codeStmt->bind_param('i', $intId);
-    $codeStmt->execute();
-    $empRow = $codeStmt->get_result()->fetch_assoc();
-    $codeStmt->close();
+    $empStmt->bind_param('i', $intId);
+    $empStmt->execute();
+    $empRow = $empStmt->get_result()->fetch_assoc();
+    $empStmt->close();
 
     $employeeCode = trim($empRow['employee_code'] ?? '');
-    $designation = strtolower(trim($empRow['designation'] ?? ''));
     $role = strtolower(trim($empRow['app_role'] ?? ''));
+    $designation = strtolower(trim($empRow['designation'] ?? ''));
 
-    // ── 1. user_access by employee_code (PRIMARY) ──
-    $unitNames = [];
-    if (!empty($employeeCode)) {
-        $uaStmt = $conn->prepare("SELECT access_id FROM user_access WHERE user_id = ? AND access_type = 'unit'");
-        $uaStmt->bind_param('s', $employeeCode);
-        $uaStmt->execute();
-        while ($row = $uaStmt->get_result()->fetch_assoc()) {
-            $unitNames[] = trim($row['access_id']);
-        }
-        $uaStmt->close();
+    if (empty($employeeCode)) return false;
+
+    // Get the unit name and client_id for the requested unit
+    $unitStmt = $conn->prepare('SELECT name, client_id FROM units WHERE id = ? AND is_active = 1');
+    $unitStmt->bind_param('i', $unitId);
+    $unitStmt->execute();
+    $unitRow = $unitStmt->get_result()->fetch_assoc();
+    $unitStmt->close();
+
+    $unitName = trim($unitRow['name'] ?? '');
+    $unitClientId = (int)($unitRow['client_id'] ?? 0);
+    if (empty($unitName)) return false;
+
+    // Check 1: user_access by unit name (PRIMARY — same as access.php)
+    $accStmt = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id = ?");
+    $accStmt->bind_param('ss', $employeeCode, $unitName);
+    $accStmt->execute();
+    $hasAccess = $accStmt->get_result()->num_rows > 0;
+    $accStmt->close();
+    if ($hasAccess) return true;
+
+    // Check 2: user_access by unit ID (numeric string — e.g. access_id = '137')
+    $accStmt2 = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id = ?");
+    $accStmt2->bind_param('ss', $employeeCode, (string)$unitId);
+    $accStmt2->execute();
+    $hasAccess2 = $accStmt2->get_result()->num_rows > 0;
+    $accStmt2->close();
+    if ($hasAccess2) return true;
+
+    // Check 3: employee_city_allocations (legacy — same as access.php fallback)
+    $legacyStmt = $conn->prepare("SELECT 1 FROM employee_city_allocations WHERE employee_id = ? AND allocation_type = 'unit' AND allocation_value = ?");
+    $legacyStmt->bind_param('ss', $employeeId, $unitName);
+    $legacyStmt->execute();
+    $hasLegacy = $legacyStmt->get_result()->num_rows > 0;
+    $legacyStmt->close();
+    if ($hasLegacy) return true;
+
+    // Check 4: Client-level access (same as team-summary.php)
+    // If manager has ANY unit under the same client → allow all client units
+    if ($unitClientId > 0) {
+        $clientStmt = $conn->prepare("
+            SELECT 1 FROM units u
+            INNER JOIN user_access ua ON ua.access_type = 'unit' AND (ua.access_id = u.name OR ua.access_id = CAST(u.id AS CHAR))
+            WHERE u.client_id = ? AND ua.user_id = ?
+            LIMIT 1
+        ");
+        $clientStmt->bind_param('is', $unitClientId, $employeeCode);
+        $clientStmt->execute();
+        $hasClientAccess = $clientStmt->get_result()->num_rows > 0;
+        $clientStmt->close();
+        if ($hasClientAccess) return true;
     }
 
-    // ── 2. Fallback: employee_city_allocations (legacy) ──
-    if (empty($unitNames)) {
-        $legacyStmt = $conn->prepare("SELECT allocation_value FROM employee_city_allocations WHERE employee_id = ? AND allocation_type = 'unit'");
-        $legacyStmt->bind_param('s', $employeeId);
-        $legacyStmt->execute();
-        while ($row = $legacyStmt->get_result()->fetch_assoc()) {
-            $unitNames[] = trim($row['allocation_value']);
-        }
-        $legacyStmt->close();
-    }
+    // Check 5: Own unit (for HK Supervisor / Forklift / manager with no allocations)
+    $isManager = in_array($role, ['manager', 'supervisor', 'regional_manager'], true);
+    $isAutoAssign = (strpos($designation, 'hk supervisor') !== false
+                  || strpos($designation, 'forklift driver') !== false
+                  || strpos($designation, 'fork lift driver') !== false);
 
-    // ── 3. Convert unit names → unit IDs (same logic as access.php) ──
-    if (!empty($unitNames)) {
-        $placeholders = implode(',', array_fill(0, count($unitNames), '?'));
-        $unitStmt = $conn->prepare("SELECT id FROM units WHERE name IN ($placeholders) AND is_active = 1");
-        $types = str_repeat('s', count($unitNames));
-        $unitStmt->bind_param($types, ...$unitNames);
-        $unitStmt->execute();
-        while ($row = $unitStmt->get_result()->fetch_assoc()) {
-            $unitIds[] = (int)$row['id'];
-        }
-        $unitStmt->close();
-    }
-
-    // ── 4. Also check user_access where access_id is a numeric unit ID ──
-    if (!empty($employeeCode)) {
-        $idStmt = $conn->prepare("SELECT CAST(access_id AS UNSIGNED) AS uid FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id REGEXP '^[0-9]+$'");
-        $idStmt->bind_param('s', $employeeCode);
-        $idStmt->execute();
-        while ($row = $idStmt->get_result()->fetch_assoc()) {
-            $uid = (int)$row['uid'];
-            if ($uid > 0 && !in_array($uid, $unitIds, true)) {
-                $unitIds[] = $uid;
-            }
-        }
-        $idStmt->close();
-    }
-
-    // ── 5. Fallback: own unit for manager/supervisor/HK with no allocations ──
-    if (empty($unitIds)) {
+    if ($isManager || $isAutoAssign) {
         $ownUnit = getEmployeeUnitId($employeeId, $conn);
-        $isManager = in_array($role, ['manager', 'supervisor', 'regional_manager'], true);
-        $isAutoAssign = (strpos($designation, 'hk supervisor') !== false
-                      || strpos($designation, 'forklift driver') !== false
-                      || strpos($designation, 'fork lift driver') !== false);
-        if ($ownUnit > 0 && ($isManager || $isAutoAssign)) {
-            $unitIds[] = $ownUnit;
-        }
+        if ($ownUnit === $unitId) return true;
     }
 
-    return array_values(array_unique($unitIds));
+    return false;
 }
