@@ -2,17 +2,29 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  CalendarDays, CheckCircle2, XCircle, Clock, 
-  Save, ChevronLeft, ChevronRight, Loader2, Users
+  CalendarDays, CheckCircle2, XCircle, Clock,
+  Save, ChevronLeft, ChevronRight, Loader2, Users, Building2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
 import PageHeader from './PageHeader';
-import { fetchDailyAttendance, saveDailyAttendance } from '@/lib/ess-api';
+import { fetchDailyAttendance, saveDailyAttendance, fetchClients, fetchUnits } from '@/lib/ess-api';
 import { useAccess } from '@/contexts/AccessContext';
 import type {
   DailyAttendanceEmployee,
   DailyAttendanceSummary,
   DailyAttendanceStatus,
+  ClientOption,
+  UnitOption,
 } from '@/lib/ess-types';
 
 interface Props {
@@ -20,12 +32,12 @@ interface Props {
 }
 
 const STATUS_OPTIONS: { value: DailyAttendanceStatus; label: string; color: string; icon: React.ReactNode }[] = [
-  { value: 'present',    label: 'Present',   color: 'bg-emerald-100 text-emerald-700 border-emerald-300',  icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
-  { value: 'absent',    label: 'Absent',    color: 'bg-red-100 text-red-700 border-red-300',                icon: <XCircle className="w-3.5 h-3.5" /> },
-  { value: 'half_day',  label: 'Half Day', color: 'bg-amber-100 text-amber-700 border-amber-300',        icon: <Clock className="w-3.5 h-3.5" /> },
-  { value: 'leave',     label: 'Leave',     color: 'bg-sky-100 text-sky-700 border-sky-300',              icon: <Clock className="w-3.5 h-3.5" /> },
-  { value: 'weekly_off',label: 'Weekly Off',color: 'bg-gray-100 text-gray-600 border-gray-300',           icon: <Clock className="w-3.5 h-3.5" /> },
-  { value: 'holiday',   label: 'Holiday',   color: 'bg-purple-100 text-purple-700 border-purple-300',      icon: <CalendarDays className="w-3.5 h-3.5" /> },
+  { value: 'present',     label: 'Present',    color: 'bg-emerald-100 text-emerald-700 border-emerald-300',  icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  { value: 'absent',     label: 'Absent',    color: 'bg-red-100 text-red-700 border-red-300',                icon: <XCircle className="w-3.5 h-3.5" /> },
+  { value: 'half_day',   label: 'Half Day', color: 'bg-amber-100 text-amber-700 border-amber-300',        icon: <Clock className="w-3.5 h-3.5" /> },
+  { value: 'leave',      label: 'Leave',     color: 'bg-sky-100 text-sky-700 border-sky-300',              icon: <Clock className="w-3.5 h-3.5" /> },
+  { value: 'weekly_off', label: 'Weekly Off',color: 'bg-gray-100 text-gray-600 border-gray-300',           icon: <Clock className="w-3.5 h-3.5" /> },
+  { value: 'holiday',    label: 'Holiday',   color: 'bg-purple-100 text-purple-700 border-purple-300',      icon: <CalendarDays className="w-3.5 h-3.5" /> },
 ];
 
 function getToday(): string {
@@ -46,9 +58,19 @@ function formatDateDisplay(dateStr: string): string {
 export default function DailyAttendancePage({ employeeId }: Props) {
   const { allocation } = useAccess();
   const unitIds = allocation?.units ?? [];
-  
-  const [selectedUnitId, setSelectedUnitId] = useState<number>(unitIds[0] ?? 0);
+
+  // ── Client / Unit dropdowns ──
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [units, setUnits] = useState<UnitOption[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
+  const [clientsLoading, setClientsLoading] = useState(true);
+  const [unitsLoading, setUnitsLoading] = useState(false);
+
+  // ── Date ──
   const [date, setDate] = useState(getToday);
+
+  // ── Attendance data ──
   const [employees, setEmployees] = useState<DailyAttendanceEmployee[]>([]);
   const [summary, setSummary] = useState<DailyAttendanceSummary | null>(null);
   const [unitName, setUnitName] = useState('');
@@ -56,8 +78,61 @@ export default function DailyAttendancePage({ employeeId }: Props) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // ── Load clients (filtered by unit access) ──
+  useEffect(() => {
+    if (unitIds.length === 0) { setClientsLoading(false); return; }
+    let cancelled = false;
+    setClientsLoading(true);
+    fetchClients(undefined, undefined, unitIds).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) { toast.error(error); setClientsLoading(false); return; }
+      setClients(data || []);
+      if (data && data.length > 0 && !selectedClientId) {
+        setSelectedClientId(data[0].id);
+      }
+      setClientsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [unitIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load units when client changes ──
+  useEffect(() => {
+    if (!selectedClientId) { setUnits([]); return; }
+    let cancelled = false;
+    setUnitsLoading(true);
+    fetchUnits(undefined, undefined, selectedClientId, unitIds).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) { toast.error(error); setUnitsLoading(false); return; }
+      setUnits(data || []);
+      if (data && data.length > 0 && !selectedUnitId) {
+        setSelectedUnitId(data[0].id);
+      }
+      setUnitsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [selectedClientId, unitIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Client change handler ──
+  const handleClientChange = (val: string) => {
+    const cid = parseInt(val);
+    setSelectedClientId(cid);
+    setSelectedUnitId(null);
+    setEmployees([]);
+    setSummary(null);
+    setLocalStatuses({});
+  };
+
+  // ── Unit change handler ──
+  const handleUnitChange = (val: string) => {
+    setSelectedUnitId(parseInt(val));
+    setEmployees([]);
+    setSummary(null);
+    setLocalStatuses({});
+  };
+
+  // ── Load attendance data ──
   const loadData = useCallback(async () => {
-    if (selectedUnitId === 0) return;
+    if (!selectedUnitId) return;
     setLoading(true);
     const { data, error } = await fetchDailyAttendance(selectedUnitId, date);
     if (error) { toast.error(error); setLoading(false); return; }
@@ -65,7 +140,6 @@ export default function DailyAttendancePage({ employeeId }: Props) {
       setEmployees(data.items);
       setSummary(data.summary);
       setUnitName(data.unit_name);
-      // Initialize local statuses from server data
       const init: Record<number, DailyAttendanceStatus | ''> = {};
       for (const emp of data.items) {
         init[emp.employee_id] = (emp.status || '') as DailyAttendanceStatus | '';
@@ -76,11 +150,6 @@ export default function DailyAttendancePage({ employeeId }: Props) {
   }, [selectedUnitId, date]);
 
   useEffect(() => { loadData(); }, [loadData]);
-
-  // When unit changes, reset local statuses
-  useEffect(() => {
-    setLocalStatuses({});
-  }, [selectedUnitId]);
 
   const setEmployeeStatus = (empId: number, status: DailyAttendanceStatus | '') => {
     setLocalStatuses(prev => ({ ...prev, [empId]: status }));
@@ -94,12 +163,13 @@ export default function DailyAttendancePage({ employeeId }: Props) {
   };
 
   const handleSave = async () => {
+    if (!selectedUnitId) return;
     const records = employees
       .map(emp => ({
         employee_id: emp.employee_id,
         status: localStatuses[emp.employee_id] || emp.status,
       }))
-      .filter(r => r.status); // skip completely unmarked
+      .filter(r => r.status);
 
     if (records.length === 0) {
       toast.error('No attendance marked to save');
@@ -115,56 +185,112 @@ export default function DailyAttendancePage({ employeeId }: Props) {
       } else {
         toast.success(`${data.saved} attendance records saved`);
       }
-      loadData(); // refresh from server
+      loadData();
     }
     setSaving(false);
   };
 
-  // Count unmarked (no local status AND no server status)
   const unmarkedCount = employees.filter(
     e => !localStatuses[e.employee_id] && !e.status
   ).length;
 
+  // ── No access guard ──
+  if (unitIds.length === 0) {
+    return (
+      <div className="space-y-4 pb-6">
+        <PageHeader title="Daily Attendance" subtitle="Mark employee attendance for your units" />
+        <div className="text-center py-16 text-gray-500">
+          <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+          <p className="font-medium">No units assigned</p>
+          <p className="text-sm mt-1">Contact your manager to get unit access</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-4 pb-6">
+    <div className="space-y-4 pb-20 md:pb-6">
       <PageHeader title="Daily Attendance" subtitle="Mark employee attendance for your units" />
 
-      {/* ── Controls ── */}
-      <div className="space-y-3">
-        {/* Date + Unit selector */}
-        <div className="flex gap-2">
-          <div className="flex-1 flex items-center gap-2 bg-white rounded-xl border px-3 py-2.5">
-            <button onClick={() => setDate(d => shiftDate(d, -1))} className="p-1 hover:bg-gray-100 rounded-lg">
-              <ChevronLeft className="w-4 h-4 text-gray-600" />
-            </button>
-            <div className="flex-1 text-center">
-              <div className="text-xs text-gray-500">Date</div>
+      {/* ── Date / Client / Unit Card ── */}
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-3 space-y-2">
+          {/* Date row */}
+          <div className="flex items-center gap-2">
+            <CalendarDays className="w-4 h-4 text-gray-500 shrink-0" />
+            <span className="text-[13px] font-semibold text-gray-700 w-12 shrink-0">Date</span>
+            <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-2 py-1.5">
+              <button onClick={() => setDate(d => shiftDate(d, -1))} className="p-1 rounded hover:bg-gray-200 transition-colors active:scale-90">
+                <ChevronLeft className="w-5 h-5 text-gray-600" />
+              </button>
               <input
                 type="date"
                 value={date}
                 onChange={e => setDate(e.target.value)}
-                className="w-full text-center text-sm font-semibold bg-transparent border-none outline-none p-0"
+                className="w-full text-center text-[13px] font-bold text-gray-900 bg-transparent border-none outline-none p-0 tabular-nums"
               />
+              <button onClick={() => setDate(d => shiftDate(d, 1))} className="p-1 rounded hover:bg-gray-200 transition-colors active:scale-90">
+                <ChevronRight className="w-5 h-5 text-gray-600" />
+              </button>
             </div>
-            <button onClick={() => setDate(d => shiftDate(d, 1))} className="p-1 hover:bg-gray-100 rounded-lg">
-              <ChevronRight className="w-4 h-4 text-gray-600" />
-            </button>
           </div>
 
-          {unitIds.length > 1 && (
-            <select
-              value={selectedUnitId}
-              onChange={e => setSelectedUnitId(Number(e.target.value))}
-              className="flex-1 bg-white rounded-xl border px-3 py-2.5 text-sm font-medium"
-            >
-              {unitIds.map(uid => (
-                <option key={uid} value={uid}>Unit #{uid}</option>
-              ))}
-            </select>
-          )}
-        </div>
+          {/* Client + Unit row */}
+          <div className="grid grid-cols-2 gap-2">
+            {/* Client */}
+            <div className="flex items-center gap-1.5">
+              <Building2 className="w-4 h-4 text-gray-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                {clientsLoading ? (
+                  <Skeleton className="h-9 w-full rounded-lg" />
+                ) : (
+                  <Select
+                    value={selectedClientId ? String(selectedClientId) : ''}
+                    onValueChange={handleClientChange}
+                  >
+                    <SelectTrigger className="w-full text-[13px] h-9">
+                      <SelectValue placeholder="Client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)} className="text-[13px]">{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
 
-        {/* Quick actions bar */}
+            {/* Unit */}
+            <div className="flex items-center gap-1.5">
+              <Building2 className="w-4 h-4 text-gray-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                {unitsLoading ? (
+                  <Skeleton className="h-9 w-full rounded-lg" />
+                ) : (
+                  <Select
+                    value={selectedUnitId ? String(selectedUnitId) : ''}
+                    onValueChange={handleUnitChange}
+                    disabled={!selectedClientId || units.length === 0}
+                  >
+                    <SelectTrigger className="w-full text-[13px] h-9">
+                      <SelectValue placeholder={selectedClientId ? 'Unit' : '—'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {units.map((u) => (
+                        <SelectItem key={u.id} value={String(u.id)} className="text-[13px]">{u.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Quick actions bar ── */}
+      {selectedUnitId && (
         <div className="flex gap-2 overflow-x-auto pb-1">
           <button onClick={() => markAll('present')} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition">
             <CheckCircle2 className="w-3.5 h-3.5" /> All Present
@@ -177,21 +303,27 @@ export default function DailyAttendancePage({ employeeId }: Props) {
             Save
           </button>
         </div>
+      )}
 
-        {/* Summary chips */}
-        {summary && (
-          <div className="flex gap-2 flex-wrap">
-            <SummaryChip label="Present" count={summary.present} color="emerald" />
-            <SummaryChip label="Absent" count={summary.absent} color="red" />
-            <SummaryChip label="Half Day" count={summary.half_day} color="amber" />
-            <SummaryChip label="Leave" count={summary.leave} color="sky" />
-            {unmarkedCount > 0 && <SummaryChip label="Unmarked" count={unmarkedCount} color="gray" />}
-          </div>
-        )}
-      </div>
+      {/* ── Summary chips ── */}
+      {summary && (
+        <div className="flex gap-2 flex-wrap">
+          <SummaryChip label="Present" count={summary.present} color="emerald" />
+          <SummaryChip label="Absent" count={summary.absent} color="red" />
+          <SummaryChip label="Half Day" count={summary.half_day} color="amber" />
+          <SummaryChip label="Leave" count={summary.leave} color="sky" />
+          {unmarkedCount > 0 && <SummaryChip label="Unmarked" count={unmarkedCount} color="gray" />}
+        </div>
+      )}
 
       {/* ── Employee List ── */}
-      {loading ? (
+      {!selectedUnitId ? (
+        <div className="text-center py-16 text-gray-500">
+          <Building2 className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+          <p className="font-medium">Select a unit to begin</p>
+          <p className="text-sm mt-1">Choose a client, then select a unit</p>
+        </div>
+      ) : loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
         </div>
@@ -221,7 +353,7 @@ export default function DailyAttendancePage({ employeeId }: Props) {
       )}
 
       {/* ── Floating Save (mobile) ── */}
-      {employees.length > 0 && (
+      {selectedUnitId && employees.length > 0 && (
         <div className="fixed bottom-4 left-4 right-4 z-30 md:hidden">
           <button
             onClick={handleSave}
@@ -246,11 +378,8 @@ function EmployeeRow({
   status: DailyAttendanceStatus | '';
   onStatusChange: (empId: number, status: DailyAttendanceStatus | '') => void;
 }) {
-  const selectedOption = STATUS_OPTIONS.find(o => o.value === status);
-
   return (
     <div className="flex items-center gap-3 px-3 py-2.5">
-      {/* Employee info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm text-gray-900 truncate">{emp.full_name}</span>
@@ -262,8 +391,6 @@ function EmployeeRow({
           {emp.designation || emp.worker_category || ''}
         </div>
       </div>
-
-      {/* Status buttons (scrollable on mobile) */}
       <div className="flex gap-1.5 overflow-x-auto shrink-0">
         {STATUS_OPTIONS.map(opt => {
           const isActive = status === opt.value;
