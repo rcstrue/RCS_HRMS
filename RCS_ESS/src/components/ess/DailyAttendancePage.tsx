@@ -56,16 +56,16 @@ function formatDateDisplay(dateStr: string): string {
 }
 
 export default function DailyAttendancePage({ employeeId }: Props) {
-  const { allocation } = useAccess();
+  const { allocation, accessLevel, isLoaded } = useAccess();
   const unitIds = allocation?.units ?? [];
+  const scope = accessLevel === 'full' ? 'all' : accessLevel;
 
   // ── Client / Unit dropdowns ──
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
-  const [clientsLoading, setClientsLoading] = useState(true);
-  const [unitsLoading, setUnitsLoading] = useState(false);
+  const [filtersLoading, setFiltersLoading] = useState(true);
 
   // ── Date ──
   const [date, setDate] = useState(getToday);
@@ -78,39 +78,41 @@ export default function DailyAttendancePage({ employeeId }: Props) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // ── Load clients (filtered by unit access) ──
-  useEffect(() => {
-    if (unitIds.length === 0) { setClientsLoading(false); return; }
-    let cancelled = false;
-    setClientsLoading(true);
-    fetchClients(undefined, undefined, unitIds).then(({ data, error }) => {
-      if (cancelled) return;
-      if (error) { toast.error(error); setClientsLoading(false); return; }
-      setClients(data || []);
-      if (data && data.length > 0 && !selectedClientId) {
-        setSelectedClientId(data[0].id);
+  // ── Load clients + units (like TeamMonthlyPage) ──
+  const loadFilters = useCallback(async () => {
+    if (unitIds.length === 0) { setFiltersLoading(false); return; }
+    setFiltersLoading(true);
+    try {
+      const [clientsRes, unitsRes] = await Promise.all([
+        fetchClients(scope, employeeId, unitIds.length > 0 ? unitIds : undefined),
+        fetchUnits(scope, employeeId, undefined, unitIds.length > 0 ? unitIds : undefined),
+      ]);
+      setClients(clientsRes.data ?? []);
+      setUnits(unitsRes.data ?? []);
+      // Auto-select first client + unit if not already selected
+      if (clientsRes.data && clientsRes.data.length > 0 && !selectedClientId) {
+        setSelectedClientId(clientsRes.data[0].id);
       }
-      setClientsLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [unitIds]); // eslint-disable-line react-hooks/exhaustive-deps
+    } catch {
+      toast.error('Failed to load filters');
+    } finally {
+      setFiltersLoading(false);
+    }
+  }, [scope, employeeId, unitIds, selectedClientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Load units when client changes ──
+  useEffect(() => { loadFilters(); }, [loadFilters]);
+
+  // Filter units by selected client
+  const filteredUnits = selectedClientId
+    ? units.filter(u => u.client_id === Number(selectedClientId))
+    : units;
+
+  // Auto-select first unit when filtered units change and none selected
   useEffect(() => {
-    if (!selectedClientId) { setUnits([]); return; }
-    let cancelled = false;
-    setUnitsLoading(true);
-    fetchUnits(undefined, undefined, selectedClientId, unitIds).then(({ data, error }) => {
-      if (cancelled) return;
-      if (error) { toast.error(error); setUnitsLoading(false); return; }
-      setUnits(data || []);
-      if (data && data.length > 0 && !selectedUnitId) {
-        setSelectedUnitId(data[0].id);
-      }
-      setUnitsLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [selectedClientId, unitIds]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (filteredUnits.length > 0 && !selectedUnitId) {
+      setSelectedUnitId(filteredUnits[0].id);
+    }
+  }, [filteredUnits, selectedUnitId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Client change handler ──
   const handleClientChange = (val: string) => {
@@ -129,6 +131,9 @@ export default function DailyAttendancePage({ employeeId }: Props) {
     setSummary(null);
     setLocalStatuses({});
   };
+
+  // ── No units after access loaded ──
+  const noUnits = isLoaded && unitIds.length === 0;
 
   // ── Load attendance data ──
   const loadData = useCallback(async () => {
@@ -194,20 +199,6 @@ export default function DailyAttendancePage({ employeeId }: Props) {
     e => !localStatuses[e.employee_id] && !e.status
   ).length;
 
-  // ── No access guard ──
-  if (unitIds.length === 0) {
-    return (
-      <div className="space-y-4 pb-6">
-        <PageHeader title="Daily Attendance" subtitle="Mark employee attendance for your units" />
-        <div className="text-center py-16 text-gray-500">
-          <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-          <p className="font-medium">No units assigned</p>
-          <p className="text-sm mt-1">Contact your manager to get unit access</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4 pb-20 md:pb-6">
       <PageHeader title="Daily Attendance" subtitle="Mark employee attendance for your units" />
@@ -236,14 +227,17 @@ export default function DailyAttendancePage({ employeeId }: Props) {
           </div>
 
           {/* Client + Unit row */}
-          <div className="grid grid-cols-2 gap-2">
-            {/* Client */}
-            <div className="flex items-center gap-1.5">
-              <Building2 className="w-4 h-4 text-gray-500 shrink-0" />
-              <div className="flex-1 min-w-0">
-                {clientsLoading ? (
-                  <Skeleton className="h-9 w-full rounded-lg" />
-                ) : (
+          {filtersLoading ? (
+            <div className="flex gap-2">
+              <Skeleton className="h-9 flex-1 rounded-lg" />
+              <Skeleton className="h-9 flex-1 rounded-lg" />
+            </div>
+          ) : noUnits ? null : (
+            <div className="grid grid-cols-2 gap-2">
+              {/* Client */}
+              <div className="flex items-center gap-1.5">
+                <Building2 className="w-4 h-4 text-gray-500 shrink-0" />
+                <div className="flex-1 min-w-0">
                   <Select
                     value={selectedClientId ? String(selectedClientId) : ''}
                     onValueChange={handleClientChange}
@@ -257,35 +251,31 @@ export default function DailyAttendancePage({ employeeId }: Props) {
                       ))}
                     </SelectContent>
                   </Select>
-                )}
+                </div>
               </div>
-            </div>
 
-            {/* Unit */}
-            <div className="flex items-center gap-1.5">
-              <Building2 className="w-4 h-4 text-gray-500 shrink-0" />
-              <div className="flex-1 min-w-0">
-                {unitsLoading ? (
-                  <Skeleton className="h-9 w-full rounded-lg" />
-                ) : (
+              {/* Unit */}
+              <div className="flex items-center gap-1.5">
+                <Building2 className="w-4 h-4 text-gray-500 shrink-0" />
+                <div className="flex-1 min-w-0">
                   <Select
                     value={selectedUnitId ? String(selectedUnitId) : ''}
                     onValueChange={handleUnitChange}
-                    disabled={!selectedClientId || units.length === 0}
+                    disabled={!selectedClientId || filteredUnits.length === 0}
                   >
                     <SelectTrigger className="w-full text-[13px] h-9">
                       <SelectValue placeholder={selectedClientId ? 'Unit' : '—'} />
                     </SelectTrigger>
                     <SelectContent>
-                      {units.map((u) => (
+                      {filteredUnits.map((u) => (
                         <SelectItem key={u.id} value={String(u.id)} className="text-[13px]">{u.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 
@@ -316,14 +306,23 @@ export default function DailyAttendancePage({ employeeId }: Props) {
         </div>
       )}
 
+      {/* ── No units message (after access loaded) ── */}
+      {noUnits && (
+        <div className="text-center py-16 text-gray-500">
+          <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+          <p className="font-medium">No units assigned</p>
+          <p className="text-sm mt-1">Contact your manager to get unit access</p>
+        </div>
+      )}
+
       {/* ── Employee List ── */}
-      {!selectedUnitId ? (
+      {!noUnits && !selectedUnitId && !filtersLoading ? (
         <div className="text-center py-16 text-gray-500">
           <Building2 className="w-12 h-12 mx-auto mb-3 text-gray-300" />
           <p className="font-medium">Select a unit to begin</p>
           <p className="text-sm mt-1">Choose a client, then select a unit</p>
         </div>
-      ) : loading ? (
+      ) : !noUnits && loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
         </div>
