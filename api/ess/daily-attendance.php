@@ -9,11 +9,9 @@
  * POST: Bulk-save attendance records for a date
  *
  * IMPORTANT: ess_attendance is a SHARED table with employee clock-in/check-out.
- * Clock-in/out (attendance.php) may create MULTIPLE records per employee per day
- * (e.g. multiple check-ins). Therefore we do NOT rely on a UNIQUE(employee_id,date)
- * constraint. Instead, we look up existing supervisor-marked records by checking
- * marked_by IS NOT NULL, and only update those. This coexists safely with
- * employee self-attendance records.
+ * Clock-in/out (attendance.php) may create MULTIPLE records per employee per day.
+ * We identify supervisor-marked records by marked_by IS NOT NULL.
+ * This coexists safely with employee self-attendance records.
  *
  * Schema requirement: marked_by column must exist. Run migration separately:
  *   ALTER TABLE ess_attendance ADD COLUMN marked_by VARCHAR(50) DEFAULT NULL AFTER note;
@@ -121,7 +119,6 @@ function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string 
 }
 
 // ─── Helper: Validate date string and check business rules ────────────────
-// Returns validated date string or null (and outputs error).
 
 function _validateDate(string $date, bool $isPost): ?string
 {
@@ -131,16 +128,12 @@ function _validateDate(string $date, bool $isPost): ?string
     }
 
     $parts = explode('-', $date);
-    $year  = (int)$parts[0];
-    $month = (int)$parts[1];
-    $day   = (int)$parts[2];
-
-    if (!checkdate($month, $day, $year)) {
+    if (!checkdate((int)$parts[1], (int)$parts[2], (int)$parts[0])) {
         jsonOutput(['success' => false, 'error' => 'Invalid date — not a real calendar date'], 400);
         return null;
     }
 
-    // Block future dates for marking attendance (business rule)
+    // Block future dates for marking attendance
     $today = date('Y-m-d');
     if ($date > $today) {
         jsonOutput(['success' => false, 'error' => 'Cannot mark attendance for a future date'], 400);
@@ -177,8 +170,6 @@ function _handleGet(): void
     }
 
     // Single JOIN query: employees + attendance in one round-trip.
-    // Uses LEFT JOIN on ess_attendance WHERE marked_by IS NOT NULL to get
-    // supervisor-marked records only (ignores employee self-attendance).
     $stmt = $conn->prepare("
         SELECT
             e.id, e.employee_code, e.full_name, e.designation, e.worker_category,
@@ -219,7 +210,6 @@ function _handleGet(): void
             'marked_by'       => $row['att_marked_by'] ?? '',
         ];
 
-        // Summary tally (consistent with all 6 valid statuses)
         switch ($status) {
             case 'present': case 'late': $summary['present']++;     break;
             case 'absent':                   $summary['absent']++;     break;
@@ -231,6 +221,7 @@ function _handleGet(): void
         }
     }
     $stmt->close();
+    $conn->close();
 
     jsonOutput([
         'success' => true,
@@ -279,35 +270,9 @@ function _handleSave(): void
     $saved  = 0;
     $errors = [];
 
-    // Prepare statements outside the loop
-    // 1. Verify employee belongs to unit
-    $verifyStmt = $conn->prepare('
-        SELECT 1 FROM employees WHERE id = ? AND unit_id = ? AND status IN (\'approved\', \'active\') LIMIT 1
-    ');
-
-    // 2. Find existing supervisor-marked record for this employee+date
-    $findStmt = $conn->prepare('
-        SELECT id FROM ess_attendance
-        WHERE employee_id = ? AND date = ? AND marked_by IS NOT NULL
-        LIMIT 1
-    ');
-
-    // 3. Update existing record (only daily-attendance-owned fields)
-    $updateStmt = $conn->prepare('
-        UPDATE ess_attendance SET status = ?, note = ?, marked_by = ?, updated_at = NOW()
-        WHERE id = ?
-    ');
-
-    // 4. Insert new supervisor-marked record
-    $insertStmt = $conn->prepare('
-        INSERT INTO ess_attendance (employee_id, date, status, note, marked_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, NOW(), NOW())
-    ');
-
-    $conn->begin_transaction();
-    $rolledBack = false;
-
     try {
+        $conn->begin_transaction();
+
         foreach ($records as $idx => $rec) {
             $empId  = (int)($rec['employee_id'] ?? 0);
             $status = trim($rec['status'] ?? '');
@@ -323,47 +288,53 @@ function _handleSave(): void
             }
 
             // ── Verify employee belongs to the requested unit ──
-            $verifyStmt->bind_param('ii', $empId, $unitId);
-            $verifyStmt->execute();
-            $belongs = $verifyStmt->get_result()->num_rows > 0;
+            $vStmt = $conn->prepare('SELECT 1 FROM employees WHERE id = ? AND unit_id = ? AND status IN (\'approved\', \'active\') LIMIT 1');
+            $vStmt->bind_param('ii', $empId, $unitId);
+            $vStmt->execute();
+            $belongs = $vStmt->get_result()->num_rows > 0;
+            $vStmt->close();
+
             if (!$belongs) {
                 $errors[] = "Row $idx: employee_id $empId does not belong to unit $unitId";
                 continue;
             }
 
             // ── Upsert: check for existing supervisor-marked record ──
-            $findStmt->bind_param('ss', (string)$empId, $date);
-            $findStmt->execute();
-            $existing = $findStmt->get_result()->fetch_assoc();
+            $fStmt = $conn->prepare('SELECT id FROM ess_attendance WHERE employee_id = ? AND date = ? AND marked_by IS NOT NULL LIMIT 1');
+            $fStmt->bind_param('ss', (string)$empId, $date);
+            $fStmt->execute();
+            $existing = $fStmt->get_result()->fetch_assoc();
+            $fStmt->close();
 
             if ($existing) {
                 // Update only daily-attendance-owned fields.
-                // Do NOT touch check_in, check_out, latitude, longitude — preserves clock-in/out data.
-                $updateStmt->bind_param('sssi', $status, $note, (string)$employeeId, (int)$existing['id']);
-                $updateStmt->execute();
+                // Do NOT touch check_in, check_out, latitude, longitude.
+                $uStmt = $conn->prepare('UPDATE ess_attendance SET status = ?, note = ?, marked_by = ?, updated_at = NOW() WHERE id = ?');
+                $uStmt->bind_param('sssi', $status, $note, (string)$employeeId, (int)$existing['id']);
+                $uStmt->execute();
+                $uStmt->close();
             } else {
-                // Insert new record. Does NOT set check_in/check_out — those remain NULL.
-                // This record is distinct from clock-in/out records (which have marked_by = NULL).
-                $insertStmt->bind_param('sssss', (string)$empId, $date, $status, $note, (string)$employeeId);
-                $insertStmt->execute();
+                // Insert new supervisor-marked record.
+                // Does NOT set check_in/check_out — those remain NULL.
+                $iStmt = $conn->prepare('INSERT INTO ess_attendance (employee_id, date, status, note, marked_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())');
+                $iStmt->bind_param('sssss', (string)$empId, $date, $status, $note, (string)$employeeId);
+                $iStmt->execute();
+                $iStmt->close();
             }
             $saved++;
         }
 
         $conn->commit();
     } catch (\Throwable $e) {
-        if (!$rolledBack) {
-            $conn->rollback();
-            $rolledBack = true;
+        // Attempt rollback — ignore errors during rollback itself
+        try { $conn->rollback(); } catch (\Throwable $rbErr) {
+            error_log('[daily-attendance rollback] ' . $rbErr->getMessage());
         }
-        error_log('[daily-attendance save] ' . $e->getMessage());
+        error_log('[daily-attendance save] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
         jsonOutput(['success' => false, 'error' => 'Failed to save attendance. Please try again.'], 500);
-    } finally {
-        $verifyStmt->close();
-        $findStmt->close();
-        $updateStmt->close();
-        $insertStmt->close();
     }
+
+    $conn->close();
 
     jsonOutput([
         'success' => true,

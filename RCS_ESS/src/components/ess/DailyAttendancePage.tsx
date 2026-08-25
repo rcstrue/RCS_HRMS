@@ -42,14 +42,29 @@ interface Props {
   employeeId: number;
 }
 
-const STATUS_OPTIONS: { value: DailyAttendanceStatus; label: string; color: string; icon: React.ReactNode }[] = [
-  { value: 'present',     label: 'Present',    color: 'bg-emerald-100 text-emerald-700 border-emerald-300',  icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
-  { value: 'absent',     label: 'Absent',    color: 'bg-red-100 text-red-700 border-red-300',                icon: <XCircle className="w-3.5 h-3.5" /> },
-  { value: 'half_day',   label: 'Half Day', color: 'bg-amber-100 text-amber-700 border-amber-300',        icon: <Clock className="w-3.5 h-3.5" /> },
-  { value: 'leave',      label: 'Leave',     color: 'bg-sky-100 text-sky-700 border-sky-300',              icon: <Clock className="w-3.5 h-3.5" /> },
-  { value: 'weekly_off', label: 'Weekly Off',color: 'bg-gray-100 text-gray-600 border-gray-300',           icon: <Clock className="w-3.5 h-3.5" /> },
-  { value: 'holiday',    label: 'Holiday',   color: 'bg-purple-100 text-purple-700 border-purple-300',      icon: <CalendarDays className="w-3.5 h-3.5" /> },
+const STATUS_OPTIONS: { value: DailyAttendanceStatus; label: string; shortLabel: string; color: string; dotColor: string }[] = [
+  { value: 'present',     label: 'Present',     shortLabel: 'P',  color: 'text-emerald-700 bg-emerald-50 border-emerald-200',  dotColor: 'bg-emerald-500' },
+  { value: 'absent',     label: 'Absent',     shortLabel: 'A',  color: 'text-red-700 bg-red-50 border-red-200',                dotColor: 'bg-red-500' },
+  { value: 'half_day',   label: 'Half Day',   shortLabel: 'HD', color: 'text-amber-700 bg-amber-50 border-amber-200',        dotColor: 'bg-amber-500' },
+  { value: 'leave',      label: 'Leave',      shortLabel: 'L',  color: 'text-sky-700 bg-sky-50 border-sky-200',              dotColor: 'bg-sky-500' },
+  { value: 'weekly_off', label: 'Weekly Off', shortLabel: 'WO', color: 'text-gray-600 bg-gray-50 border-gray-200',           dotColor: 'bg-gray-400' },
+  { value: 'holiday',    label: 'Holiday',    shortLabel: 'H',  color: 'text-purple-700 bg-purple-50 border-purple-200',      dotColor: 'bg-purple-500' },
 ];
+
+function getStatusColor(status: string): string {
+  const found = STATUS_OPTIONS.find(s => s.value === status);
+  return found?.color ?? 'text-gray-500 bg-gray-50 border-gray-200';
+}
+
+function getStatusDotColor(status: string): string {
+  const found = STATUS_OPTIONS.find(s => s.value === status);
+  return found?.dotColor ?? 'bg-gray-300';
+}
+
+function getStatusLabel(status: string): string {
+  const found = STATUS_OPTIONS.find(s => s.value === status);
+  return found?.label ?? 'Not Marked';
+}
 
 /** Timezone-safe: builds YYYY-MM-DD from local clock without any Date parsing. */
 function getTodayLocal(): string {
@@ -60,10 +75,10 @@ function getTodayLocal(): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Shift date by N days using pure string math — no Date parsing of the input. */
+/** Shift date by N days using pure string math. */
 function shiftDate(dateStr: string, days: number): string {
   const [y, m, d] = dateStr.split('-').map(Number);
-  const dt = new Date(y, m - 1, d + days); // local timezone
+  const dt = new Date(y, m - 1, d + days);
   const ny = dt.getFullYear();
   const nm = String(dt.getMonth() + 1).padStart(2, '0');
   const nd = String(dt.getDate()).padStart(2, '0');
@@ -85,11 +100,9 @@ function hasUnsavedChanges(
   for (const emp of serverData) {
     const serverStatus = (emp.status || '') as DailyAttendanceStatus | '';
     const localStatus = localStatuses[emp.employee_id];
-    // If key missing in localStatuses, it means no change was made (treated as '')
     const effectiveLocal = localStatus ?? '';
     if (effectiveLocal !== serverStatus) return true;
   }
-  // Also check if localStatuses has entries not in serverData (shouldn't happen, but be safe)
   const serverIds = new Set(serverData.map(e => e.employee_id));
   for (const id of Object.keys(localStatuses)) {
     const numId = Number(id);
@@ -128,7 +141,7 @@ export default function DailyAttendancePage({ employeeId }: Props) {
   // ── Track if this is initial load (don't warn on first load) ──
   const initialLoadDone = useRef(false);
 
-  // ── Load clients + units (like TeamMonthlyPage) ──
+  // ── Load clients + units ──
   const loadFilters = useCallback(async () => {
     if (unitIds.length === 0) { setFiltersLoading(false); return; }
     setFiltersLoading(true);
@@ -139,7 +152,6 @@ export default function DailyAttendancePage({ employeeId }: Props) {
       ]);
       setClients(clientsRes.data ?? []);
       setUnits(unitsRes.data ?? []);
-      // Auto-select first client if not already selected
       if (clientsRes.data && clientsRes.data.length > 0 && !selectedClientId) {
         setSelectedClientId(clientsRes.data[0].id);
       }
@@ -148,7 +160,7 @@ export default function DailyAttendancePage({ employeeId }: Props) {
     } finally {
       setFiltersLoading(false);
     }
-  }, [scope, employeeId, unitIds, selectedClientId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scope, employeeId, unitIds, selectedClientId]);
 
   useEffect(() => { loadFilters(); }, [loadFilters]);
 
@@ -157,12 +169,12 @@ export default function DailyAttendancePage({ employeeId }: Props) {
     ? units.filter(u => u.client_id === Number(selectedClientId))
     : units;
 
-  // Auto-select first unit when filtered units change and none selected
+  // Auto-select first unit
   useEffect(() => {
     if (filteredUnits.length > 0 && !selectedUnitId) {
       setSelectedUnitId(filteredUnits[0].id);
     }
-  }, [filteredUnits, selectedUnitId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filteredUnits, selectedUnitId]);
 
   // ── Confirmation before navigation if unsaved changes ──
   const confirmBeforeAction = useCallback((action: () => void, message: string) => {
@@ -174,7 +186,6 @@ export default function DailyAttendancePage({ employeeId }: Props) {
     }
   }, [localStatuses, employees]);
 
-  // ── Client change handler (with unsaved-changes guard) ──
   const handleClientChange = (val: string) => {
     const cid = parseInt(val);
     confirmBeforeAction(() => {
@@ -186,7 +197,6 @@ export default function DailyAttendancePage({ employeeId }: Props) {
     }, 'You have unsaved attendance changes. Changing client will discard them. Continue?');
   };
 
-  // ── Unit change handler (with unsaved-changes guard) ──
   const handleUnitChange = (val: string) => {
     confirmBeforeAction(() => {
       setSelectedUnitId(parseInt(val));
@@ -196,14 +206,12 @@ export default function DailyAttendancePage({ employeeId }: Props) {
     }, 'You have unsaved attendance changes. Changing unit will discard them. Continue?');
   };
 
-  // ── Date change handler (with unsaved-changes guard) ──
   const handleDateChange = (newDate: string) => {
     confirmBeforeAction(() => {
       setDate(newDate);
     }, 'You have unsaved attendance changes. Changing date will discard them. Continue?');
   };
 
-  // ── No units after access loaded ──
   const noUnits = isLoaded && unitIds.length === 0;
 
   // ── Load attendance data ──
@@ -236,7 +244,7 @@ export default function DailyAttendancePage({ employeeId }: Props) {
     const all: Record<number, DailyAttendanceStatus | ''> = {};
     for (const emp of employees) { all[emp.employee_id] = status; }
     setLocalStatuses(all);
-    toast.info(`All ${employees.length} employees marked as ${status.replace('_', ' ')}`);
+    toast.info(`All ${employees.length} employees marked as ${getStatusLabel(status)}`);
   };
 
   const handleSave = async () => {
@@ -253,7 +261,7 @@ export default function DailyAttendancePage({ employeeId }: Props) {
       return;
     }
 
-    // Warn about unmarked employees (point 9)
+    // Warn about unmarked employees
     const unmarked = employees.length - records.length;
     if (unmarked > 0) {
       setDialogMessage(`${unmarked} employee${unmarked > 1 ? 's are' : ' is'} still unmarked. Save only the marked attendance?`);
@@ -274,7 +282,6 @@ export default function DailyAttendancePage({ employeeId }: Props) {
       } else {
         toast.success(`${data.saved} attendance records saved`);
       }
-      // Reload to sync server state (don't warn — user just saved)
       initialLoadDone.current = false;
       await loadData();
     }
@@ -283,9 +290,7 @@ export default function DailyAttendancePage({ employeeId }: Props) {
 
   // ── Dialog handlers ──
   const handleDialogConfirm = () => {
-    if (pendingAction) {
-      pendingAction();
-    }
+    if (pendingAction) pendingAction();
     setPendingAction(null);
     setDialogMessage('');
   };
@@ -352,14 +357,10 @@ export default function DailyAttendancePage({ employeeId }: Props) {
             </div>
           ) : noUnits ? null : (
             <div className="grid grid-cols-2 gap-2">
-              {/* Client */}
               <div className="flex items-center gap-1.5">
                 <Building2 className="w-4 h-4 text-gray-500 shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <Select
-                    value={selectedClientId ? String(selectedClientId) : ''}
-                    onValueChange={handleClientChange}
-                  >
+                  <Select value={selectedClientId ? String(selectedClientId) : ''} onValueChange={handleClientChange}>
                     <SelectTrigger className="w-full text-[13px] h-9">
                       <SelectValue placeholder="Client" />
                     </SelectTrigger>
@@ -371,8 +372,6 @@ export default function DailyAttendancePage({ employeeId }: Props) {
                   </Select>
                 </div>
               </div>
-
-              {/* Unit */}
               <div className="flex items-center gap-1.5">
                 <Building2 className="w-4 h-4 text-gray-500 shrink-0" />
                 <div className="flex-1 min-w-0">
@@ -426,7 +425,7 @@ export default function DailyAttendancePage({ employeeId }: Props) {
         </div>
       )}
 
-      {/* ── No units message (after access loaded) ── */}
+      {/* ── No units message ── */}
       {noUnits && (
         <div className="text-center py-16 text-gray-500">
           <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
@@ -497,6 +496,11 @@ function EmployeeRow({
   status: DailyAttendanceStatus | '';
   onStatusChange: (empId: number, status: DailyAttendanceStatus | '') => void;
 }) {
+  const currentStatus = status || '';
+  const statusColor = currentStatus ? getStatusColor(currentStatus) : 'text-gray-400 border-gray-200 bg-gray-50';
+  const dotColor = currentStatus ? getStatusDotColor(currentStatus) : 'bg-gray-300';
+  const displayLabel = currentStatus ? getStatusLabel(currentStatus) : 'Select Status';
+
   return (
     <div className="flex items-center gap-3 px-3 py-2.5">
       <div className="flex-1 min-w-0">
@@ -510,24 +514,57 @@ function EmployeeRow({
           {emp.designation || emp.worker_category || ''}
         </div>
       </div>
-      <div className="flex gap-1.5 overflow-x-auto shrink-0">
-        {STATUS_OPTIONS.map(opt => {
-          const isActive = status === opt.value;
-          return (
-            <button
-              key={opt.value}
-              onClick={() => onStatusChange(emp.employee_id, isActive ? '' : opt.value)}
-              className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border transition-all ${
-                isActive
-                  ? opt.color
-                  : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100'
-              }`}
-            >
-              {opt.icon}
-              <span className="hidden sm:inline">{opt.label}</span>
-            </button>
-          );
-        })}
+      {/* Status dropdown - clear, always shows text */}
+      <div className="shrink-0">
+        <Select
+          value={currentStatus}
+          onValueChange={(val) => onStatusChange(emp.employee_id, val as DailyAttendanceStatus)}
+        >
+          <SelectTrigger className={`w-[130px] h-8 text-xs font-medium border rounded-lg ${statusColor}`}>
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+              <SelectValue placeholder="Select" />
+            </div>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="present" className="text-xs">
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                Present
+              </span>
+            </SelectItem>
+            <SelectItem value="absent" className="text-xs">
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-red-500" />
+                Absent
+              </span>
+            </SelectItem>
+            <SelectItem value="half_day" className="text-xs">
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                Half Day
+              </span>
+            </SelectItem>
+            <SelectItem value="leave" className="text-xs">
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-sky-500" />
+                Leave
+              </span>
+            </SelectItem>
+            <SelectItem value="weekly_off" className="text-xs">
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-gray-400" />
+                Weekly Off
+              </span>
+            </SelectItem>
+            <SelectItem value="holiday" className="text-xs">
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-purple-500" />
+                Holiday
+              </span>
+            </SelectItem>
+          </SelectContent>
+        </Select>
       </div>
     </div>
   );
