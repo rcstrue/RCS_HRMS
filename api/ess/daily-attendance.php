@@ -276,23 +276,78 @@ function _getAllowedUnitIds(string $employeeId, mysqli $conn): array
 {
     $unitIds = [];
 
-    // From user_access table
-    $stmt = $conn->prepare("
-        SELECT access_id FROM user_access
-        WHERE user_id = ? AND access_type = 'unit'
-    ");
-    $stmt->bind_param('s', $employeeId);
-    $stmt->execute();
-    while ($row = $stmt->get_result()->fetch_assoc()) {
-        $uid = (int)$row['access_id'];
-        if ($uid > 0) $unitIds[] = $uid;
-    }
-    $stmt->close();
+    // ── Get employee_code (user_access stores employee_code, not numeric ID) ──
+    $codeStmt = $conn->prepare('SELECT employee_code, app_role, designation FROM employees WHERE id = ?');
+    $intId = (int)$employeeId;
+    $codeStmt->bind_param('i', $intId);
+    $codeStmt->execute();
+    $empRow = $codeStmt->get_result()->fetch_assoc();
+    $codeStmt->close();
 
-    // Also add own unit
-    $ownUnit = getEmployeeUnitId($employeeId, $conn);
-    if ($ownUnit > 0 && !in_array($ownUnit, $unitIds, true)) {
-        $unitIds[] = $ownUnit;
+    $employeeCode = trim($empRow['employee_code'] ?? '');
+    $designation = strtolower(trim($empRow['designation'] ?? ''));
+    $role = strtolower(trim($empRow['app_role'] ?? ''));
+
+    // ── 1. user_access by employee_code (PRIMARY) ──
+    $unitNames = [];
+    if (!empty($employeeCode)) {
+        $uaStmt = $conn->prepare("SELECT access_id FROM user_access WHERE user_id = ? AND access_type = 'unit'");
+        $uaStmt->bind_param('s', $employeeCode);
+        $uaStmt->execute();
+        while ($row = $uaStmt->get_result()->fetch_assoc()) {
+            $unitNames[] = trim($row['access_id']);
+        }
+        $uaStmt->close();
+    }
+
+    // ── 2. Fallback: employee_city_allocations (legacy) ──
+    if (empty($unitNames)) {
+        $legacyStmt = $conn->prepare("SELECT allocation_value FROM employee_city_allocations WHERE employee_id = ? AND allocation_type = 'unit'");
+        $legacyStmt->bind_param('s', $employeeId);
+        $legacyStmt->execute();
+        while ($row = $legacyStmt->get_result()->fetch_assoc()) {
+            $unitNames[] = trim($row['allocation_value']);
+        }
+        $legacyStmt->close();
+    }
+
+    // ── 3. Convert unit names → unit IDs (same logic as access.php) ──
+    if (!empty($unitNames)) {
+        $placeholders = implode(',', array_fill(0, count($unitNames), '?'));
+        $unitStmt = $conn->prepare("SELECT id FROM units WHERE name IN ($placeholders) AND is_active = 1");
+        $types = str_repeat('s', count($unitNames));
+        $unitStmt->bind_param($types, ...$unitNames);
+        $unitStmt->execute();
+        while ($row = $unitStmt->get_result()->fetch_assoc()) {
+            $unitIds[] = (int)$row['id'];
+        }
+        $unitStmt->close();
+    }
+
+    // ── 4. Also check user_access where access_id is a numeric unit ID ──
+    if (!empty($employeeCode)) {
+        $idStmt = $conn->prepare("SELECT CAST(access_id AS UNSIGNED) AS uid FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id REGEXP '^[0-9]+$'");
+        $idStmt->bind_param('s', $employeeCode);
+        $idStmt->execute();
+        while ($row = $idStmt->get_result()->fetch_assoc()) {
+            $uid = (int)$row['uid'];
+            if ($uid > 0 && !in_array($uid, $unitIds, true)) {
+                $unitIds[] = $uid;
+            }
+        }
+        $idStmt->close();
+    }
+
+    // ── 5. Fallback: own unit for manager/supervisor/HK with no allocations ──
+    if (empty($unitIds)) {
+        $ownUnit = getEmployeeUnitId($employeeId, $conn);
+        $isManager = in_array($role, ['manager', 'supervisor', 'regional_manager'], true);
+        $isAutoAssign = (strpos($designation, 'hk supervisor') !== false
+                      || strpos($designation, 'forklift driver') !== false
+                      || strpos($designation, 'fork lift driver') !== false);
+        if ($ownUnit > 0 && ($isManager || $isAutoAssign)) {
+            $unitIds[] = $ownUnit;
+        }
     }
 
     return array_values(array_unique($unitIds));
