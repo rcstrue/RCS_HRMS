@@ -168,6 +168,9 @@ export default function DirectoryPage({
   const [transferClient, setTransferClient] = useState('');
   const [transferUnit, setTransferUnit] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  // Transfer dialog: all clients/units (unrestricted, for destination selection)
+  const [allClients, setAllClients] = useState<ClientOption[]>([]);
+  const [allUnits, setAllUnits] = useState<UnitOption[]>([]);
 
   // ── Load filter options (filtered by access allocation) ──
   const loadFilters = useCallback(async () => {
@@ -328,6 +331,28 @@ export default function DirectoryPage({
     } finally {
       setActionLoading(false);
     }
+  };
+
+  // Load ALL active clients + units for the transfer dialog (no access restriction)
+  const loadTransferOptions = useCallback(async () => {
+    try {
+      const [cRes, uRes] = await Promise.all([
+        fetchClients('active'),
+        fetchUnits('active'),
+      ]);
+      setAllClients(Array.isArray(cRes?.data) ? cRes.data : []);
+      setAllUnits(Array.isArray(uRes?.data) ? uRes.data : []);
+    } catch (err) {
+      logger.error('Failed to load transfer options:', err);
+    }
+  }, []);
+
+  const openTransferDialog = () => {
+    if (!selectedEmployee) return;
+    setTransferClient(String(selectedEmployee.client_id || ''));
+    setTransferUnit('');
+    setTransferDialogOpen(true);
+    loadTransferOptions();
   };
 
   const handleTransfer = async () => {
@@ -830,7 +855,7 @@ export default function DirectoryPage({
                         <button
                           type="button"
                           className="flex items-center justify-center gap-1.5 rounded-md border border-blue-300 bg-blue-50 px-3 py-2.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
-                          onClick={() => { setTransferClient(String(emp.client_id || '')); setTransferUnit(''); setTransferDialogOpen(true); }}
+                          onClick={openTransferDialog}
                         >
                           <ArrowRightLeft className="h-3.5 w-3.5" /> Transfer
                         </button>
@@ -944,7 +969,7 @@ export default function DirectoryPage({
                 <Select value={transferClient} onValueChange={(v) => { setTransferClient(v); setTransferUnit(''); }}>
                   <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select client" /></SelectTrigger>
                   <SelectContent>
-                    {clients.map((c) => (
+                    {allClients.map((c) => (
                       <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -956,8 +981,8 @@ export default function DirectoryPage({
                   <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select unit" /></SelectTrigger>
                   <SelectContent>
                     {(transferClient
-                      ? units.filter((u) => !transferClient || transferClient === 'all_clients' || u.client_id === Number(transferClient))
-                      : units
+                      ? allUnits.filter((u) => !transferClient || transferClient === 'all_clients' || u.client_id === Number(transferClient))
+                      : allUnits
                     ).map((u) => (
                       <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
                     ))}
