@@ -185,7 +185,7 @@ function _handleGet(): void
             AND att.date = ?
             AND att.marked_by IS NOT NULL
         WHERE e.unit_id = ?
-          AND e.status IN ('approved', 'active')
+          AND e.status = 'approved'
         ORDER BY e.full_name ASC
     ");
     $stmt->bind_param('si', $date, $unitId);
@@ -302,16 +302,20 @@ function _handleSave(): void
                 continue;
             }
 
-            // ── Upsert: check for existing supervisor-marked record ──
+            // ── Upsert: check for ANY existing record for this employee+date ──
+            // We must check all records (not just marked_by IS NOT NULL) because
+            // ess_attendance may have a UNIQUE constraint on (employee_id, date).
+            // If employee already self-checked in (marked_by IS NULL), we UPDATE
+            // that record to add supervisor marking rather than INSERTing a new one.
             error_log("[daily-attendance] Row $idx: finding existing record emp=$empId date=$date");
-            $fStmt = $conn->prepare('SELECT id FROM ess_attendance WHERE employee_id = ? AND date = ? AND marked_by IS NOT NULL LIMIT 1');
+            $fStmt = $conn->prepare('SELECT id, marked_by FROM ess_attendance WHERE employee_id = ? AND date = ? ORDER BY marked_by IS NULL LIMIT 1');
             $fStmt->bind_param('ss', (string)$empId, $date);
             $fStmt->execute();
             $existing = $fStmt->get_result()->fetch_assoc();
             $fStmt->close();
 
             if ($existing) {
-                error_log("[daily-attendance] Row $idx: updating att_id=" . (int)$existing['id']);
+                error_log("[daily-attendance] Row $idx: updating att_id=" . (int)$existing['id'] . ' existing_marked_by=' . ($existing['marked_by'] ?? 'NULL'));
                 // Update only daily-attendance-owned fields.
                 // Do NOT touch check_in, check_out, latitude, longitude.
                 $uStmt = $conn->prepare('UPDATE ess_attendance SET status = ?, note = ?, marked_by = ?, updated_at = NOW() WHERE id = ?');
