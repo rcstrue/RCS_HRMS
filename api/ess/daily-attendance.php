@@ -41,7 +41,7 @@ try {
 }
 
 // ─── Valid attendance statuses for supervisor marking ─────────────────────
-const VALID_STATUSES = ['present', 'absent', 'half_day', 'leave', 'weekly_off', 'holiday'];
+define('DA_VALID_STATUSES', ['present', 'absent', 'half_day', 'leave', 'weekly_off', 'holiday']);
 
 // ─── Helper: Check if caller has access to a unit ──────────────────────────
 // Exact copy of team-summary.php's _checkUnitAccess (proven working pattern).
@@ -284,7 +284,7 @@ function _handleSave(): void
                 $errors[] = "Row $idx: missing employee_id";
                 continue;
             }
-            if (!in_array($status, VALID_STATUSES, true)) {
+            if (!in_array($status, DA_VALID_STATUSES, true)) {
                 $errors[] = "Row $idx: invalid status '$status'";
                 continue;
             }
