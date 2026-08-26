@@ -76,7 +76,8 @@ function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string 
 
         // Check 1b: user_access by unit ID (numeric string)
         $accStmt2 = $conn->prepare("SELECT 1 FROM user_access WHERE user_id = ? AND access_type = 'unit' AND access_id = ?");
-        $accStmt2->bind_param('ss', $employeeCode, (string)$unitId);
+        $unitIdStr = (string)$unitId;
+        $accStmt2->bind_param('ss', $employeeCode, $unitIdStr);
         $accStmt2->execute();
         $hasAccess2 = $accStmt2->get_result()->num_rows > 0;
         $accStmt2->close();
@@ -305,8 +306,9 @@ function _handleSave(): void
             // If employee already self-checked in (marked_by IS NULL), we UPDATE
             // that record to add supervisor marking rather than INSERTing a new one.
             error_log("[daily-attendance] Row $idx: finding existing record emp=$empId date=$date");
+            $empIdStr = (string)$empId;
             $fStmt = $conn->prepare('SELECT id, marked_by FROM ess_attendance WHERE employee_id = ? AND date = ? ORDER BY marked_by IS NULL LIMIT 1');
-            $fStmt->bind_param('ss', (string)$empId, $date);
+            $fStmt->bind_param('ss', $empIdStr, $date);
             $fStmt->execute();
             $existing = $fStmt->get_result()->fetch_assoc();
             $fStmt->close();
@@ -316,7 +318,9 @@ function _handleSave(): void
                 // Update only daily-attendance-owned fields.
                 // Do NOT touch check_in, check_out, latitude, longitude.
                 $uStmt = $conn->prepare('UPDATE ess_attendance SET status = ?, note = ?, marked_by = ?, updated_at = NOW() WHERE id = ?');
-                $uStmt->bind_param('sssi', $status, $note, (string)$employeeId, (int)$existing['id']);
+                $markerId = (string)$employeeId;
+                $existId = (int)$existing['id'];
+                $uStmt->bind_param('sssi', $status, $note, $markerId, $existId);
                 $uStmt->execute();
                 $uStmt->close();
             } else {
@@ -324,7 +328,9 @@ function _handleSave(): void
                 // Insert new supervisor-marked record.
                 // Does NOT set check_in/check_out — those remain NULL.
                 $iStmt = $conn->prepare('INSERT INTO ess_attendance (employee_id, date, status, note, marked_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())');
-                $iStmt->bind_param('sssss', (string)$empId, $date, $status, $note, (string)$employeeId);
+                $empIdStr2 = (string)$empId;
+                $markerId2 = (string)$employeeId;
+                $iStmt->bind_param('sssss', $empIdStr2, $date, $status, $note, $markerId2);
                 $iStmt->execute();
                 $iStmt->close();
             }
