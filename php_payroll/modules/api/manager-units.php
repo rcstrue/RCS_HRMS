@@ -63,7 +63,7 @@ if (!$employee) {
 
 // Get city/state allocations
 $allocations = $db->fetchAll(
-    "SELECT * FROM employee_city_allocations WHERE employee_id = ? ORDER BY allocation_type, allocation_value",
+    "SELECT * FROM emp_city_allocations WHERE employee_id = ? ORDER BY allocation_type, allocation_value",
     [$employeeId]
 );
 

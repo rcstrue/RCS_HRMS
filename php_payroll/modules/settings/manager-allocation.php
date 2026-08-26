@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             // Delete old allocations
             $db->delete('user_access', 'user_id = :uid', ['uid' => $empCode]);
-            $db->delete('employee_city_allocations', 'employee_id = :eid', ['eid' => $empCode]);
+            $db->delete('emp_city_allocations', 'employee_id = :eid', ['eid' => $empCode]);
             
             $added = 0;
             
@@ -134,7 +134,7 @@ if ($selectedCode) {
         );
         if (empty($allocations)) {
             $legacy = $db->fetchAll(
-                "SELECT id, employee_id as user_id, allocation_type as access_type, allocation_value as access_id, created_at FROM employee_city_allocations WHERE employee_id = ? AND allocation_type = 'unit' ORDER BY allocation_value",
+                "SELECT id, employee_id as user_id, allocation_type as access_type, allocation_value as access_id, created_at FROM emp_city_allocations WHERE employee_id = ? AND allocation_type = 'unit' ORDER BY allocation_value",
                 [$selectedCode]
             );
             if (!empty($legacy)) $allocations = $legacy;
