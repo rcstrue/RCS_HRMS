@@ -24,7 +24,7 @@ import {
   Timer,
   MapPin,
   Loader2,
-  TableProperties,
+  UserCheck,
   Award,
   ChevronLeft,
   ChevronRight,
@@ -133,7 +133,7 @@ export default function DashboardHome({
   const att = dashboardData?.todayAttendance;
 
   const quickActions = [
-    ...(canViewEmployees ? [{ key: 'team-monthly', label: 'Team Attendance', icon: TableProperties, color: 'text-indigo-600', bg: 'bg-indigo-50' }] : []),
+    ...(canViewEmployees ? [{ key: 'daily-attendance', label: 'Daily Staff Attendance', icon: UserCheck, color: 'text-emerald-600', bg: 'bg-emerald-50' }] : []),
     { key: 'leaves', label: 'Leave', icon: CalendarDays, color: 'text-amber-600', bg: 'bg-amber-50' },
     { key: 'expenses', label: 'Expenses', icon: Receipt, color: 'text-emerald-600', bg: 'bg-emerald-50', isNew: true },
     { key: 'tasks', label: 'Tasks', icon: ClipboardList, color: 'text-violet-600', bg: 'bg-violet-50' },
