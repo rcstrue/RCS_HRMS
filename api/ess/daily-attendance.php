@@ -40,9 +40,6 @@ try {
     jsonOutput(['success' => false, 'error' => 'Internal server error. Please try again later.'], 500);
 }
 
-// ─── Valid attendance statuses for supervisor marking ─────────────────────
-define('DA_VALID_STATUSES', ['present', 'absent', 'half_day', 'leave', 'weekly_off', 'holiday']);
-
 // ─── Helper: Check if caller has access to a unit ──────────────────────────
 // Exact copy of team-summary.php's _checkUnitAccess (proven working pattern).
 // Preserves all 4 access tiers: user_access (name + id), legacy, client-level, own-unit.
@@ -284,7 +281,7 @@ function _handleSave(): void
                 $errors[] = "Row $idx: missing employee_id";
                 continue;
             }
-            if (!in_array($status, DA_VALID_STATUSES, true)) {
+            if (!in_array($status, ['present', 'absent', 'half_day', 'leave', 'weekly_off', 'holiday'], true)) {
                 $errors[] = "Row $idx: invalid status '$status'";
                 continue;
             }
