@@ -86,8 +86,8 @@ function _checkUnitAccess(mysqli $conn, string $employeeId, int $unitId, string 
         if ($hasAccess2) return true;
     }
 
-    // Check 2: employee_city_allocations (legacy)
-    $legacyStmt = $conn->prepare("SELECT 1 FROM employee_city_allocations WHERE employee_id = ? AND allocation_type = 'unit' AND allocation_value = ?");
+    // Check 2: emp_city_allocations (legacy)
+    $legacyStmt = $conn->prepare("SELECT 1 FROM emp_city_allocations WHERE employee_id = ? AND allocation_type = 'unit' AND allocation_value = ?");
     $legacyStmt->bind_param('ss', $employeeId, $unitName);
     $legacyStmt->execute();
     $hasLegacy = $legacyStmt->get_result()->num_rows > 0;
