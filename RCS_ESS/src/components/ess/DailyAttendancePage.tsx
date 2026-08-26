@@ -306,7 +306,7 @@ export default function DailyAttendancePage({ employeeId }: Props) {
 
   return (
     <div className="space-y-4 pb-20 md:pb-6">
-      <PageHeader title="Daily Attendance" subtitle="Mark employee attendance for your units" />
+      <PageHeader title="Daily Staff Attendance" subtitle="Mark employee attendance for your units" />
 
       {/* ── Confirmation Dialog ── */}
       <AlertDialog open={!!pendingAction} onOpenChange={(open) => { if (!open) handleDialogCancel(); }}>
@@ -497,48 +497,68 @@ function EmployeeRow({
   onStatusChange: (empId: number, status: DailyAttendanceStatus | '') => void;
 }) {
   const currentStatus = status || '';
-  const statusColor = currentStatus ? getStatusColor(currentStatus) : 'text-gray-400 border-gray-200 bg-gray-50';
-  const dotColor = currentStatus ? getStatusDotColor(currentStatus) : 'bg-gray-300';
-  const displayLabel = currentStatus ? getStatusLabel(currentStatus) : 'Select Status';
+  const isPresent = currentStatus === 'present';
+  const isAbsent = currentStatus === 'absent';
+  // Dropdown covers: half_day, leave, weekly_off, holiday (non-present/absent statuses)
+  const dropdownValue = (!currentStatus || isPresent || isAbsent) ? '_other' : currentStatus;
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2.5">
+    <div className="flex items-center gap-3 px-3 py-3">
+      {/* LEFT: Employee info */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-sm text-gray-900 truncate">{emp.full_name}</span>
-          {emp.employee_code && (
-            <span className="text-[10px] font-mono text-gray-400">#{emp.employee_code}</span>
-          )}
-        </div>
-        <div className="text-xs text-gray-500 truncate">
-          {emp.designation || emp.worker_category || ''}
-        </div>
+        <p className="font-semibold text-sm text-gray-900 truncate leading-tight">{emp.full_name}</p>
+        <p className="text-[11px] text-gray-500 truncate mt-0.5 leading-tight">
+          {[emp.employee_code, emp.designation].filter(Boolean).join(' · ')}
+        </p>
       </div>
-      {/* Status dropdown - clear, always shows text */}
-      <div className="shrink-0">
-        <Select
-          value={currentStatus}
-          onValueChange={(val) => onStatusChange(emp.employee_id, val as DailyAttendanceStatus)}
+
+      {/* RIGHT: Quick action buttons */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        {/* PRESENT button */}
+        <button
+          type="button"
+          onClick={() => onStatusChange(emp.employee_id, isPresent ? '' : 'present')}
+          className={`flex items-center justify-center rounded-lg text-xs font-bold px-3 py-2.5 min-w-[72px] border transition-all active:scale-95 ${
+            isPresent
+              ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm shadow-emerald-200'
+              : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50'
+          }`}
         >
-          <SelectTrigger className={`w-[130px] h-8 text-xs font-medium border rounded-lg ${statusColor}`}>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
-              <SelectValue placeholder="Select" />
+          PRESENT
+        </button>
+
+        {/* ABSENT button */}
+        <button
+          type="button"
+          onClick={() => onStatusChange(emp.employee_id, isAbsent ? '' : 'absent')}
+          className={`flex items-center justify-center rounded-lg text-xs font-bold px-3 py-2.5 min-w-[72px] border transition-all active:scale-95 ${
+            isAbsent
+              ? 'bg-red-600 text-white border-red-600 shadow-sm shadow-red-200'
+              : 'bg-white text-red-700 border-red-300 hover:bg-red-50'
+          }`}
+        >
+          ABSENT
+        </button>
+
+        {/* Dropdown for other statuses (half_day, leave, weekly_off, holiday) */}
+        <Select
+          value={dropdownValue}
+          onValueChange={(val) => onStatusChange(emp.employee_id, val === '_other' ? '' : val as DailyAttendanceStatus)}
+        >
+          <SelectTrigger className={`w-9 h-10 p-0 border rounded-lg ${
+            currentStatus && !isPresent && !isAbsent
+              ? getStatusColor(currentStatus)
+              : 'border-gray-300 hover:border-gray-400'
+          }`}>
+            <div className="flex items-center justify-center w-full">
+              {currentStatus && !isPresent && !isAbsent ? (
+                <span className={`w-2 h-2 rounded-full shrink-0 ${getStatusDotColor(currentStatus)}`} />
+              ) : (
+                <Clock className="w-3.5 h-3.5 text-gray-400" />
+              )}
             </div>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="present" className="text-xs">
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                Present
-              </span>
-            </SelectItem>
-            <SelectItem value="absent" className="text-xs">
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-red-500" />
-                Absent
-              </span>
-            </SelectItem>
             <SelectItem value="half_day" className="text-xs">
               <span className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-amber-500" />
