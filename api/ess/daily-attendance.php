@@ -270,6 +270,8 @@ function _handleSave(): void
     $saved  = 0;
     $errors = [];
 
+    error_log('[daily-attendance] POST input: date=' . $date . ' unit_id=' . $unitId . ' records_count=' . count($records));
+
     try {
         $conn->begin_transaction();
 
@@ -288,7 +290,8 @@ function _handleSave(): void
             }
 
             // ── Verify employee belongs to the requested unit ──
-            $vStmt = $conn->prepare('SELECT 1 FROM employees WHERE id = ? AND unit_id = ? AND status IN (\'approved\', \'active\') LIMIT 1');
+            error_log("[daily-attendance] Row $idx: verifying emp=$empId unit=$unitId");
+            $vStmt = $conn->prepare('SELECT 1 FROM employees WHERE id = ? AND unit_id = ? AND status = \'approved\' LIMIT 1');
             $vStmt->bind_param('ii', $empId, $unitId);
             $vStmt->execute();
             $belongs = $vStmt->get_result()->num_rows > 0;
@@ -300,6 +303,7 @@ function _handleSave(): void
             }
 
             // ── Upsert: check for existing supervisor-marked record ──
+            error_log("[daily-attendance] Row $idx: finding existing record emp=$empId date=$date");
             $fStmt = $conn->prepare('SELECT id FROM ess_attendance WHERE employee_id = ? AND date = ? AND marked_by IS NOT NULL LIMIT 1');
             $fStmt->bind_param('ss', (string)$empId, $date);
             $fStmt->execute();
@@ -307,6 +311,7 @@ function _handleSave(): void
             $fStmt->close();
 
             if ($existing) {
+                error_log("[daily-attendance] Row $idx: updating att_id=" . (int)$existing['id']);
                 // Update only daily-attendance-owned fields.
                 // Do NOT touch check_in, check_out, latitude, longitude.
                 $uStmt = $conn->prepare('UPDATE ess_attendance SET status = ?, note = ?, marked_by = ?, updated_at = NOW() WHERE id = ?');
@@ -314,6 +319,7 @@ function _handleSave(): void
                 $uStmt->execute();
                 $uStmt->close();
             } else {
+                error_log("[daily-attendance] Row $idx: inserting new record emp=$empId date=$date status=$status");
                 // Insert new supervisor-marked record.
                 // Does NOT set check_in/check_out — those remain NULL.
                 $iStmt = $conn->prepare('INSERT INTO ess_attendance (employee_id, date, status, note, marked_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())');
@@ -331,7 +337,8 @@ function _handleSave(): void
             error_log('[daily-attendance rollback] ' . $rbErr->getMessage());
         }
         error_log('[daily-attendance save] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-        jsonOutput(['success' => false, 'error' => 'Failed to save attendance. Please try again.'], 500);
+        // TEMP DEBUG: expose actual error to find root cause — REMOVE AFTER FIX
+        jsonOutput(['success' => false, 'error' => 'Failed to save attendance. Please try again.', 'debug_exception' => $e->getMessage(), 'debug_file' => $e->getFile(), 'debug_line' => $e->getLine()], 500);
     }
 
     $conn->close();
