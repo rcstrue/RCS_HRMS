@@ -398,18 +398,13 @@ try {
     // Include loan_emi from the grid input
     $payData['loan_emi'] = round2($advances['loan_emi'] ?? 0);
 
-    // Filter $payData to only include columns that actually exist in the payroll table
-    // This prevents SQL errors if auto-migration failed to add month/year
-    $safePayData = array_intersect_key($payData, $payrollColSet);
-    if (empty($safePayData)) {
-        throw new Exception('Payroll table column detection failed — cannot save');
-    }
+    // All payroll columns guaranteed to exist via migration — use full $payData directly
 
     if ($existingPay) {
-        $db->update('payroll', $safePayData, 'id = :id', ['id' => $existingPay['id']]);
+        $db->update('payroll', $payData, 'id = :id', ['id' => $existingPay['id']]);
     } else {
-        $safePayData['created_at'] = date('Y-m-d H:i:s');
-        $db->insert('payroll', $safePayData);
+        $payData['created_at'] = date('Y-m-d H:i:s');
+        $db->insert('payroll', $payData);
     }
 
     // ── Update employee statutory flags in salary structure ──────
