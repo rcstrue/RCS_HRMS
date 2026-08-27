@@ -1,4 +1,4 @@
-name: PHP Syntax Check
+name: PHP Lint (PHPStan + PHPCS)
 
 on:
   push:
@@ -6,6 +6,9 @@ on:
     paths:
       - 'php_payroll/**/*.php'
       - 'api/**/*.php'
+      - 'phpstan*.neon*'
+      - 'phpcs.xml*'
+      - '.github/workflows/php-lint.yml'
   pull_request:
     branches: [ "main", "master" ]
 
@@ -13,26 +16,32 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  phpstan:
+    name: PHPStan (Level 4)
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Check PHP Syntax (php_payroll)
-      run: |
-        find php_payroll/ -name "*.php" -not -path "*/vendor/*" -exec php -l {} \; 2>&1 | grep -v "No syntax errors" || true
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          tools: phpstan
 
-    - name: Check PHP Syntax (ESS API)
-      run: |
-        find api/ -name "*.php" -exec php -l {} \; 2>&1 | grep -v "No syntax errors" || true
+      - name: Run PHPStan
+        run: phpstan analyse --no-progress --error-format=github
 
-    - name: Validate PHP Files Exist
-      run: |
-        PHP_PAYROLL_COUNT=$(find php_payroll/ -name "*.php" -not -path "*/vendor/*" | wc -l)
-        ESS_API_COUNT=$(find api/ -name "*.php" | wc -l)
-        echo "Found $PHP_PAYROLL_COUNT PHP files in php_payroll/"
-        echo "Found $ESS_API_COUNT PHP files in api/"
-        if [ "$PHP_PAYROLL_COUNT" -lt 10 ]; then
-          echo "Warning: Very few PHP files found in php_payroll/"
-        fi
+  phpcs:
+    name: PHPCS (PSR-12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          tools: phpcs
+
+      - name: Run PHPCS
+        run: phpcs --report=full -n
