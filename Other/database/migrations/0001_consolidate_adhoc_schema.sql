@@ -32,12 +32,13 @@ CREATE TABLE IF NOT EXISTS `attendance_summary` (
     `total_present` decimal(5,2) DEFAULT 0.00,
     `total_extra` decimal(5,2) DEFAULT 0.00,
     `overtime_hours` decimal(6,2) DEFAULT 0.00,
-    `total_wo` int(3) DEFAULT 0,
+    `total_wo` decimal(5,2) DEFAULT 0.00,
+    `total_paid_days` decimal(5,2) DEFAULT 0.00,
     `source` enum('Manual','Excel Upload') DEFAULT 'Manual',
     `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
     `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uniq_emp_month_year` (`employee_id`, `month`, `year`),
+    UNIQUE KEY `uniq_emp_unit_month_year` (`employee_id`, `unit_id`, `month`, `year`),
     KEY `idx_unit_month_year` (`unit_id`, `month`, `year`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
