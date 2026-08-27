@@ -440,54 +440,7 @@ if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
         <!-- Push Notifications Tab -->
         <?php if ($tab == 'push'): ?>
         <?php
-        // Self-heal tables
-        try { $db->exec("CREATE TABLE IF NOT EXISTS `push_subscriptions` (
-            `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            `employee_id` VARCHAR(20) NOT NULL,
-            `endpoint` VARCHAR(500) NOT NULL,
-            `p256dh_key` VARCHAR(200) NOT NULL,
-            `auth_key` VARCHAR(200) NOT NULL,
-            `user_agent` VARCHAR(500) DEFAULT '',
-            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY `uk_endpoint` (`endpoint`(255)),
-            INDEX `idx_employee` (`employee_id`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch (\Throwable $e) {}
-
-        try { $db->exec("CREATE TABLE IF NOT EXISTS `push_notification_queue` (
-            `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            `title` VARCHAR(255) NOT NULL,
-            `body` TEXT NOT NULL,
-            `url` VARCHAR(500) DEFAULT '/',
-            `icon` VARCHAR(500) DEFAULT '/logo.png',
-            `target` VARCHAR(50) DEFAULT 'all',
-            `employee_ids` TEXT DEFAULT NULL,
-            `status` ENUM('pending','sending','completed','failed') DEFAULT 'pending',
-            `sent_count` INT UNSIGNED DEFAULT 0,
-            `failed_count` INT UNSIGNED DEFAULT 0,
-            `expired_count` INT UNSIGNED DEFAULT 0,
-            `errors` TEXT DEFAULT NULL,
-            `scheduled_at` DATETIME DEFAULT NULL,
-            `sent_at` DATETIME DEFAULT NULL,
-            `created_by` VARCHAR(50) NOT NULL,
-            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-            `attempt_count` INT UNSIGNED DEFAULT 0,
-            `max_attempts` TINYINT UNSIGNED DEFAULT 5,
-            `next_retry_at` DATETIME DEFAULT NULL,
-            `last_error` TEXT DEFAULT NULL,
-            INDEX `idx_status` (`status`),
-            INDEX `idx_scheduled` (`scheduled_at`, `status`),
-            INDEX `idx_retry` (`next_retry_at`, `status`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch (\Throwable $e) {}
-
-        // Migrate: add retry columns if they don't exist (for existing installs)
-        $queueCols = $db->fetchAll("SHOW COLUMNS FROM push_notification_queue");
-        $queueColNames = array_column($queueCols, 'Field');
-        foreach (['attempt_count' => "INT UNSIGNED DEFAULT 0", 'max_attempts' => "TINYINT UNSIGNED DEFAULT 5", 'next_retry_at' => "DATETIME DEFAULT NULL", 'last_error' => "TEXT DEFAULT NULL"] as $col => $def) {
-            if (!in_array($col, $queueColNames)) {
-                try { $db->exec("ALTER TABLE push_notification_queue ADD COLUMN `$col` $def"); } catch (\Throwable $e) {}
-            }
-        }
+        // (push_subscriptions, push_notification_queue schema managed in migrations)
 
         // Handle push actions
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {

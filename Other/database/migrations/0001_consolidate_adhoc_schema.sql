@@ -201,3 +201,45 @@ CREATE TABLE IF NOT EXISTS `loan_emi_log` (
     UNIQUE KEY `uniq_loan_month_year` (`loan_id`, `month`, `year`),
     KEY `idx_employee_month` (`employee_id`, `month`, `year`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- from modules/notifications/center.php
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `push_subscriptions` (
+    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `employee_id` VARCHAR(20) NOT NULL,
+    `endpoint` VARCHAR(500) NOT NULL,
+    `p256dh_key` VARCHAR(200) NOT NULL,
+    `auth_key` VARCHAR(200) NOT NULL,
+    `user_agent` VARCHAR(500) DEFAULT '',
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY `uk_endpoint` (`endpoint`(255)),
+    INDEX `idx_employee` (`employee_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `push_notification_queue` (
+    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `title` VARCHAR(255) NOT NULL,
+    `body` TEXT NOT NULL,
+    `url` VARCHAR(500) DEFAULT '/',
+    `icon` VARCHAR(500) DEFAULT '/logo.png',
+    `target` VARCHAR(50) DEFAULT 'all',
+    `employee_ids` TEXT DEFAULT NULL,
+    `status` ENUM('pending','sending','completed','failed') DEFAULT 'pending',
+    `sent_count` INT UNSIGNED DEFAULT 0,
+    `failed_count` INT UNSIGNED DEFAULT 0,
+    `expired_count` INT UNSIGNED DEFAULT 0,
+    `errors` TEXT DEFAULT NULL,
+    `scheduled_at` DATETIME DEFAULT NULL,
+    `sent_at` DATETIME DEFAULT NULL,
+    `created_by` VARCHAR(50) NOT NULL,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `attempt_count` INT UNSIGNED DEFAULT 0,
+    `max_attempts` TINYINT UNSIGNED DEFAULT 5,
+    `next_retry_at` DATETIME DEFAULT NULL,
+    `last_error` TEXT DEFAULT NULL,
+    INDEX `idx_status` (`status`),
+    INDEX `idx_scheduled` (`scheduled_at`, `status`),
+    INDEX `idx_retry` (`next_retry_at`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
