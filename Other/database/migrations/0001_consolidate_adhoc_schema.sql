@@ -707,3 +707,18 @@ ALTER TABLE `attendance_summary` ADD COLUMN `daily_data` LONGTEXT DEFAULT NULL A
 -- (ensure worker_category column exists on designations table)
 -- ---------------------------------------------------------------------------
 ALTER TABLE `designations` ADD COLUMN `worker_category` VARCHAR(50) DEFAULT 'Unskilled' AFTER `name`;
+
+
+-- ---------------------------------------------------------------------------
+-- from modules/notifications/bulk-email.php
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `bulk_email_logs` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `campaign_subject` VARCHAR(500) NOT NULL,
+    `recipient_email` VARCHAR(255) NOT NULL,
+    `recipient_name` VARCHAR(255),
+    `status` ENUM('sent','failed','skipped') NOT NULL DEFAULT 'sent',
+    `error_message` TEXT,
+    `sent_by` INT,
+    `sent_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

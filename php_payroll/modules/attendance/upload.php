@@ -7,59 +7,7 @@
 
 $pageTitle = 'Upload Monthly Attendance';
 
-// Ensure attendance_summary table exists (WITHOUT advance columns)
-try {
-    $db->exec("CREATE TABLE IF NOT EXISTS `attendance_summary` (
-        `id` int(11) NOT NULL AUTO_INCREMENT,
-        `employee_id` int(11) NOT NULL,
-        `unit_id` int(11) DEFAULT NULL,
-        `month` int(2) NOT NULL,
-        `year` int(4) NOT NULL,
-        `total_present` decimal(5,2) DEFAULT 0.00,
-        `total_extra` decimal(5,2) DEFAULT 0.00,
-        `overtime_hours` decimal(6,2) DEFAULT 0.00,
-        `total_wo` decimal(5,2) DEFAULT 0.00,
-        `total_paid_days` decimal(5,2) DEFAULT 0.00,
-        `source` enum('Manual','Excel Upload') DEFAULT 'Manual',
-        `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-        `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-        PRIMARY KEY (`id`),
-        UNIQUE KEY `uniq_emp_unit_month_year` (`employee_id`, `unit_id`, `month`, `year`),
-        KEY `idx_unit_month_year` (`unit_id`, `month`, `year`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-    
-    // Ensure total_paid_days column exists (for existing databases)
-    $checkCol = $db->fetch("SHOW COLUMNS FROM attendance_summary LIKE 'total_paid_days'");
-    if (!$checkCol) {
-        $db->exec("ALTER TABLE attendance_summary ADD COLUMN `total_paid_days` decimal(5,2) DEFAULT 0.00 AFTER `total_wo`");
-    }
-} catch (Exception $e) {
-    // Table creation failed
-}
-
-// Ensure employee_advances table exists (SEPARATE TABLE)
-try {
-    $db->exec("CREATE TABLE IF NOT EXISTS `employee_advances` (
-        `id` int(11) NOT NULL AUTO_INCREMENT,
-        `employee_id` int(11) NOT NULL,
-        `unit_id` int(11) DEFAULT NULL,
-        `month` int(2) NOT NULL,
-        `year` int(4) NOT NULL,
-        `adv1` decimal(10,2) DEFAULT 0.00,
-        `adv2` decimal(10,2) DEFAULT 0.00,
-        `office_advance` decimal(10,2) DEFAULT 0.00,
-        `dress_advance` decimal(10,2) DEFAULT 0.00,
-        `remarks` text DEFAULT NULL,
-        `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-        `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-        PRIMARY KEY (`id`),
-        UNIQUE KEY `uniq_emp_month_year` (`employee_id`, `month`, `year`),
-        KEY `idx_unit_month_year` (`unit_id`, `month`, `year`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-} catch (Exception $e) {
-    // Table creation failed
-}
-
+// (attendance_summary & employee_advances schema managed in migrations)
 
 
 // Handle upload

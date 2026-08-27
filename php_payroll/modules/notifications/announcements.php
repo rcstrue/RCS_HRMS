@@ -12,41 +12,7 @@ if (!isset($db) || !is_object($db)) {
     exit;
 }
 
-// ============================================================================
-// Auto-create tables (self-contained, no dependency on expense-setup.php)
-// ============================================================================
-
-try {
-    $db->query("CREATE TABLE IF NOT EXISTS `ess_announcements` (
-        `id` int(11) NOT NULL AUTO_INCREMENT,
-        `title` varchar(255) NOT NULL,
-        `content` text NOT NULL,
-        `created_by` varchar(50) NOT NULL,
-        `target_scope` enum('all','managers','admin') NOT NULL DEFAULT 'all',
-        `target_id` varchar(50) DEFAULT NULL,
-        `priority` enum('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
-        `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-        `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-        PRIMARY KEY (`id`),
-        KEY `idx_created_by` (`created_by`),
-        KEY `idx_priority` (`priority`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-} catch (Exception $e) {}
-
-// Ensure target_scope ENUM includes 'managers' (table may have been created without it)
-try { $db->query("ALTER TABLE `ess_announcements` MODIFY COLUMN `target_scope` enum('all','managers','admin') NOT NULL DEFAULT 'all'"); } catch (Exception $e) {}
-
-try {
-    $db->query("CREATE TABLE IF NOT EXISTS `ess_announcement_reads` (
-        `id` int(11) NOT NULL AUTO_INCREMENT,
-        `announcement_id` int(11) NOT NULL,
-        `user_id` varchar(50) NOT NULL,
-        `read_at` timestamp NOT NULL DEFAULT current_timestamp(),
-        PRIMARY KEY (`id`),
-        UNIQUE KEY `uniq_announcement_user` (`announcement_id`, `user_id`),
-        KEY `idx_user_id` (`user_id`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-} catch (Exception $e) {}
+// (ess_announcements, ess_announcement_reads schema managed in migrations)
 
 // Current user info
 $currentUserId  = $_SESSION['user_id'] ?? '';
