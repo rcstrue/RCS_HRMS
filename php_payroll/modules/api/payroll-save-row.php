@@ -158,45 +158,8 @@ if (!empty($validationErrors)) {
     exit;
 }
 
-// ══ AUTO-MIGRATION: Must run OUTSIDE transaction (DDL causes implicit COMMIT in InnoDB) ══
-// Step 1: Detect which columns exist in payroll table
-$payrollColNames = [];
-try {
-    $colRows = $db->fetchAll("SHOW COLUMNS FROM payroll");
-    $payrollColNames = array_column($colRows, 'Field');
-} catch (Exception $e) {
-    error_log('Payroll column detection failed: ' . $e->getMessage());
-}
-$payrollColSet = array_flip($payrollColNames); // for O(1) lookup
-
-// Step 2: Add missing columns via ALTER TABLE
-if (!isset($payrollColSet['loan_emi'])) {
-    try {
-        $db->exec("ALTER TABLE payroll ADD COLUMN loan_emi DECIMAL(10,2) DEFAULT 0.00");
-        $payrollColSet['loan_emi'] = true;
-        error_log('Auto-migrate: Added loan_emi column to payroll table');
-    } catch (Exception $e) {
-        error_log('Auto-migrate loan_emi FAILED: ' . $e->getMessage());
-    }
-}
-$monthYearMissing = !isset($payrollColSet['month']) || !isset($payrollColSet['year']);
-if ($monthYearMissing) {
-    try {
-        if (!isset($payrollColSet['month'])) {
-            $db->exec("ALTER TABLE payroll ADD COLUMN month INT NOT NULL DEFAULT 0");
-            error_log('Auto-migrate: Added month column to payroll table');
-        }
-        if (!isset($payrollColSet['year'])) {
-            $db->exec("ALTER TABLE payroll ADD COLUMN year INT NOT NULL DEFAULT 0");
-            error_log('Auto-migrate: Added year column to payroll table');
-        }
-        $db->exec("ALTER TABLE payroll ADD INDEX idx_month_year (month, year)");
-        // Backfill no longer needed — payroll_period_id column removed
-        $monthYearMissing = false;
-    } catch (Exception $e) {
-        error_log('Auto-migrate month/year FAILED: ' . $e->getMessage());
-    }
-}
+// (payroll schema: loan_emi, month, year columns managed in migrations)
+// (employee_loans, loan_emi_log tables managed in migrations)
 
 try {
     $db->exec("START TRANSACTION");
@@ -468,48 +431,7 @@ try {
     // ═══════════════════════════════════════════════════════════════
     $loanDeductionTotal = 0;
     try {
-        // Ensure loan tables exist
-        $db->exec("CREATE TABLE IF NOT EXISTS `employee_loans` (
-            `id` int(11) NOT NULL AUTO_INCREMENT,
-            `employee_id` int(11) NOT NULL,
-            `unit_id` int(11) DEFAULT NULL,
-            `loan_type` varchar(50) DEFAULT 'Personal',
-            `amount` decimal(12,2) NOT NULL,
-            `interest_rate` decimal(5,2) DEFAULT 0.00,
-            `tenure_months` int(11) NOT NULL,
-            `emi_amount` decimal(12,2) NOT NULL,
-            `total_interest` decimal(12,2) DEFAULT 0.00,
-            `total_repayable` decimal(12,2) NOT NULL,
-            `balance_amount` decimal(12,2) NOT NULL,
-            `emi_deducted` int(11) DEFAULT 0,
-            `start_month` int(2) NOT NULL,
-            `start_year` int(4) NOT NULL,
-            `status` enum('Active','Closed','Settled','Written Off') DEFAULT 'Active',
-            `remarks` text DEFAULT NULL,
-            `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            KEY `idx_employee` (`employee_id`),
-            KEY `idx_status` (`status`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-        $db->exec("CREATE TABLE IF NOT EXISTS `loan_emi_log` (
-            `id` int(11) NOT NULL AUTO_INCREMENT,
-            `loan_id` int(11) NOT NULL,
-            `employee_id` int(11) NOT NULL,
-            `month` int(2) NOT NULL,
-            `year` int(4) NOT NULL,
-            `emi_amount` decimal(12,2) NOT NULL,
-            `principal_component` decimal(12,2) DEFAULT 0.00,
-            `interest_component` decimal(12,2) DEFAULT 0.00,
-            `balance_after` decimal(12,2) NOT NULL,
-            `payroll_id` int(11) DEFAULT NULL,
-            `deducted_via_payroll` tinyint(1) DEFAULT 1,
-            `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            UNIQUE KEY `uniq_loan_month_year` (`loan_id`, `month`, `year`),
-            KEY `idx_employee_month` (`employee_id`, `month`, `year`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    // (employee_loans, loan_emi_log schema managed in migrations)
 
         // Only proceed if the grid had a loan_emi value > 0
         $gridLoanEmi = (float)($advances['loan_emi'] ?? 0);
