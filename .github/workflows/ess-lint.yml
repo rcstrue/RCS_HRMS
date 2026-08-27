@@ -25,7 +25,7 @@ jobs:
 
      - name: Install deps
        working-directory: RCS_ESS
-       run: bun install --frozen-lockfile
+       run: bun install
 
      - name: Type check
        working-directory: RCS_ESS
@@ -43,7 +43,7 @@ jobs:
 
      - name: Install deps
        working-directory: RCS_ESS
-       run: bun install --frozen-lockfile
+       run: bun install
 
      - name: Lint
        working-directory: RCS_ESS

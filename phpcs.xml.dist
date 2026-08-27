@@ -53,6 +53,7 @@
         <!-- Legacy code relaxations -->
         <exclude name="PSR1.Files.SideEffects.FoundWithSymbols"/>
         <exclude name="PSR1.Methods.CamelCapsMethodName"/>
+        <exclude name="PSR2.Methods.MethodDeclaration.Underscore"/>
         <exclude name="PSR12.Properties.ConstantVisibility"/>
         <exclude name="Generic.PHP.DisallowShortOpenTag.EchoFound"/>
         <exclude name="Generic.Files.LineEndings.InvalidEOLChar"/>

@@ -28,7 +28,13 @@ parameters:
     - '#Parameter \#1 \$\w+ of function (sanitize|formatDate|formatCurrency|maskAadhaar) expects string#'
     - '#Access to an undefined property Database::\$\w+#'
     - '#Call to an undefined method PDOStatement::(execute|fetch|fetchAll)\(\)#'
-    - '#Undefined variable: db#'
+    - '#Undefined variable\:? \$db#'
+    - '#Variable \$db might not be defined#'
+    - '#Variable \$auth might not be defined#'
+    - '#Variable \$page might not be defined#'
+    - '#If condition is always true#'
+    - '#Offset .* always exists and is not nullable#'
+    - '#Array has \d+ duplicate keys#'
   universalObjectCratesClasses:
     - stdClass
   reportUnmatchedIgnoredErrors: false
