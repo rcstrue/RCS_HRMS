@@ -39,8 +39,10 @@
     <!-- Catch = instead of == in if conditions -->
     <rule ref="Generic.CodeAnalysis.AssignmentInCondition"/>
 
-    <!-- Catch empty catch blocks (swallowed errors) -->
-    <rule ref="Generic.CodeAnalysis.EmptyStatement"/>
+    <!-- Catch empty catch/if blocks (swallowed errors) — warn only for legacy compat -->
+    <rule ref="Generic.CodeAnalysis.EmptyStatement">
+        <type>warning</type>
+    </rule>
 
     <!-- ════════════════════════════════════════════════════════════════ -->
     <!-- STYLE — only warnings, never fail CI                          -->

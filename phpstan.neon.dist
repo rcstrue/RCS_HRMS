@@ -29,8 +29,6 @@ parameters:
     - '#Access to an undefined property Database::\$\w+#'
     - '#Call to an undefined method PDOStatement::(execute|fetch|fetchAll)\(\)#'
     - '#Undefined variable: db#'
-  checkMissingIterableValueType: false
-  checkGenericClassInNonGenericObjectType: false
   universalObjectCratesClasses:
     - stdClass
   reportUnmatchedIgnoredErrors: false

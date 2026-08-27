@@ -80,7 +80,7 @@ export function getFileUrl(path: string | null | undefined): string | null {
   }
 
   // Normalize: strip all known prefixes to get just "profile/filename"
-  let cleanPath = path
+  const cleanPath = path
     .replace(/^assets\/uploads\//, '')   // old ESS: assets/uploads/profiles/xxx
     .replace(/^\/uploads\//, '')          // admin: /uploads/profile/xxx
     .replace(/^uploads\//, '')            // variant: uploads/profiles/xxx
