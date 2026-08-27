@@ -17,7 +17,7 @@ parameters:
     # ---- Superglobals & globals set by index.php / config.php ----
     - '~Cannot access property .+ on mixed~'
     - '~Undefined variable: \$_(SESSION|GET|POST|SERVER|FILES|REQUEST|COOKIE)~'
-    - '~(Undefined variable|Variable .+ might not be defined): \$(db|auth|page|\w+)~'
+    - '~Variable .+ might not be defined~'
 
     # ---- Custom DB wrapper (not a standard PDO subclass) ----
     - '~(Call to an undefined method|Access to an undefined property) Database::~'
