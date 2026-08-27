@@ -35,9 +35,9 @@ parameters:
     - '~Comparison operation .+ is always (true|false)~'
     - '~(If condition|Ternary operator condition) is always (true|false)~'
     - '~Result of (&&|\|\|) is always (true|false)~'
+    - '~(Right|Left) side of (&&|\|\|) is always~'
     - '~Negated boolean expression is always~'
-    - '~Right side of \|\| is always true~'
-    - '~Offset .+ (always exists and is not nullable|does not exist)~'
+    - '~Offset .+ (always exists and is not nullable|does not exist|in empty\(\) always exists)~'
     - '~Variable .+ in (isset|empty)\(\) always exists~'
     - '~Variable .+ on left side of \?\? (always exists|is never defined)~'
     - '~Expression on left side of \?\? is not nullable~'
@@ -47,7 +47,8 @@ parameters:
     - '~Property .+ is (unused|never read)~'
     - '~Method .+ is unused~'
     - '~Default value of the parameter .+ is incompatible with type~'
-    - '~Function formatDate invoked with 2 parameters~'
+    - '~Function .+ invoked with \d+ parameters~'
+    - '~Invalid array key type~'
 
   universalObjectCratesClasses:
     - stdClass
