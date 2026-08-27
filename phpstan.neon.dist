@@ -1,0 +1,27 @@
+parameters:
+  level: 4
+  paths:
+    - php_payroll/
+    - api/
+  bootstrapFiles:
+    - phpstan-bootstrap.php
+  scanFiles:
+    - php_payroll/includes/constants.php
+    - php_payroll/config/config.php
+  excludePaths:
+    - php_payroll/vendor/
+    - php_payroll/uploads/
+    - php_payroll/tmp_sessions/
+    - php_payroll/config/config.local.php
+  # Ignore dynamic property access on $db (custom wrapper) and $_SESSION
+  ignoreErrors:
+    - '#Cannot access property \$\w+ on mixed#'
+    - '#Undefined variable\: \$_SESSION#'
+    - '#Call to an undefined method Database::(exec|fetch|fetchAll|fetchColumn|insert|update|delete|query)\(\)#'
+    - '#Unsafe call to private method Database::(getInstance)\(\)#'
+    - '#Parameter \#1 \$\w+ of function (sanitize|formatDate|formatCurrency|maskAadhaar) expects string#'
+  checkMissingIterableValueType: false
+  checkGenericClassInNonGenericObjectType: false
+  universalObjectCratesClasses:
+    - stdClass
+  reportUnmatchedIgnoredErrors: false
