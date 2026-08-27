@@ -8,23 +8,7 @@ $yearFilter = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
 $clientFilter = getSessionFilter('client_id', 0);
 $search = sanitize($_GET['search'] ?? '');
 
-// Create table if not exists (with INT employee_id)
-try {
-    $db->exec("CREATE TABLE IF NOT EXISTS leave_balances (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        employee_id INT(10) UNSIGNED NOT NULL,
-        leave_type ENUM('CL','PL','SL','EL','CO','ML') NOT NULL,
-        year INT NOT NULL,
-        opening_balance DECIMAL(5,2) DEFAULT 0,
-        accrued DECIMAL(5,2) DEFAULT 0,
-        used DECIMAL(5,2) DEFAULT 0,
-        closing_balance DECIMAL(5,2) DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uniq_emp_leave_year (employee_id, leave_type, year)
-    )");
-} catch (Exception $e) {
-    // Table might already exist
-}
+// (leave_balances schema managed in migrations)
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id'])) {
     // CSRF check (Round 9)

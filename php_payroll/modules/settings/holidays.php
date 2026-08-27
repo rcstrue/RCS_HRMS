@@ -6,19 +6,7 @@
 
 $pageTitle = 'Holiday List';
 
-// Create holidays table
-try {
-    $db->exec("CREATE TABLE IF NOT EXISTS holidays (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        year INT NOT NULL,
-        holiday_date DATE NOT NULL,
-        holiday_name VARCHAR(200) NOT NULL,
-        holiday_type ENUM('national','state','company','optional') DEFAULT 'national',
-        is_active TINYINT(1) DEFAULT 1,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uniq_date (holiday_date)
-    )");
-} catch (Exception $e) {}
+// (holidays schema managed in migrations)
 
 $year = (int)($_GET['year'] ?? date('Y'));
 

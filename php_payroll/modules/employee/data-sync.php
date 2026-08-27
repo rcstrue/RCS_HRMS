@@ -14,31 +14,7 @@ if (!in_array($roleCode, ['admin', 'hr', 'hr_executive'])) {
     exit;
 }
 
-// ── Self-heal: ensure log table exists with correct schema ──
-try { $db->exec("CREATE TABLE IF NOT EXISTS `employee_data_sync_logs` (
-    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    `employee_id` INT UNSIGNED DEFAULT NULL,
-    `target_table` VARCHAR(50) DEFAULT NULL,
-    `target_record_id` VARCHAR(50) DEFAULT NULL,
-    `field_name` VARCHAR(100) NOT NULL,
-    `old_value` TEXT DEFAULT NULL,
-    `new_value` TEXT DEFAULT NULL,
-    `source_table` VARCHAR(50) NOT NULL,
-    `source_record_id` VARCHAR(50) DEFAULT NULL,
-    `updated_by` VARCHAR(50) NOT NULL,
-    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-    `ip_address` VARCHAR(45) DEFAULT NULL,
-    `remarks` VARCHAR(500) DEFAULT NULL,
-    INDEX `idx_employee_id` (`employee_id`),
-    INDEX `idx_target` (`target_table`, `target_record_id`),
-    INDEX `idx_updated_at` (`updated_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-// Migrate: add target_table and target_record_id if they don't exist yet
-try { $db->exec("ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`"); } catch (\Throwable $e) {}
-try { $db->exec("ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`"); } catch (\Throwable $e) {}
-try { $db->exec("ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)"); } catch (\Throwable $e) {}
-} catch (\Throwable $e) {}
+// (employee_data_sync_logs schema managed in migrations)
 ?>
 
 <!-- Page Header -->

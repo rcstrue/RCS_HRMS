@@ -18,53 +18,7 @@ if (!in_array($roleCode, ['admin', 'hr', 'hr_executive'])) {
 // ── Prevent indefinite MySQL lock waits (safety net) ──
 try { $db->exec("SET SESSION innodb_lock_wait_timeout = 10"); } catch (\Throwable $e) {}
 
-// ── Ensure tables exist (self-heal on first visit) ──
-try { $db->exec("CREATE TABLE IF NOT EXISTS `esic_ip_master` (
-    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    `ip_number` VARCHAR(50) NOT NULL,
-    `ip_name` VARCHAR(255) DEFAULT NULL,
-    `employer_code` VARCHAR(50) DEFAULT NULL,
-    `employer_name` VARCHAR(255) DEFAULT NULL,
-    `mobile` VARCHAR(20) DEFAULT NULL,
-    `uan` VARCHAR(20) DEFAULT NULL,
-    `account_number` VARCHAR(50) DEFAULT NULL,
-    `bank_name` VARCHAR(255) DEFAULT NULL,
-    `branch_name` VARCHAR(255) DEFAULT NULL,
-    `ifsc_code` VARCHAR(20) DEFAULT NULL,
-    `bank_account_status` VARCHAR(50) DEFAULT NULL,
-    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY `uk_ip_number` (`ip_number`),
-    INDEX `idx_uan` (`uan`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-} catch (\Throwable $e) {}
-
-try { $db->exec("CREATE TABLE IF NOT EXISTS `esic_import_errors` (
-    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    `import_id` INT UNSIGNED NOT NULL,
-    `file_name` VARCHAR(255) NOT NULL,
-    `row_number` INT UNSIGNED DEFAULT NULL,
-    `ip_number` VARCHAR(50) DEFAULT NULL,
-    `reason` VARCHAR(500) NOT NULL,
-    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX `idx_import_id` (`import_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-} catch (\Throwable $e) {}
-
-try { $db->exec("CREATE TABLE IF NOT EXISTS `esic_import_history` (
-    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    `user_id` VARCHAR(50) NOT NULL,
-    `user_name` VARCHAR(255) DEFAULT NULL,
-    `files_uploaded` INT UNSIGNED NOT NULL DEFAULT 0,
-    `rows_read` INT UNSIGNED NOT NULL DEFAULT 0,
-    `rows_inserted` INT UNSIGNED NOT NULL DEFAULT 0,
-    `rows_updated` INT UNSIGNED NOT NULL DEFAULT 0,
-    `rows_skipped` INT UNSIGNED NOT NULL DEFAULT 0,
-    `ip_address` VARCHAR(45) DEFAULT NULL,
-    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX `idx_created_at` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-} catch (\Throwable $e) {}
+// (esic_ip_master, esic_import_errors, esic_import_history schemas managed in migrations)
 
 // ── Collation migration was a one-time operation (already applied) ──
 // Removed ALTER TABLE CONVERT TO CHARACTER SET — it rebuilds the entire

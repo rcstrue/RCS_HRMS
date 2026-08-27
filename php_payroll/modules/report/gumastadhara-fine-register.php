@@ -16,21 +16,7 @@ $deleteId = (int)($_GET['delete'] ?? 0);
 
 $monthName = date('F', mktime(0, 0, 0, $month, 1, $year));
 
-// Auto-create fine_register table if not exists
-try {
-    $db->query("CREATE TABLE IF NOT EXISTS fine_register (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        date DATE NOT NULL,
-        employee_id INT NOT NULL,
-        fine_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
-        nature_of_fine VARCHAR(500),
-        recovery_date DATE,
-        remarks TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-} catch (Exception $e) {
-    // Table may already exist with different syntax
-}
+// (fine_register schema managed in migrations)
 
 // Fetch filter dropdowns
 try {

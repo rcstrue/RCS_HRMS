@@ -7,12 +7,7 @@
 
 $pageTitle = 'Gumastadhara Muster Roll';
 
-// Ensure daily_data column exists in attendance_summary
-try {
-    $db->query("SELECT daily_data FROM attendance_summary LIMIT 1");
-} catch (Exception $e) {
-    $db->exec("ALTER TABLE attendance_summary ADD COLUMN daily_data LONGTEXT DEFAULT NULL AFTER total_paid_days");
-}
+// (attendance_summary.daily_data column managed in migrations)
 
 $month = (int)($_GET['month'] ?? prev_month_num());
 $year = (int)($_GET['year'] ?? date('Y'));

@@ -18,55 +18,7 @@ $asset = [
     'is_returnable' => 1
 ];
 
-// Check if assets table exists, create if not
-try {
-    if (!$db->tableExists('assets')) {
-        $db->exec("CREATE TABLE IF NOT EXISTS `assets` (
-            `id` int(11) NOT NULL AUTO_INCREMENT,
-            `asset_code` varchar(50) NOT NULL,
-            `asset_name` varchar(200) NOT NULL,
-            `asset_type` enum('equipment','uniform','tools','vehicle','electronic','furniture','safety','other') DEFAULT 'other',
-            `description` text DEFAULT NULL,
-            `serial_number` varchar(100) DEFAULT NULL,
-            `quantity` int(11) NOT NULL DEFAULT 1,
-            `available_quantity` int(11) NOT NULL DEFAULT 1,
-            `is_returnable` tinyint(1) DEFAULT 1,
-            `is_active` tinyint(1) DEFAULT 1,
-            `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-            `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-            PRIMARY KEY (`id`),
-            UNIQUE KEY `uk_asset_code` (`asset_code`),
-            KEY `idx_asset_type` (`asset_type`),
-            KEY `idx_active` (`is_active`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-        // Also create employee_assets table
-        $db->exec("CREATE TABLE IF NOT EXISTS `employee_assets` (
-            `id` int(11) NOT NULL AUTO_INCREMENT,
-            `employee_id` int(11) NOT NULL,
-            `asset_id` int(11) NOT NULL,
-            `quantity` int(11) NOT NULL DEFAULT 1,
-            `issue_date` date NOT NULL,
-            `expected_return_date` date DEFAULT NULL,
-            `issue_condition` enum('new','good','worn','damaged') DEFAULT 'new',
-            `issue_remarks` text DEFAULT NULL,
-            `status` enum('issued','returned','damaged','lost') DEFAULT 'issued',
-            `return_date` date DEFAULT NULL,
-            `return_condition` enum('new','good','worn','damaged') DEFAULT NULL,
-            `return_remarks` text DEFAULT NULL,
-            `issued_by` int(11) DEFAULT NULL,
-            `received_by` int(11) DEFAULT NULL,
-            `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-            `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-            PRIMARY KEY (`id`),
-            KEY `idx_employee` (`employee_id`),
-            KEY `idx_asset` (`asset_id`),
-            KEY `idx_status` (`status`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-    }
-} catch (Exception $e) {
-    $errors[] = 'Error creating assets table: ' . $e->getMessage();
-}
+// (assets, employee_assets schemas managed in migrations)
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

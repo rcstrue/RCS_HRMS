@@ -6,42 +6,9 @@
 
 $pageTitle = 'Leave Management';
 
-// Create leave_applications table if not exists
-try {
-    $db->exec("CREATE TABLE IF NOT EXISTS leave_applications (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        employee_id INT(10) UNSIGNED NOT NULL,
-        leave_type ENUM('CL','PL','SL','EL','CO','ML','LWP') NOT NULL,
-        from_date DATE NOT NULL,
-        to_date DATE NOT NULL,
-        total_days DECIMAL(5,1) DEFAULT 0.5,
-        reason TEXT,
-        status ENUM('pending','approved','rejected','cancelled') DEFAULT 'pending',
-        approved_by INT DEFAULT NULL,
-        approved_at DATETIME DEFAULT NULL,
-        rejection_reason TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        KEY idx_employee (employee_id),
-        KEY idx_status (status)
-    )");
-} catch (Exception $e) {}
+// (leave_applications, leave_balances schemas managed in migrations)
 
-// Ensure leave_balances exists
-try {
-    $db->exec("CREATE TABLE IF NOT EXISTS leave_balances (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        employee_id INT(10) UNSIGNED NOT NULL,
-        leave_type ENUM('CL','PL','SL','EL','CO','ML') NOT NULL,
-        year INT NOT NULL,
-        opening_balance DECIMAL(5,2) DEFAULT 0,
-        accrued DECIMAL(5,2) DEFAULT 0,
-        used DECIMAL(5,2) DEFAULT 0,
-        closing_balance DECIMAL(5,2) DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uniq_emp_leave_year (employee_id, leave_type, year)
-    )");
-} catch (Exception $e) {}
+
 
 $activeTab = $_GET['tab'] ?? 'applications';
 $leaveTypes = ['CL'=>'Casual Leave','PL'=>'Privilege Leave','SL'=>'Sick Leave','EL'=>'Earned Leave','CO'=>'Compensatory Off','ML'=>'Medical Leave','LWP'=>'Leave Without Pay'];

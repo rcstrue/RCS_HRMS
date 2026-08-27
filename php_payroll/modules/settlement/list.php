@@ -7,49 +7,10 @@
 
 $pageTitle = 'Full & Final Settlement';
 
-$tablesExist = true;
+// (employee_settlements schema managed in migrations)
+$tablesExist = $db->tableExists('employee_settlements');
 $settlements = [];
 $resigningEmployees = [];
-
-// Check if required tables exist, auto-create if missing
-try {
-    $tablesExist = $db->tableExists('employee_settlements');
-    if (!$tablesExist) {
-        $db->exec("CREATE TABLE IF NOT EXISTS employee_settlements (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            employee_id INT(10) UNSIGNED NOT NULL,
-            last_working_day DATE NOT NULL,
-            leaving_reason VARCHAR(50) NOT NULL DEFAULT 'Resignation',
-            service_years DECIMAL(6,2) DEFAULT 0,
-            salary_days INT DEFAULT 0,
-            salary_amount DECIMAL(12,2) DEFAULT 0,
-            leave_encashment_days DECIMAL(6,2) DEFAULT 0,
-            leave_encashment_amount DECIMAL(12,2) DEFAULT 0,
-            gratuity_years INT DEFAULT 0,
-            gratuity_amount DECIMAL(12,2) DEFAULT 0,
-            bonus_amount DECIMAL(12,2) DEFAULT 0,
-            notice_shortfall INT DEFAULT 0,
-            notice_recovery DECIMAL(12,2) DEFAULT 0,
-            advance_recovery DECIMAL(12,2) DEFAULT 0,
-            total_earnings DECIMAL(12,2) DEFAULT 0,
-            total_deductions DECIMAL(12,2) DEFAULT 0,
-            net_payable DECIMAL(12,2) DEFAULT 0,
-            status ENUM('pending','approved','paid','on_hold','rejected') DEFAULT 'pending',
-            payment_date DATE NULL,
-            payment_mode VARCHAR(50) NULL,
-            payment_reference VARCHAR(100) NULL,
-            created_by INT NULL,
-            approved_by INT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            approved_at TIMESTAMP NULL,
-            INDEX idx_employee (employee_id),
-            INDEX idx_status (status)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-        $tablesExist = true;
-    }
-} catch (Exception $e) {
-    $tablesExist = false;
-}
 
 // Handle new settlement calculation
 if ($tablesExist && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {

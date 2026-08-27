@@ -6,26 +6,7 @@
  */
 $pageTitle = 'Form XXI - Register of Deductions';
 
-// ── Auto-create table ───────────────────────────────────────────────
-try {
-    global $db;
-    $db->exec("CREATE TABLE IF NOT EXISTS deductions_register (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        deduction_date DATE NOT NULL,
-        employee_id INT,
-        employee_code VARCHAR(100) DEFAULT '',
-        employee_name VARCHAR(255) DEFAULT '',
-        nature_of_deduction VARCHAR(255) NOT NULL,
-        amount DECIMAL(12,2) NOT NULL DEFAULT 0,
-        authority VARCHAR(255) DEFAULT '',
-        recovery_date DATE,
-        remarks TEXT DEFAULT '',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-} catch (Exception $e) {
-    die('Table creation failed: ' . $e->getMessage());
-}
+// (deductions_register schema managed in migrations)
 
 // ── Fetch employees for dropdown ────────────────────────────────────
 $employees = [];

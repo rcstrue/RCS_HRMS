@@ -13,36 +13,7 @@ if (!in_array($roleCode, ['admin', 'hr', 'hr_executive'])) {
     exit;
 }
 
-// ── Self-heal: ensure table exists ──
-try { $db->exec("CREATE TABLE IF NOT EXISTS `unit_salary_templates` (
-    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    `unit_id` INT UNSIGNED NOT NULL,
-    `template_name` VARCHAR(100) NOT NULL,
-    `worker_categories` VARCHAR(500) DEFAULT NULL,
-    `is_default` TINYINT(1) NOT NULL DEFAULT 0,
-    `net_salary` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    `basic_da` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    `hra` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    `leave_encashment` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    `bonus_encashment` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    `washing_allowance` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    `gross_salary` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    `pf_applicable` TINYINT(1) NOT NULL DEFAULT 1,
-    `esi_applicable` TINYINT(1) NOT NULL DEFAULT 1,
-    `pt_applicable` TINYINT(1) NOT NULL DEFAULT 1,
-    `lwf_applicable` TINYINT(1) NOT NULL DEFAULT 1,
-    `overtime_applicable` TINYINT(1) NOT NULL DEFAULT 1,
-    `bonus_applicable` TINYINT(1) NOT NULL DEFAULT 1,
-    `gratuity_applicable` TINYINT(1) NOT NULL DEFAULT 1,
-    `bonus_percent` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
-    `leave_percent` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
-    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
-    `created_by` VARCHAR(50) DEFAULT NULL,
-    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX `idx_unit_active` (`unit_id`, `is_active`),
-    INDEX `idx_unit_default` (`unit_id`, `is_default`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"); } catch (\Throwable $e) {}
+// (unit_salary_templates schema managed in migrations)
 
 // ── Check if employee_salary_structures has template_id/applied_month (read-only, no ALTER) ──
 $hasTemplateColumns = true;

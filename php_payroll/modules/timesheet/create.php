@@ -6,50 +6,7 @@
 
 $pageTitle = 'Create Timesheet';
 
-// Check if timesheets table exists, create if not
-try {
-    $db->query("CREATE TABLE IF NOT EXISTS timesheets (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        timesheet_code VARCHAR(50) UNIQUE,
-        client_id INT,
-        unit_id INT,
-        month INT NOT NULL,
-        year INT NOT NULL,
-        start_date DATE,
-        end_date DATE,
-        total_employees INT DEFAULT 0,
-        total_hours DECIMAL(10,2) DEFAULT 0,
-        total_overtime_hours DECIMAL(10,2) DEFAULT 0,
-        status ENUM('draft', 'submitted', 'approved', 'rejected') DEFAULT 'draft',
-        remarks TEXT,
-        created_by INT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        approved_by INT,
-        approved_at TIMESTAMP NULL,
-        INDEX idx_client_month_year (client_id, month, year),
-        INDEX idx_status (status)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    
-    $db->query("CREATE TABLE IF NOT EXISTS timesheet_entries (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        timesheet_id INT NOT NULL,
-        employee_id INT NOT NULL,
-        employee_code VARCHAR(50),
-        date DATE NOT NULL,
-        shift_start TIME,
-        shift_end TIME,
-        total_hours DECIMAL(5,2) DEFAULT 0,
-        overtime_hours DECIMAL(5,2) DEFAULT 0,
-        is_present TINYINT(1) DEFAULT 1,
-        remarks VARCHAR(255),
-        INDEX idx_timesheet_employee (timesheet_id, employee_id),
-        INDEX idx_date (date),
-        FOREIGN KEY (timesheet_id) REFERENCES timesheets(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-} catch (Exception $e) {
-    // Ignore table creation errors
-}
+// (timesheets, timesheet_entries schemas managed in migrations)
 
 // Get filters
 $selectedMonth = isset($_GET['month']) ? (int)$_GET['month'] : (int)prev_month_num();

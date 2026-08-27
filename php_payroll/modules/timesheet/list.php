@@ -5,25 +5,7 @@
  */
 $pageTitle = 'Client Timesheets';
 
-// ── Self-heal: ensure table exists ──
-try { $db->exec("CREATE TABLE IF NOT EXISTS `client_timesheets` (
-    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    `client_id` INT UNSIGNED DEFAULT NULL,
-    `unit_id` INT UNSIGNED DEFAULT NULL,
-    `invoice_id` INT UNSIGNED DEFAULT NULL,
-    `period_from` DATE DEFAULT NULL,
-    `period_to` DATE DEFAULT NULL,
-    `status` VARCHAR(50) DEFAULT 'draft',
-    `total_manpower` DECIMAL(10,2) DEFAULT 0,
-    `total_amount` DECIMAL(12,2) DEFAULT 0,
-    `remarks` TEXT DEFAULT NULL,
-    `created_by` VARCHAR(50) DEFAULT NULL,
-    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX `idx_client_id` (`client_id`),
-    INDEX `idx_status` (`status`),
-    INDEX `idx_period` (`period_from`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"); } catch (\Throwable $e) {}
+// (client_timesheets schema managed in migrations)
 
 // Filters
 $status_filter = $_GET['status'] ?? '';

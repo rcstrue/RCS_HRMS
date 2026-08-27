@@ -20,24 +20,17 @@ $pageTitle = 'Manage Designations';
 // Canonical worker categories (must match employee form + minimum-wage lookup)
 $WORKER_CATEGORIES = ['Unskilled', 'Semi-skilled', 'Skilled', 'Highly Skilled'];
 
-// Detect whether worker_category column exists (migration may not be run yet).
-$hasWorkerCategoryCol = false;
+// (designations.worker_category column managed in migrations)
+$hasWorkerCategoryCol = true;
 try {
-    $col = $db->fetch("SHOW COLUMNS FROM designations LIKE 'worker_category'");
-    $hasWorkerCategoryCol = !empty($col);
-} catch (Exception $e) {
-    $hasWorkerCategoryCol = false;
-}
-
-// Get all designations with employee count (+ worker_category if present)
-if ($hasWorkerCategoryCol) {
     $designations = $db->fetchAll(
         "SELECT d.id, d.name, d.worker_category, d.desi_view,
                 (SELECT COUNT(*) FROM employees e WHERE e.designation = d.name) as emp_count
          FROM designations d
          ORDER BY d.name"
     );
-} else {
+} catch (Exception $e) {
+    $hasWorkerCategoryCol = false;
     $designations = $db->fetchAll(
         "SELECT d.id, d.name, 'Unskilled' AS worker_category, d.desi_view,
                 (SELECT COUNT(*) FROM employees e WHERE e.designation = d.name) as emp_count

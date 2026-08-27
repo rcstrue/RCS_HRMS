@@ -1,15 +1,5 @@
 <?php $pageTitle = 'Announcements';
-$db->exec("CREATE TABLE IF NOT EXISTS announcements (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    title VARCHAR(255) NOT NULL,
-    content TEXT,
-    type ENUM('general','holiday','policy','event','urgent') DEFAULT 'general',
-    start_date DATE,
-    end_date DATE,
-    is_active TINYINT(1) DEFAULT 1,
-    is_pinned TINYINT(1) DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)");
+// (announcements schema managed in migrations)
 
 $announcements = $db->query("SELECT * FROM announcements ORDER BY is_pinned DESC, created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
 $typeColors = ['general'=>'primary','holiday'=>'success','policy'=>'info','event'=>'warning','urgent'=>'danger'];

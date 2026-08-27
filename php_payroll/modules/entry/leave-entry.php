@@ -6,26 +6,7 @@
 
 $pageTitle = 'Leave Entry';
 
-// Ensure leave_applications table exists
-try {
-    $db->exec("CREATE TABLE IF NOT EXISTS leave_applications (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        employee_id INT(10) UNSIGNED NOT NULL,
-        leave_type ENUM('CL','PL','SL','EL','CO','ML','LWP') NOT NULL,
-        from_date DATE NOT NULL,
-        to_date DATE NOT NULL,
-        total_days DECIMAL(5,1) DEFAULT 0.5,
-        reason TEXT,
-        status ENUM('pending','approved','rejected','cancelled') DEFAULT 'pending',
-        approved_by INT DEFAULT NULL,
-        approved_at DATETIME DEFAULT NULL,
-        rejection_reason TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        KEY idx_employee (employee_id),
-        KEY idx_status (status)
-    )");
-} catch (Exception $e) {}
+// (leave_applications schema managed in migrations)
 
 // Leave types
 $leaveTypes = [

@@ -56,21 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         ];
         
         try {
-            // Check if pt_challans table exists
-            $db->query("CREATE TABLE IF NOT EXISTS pt_challans (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                state VARCHAR(100) NOT NULL,
-                month INT NOT NULL,
-                year INT NOT NULL,
-                challan_number VARCHAR(100),
-                challan_date DATE,
-                amount DECIMAL(12,2),
-                total_employees INT DEFAULT 0,
-                remarks TEXT,
-                created_by INT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_state_month_year (state, month, year)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            // (pt_challans schema managed in migrations)
             
             $insertStmt = $db->prepare("INSERT INTO pt_challans (state, month, year, challan_number, challan_date, amount, total_employees, remarks, created_by, created_at) 
                                         VALUES (:state, :month, :year, :challan_number, :challan_date, :amount, :total_employees, :remarks, :created_by, :created_at)");

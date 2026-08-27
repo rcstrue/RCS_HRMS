@@ -6,26 +6,7 @@
  */
 $pageTitle = 'Form 24 - Register of Contractors';
 
-// ── Auto-create table if not exists ──────────────────────────────────
-try {
-    global $db;
-    $db->exec("CREATE TABLE IF NOT EXISTS contractors_register (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        contractor_name VARCHAR(255) NOT NULL,
-        registration_number VARCHAR(100) DEFAULT '',
-        nature_of_work VARCHAR(255) DEFAULT '',
-        total_workers INT DEFAULT 0,
-        license_valid_from DATE,
-        license_valid_to DATE,
-        license_fee DECIMAL(12,2) DEFAULT 0,
-        remarks TEXT DEFAULT '',
-        status VARCHAR(50) DEFAULT 'active',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-} catch (Exception $e) {
-    die('Table creation failed: ' . $e->getMessage());
-}
+// (contractors_register schema managed in migrations)
 
 // ── Handle POST actions ─────────────────────────────────────────────
 $message = '';

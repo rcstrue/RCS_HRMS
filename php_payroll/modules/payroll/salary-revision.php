@@ -26,26 +26,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
     redirect('index.php?page=payroll/salary-revision');
 }
 
-// ── Ensure upload tracking table exists ──────────────────────────────────────
-try {
-    $db->exec("CREATE TABLE IF NOT EXISTS `salary_revision_uploads` (
-        `id` INT AUTO_INCREMENT PRIMARY KEY,
-        `uploaded_by` INT NOT NULL,
-        `effective_from` DATE NOT NULL,
-        `original_filename` VARCHAR(255) NOT NULL,
-        `uploaded_file` VARCHAR(500) DEFAULT NULL,
-        `error_file` VARCHAR(500) DEFAULT NULL,
-        `total_rows` INT NOT NULL DEFAULT 0,
-        `succeeded` INT NOT NULL DEFAULT 0,
-        `failed` INT NOT NULL DEFAULT 0,
-        `status` ENUM('success','partial','failed') NOT NULL DEFAULT 'success',
-        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX `idx_uploaded_by` (`uploaded_by`),
-        INDEX `idx_created_at` (`created_at`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-} catch (Exception $e) {
-    // Table may already exist with slightly different schema - non-fatal
-}
+// (salary_revision_uploads schema managed in migrations)
 
 // Get filters
 $filterClientId = getSessionFilter('client_id', 0);

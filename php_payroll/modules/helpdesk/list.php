@@ -6,34 +6,7 @@
 
 $pageTitle = 'Helpdesk';
 
-// Auto-migrate: add missing columns to ess_helpdesk_tickets
-try {
-    $db->query("CREATE TABLE IF NOT EXISTS `ess_helpdesk_tickets` (
-        `id` int(11) NOT NULL AUTO_INCREMENT,
-        `employee_id` int(11) DEFAULT NULL,
-        `category` enum('hr','payroll','it','admin','other') NOT NULL DEFAULT 'hr',
-        `subject` varchar(255) NOT NULL,
-        `description` text DEFAULT NULL,
-        `status` enum('open','in_progress','resolved','closed') NOT NULL DEFAULT 'open',
-        `priority` enum('low','medium','high','urgent') NOT NULL DEFAULT 'medium',
-        `resolved_by` varchar(50) DEFAULT NULL,
-        `resolution` text DEFAULT NULL,
-        `created_by` varchar(50) DEFAULT NULL,
-        `ticket_number` varchar(20) DEFAULT NULL,
-        `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-        `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-        PRIMARY KEY (`id`),
-        KEY `idx_status` (`status`),
-        KEY `idx_employee` (`employee_id`),
-        KEY `idx_priority` (`priority`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-} catch (Exception $e) {}
-
-// Add missing columns if table already exists
-try { $db->query("ALTER TABLE `ess_helpdesk_tickets` ADD COLUMN `ticket_number` varchar(20) DEFAULT NULL AFTER `resolution`"); } catch (Exception $e) {}
-try { $db->query("ALTER TABLE `ess_helpdesk_tickets` ADD COLUMN `created_by` varchar(50) DEFAULT NULL AFTER `ticket_number`"); } catch (Exception $e) {}
-try { $db->query("ALTER TABLE `ess_helpdesk_tickets` ADD COLUMN `resolved_by` varchar(50) DEFAULT NULL AFTER `priority`"); } catch (Exception $e) {}
-try { $db->query("ALTER TABLE `ess_helpdesk_tickets` ADD COLUMN `resolution` text DEFAULT NULL AFTER `resolved_by`"); } catch (Exception $e) {}
+// (ess_helpdesk_tickets, ess_helpdesk_comments schemas managed in migrations)
 
 // Backfill ticket_number for existing rows that don't have one
 try {
@@ -42,20 +15,6 @@ try {
         $tktNum = 'TKT-' . date('Y') . '-' . str_pad($row['id'], 5, '0', STR_PAD_LEFT);
         $db->prepare("UPDATE ess_helpdesk_tickets SET ticket_number = :tn WHERE id = :id")->execute([':tn' => $tktNum, ':id' => $row['id']]);
     }
-} catch (Exception $e) {}
-
-// Create comments table
-try {
-    $db->query("CREATE TABLE IF NOT EXISTS `ess_helpdesk_comments` (
-        `id` int(11) NOT NULL AUTO_INCREMENT,
-        `ticket_id` int(11) NOT NULL,
-        `user_id` varchar(50) DEFAULT NULL,
-        `comment` text NOT NULL,
-        `is_internal` tinyint(1) NOT NULL DEFAULT 0,
-        `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-        PRIMARY KEY (`id`),
-        KEY `idx_ticket` (`ticket_id`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 } catch (Exception $e) {}
 
 // Filters

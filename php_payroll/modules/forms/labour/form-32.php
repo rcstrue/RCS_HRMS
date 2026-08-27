@@ -6,31 +6,7 @@
  */
 $pageTitle = 'Form 32 - Register of Injuries';
 
-// ── Auto-create table ───────────────────────────────────────────────
-try {
-    global $db;
-    $db->exec("CREATE TABLE IF NOT EXISTS injury_register (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        injury_date DATE NOT NULL,
-        employee_id INT,
-        employee_code VARCHAR(100) DEFAULT '',
-        employee_name VARCHAR(255) DEFAULT '',
-        nature_of_injury VARCHAR(255) NOT NULL,
-        cause_of_injury VARCHAR(255) DEFAULT '',
-        body_part_affected VARCHAR(255) DEFAULT '',
-        treatment_given VARCHAR(500) DEFAULT '',
-        hospital_name VARCHAR(255) DEFAULT '',
-        days_lost INT DEFAULT 0,
-        compensation_amount DECIMAL(12,2) DEFAULT 0,
-        accident_type VARCHAR(50) DEFAULT 'minor',
-        status VARCHAR(50) DEFAULT 'open',
-        remarks TEXT DEFAULT '',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-} catch (Exception $e) {
-    die('Table creation failed: ' . $e->getMessage());
-}
+// (injury_register schema managed in migrations)
 
 // ── Fetch employees ─────────────────────────────────────────────────
 $employees = [];

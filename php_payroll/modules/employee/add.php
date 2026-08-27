@@ -359,15 +359,15 @@ try {
 
 $designations = [];
 try {
-    // Detect whether worker_category column exists (migration may not be run yet)
-    $hasDesCatCol = !empty($db->fetch("SHOW COLUMNS FROM designations LIKE 'worker_category'"));
-    if ($hasDesCatCol) {
-        $designations = $db->query("SELECT id, name, COALESCE(NULLIF(worker_category,''),'Unskilled') AS worker_category FROM designations ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-    } else {
-        $designations = $db->query("SELECT id, name, 'Unskilled' AS worker_category FROM designations ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-    }
+    // (designations.worker_category column managed in migrations)
+    $designations = $db->query("SELECT id, name, COALESCE(NULLIF(worker_category,''),'Unskilled') AS worker_category FROM designations ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
-    error_log('Failed to load designations: ' . $e->getMessage());
+    // Fallback if worker_category column doesn't exist yet
+    try {
+        $designations = $db->query("SELECT id, name, 'Unskilled' AS worker_category FROM designations ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e2) {
+        error_log('Failed to load designations: ' . $e2->getMessage());
+    }
 }
 // Lookup map: designation name => worker_category (used by JS auto-populate)
 $designationCategoryMap = [];
