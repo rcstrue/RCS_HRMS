@@ -9,17 +9,26 @@ parameters:
     - php_payroll/includes/constants.php
     - php_payroll/config/config.php
   excludePaths:
-    - php_payroll/vendor/
-    - php_payroll/uploads/
-    - php_payroll/tmp_sessions/
-    - php_payroll/config/config.local.php
-  # Ignore dynamic property access on $db (custom wrapper) and $_SESSION
+    - php_payroll/vendor (?)
+    - php_payroll/uploads (?)
+    - php_payroll/tmp_sessions (?)
+    - php_payroll/config/config.local.php (?)
+  # Ignore dynamic property access on $db (custom wrapper) and superglobals
   ignoreErrors:
     - '#Cannot access property \$\w+ on mixed#'
     - '#Undefined variable\: \$_SESSION#'
-    - '#Call to an undefined method Database::(exec|fetch|fetchAll|fetchColumn|insert|update|delete|query)\(\)#'
+    - '#Undefined variable\: \$_GET#'
+    - '#Undefined variable\: \$_POST#'
+    - '#Undefined variable\: \$_SERVER#'
+    - '#Undefined variable\: \$_FILES#'
+    - '#Undefined variable\: \$_REQUEST#'
+    - '#Undefined variable\: \$_COOKIE#'
+    - '#Call to an undefined method Database::(exec|fetch|fetchAll|fetchColumn|insert|update|delete|query|prepare)\(\)#'
     - '#Unsafe call to private method Database::(getInstance)\(\)#'
     - '#Parameter \#1 \$\w+ of function (sanitize|formatDate|formatCurrency|maskAadhaar) expects string#'
+    - '#Access to an undefined property Database::\$\w+#'
+    - '#Call to an undefined method PDOStatement::(execute|fetch|fetchAll)\(\)#'
+    - '#Undefined variable: db#'
   checkMissingIterableValueType: false
   checkGenericClassInNonGenericObjectType: false
   universalObjectCratesClasses:

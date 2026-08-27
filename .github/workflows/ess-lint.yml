@@ -13,42 +13,38 @@ permissions:
   contents: read
 
 jobs:
-  typecheck:
-    name: TypeScript
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+ typecheck:
+   name: TypeScript
+   runs-on: ubuntu-latest
+   steps:
+     - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: RCS_ESS/package-lock.json
+     - uses: oven-sh/setup-bun@v2
+       with:
+         bun-version: latest
 
-      - name: Install deps
-        working-directory: RCS_ESS
-        run: npm ci
+     - name: Install deps
+       working-directory: RCS_ESS
+       run: bun install --frozen-lockfile
 
-      - name: Type check
-        working-directory: RCS_ESS
-        run: npx tsc --noEmit
+     - name: Type check
+       working-directory: RCS_ESS
+       run: bunx tsc --noEmit
 
-  eslint:
-    name: ESLint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+ eslint:
+   name: ESLint
+   runs-on: ubuntu-latest
+   steps:
+     - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: RCS_ESS/package-lock.json
+     - uses: oven-sh/setup-bun@v2
+       with:
+         bun-version: latest
 
-      - name: Install deps
-        working-directory: RCS_ESS
-        run: npm ci
+     - name: Install deps
+       working-directory: RCS_ESS
+       run: bun install --frozen-lockfile
 
-      - name: Lint
-        working-directory: RCS_ESS
-        run: npx eslint . --max-warnings=999
+     - name: Lint
+       working-directory: RCS_ESS
+       run: bunx eslint . --max-warnings=999

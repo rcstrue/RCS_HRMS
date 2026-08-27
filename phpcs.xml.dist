@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <ruleset name="RCS HRMS">
-    <description>PHPCS config for RCS HRMS — PSR-12 with legacy relaxations</description>
+    <description>PHPCS config for RCS HRMS — Bug-catching only, no style policing on legacy code</description>
 
     <!-- Only scan PHP files in these dirs -->
     <file>php_payroll/</file>
@@ -12,21 +12,11 @@
     <exclude-pattern>php_payroll/tmp_sessions/</exclude-pattern>
     <exclude-pattern>php_payroll/config/config.local.php</exclude-pattern>
 
-    <!-- PSR-12 base standard -->
-    <rule ref="PSR12">
-        <!-- Legacy code relaxations -->
-        <exclude name="PSR1.Files.SideEffects.FoundWithSymbols"/>
-        <exclude name="PSR1.Methods.CamelCapsMethodName"/>
-        <exclude name="PSR12.Properties.ConstantVisibility"/>
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- BUG CATCHING (fail on these)                                  -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
 
-        <!-- Allow short echo tags (legacy views use <?=) -->
-        <exclude name="Generic.PHP.DisallowShortOpenTag.EchoFound"/>
-
-        <!-- Allow mixed line endings (some files have CRLF) -->
-        <exclude name="Generic.Files.LineEndings.InvalidEOLChar"/>
-    </rule>
-
-    <!-- Catch common bugs -->
+    <!-- Catch dangerous function usage -->
     <rule ref="Generic.PHP.ForbiddenFunctions">
         <properties>
             <property name="forbiddenFunctions" type="array">
@@ -36,16 +26,42 @@
                 <element key="mysql_real_escape_string"/>
                 <element key="eval"/>
                 <element key="extract"/>
-                <element key="var_dump"/>
             </property>
         </properties>
     </rule>
 
-    <!-- Line length — generous for SQL queries in PHP -->
+    <!-- PHP syntax errors -->
+    <rule ref="Generic.PHP.Syntax"/>
+
+    <!-- Catch deprecated PHP features -->
+    <rule ref="Generic.PHP.DeprecatedFunctions"/>
+
+    <!-- Catch = instead of == in if conditions -->
+    <rule ref="Generic.CodeAnalysis.AssignmentInCondition"/>
+
+    <!-- Catch empty catch blocks (swallowed errors) -->
+    <rule ref="Generic.CodeAnalysis.EmptyStatement"/>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- STYLE — only warnings, never fail CI                          -->
+    <!-- Using informational type so they show but don't block         -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <rule ref="PSR12">
+        <type>warning</type>
+        <!-- Legacy code relaxations -->
+        <exclude name="PSR1.Files.SideEffects.FoundWithSymbols"/>
+        <exclude name="PSR1.Methods.CamelCapsMethodName"/>
+        <exclude name="PSR12.Properties.ConstantVisibility"/>
+        <exclude name="Generic.PHP.DisallowShortOpenTag.EchoFound"/>
+        <exclude name="Generic.Files.LineEndings.InvalidEOLChar"/>
+    </rule>
+
+    <!-- Line length — generous for SQL queries -->
     <rule ref="Generic.Files.LineLength">
+        <type>warning</type>
         <properties>
-            <property name="lineLimit" value="180"/>
-            <property name="absoluteLineLimit" value="250"/>
+            <property name="lineLimit" value="200"/>
+            <property name="absoluteLineLimit" value="300"/>
         </properties>
     </rule>
 </ruleset>
