@@ -13,42 +13,39 @@ parameters:
     - php_payroll/uploads (?)
     - php_payroll/tmp_sessions (?)
     - php_payroll/config/config.local.php (?)
-  # ---- Superglobals & globals (set by index.php / config.php) ----
-    - '#Cannot access property \$\w+ on mixed#'
-    - '#Undefined variable\: \$_SESSION#'
-    - '#Undefined variable\: \$_GET#'
-    - '#Undefined variable\: \$_POST#'
-    - '#Undefined variable\: \$_SERVER#'
-    - '#Undefined variable\: \$_FILES#'
-    - '#Undefined variable\: \$_REQUEST#'
-    - '#Undefined variable\: \$_COOKIE#'
-    - '#Undefined variable\:? \$db#'
-    - '#Variable \$db might not be defined#'
-    - '#Variable \$auth might not be defined#'
-    - '#Variable \$page might not be defined#'
-    - '#Variable \$\w+ might not be defined#'
-
-    # ---- Custom DB wrapper (not a standard PDO subclass) ----
-    - '#Call to an undefined method Database::\w+\(\)#'
-    - '#Unsafe call to private method Database::(getInstance)\(\)#'
-    - '#Access to an undefined property Database::\$\w+#'
-    - '#Cannot instantiate class Database via private constructor#'
-
-    # ---- Vendor classes not in CI (PHPMailer, PhpSpreadsheet, etc.) ----
-    - '#Class PHPMailer[\\\w]+ not found#'
-    - '#unknown class PHPMailer#'
-    - '#Class (PhpOffice|SimpleXLSX|Endroid)\\\w+ not found#'
-    - '#Class TCPDF not found#'
-    - '#Call to method \w+\(\) on an unknown class#'
-
-    # ---- Legacy code noise ----
-    - '#If condition is always true#'
-    - '#Comparison operation .* is always (true|false)#'
-    - '#Offset .* always exists and is not nullable#'
-    - '#Array has \d+ duplicate keys#'
-    - '#Anonymous function has an unused use#'
-    - '#Parameter \#\d+ \$\w+ of function (sanitize|formatDate|formatCurrency|maskAadhaar) expects string#'
-    - '#Call to an undefined method PDOStatement::\w+\(\)#'
+  ignoreErrors:
+    # Superglobals & globals set by index.php / config.php
+    - '~Cannot access property \$\w+ on mixed~'
+    - '~Undefined variable: \$_SESSION~'
+    - '~Undefined variable: \$_GET~'
+    - '~Undefined variable: \$_POST~'
+    - '~Undefined variable: \$_SERVER~'
+    - '~Undefined variable: \$_FILES~'
+    - '~Undefined variable: \$_REQUEST~'
+    - '~Undefined variable: \$_COOKIE~'
+    - '~Undefined variable: \$db~'
+    - '~Variable \$db might not be defined~'
+    - '~Variable \$auth might not be defined~'
+    - '~Variable \$page might not be defined~'
+    - '~Variable \$\w+ might not be defined~'
+    # Custom DB wrapper (not a standard PDO subclass)
+    - '~Call to an undefined method Database::\w+\(\)~'
+    - '~Unsafe call to private method Database::getInstance~'
+    - '~Access to an undefined property Database::\$\w+~'
+    - '~Cannot instantiate class Database via private constructor~'
+    # Vendor classes not available in CI (no composer install)
+    - '~Class PHPMailer.*not found~'
+    - '~unknown class PHPMailer~'
+    - '~Class (PhpOffice|SimpleXLSX|Endroid|TCPDF)~'
+    - '~Call to method \w+\(\) on an unknown class~'
+    # Legacy code noise
+    - '~If condition is always true~'
+    - '~Comparison operation .* is always (true|false)~'
+    - '~Offset .* always exists and is not nullable~'
+    - '~Array has \d+ duplicate keys~'
+    - '~Anonymous function has an unused use~'
+    - '~Parameter #\d+ \$\w+ of function (sanitize|formatDate|formatCurrency|maskAadhaar)~'
+    - '~Call to an undefined method PDOStatement::\w+~'
   universalObjectCratesClasses:
     - stdClass
   reportUnmatchedIgnoredErrors: false
