@@ -33,6 +33,8 @@ parameters:
     - '~Unsafe call to private method Database::getInstance~'
     - '~Access to an undefined property Database::\$\w+~'
     - '~Cannot instantiate class Database via private constructor~'
+    # Vendor/missing files not in CI (no composer install, optional includes)
+    - '~Path in (require|include)_once\(\) .* is not a file~'
     # Vendor classes not available in CI (no composer install)
     - '~Class PHPMailer.*not found~'
     - '~unknown class PHPMailer~'
