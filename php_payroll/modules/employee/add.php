@@ -305,9 +305,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
-    // For edit, also set status if provided
-    if ($isEdit && !empty($_POST['status'])) {
-        $data['status'] = sanitize($_POST['status']);
+    // For edit, also set status and roles if provided
+    if ($isEdit) {
+        if (!empty($_POST['status'])) {
+            $data['status'] = sanitize($_POST['status']);
+        }
+        // employee_role: whitelist validate
+        $validEmployeeRoles = ['admin', 'manager', 'employee'];
+        $postedEmployeeRole = sanitize($_POST['employee_role'] ?? '');
+        if (in_array($postedEmployeeRole, $validEmployeeRoles, true)) {
+            $data['employee_role'] = $postedEmployeeRole;
+        }
+        // app_role: whitelist validate
+        $validAppRoles = ['admin', 'regional_manager', 'manager', 'field_officer', 'supervisor', 'employee'];
+        $postedAppRole = sanitize($_POST['app_role'] ?? '');
+        if (in_array($postedAppRole, $validAppRoles, true)) {
+            $data['app_role'] = $postedAppRole;
+        }
     }
     
     if ($isEdit) {
@@ -415,6 +429,23 @@ $states = [
 $nomineeRelationships = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Brother', 'Sister', ''];
 // Emergency contact relationships (includes Other)
 $relationships = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Brother', 'Sister', 'Other', ''];
+
+// Employee Role options (PHP Admin panel access role)
+$employeeRoles = [
+    'employee'  => 'Employee',
+    'manager'   => 'Manager',
+    'admin'     => 'Admin (PHP Panel)',
+];
+
+// App Role options (ESS mobile app role)
+$appRoles = [
+    'employee'          => 'Employee',
+    'supervisor'        => 'Supervisor',
+    'field_officer'     => 'Field Officer',
+    'manager'           => 'Manager',
+    'regional_manager'  => 'Regional Manager',
+    'admin'             => 'Admin',
+];
 ?>
 
 <div class="row">
@@ -576,7 +607,7 @@ $relationships = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Bro
                         <div class="col-md-3 mb-3">
                             <label for="designation" class="form-label">Designation</label>
                             <select class="form-select" id="designation" name="designation"
-                                    onchange="autoFillWorkerCategory(this)">
+                                    onchange="autoFillWorkerCategory(this); autoSetAppRole(this)">
                                 <option value="">Select Designation</option>
                                 <?php foreach ($designations as $des): ?>
                                 <option value="<?php echo sanitize($des['name']); ?>"
@@ -634,6 +665,30 @@ $relationships = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Bro
                             <input type="text" class="form-control" id="esic_number" name="esic_number" 
                                    value="<?php echo sanitize($employeeData['esic_number'] ?? ''); ?>">
                         </div>
+                        <?php if ($isEdit): ?>
+                        <div class="col-md-3 mb-3">
+                            <label for="employee_role" class="form-label">Employee Role <span class="badge bg-info ms-1" title="Controls PHP Admin Panel access">Portal</span></label>
+                            <select class="form-select" id="employee_role" name="employee_role">
+                                <?php foreach ($employeeRoles as $val => $label): ?>
+                                <option value="<?php echo $val; ?>" <?php echo ($employeeData['employee_role'] ?? 'employee') == $val ? 'selected' : ''; ?>>
+                                    <?php echo $label; ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-text">Admin = PHP Panel access. Manager/Employee = ESS app.</div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="app_role" class="form-label">App Role <span class="badge bg-success ms-1" title="Controls ESS mobile app permissions">ESS</span></label>
+                            <select class="form-select" id="app_role" name="app_role">
+                                <?php foreach ($appRoles as $val => $label): ?>
+                                <option value="<?php echo $val; ?>" <?php echo ($employeeData['app_role'] ?? 'employee') == $val ? 'selected' : ''; ?>>
+                                    <?php echo $label; ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-text">Auto-set from designation. Override if needed.</div>
+                        </div>
+                        <?php endif; ?>
                     </div>
                     
                     <!-- Salary Structure -->
@@ -936,11 +991,38 @@ function autoFillWorkerCategory(designationSelect) {
     }
 }
 
-// On page load, if a designation is already selected (edit mode), sync the category
+// Auto-set App Role from Designation (mirrors mapDesignationToRole from api/ess/auto-role.php)
+// Rules:
+//   "regional manager" → regional_manager
+//   "field officer" / "area manager" / "manager" → manager
+//   "team lead" / "supervisor" → supervisor
+//   everything else → employee
+function autoSetAppRole(designationSelect) {
+    const appRoleSelect = document.getElementById('app_role');
+    if (!appRoleSelect) return; // only exists in edit mode
+
+    const d = (designationSelect.value || '').toLowerCase().trim();
+    let role = 'employee';
+
+    if (d.includes('regional manager')) {
+        role = 'regional_manager';
+    } else if (d.includes('field officer') || d.includes('area manager') || d.includes('manager')) {
+        role = 'manager';
+    } else if (d.includes('team lead') || d.includes('supervisor')) {
+        role = 'supervisor';
+    }
+
+    appRoleSelect.value = role;
+    appRoleSelect.classList.add('is-valid');
+    setTimeout(() => appRoleSelect.classList.remove('is-valid'), 1200);
+}
+
+// On page load, if a designation is already selected (edit mode), sync the category and app_role
 document.addEventListener('DOMContentLoaded', function() {
     const des = document.getElementById('designation');
     if (des && des.value) {
         autoFillWorkerCategory(des);
+        autoSetAppRole(des);
     }
 });
 

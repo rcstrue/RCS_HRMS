@@ -371,7 +371,7 @@ class Employee {
             'aadhaar_number', 'uan_number', 'esic_number',
             'address', 'pin_code', 'state', 'district',
             'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
-            'client_id', 'unit_id', 'app_role',
+            'client_id', 'unit_id', 'app_role', 'employee_role',
             'designation', 'department',
             'worker_category', 'employment_type', 'date_of_joining', 'probation_period',
             'nominee_name', 'nominee_relationship', 'nominee_dob', 'nominee_contact',
