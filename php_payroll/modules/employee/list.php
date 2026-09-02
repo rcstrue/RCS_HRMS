@@ -508,10 +508,6 @@ try {
                                                 onclick="markExit('<?php echo $emp['id']; ?>', '<?php echo addslashes($emp['full_name']); ?>')" title="Mark Exit">
                                             <i class="bi bi-box-arrow-right"></i>
                                         </button>
-                                        <button type="button" class="btn btn-outline-warning" 
-                                                onclick="removeEmployee('<?php echo $emp['id']; ?>', '<?php echo addslashes($emp['full_name']); ?>')" title="Remove">
-                                            <i class="bi bi-person-x"></i>
-                                        </button>
                                         <?php endif; ?>
                                     </div>
                                 </td>
