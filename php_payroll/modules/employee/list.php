@@ -504,6 +504,10 @@ try {
                                             <i class="bi bi-pencil"></i>
                                         </a>
                                         <?php if ($emp['status'] === 'approved'): ?>
+                                        <button type="button" class="btn btn-outline-danger" 
+                                                onclick="markExit('<?php echo $emp['id']; ?>', '<?php echo addslashes($emp['full_name']); ?>')" title="Mark Exit">
+                                            <i class="bi bi-box-arrow-right"></i>
+                                        </button>
                                         <button type="button" class="btn btn-outline-warning" 
                                                 onclick="removeEmployee('<?php echo $emp['id']; ?>', '<?php echo addslashes($emp['full_name']); ?>')" title="Remove">
                                             <i class="bi bi-person-x"></i>
@@ -562,7 +566,7 @@ try {
         <div class="modal-content">
             <form method="POST" id="removeEmployeeForm">
                 <?php echo getCSRFTokenField(); ?>
-                <input type="hidden" id="removeEmployeeId" name="employee_id" value="">
+                <input type="hidden" id="removeEmployeeId" name="id" value="">
                 <div class="modal-header bg-warning text-dark">
                     <h5 class="modal-title"><i class="bi bi-person-x me-2"></i>Remove Employee</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -592,11 +596,72 @@ try {
     </div>
 </div>
 
+<!-- Mark Exit Modal -->
+<div class="modal fade" id="markExitModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" id="markExitForm">
+                <?php echo getCSRFTokenField(); ?>
+                <input type="hidden" id="exitEmployeeId" name="id" value="">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title"><i class="bi bi-box-arrow-right me-2"></i>Mark Employee Exit</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger mb-3">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        Mark <strong id="exitEmployeeName"></strong> as exited (inactive). The employee will no longer appear in active lists or payroll.
+                    </div>
+                    <div class="mb-3">
+                        <label for="exitDol" class="form-label">Date of Leaving <span class="text-danger">*</span></label>
+                        <input type="date" id="exitDol" class="form-control" name="date_of_leaving" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="exitReason" class="form-label">Reason for Exit <span class="text-danger">*</span></label>
+                        <textarea id="exitReason" class="form-control" name="reason" rows="3" placeholder="e.g. Resigned, Absconded, Contract ended..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" onclick="confirmMarkExit()">
+                        <i class="bi bi-box-arrow-right me-1"></i>Mark Exit
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <?php
 // Define global JS functions (will be placed outside document.ready)
 $extraJS = <<<'JS'
 <script>
 // Global functions for employee list page
+window.markExit = function(id, name) {
+    document.getElementById('exitEmployeeId').value = id;
+    document.getElementById('exitEmployeeName').textContent = name;
+    document.getElementById('exitDol').value = new Date().toISOString().split('T')[0];
+    document.getElementById('exitReason').value = '';
+    var modal = new bootstrap.Modal(document.getElementById('markExitModal'));
+    modal.show();
+};
+
+window.confirmMarkExit = function() {
+    var id = document.getElementById('exitEmployeeId').value;
+    var dol = document.getElementById('exitDol').value;
+    var reason = document.getElementById('exitReason').value.trim();
+    if (!dol) {
+        alert('Please select the Date of Leaving.');
+        return;
+    }
+    if (!reason) {
+        alert('Please provide a reason for exit.');
+        return;
+    }
+    document.getElementById('markExitForm').action = 'index.php?page=employee/exit';
+    document.getElementById('markExitForm').submit();
+};
+
 window.removeEmployee = function(id, name) {
     document.getElementById('removeEmployeeId').value = id;
     document.getElementById('removeEmployeeName').textContent = name;
@@ -618,9 +683,8 @@ window.confirmRemoveEmployee = function() {
         alert('Please provide a reason for removal.');
         return;
     }
-    var form = document.getElementById('removeEmployeeForm');
-    form.action = 'index.php?page=employee/delete&id=' + id;
-    form.submit();
+    document.getElementById('removeEmployeeForm').action = 'index.php?page=employee/delete';
+    document.getElementById('removeEmployeeForm').submit();
 };
 
 window.approveEmployee = function(id) {
