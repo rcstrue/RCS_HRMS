@@ -1,26 +1,54 @@
-# OS/editor
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
 .DS_Store
-Thumbs.db
-*.swp
-*.swo
-*~
-.vscode/
-.idea/
-.zcode/
+*.pem
 
-# AI tool index files (auto-generated, noisy diffs)
-.ai/
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
-# Runtime
-*.pid
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+local-*
+.claude
+.z-ai-config
 *.log
+dev.log
+dev.out.log
+test
+prompt
 
-# ── Secrets — never commit real config ────────────────────────────────────
-# ESS API live config (contains DB creds + JWT secret + API key)
-api/ess/config.php
-# PHP admin live local config (contains DB creds)
-php_payroll/config/config.local.php
-# Any env / local overrides anywhere in the monorepo
-.env
-.env.*
-*.local
+server.log
+# Skills directory
+/skills/
