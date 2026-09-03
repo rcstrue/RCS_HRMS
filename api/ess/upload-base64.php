@@ -124,7 +124,7 @@ if (!file_put_contents($destination, $imageData)) {
 chmod($destination, 0644);
 
 // ── Return URL ─────────────────────────────────────────────────────────
-$url = $folder . '/' . $finalFilename;
+$url = '/uploads/' . $folder . '/' . $finalFilename;
 
 echo json_encode([
     'success' => true,
