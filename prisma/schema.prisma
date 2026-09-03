@@ -1,8 +1,6 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// Form A - Labour Contractor Register
+// Contract Labour (Regulation & Abolition) Act, 1970
+// Full CRUD with 31 data columns
 
 generator client {
   provider = "prisma-client-js"
@@ -13,20 +11,59 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
+model LabourContractor {
+  id                      String    @id @default(cuid())
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // ── Contractor Identity (1-5) ────────────────────────
+  contractorName          String    // 1. Name of Contractor
+  contractorAddress       String    @default("") // 2. Address of Contractor
+  registrationNumber      String    @default("") // 3. Registration Number
+  dateOfRegistration      DateTime? // 4. Date of Registration
+  contractorPan           String    @default("") // 5. PAN of Contractor
+
+  // ── Establishment Details (6-7) ────────────────────
+  establishmentName       String    @default("") // 6. Name of Establishment
+  establishmentAddress    String    @default("") // 7. Address of Establishment
+
+  // ── Work & License Details (8-15) ──────────────────
+  natureOfWork            String    @default("") // 8. Nature of Work
+  maxWorkmen              Int       @default(0)  // 9. Maximum No. of Workmen
+  licensingAuthority      String    @default("") // 10. Name of Licensing Authority
+  licenseNumber           String    @default("") // 11. License Number
+  licenseIssueDate        DateTime? // 12. Date of Issue of License
+  licenseValidFrom        DateTime? // 13. License Valid From
+  licenseValidTo          DateTime? // 14. License Valid To
+  licenseFee              Float     @default(0)  // 15. License Fee Paid
+
+  // ── Contractor Compliance (16-17) ─────────────────
+  contractorGstin         String    @default("") // 16. GSTIN of Contractor
+  pfRegistrationNumber    String    @default("") // 17. PF Registration Number
+
+  // ── Contact Details (18-21) ────────────────────────
+  contactPersonName       String    @default("") // 18. Contact Person Name
+  contactPersonDesignation String   @default("") // 19. Contact Person Designation
+  contactPersonMobile     String    @default("") // 20. Contact Person Mobile
+  contactPersonEmail      String    @default("") // 21. Contact Person Email
+
+  // ── Banking Details (22-24) ────────────────────────
+  bankName                String    @default("") // 22. Bank Name
+  bankAccountNumber       String    @default("") // 23. Bank Account Number
+  bankIfscCode            String    @default("") // 24. Bank IFSC Code
+
+  // ── ESI Registration (25) ──────────────────────────
+  esiRegistrationNumber   String    @default("") // 25. ESI Registration Number
+
+  // ── Contract Details (26-30) ───────────────────────
+  contractStartDate       DateTime? // 26. Contract Period From
+  contractEndDate         DateTime? // 27. Contract Period To
+  contractValue           Float     @default(0)  // 28. Contract Value (INR)
+  securityDeposit         Float     @default(0)  // 29. Security Deposit Amount
+  contractWorkLocation    String    @default("") // 30. Work Location / Site Address
+
+  // ── Remarks (31) ───────────────────────────────────
+  remarks                 String    @default("") // 31. Remarks
+
+  // ── System fields ──────────────────────────────────
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 }

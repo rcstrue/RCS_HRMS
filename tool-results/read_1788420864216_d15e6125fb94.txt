@@ -1,0 +1,725 @@
+     1→-- =========================================================================
+     2→-- Consolidated ad-hoc schema changes
+     3→-- Extracted from runtime PHP files — run ONCE against the live DB,
+     4→-- then remove the inline DDL from the source files in a follow-up commit.
+     5→-- =========================================================================
+     6→
+     7→-- ---------------------------------------------------------------------------
+     8→-- from modules/api/expense-api.php
+     9→-- ---------------------------------------------------------------------------
+    10→ALTER TABLE ess_expenses ADD COLUMN category ENUM('advance','expense','employee_advance') NOT NULL DEFAULT 'expense' AFTER employee_id;
+    11→ALTER TABLE ess_expenses ADD COLUMN manager_id VARCHAR(50) DEFAULT NULL AFTER category;
+    12→ALTER TABLE ess_expenses ADD COLUMN emp_name VARCHAR(255) DEFAULT NULL AFTER manager_id;
+    13→ALTER TABLE ess_expenses ADD COLUMN emp_code VARCHAR(50) DEFAULT NULL AFTER emp_name;
+    14→ALTER TABLE ess_expenses ADD COLUMN unit_id INT DEFAULT NULL AFTER emp_code;
+    15→ALTER TABLE ess_expenses ADD COLUMN month INT DEFAULT NULL AFTER unit_id;
+    16→ALTER TABLE ess_expenses ADD COLUMN year INT DEFAULT NULL AFTER month;
+    17→ALTER TABLE ess_expenses ADD COLUMN bill_type ENUM('image','pdf') DEFAULT NULL AFTER bill_url;
+    18→ALTER TABLE ess_expenses ADD COLUMN rejected_by VARCHAR(50) DEFAULT NULL AFTER rejection_reason;
+    19→ALTER TABLE ess_expenses ADD COLUMN edited_by VARCHAR(50) DEFAULT NULL AFTER rejected_by;
+    20→ALTER TABLE ess_expenses ADD COLUMN edited_at TIMESTAMP NULL DEFAULT NULL AFTER edited_by;
+    21→ALTER TABLE ess_expenses ADD COLUMN settlement_id INT DEFAULT NULL AFTER edited_at;
+    22→
+    23→-- ---------------------------------------------------------------------------
+    24→-- from modules/attendance/upload.php
+    25→-- ---------------------------------------------------------------------------
+    26→CREATE TABLE IF NOT EXISTS `attendance_summary` (
+    27→    `id` int(11) NOT NULL AUTO_INCREMENT,
+    28→    `employee_id` int(11) NOT NULL,
+    29→    `unit_id` int(11) DEFAULT NULL,
+    30→    `month` int(2) NOT NULL,
+    31→    `year` int(4) NOT NULL,
+    32→    `total_present` decimal(5,2) DEFAULT 0.00,
+    33→    `total_extra` decimal(5,2) DEFAULT 0.00,
+    34→    `overtime_hours` decimal(6,2) DEFAULT 0.00,
+    35→    `total_wo` decimal(5,2) DEFAULT 0.00,
+    36→    `total_paid_days` decimal(5,2) DEFAULT 0.00,
+    37→    `source` enum('Manual','Excel Upload') DEFAULT 'Manual',
+    38→    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    39→    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+    40→    PRIMARY KEY (`id`),
+    41→    UNIQUE KEY `uniq_emp_unit_month_year` (`employee_id`, `unit_id`, `month`, `year`),
+    42→    KEY `idx_unit_month_year` (`unit_id`, `month`, `year`)
+    43→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    44→
+    45→CREATE TABLE IF NOT EXISTS `employee_advances` (
+    46→    `id` int(11) NOT NULL AUTO_INCREMENT,
+    47→    `employee_id` int(11) NOT NULL,
+    48→    `unit_id` int(11) DEFAULT NULL,
+    49→    `month` int(2) NOT NULL,
+    50→    `year` int(4) NOT NULL,
+    51→    `adv1` decimal(10,2) DEFAULT 0.00,
+    52→    `adv2` decimal(10,2) DEFAULT 0.00,
+    53→    `office_advance` decimal(10,2) DEFAULT 0.00,
+    54→    `dress_advance` decimal(10,2) DEFAULT 0.00,
+    55→    `remarks` text DEFAULT NULL,
+    56→    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    57→    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+    58→    PRIMARY KEY (`id`),
+    59→    UNIQUE KEY `uniq_emp_month_year` (`employee_id`, `month`, `year`),
+    60→    KEY `idx_unit_month_year` (`unit_id`, `month`, `year`)
+    61→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    62→
+    63→-- ---------------------------------------------------------------------------
+    64→-- from modules/notifications/announcements.php
+    65→-- ---------------------------------------------------------------------------
+    66→CREATE TABLE IF NOT EXISTS `ess_announcements` (
+    67→    `id` int(11) NOT NULL AUTO_INCREMENT,
+    68→    `title` varchar(255) NOT NULL,
+    69→    `content` text NOT NULL,
+    70→    `created_by` varchar(50) NOT NULL,
+    71→    `target_scope` enum('all','managers','admin') NOT NULL DEFAULT 'all',
+    72→    `target_id` varchar(50) DEFAULT NULL,
+    73→    `priority` enum('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
+    74→    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    75→    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+    76→    PRIMARY KEY (`id`),
+    77→    KEY `idx_created_by` (`created_by`),
+    78→    KEY `idx_priority` (`priority`)
+    79→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    80→
+    81→ALTER TABLE `ess_announcements` MODIFY COLUMN `target_scope` enum('all','managers','admin') NOT NULL DEFAULT 'all';
+    82→
+    83→CREATE TABLE IF NOT EXISTS `ess_announcement_reads` (
+    84→    `id` int(11) NOT NULL AUTO_INCREMENT,
+    85→    `announcement_id` int(11) NOT NULL,
+    86→    `user_id` varchar(50) NOT NULL,
+    87→    `read_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    88→    PRIMARY KEY (`id`),
+    89→    UNIQUE KEY `uniq_announcement_user` (`announcement_id`, `user_id`),
+    90→    KEY `idx_user_id` (`user_id`)
+    91→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    92→
+    93→-- ---------------------------------------------------------------------------
+    94→-- from modules/expense/expense-setup.php
+    95→-- ---------------------------------------------------------------------------
+    96→CREATE TABLE IF NOT EXISTS `manager_advance_allocations` (
+    97→    `id` int(11) NOT NULL AUTO_INCREMENT,
+    98→    `manager_id` varchar(50) NOT NULL,
+    99→    `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+   100→    `remarks` text DEFAULT NULL,
+   101→    `allocated_by` varchar(50) DEFAULT NULL,
+   102→    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+   103→    PRIMARY KEY (`id`),
+   104→    KEY `idx_manager` (`manager_id`)
+   105→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   106→
+   107→CREATE TABLE IF NOT EXISTS `manager_ledger` (
+   108→    `id` int(11) NOT NULL AUTO_INCREMENT,
+   109→    `manager_id` varchar(50) NOT NULL,
+   110→    `month` int(2) NOT NULL,
+   111→    `year` int(4) NOT NULL,
+   112→    `opening_balance` decimal(12,2) NOT NULL DEFAULT 0.00,
+   113→    `total_advance_given` decimal(12,2) NOT NULL DEFAULT 0.00,
+   114→    `total_expenses` decimal(12,2) NOT NULL DEFAULT 0.00,
+   115→    `total_employee_advances` decimal(12,2) NOT NULL DEFAULT 0.00,
+   116→    `closing_balance` decimal(12,2) NOT NULL DEFAULT 0.00,
+   117→    `carried_forward` tinyint(1) NOT NULL DEFAULT 0,
+   118→    `settled_by` varchar(50) DEFAULT NULL,
+   119→    `settled_at` datetime DEFAULT NULL,
+   120→    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+   121→    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+   122→    PRIMARY KEY (`id`),
+   123→    UNIQUE KEY `uniq_manager_month_year` (`manager_id`, `month`, `year`)
+   124→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   125→
+   126→CREATE TABLE IF NOT EXISTS `expense_settlements` (
+   127→    `id` int(11) NOT NULL AUTO_INCREMENT,
+   128→    `manager_id` varchar(50) NOT NULL,
+   129→    `month` int(2) NOT NULL,
+   130→    `year` int(4) NOT NULL,
+   131→    `total_advance` decimal(12,2) NOT NULL DEFAULT 0.00,
+   132→    `total_expenses` decimal(12,2) NOT NULL DEFAULT 0.00,
+   133→    `total_emp_advances` decimal(12,2) NOT NULL DEFAULT 0.00,
+   134→    `balance` decimal(12,2) NOT NULL DEFAULT 0.00,
+   135→    `status` enum('open','settled','carry_forward') NOT NULL DEFAULT 'open',
+   136→    `settlement_remarks` text DEFAULT NULL,
+   137→    `settled_by` varchar(50) DEFAULT NULL,
+   138→    `settled_at` datetime DEFAULT NULL,
+   139→    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+   140→    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+   141→    PRIMARY KEY (`id`),
+   142→    UNIQUE KEY `uniq_manager_month_year` (`manager_id`, `month`, `year`)
+   143→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   144→
+   145→ALTER TABLE `manager_advance_allocations` ADD COLUMN `month` int(2) DEFAULT NULL AFTER `amount`;
+   146→ALTER TABLE `manager_advance_allocations` ADD COLUMN `year` int(4) DEFAULT NULL AFTER `month`;
+   147→ALTER TABLE `manager_advance_allocations` ADD COLUMN `alloc_date` date DEFAULT NULL AFTER `year`;
+   148→ALTER TABLE `manager_advance_allocations` ADD COLUMN `carry_forward_amount` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `alloc_date`;
+   149→ALTER TABLE `manager_advance_allocations` ADD COLUMN `carry_forward_from_month` int(2) DEFAULT NULL AFTER `carry_forward_amount`;
+   150→ALTER TABLE `manager_advance_allocations` ADD COLUMN `carry_forward_from_year` int(4) DEFAULT NULL AFTER `carry_forward_from_month`;
+   151→
+   152→-- NOTE: ess_expenses column additions already exist at the top of this file (lines 10-21).
+   153→-- The duplicate ALTER TABLE block has been removed to prevent "Duplicate column" errors.
+   154→
+   155→-- ---------------------------------------------------------------------------
+   156→-- from modules/payroll/process.php
+   157→-- ---------------------------------------------------------------------------
+   158→ALTER TABLE payroll ADD COLUMN loan_emi DECIMAL(10,2) DEFAULT 0.00 AFTER salary_advance;
+   159→ALTER TABLE payroll ADD COLUMN month INT NOT NULL DEFAULT 0;
+   160→ALTER TABLE payroll ADD COLUMN year INT NOT NULL DEFAULT 0;
+   161→ALTER TABLE payroll ADD INDEX idx_month_year (month, year);
+   162→
+   163→CREATE TABLE IF NOT EXISTS `employee_loans` (
+   164→    `id` int(11) NOT NULL AUTO_INCREMENT,
+   165→    `employee_id` int(11) NOT NULL,
+   166→    `unit_id` int(11) DEFAULT NULL,
+   167→    `loan_type` varchar(50) DEFAULT 'Personal',
+   168→    `amount` decimal(12,2) NOT NULL,
+   169→    `interest_rate` decimal(5,2) DEFAULT 0.00,
+   170→    `tenure_months` int(11) NOT NULL,
+   171→    `emi_amount` decimal(12,2) NOT NULL,
+   172→    `total_interest` decimal(12,2) DEFAULT 0.00,
+   173→    `total_repayable` decimal(12,2) NOT NULL,
+   174→    `balance_amount` decimal(12,2) NOT NULL,
+   175→    `emi_deducted` int(11) DEFAULT 0,
+   176→    `start_month` int(2) NOT NULL,
+   177→    `start_year` int(4) NOT NULL,
+   178→    `status` enum('Active','Closed','Settled','Written Off') DEFAULT 'Active',
+   179→    `remarks` text DEFAULT NULL,
+   180→    `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+   181→    `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   182→    PRIMARY KEY (`id`),
+   183→    KEY `idx_employee` (`employee_id`),
+   184→    KEY `idx_status` (`status`)
+   185→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   186→
+   187→CREATE TABLE IF NOT EXISTS `loan_emi_log` (
+   188→    `id` int(11) NOT NULL AUTO_INCREMENT,
+   189→    `loan_id` int(11) NOT NULL,
+   190→    `employee_id` int(11) NOT NULL,
+   191→    `month` int(2) NOT NULL,
+   192→    `year` int(4) NOT NULL,
+   193→    `emi_amount` decimal(12,2) NOT NULL,
+   194→    `principal_component` decimal(12,2) DEFAULT 0.00,
+   195→    `interest_component` decimal(12,2) DEFAULT 0.00,
+   196→    `balance_after` decimal(12,2) NOT NULL,
+   197→    `deducted_via_payroll` tinyint(1) DEFAULT 1,
+   198→    `payroll_id` int(11) DEFAULT NULL,
+   199→    `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+   200→    PRIMARY KEY (`id`),
+   201→    UNIQUE KEY `uniq_loan_month_year` (`loan_id`, `month`, `year`),
+   202→    KEY `idx_employee_month` (`employee_id`, `month`, `year`)
+   203→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   204→
+   205→-- ---------------------------------------------------------------------------
+   206→-- from modules/notifications/center.php
+   207→-- ---------------------------------------------------------------------------
+   208→CREATE TABLE IF NOT EXISTS `push_subscriptions` (
+   209→    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+   210→    `employee_id` VARCHAR(20) NOT NULL,
+   211→    `endpoint` VARCHAR(500) NOT NULL,
+   212→    `p256dh_key` VARCHAR(200) NOT NULL,
+   213→    `auth_key` VARCHAR(200) NOT NULL,
+   214→    `user_agent` VARCHAR(500) DEFAULT '',
+   215→    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+   216→    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   217→    UNIQUE KEY `uk_endpoint` (`endpoint`(255)),
+   218→    INDEX `idx_employee` (`employee_id`)
+   219→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   220→
+   221→CREATE TABLE IF NOT EXISTS `push_notification_queue` (
+   222→    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+   223→    `title` VARCHAR(255) NOT NULL,
+   224→    `body` TEXT NOT NULL,
+   225→    `url` VARCHAR(500) DEFAULT '/',
+   226→    `icon` VARCHAR(500) DEFAULT '/logo.png',
+   227→    `target` VARCHAR(50) DEFAULT 'all',
+   228→    `employee_ids` TEXT DEFAULT NULL,
+   229→    `status` ENUM('pending','sending','completed','failed') DEFAULT 'pending',
+   230→    `sent_count` INT UNSIGNED DEFAULT 0,
+   231→    `failed_count` INT UNSIGNED DEFAULT 0,
+   232→    `expired_count` INT UNSIGNED DEFAULT 0,
+   233→    `errors` TEXT DEFAULT NULL,
+   234→    `scheduled_at` DATETIME DEFAULT NULL,
+   235→    `sent_at` DATETIME DEFAULT NULL,
+   236→    `created_by` VARCHAR(50) NOT NULL,
+   237→    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+   238→    `attempt_count` INT UNSIGNED DEFAULT 0,
+   239→    `max_attempts` TINYINT UNSIGNED DEFAULT 5,
+   240→    `next_retry_at` DATETIME DEFAULT NULL,
+   241→    `last_error` TEXT DEFAULT NULL,
+   242→    INDEX `idx_status` (`status`),
+   243→    INDEX `idx_scheduled` (`scheduled_at`, `status`),
+   244→    INDEX `idx_retry` (`next_retry_at`, `status`)
+   245→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   246→-- ---------------------------------------------------------------------------
+   247→-- from modules/employee/data-sync.php
+   248→-- ---------------------------------------------------------------------------
+   249→CREATE TABLE IF NOT EXISTS `employee_data_sync_logs` (
+   250→    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+   251→    `employee_id` INT UNSIGNED DEFAULT NULL,
+   252→    `target_table` VARCHAR(50) DEFAULT NULL,
+   253→    `target_record_id` VARCHAR(50) DEFAULT NULL,
+   254→    `field_name` VARCHAR(100) NOT NULL,
+   255→    `old_value` TEXT DEFAULT NULL,
+   256→    `new_value` TEXT DEFAULT NULL,
+   257→    `source_table` VARCHAR(50) NOT NULL,
+   258→    `source_record_id` VARCHAR(50) DEFAULT NULL,
+   259→    `updated_by` VARCHAR(50) NOT NULL,
+   260→    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+   261→    `ip_address` VARCHAR(45) DEFAULT NULL,
+   262→    `remarks` VARCHAR(500) DEFAULT NULL,
+   263→    INDEX `idx_employee_id` (`employee_id`),
+   264→    INDEX `idx_target` (`target_table`, `target_record_id`),
+   265→    INDEX `idx_updated_at` (`updated_at`)
+   266→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   267→
+   268→-- ---------------------------------------------------------------------------
+   269→-- from modules/employee/esic-import.php
+   270→-- ---------------------------------------------------------------------------
+   271→CREATE TABLE IF NOT EXISTS `esic_ip_master` (
+   272→    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+   273→    `ip_number` VARCHAR(50) NOT NULL,
+   274→    `ip_name` VARCHAR(255) DEFAULT NULL,
+   275→    `employer_code` VARCHAR(50) DEFAULT NULL,
+   276→    `employer_name` VARCHAR(255) DEFAULT NULL,
+   277→    `mobile` VARCHAR(20) DEFAULT NULL,
+   278→    `uan` VARCHAR(20) DEFAULT NULL,
+   279→    `account_number` VARCHAR(50) DEFAULT NULL,
+   280→    `bank_name` VARCHAR(255) DEFAULT NULL,
+   281→    `branch_name` VARCHAR(255) DEFAULT NULL,
+   282→    `ifsc_code` VARCHAR(20) DEFAULT NULL,
+   283→    `bank_account_status` VARCHAR(50) DEFAULT NULL,
+   284→    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+   285→    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   286→    UNIQUE KEY `uk_ip_number` (`ip_number`),
+   287→    INDEX `idx_uan` (`uan`)
+   288→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   289→
+   290→CREATE TABLE IF NOT EXISTS `esic_import_errors` (
+   291→    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+   292→    `import_id` INT UNSIGNED NOT NULL,
+   293→    `file_name` VARCHAR(255) NOT NULL,
+   294→    `row_number` INT UNSIGNED DEFAULT NULL,
+   295→    `ip_number` VARCHAR(50) DEFAULT NULL,
+   296→    `reason` VARCHAR(500) NOT NULL,
+   297→    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+   298→    INDEX `idx_import_id` (`import_id`)
+   299→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   300→
+   301→CREATE TABLE IF NOT EXISTS `esic_import_history` (
+   302→    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+   303→    `user_id` VARCHAR(50) NOT NULL,
+   304→    `user_name` VARCHAR(255) DEFAULT NULL,
+   305→    `files_uploaded` INT UNSIGNED NOT NULL DEFAULT 0,
+   306→    `rows_read` INT UNSIGNED NOT NULL DEFAULT 0,
+   307→    `rows_inserted` INT UNSIGNED NOT NULL DEFAULT 0,
+   308→    `rows_updated` INT UNSIGNED NOT NULL DEFAULT 0,
+   309→    `rows_skipped` INT UNSIGNED NOT NULL DEFAULT 0,
+   310→    `ip_address` VARCHAR(45) DEFAULT NULL,
+   311→    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+   312→    INDEX `idx_created_at` (`created_at`)
+   313→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   314→
+   315→-- ---------------------------------------------------------------------------
+   316→-- from modules/leave/apply.php (also used by modules/entry/leave-entry.php)
+   317→-- ---------------------------------------------------------------------------
+   318→CREATE TABLE IF NOT EXISTS `leave_applications` (
+   319→    id INT AUTO_INCREMENT PRIMARY KEY,
+   320→    employee_id INT(10) UNSIGNED NOT NULL,
+   321→    leave_type ENUM('CL','PL','SL','EL','CO','ML','LWP') NOT NULL,
+   322→    from_date DATE NOT NULL,
+   323→    to_date DATE NOT NULL,
+   324→    total_days DECIMAL(5,1) DEFAULT 0.5,
+   325→    reason TEXT,
+   326→    status ENUM('pending','approved','rejected','cancelled') DEFAULT 'pending',
+   327→    approved_by INT DEFAULT NULL,
+   328→    approved_at DATETIME DEFAULT NULL,
+   329→    rejection_reason TEXT,
+   330→    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+   331→    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   332→    KEY idx_employee (employee_id),
+   333→    KEY idx_status (status)
+   334→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   335→
+   336→CREATE TABLE IF NOT EXISTS `leave_balances` (
+   337→    id INT AUTO_INCREMENT PRIMARY KEY,
+   338→    employee_id INT(10) UNSIGNED NOT NULL,
+   339→    leave_type ENUM('CL','PL','SL','EL','CO','ML') NOT NULL,
+   340→    year INT NOT NULL,
+   341→    opening_balance DECIMAL(5,2) DEFAULT 0,
+   342→    accrued DECIMAL(5,2) DEFAULT 0,
+   343→    used DECIMAL(5,2) DEFAULT 0,
+   344→    closing_balance DECIMAL(5,2) DEFAULT 0,
+   345→    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+   346→    UNIQUE KEY uniq_emp_leave_year (employee_id, leave_type, year)
+   347→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   348→
+   349→-- ---------------------------------------------------------------------------
+   350→-- from modules/assets/add.php
+   351→-- ---------------------------------------------------------------------------
+   352→CREATE TABLE IF NOT EXISTS `assets` (
+   353→    `id` int(11) NOT NULL AUTO_INCREMENT,
+   354→    `asset_code` varchar(50) NOT NULL,
+   355→    `asset_name` varchar(200) NOT NULL,
+   356→    `asset_type` enum('equipment','uniform','tools','vehicle','electronic','furniture','safety','other') DEFAULT 'other',
+   357→    `description` text DEFAULT NULL,
+   358→    `serial_number` varchar(100) DEFAULT NULL,
+   359→    `quantity` int(11) NOT NULL DEFAULT 1,
+   360→    `available_quantity` int(11) NOT NULL DEFAULT 1,
+   361→    `is_returnable` tinyint(1) DEFAULT 1,
+   362→    `is_active` tinyint(1) DEFAULT 1,
+   363→    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+   364→    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+   365→    PRIMARY KEY (`id`),
+   366→    UNIQUE KEY `uk_asset_code` (`asset_code`),
+   367→    KEY `idx_asset_type` (`asset_type`),
+   368→    KEY `idx_active` (`is_active`)
+   369→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   370→
+   371→CREATE TABLE IF NOT EXISTS `employee_assets` (
+   372→    `id` int(11) NOT NULL AUTO_INCREMENT,
+   373→    `employee_id` int(11) NOT NULL,
+   374→    `asset_id` int(11) NOT NULL,
+   375→    `quantity` int(11) NOT NULL DEFAULT 1,
+   376→    `issue_date` date NOT NULL,
+   377→    `expected_return_date` date DEFAULT NULL,
+   378→    `issue_condition` enum('new','good','worn','damaged') DEFAULT 'new',
+   379→    `issue_remarks` text DEFAULT NULL,
+   380→    `status` enum('issued','returned','damaged','lost') DEFAULT 'issued',
+   381→    `return_date` date DEFAULT NULL,
+   382→    `return_condition` enum('new','good','worn','damaged') DEFAULT NULL,
+   383→    `return_remarks` text DEFAULT NULL,
+   384→    `issued_by` int(11) DEFAULT NULL,
+   385→    `received_by` int(11) DEFAULT NULL,
+   386→    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+   387→    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+   388→    PRIMARY KEY (`id`),
+   389→    KEY `idx_employee` (`employee_id`),
+   390→    KEY `idx_asset` (`asset_id`),
+   391→    KEY `idx_status` (`status`)
+   392→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   393→
+   394→-- ---------------------------------------------------------------------------
+   395→-- from modules/timesheet/create.php
+   396→-- ---------------------------------------------------------------------------
+   397→CREATE TABLE IF NOT EXISTS `timesheets` (
+   398→    id INT AUTO_INCREMENT PRIMARY KEY,
+   399→    timesheet_code VARCHAR(50) UNIQUE,
+   400→    client_id INT,
+   401→    unit_id INT,
+   402→    month INT NOT NULL,
+   403→    year INT NOT NULL,
+   404→    start_date DATE,
+   405→    end_date DATE,
+   406→    total_employees INT DEFAULT 0,
+   407→    total_hours DECIMAL(10,2) DEFAULT 0,
+   408→    total_overtime_hours DECIMAL(10,2) DEFAULT 0,
+   409→    status ENUM('draft', 'submitted', 'approved', 'rejected') DEFAULT 'draft',
+   410→    remarks TEXT,
+   411→    created_by INT,
+   412→    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+   413→    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   414→    approved_by INT,
+   415→    approved_at TIMESTAMP NULL,
+   416→    INDEX idx_client_month_year (client_id, month, year),
+   417→    INDEX idx_status (status)
+   418→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   419→
+   420→CREATE TABLE IF NOT EXISTS `timesheet_entries` (
+   421→    id INT AUTO_INCREMENT PRIMARY KEY,
+   422→    timesheet_id INT NOT NULL,
+   423→    employee_id INT NOT NULL,
+   424→    employee_code VARCHAR(50),
+   425→    date DATE NOT NULL,
+   426→    shift_start TIME,
+   427→    shift_end TIME,
+   428→    total_hours DECIMAL(5,2) DEFAULT 0,
+   429→    overtime_hours DECIMAL(5,2) DEFAULT 0,
+   430→    is_present TINYINT(1) DEFAULT 1,
+   431→    remarks VARCHAR(255),
+   432→    INDEX idx_timesheet_employee (timesheet_id, employee_id),
+   433→    INDEX idx_date (date),
+   434→    FOREIGN KEY (timesheet_id) REFERENCES timesheets(id) ON DELETE CASCADE
+   435→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   436→
+   437→-- ---------------------------------------------------------------------------
+   438→-- from modules/timesheet/list.php
+   439→-- ---------------------------------------------------------------------------
+   440→CREATE TABLE IF NOT EXISTS `client_timesheets` (
+   441→    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+   442→    `client_id` INT UNSIGNED DEFAULT NULL,
+   443→    `unit_id` INT UNSIGNED DEFAULT NULL,
+   444→    `invoice_id` INT UNSIGNED DEFAULT NULL,
+   445→    `period_from` DATE DEFAULT NULL,
+   446→    `period_to` DATE DEFAULT NULL,
+   447→    `status` VARCHAR(50) DEFAULT 'draft',
+   448→    `total_manpower` DECIMAL(10,2) DEFAULT 0,
+   449→    `total_amount` DECIMAL(12,2) DEFAULT 0,
+   450→    `remarks` TEXT DEFAULT NULL,
+   451→    `created_by` VARCHAR(50) DEFAULT NULL,
+   452→    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+   453→    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   454→    INDEX `idx_client_id` (`client_id`),
+   455→    INDEX `idx_status` (`status`),
+   456→    INDEX `idx_period` (`period_from`)
+   457→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   458→
+   459→-- ---------------------------------------------------------------------------
+   460→-- from modules/settlement/list.php
+   461→-- ---------------------------------------------------------------------------
+   462→CREATE TABLE IF NOT EXISTS `employee_settlements` (
+   463→    id INT AUTO_INCREMENT PRIMARY KEY,
+   464→    employee_id INT(10) UNSIGNED NOT NULL,
+   465→    last_working_day DATE NOT NULL,
+   466→    leaving_reason VARCHAR(50) NOT NULL DEFAULT 'Resignation',
+   467→    service_years DECIMAL(6,2) DEFAULT 0,
+   468→    salary_days INT DEFAULT 0,
+   469→    salary_amount DECIMAL(12,2) DEFAULT 0,
+   470→    leave_encashment_days DECIMAL(6,2) DEFAULT 0,
+   471→    leave_encashment_amount DECIMAL(12,2) DEFAULT 0,
+   472→    gratuity_years INT DEFAULT 0,
+   473→    gratuity_amount DECIMAL(12,2) DEFAULT 0,
+   474→    bonus_amount DECIMAL(12,2) DEFAULT 0,
+   475→    notice_shortfall INT DEFAULT 0,
+   476→    notice_recovery DECIMAL(12,2) DEFAULT 0,
+   477→    advance_recovery DECIMAL(12,2) DEFAULT 0,
+   478→    total_earnings DECIMAL(12,2) DEFAULT 0,
+   479→    total_deductions DECIMAL(12,2) DEFAULT 0,
+   480→    net_payable DECIMAL(12,2) DEFAULT 0,
+   481→    status ENUM('pending','approved','paid','on_hold','rejected') DEFAULT 'pending',
+   482→    payment_date DATE NULL,
+   483→    payment_mode VARCHAR(50) NULL,
+   484→    payment_reference VARCHAR(100) NULL,
+   485→    created_by INT NULL,
+   486→    approved_by INT NULL,
+   487→    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+   488→    approved_at TIMESTAMP NULL,
+   489→    INDEX idx_employee (employee_id),
+   490→    INDEX idx_status (status)
+   491→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   492→
+   493→-- ---------------------------------------------------------------------------
+   494→-- from modules/announcement/list.php
+   495→-- ---------------------------------------------------------------------------
+   496→CREATE TABLE IF NOT EXISTS `announcements` (
+   497→    id INT AUTO_INCREMENT PRIMARY KEY,
+   498→    title VARCHAR(255) NOT NULL,
+   499→    content TEXT,
+   500→    type ENUM('general','holiday','policy','event','urgent') DEFAULT 'general',
+   501→    start_date DATE,
+   502→    end_date DATE,
+   503→    is_active TINYINT(1) DEFAULT 1,
+   504→    is_pinned TINYINT(1) DEFAULT 0,
+   505→    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+   506→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   507→
+   508→-- ---------------------------------------------------------------------------
+   509→-- from modules/helpdesk/list.php
+   510→-- ---------------------------------------------------------------------------
+   511→CREATE TABLE IF NOT EXISTS `ess_helpdesk_tickets` (
+   512→    `id` int(11) NOT NULL AUTO_INCREMENT,
+   513→    `employee_id` int(11) DEFAULT NULL,
+   514→    `category` enum('hr','payroll','it','admin','other') NOT NULL DEFAULT 'hr',
+   515→    `subject` varchar(255) NOT NULL,
+   516→    `description` text DEFAULT NULL,
+   517→    `status` enum('open','in_progress','resolved','closed') NOT NULL DEFAULT 'open',
+   518→    `priority` enum('low','medium','high','urgent') NOT NULL DEFAULT 'medium',
+   519→    `resolved_by` varchar(50) DEFAULT NULL,
+   520→    `resolution` text DEFAULT NULL,
+   521→    `created_by` varchar(50) DEFAULT NULL,
+   522→    `ticket_number` varchar(20) DEFAULT NULL,
+   523→    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+   524→    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+   525→    PRIMARY KEY (`id`),
+   526→    KEY `idx_status` (`status`),
+   527→    KEY `idx_employee` (`employee_id`),
+   528→    KEY `idx_priority` (`priority`)
+   529→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   530→
+   531→CREATE TABLE IF NOT EXISTS `ess_helpdesk_comments` (
+   532→    `id` int(11) NOT NULL AUTO_INCREMENT,
+   533→    `ticket_id` int(11) NOT NULL,
+   534→    `user_id` varchar(50) DEFAULT NULL,
+   535→    `comment` text NOT NULL,
+   536→    `is_internal` tinyint(1) NOT NULL DEFAULT 0,
+   537→    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+   538→    PRIMARY KEY (`id`),
+   539→    KEY `idx_ticket` (`ticket_id`)
+   540→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   541→
+   542→-- ---------------------------------------------------------------------------
+   543→-- from modules/compliance/pt.php
+   544→-- ---------------------------------------------------------------------------
+   545→CREATE TABLE IF NOT EXISTS `pt_challans` (
+   546→    id INT AUTO_INCREMENT PRIMARY KEY,
+   547→    state VARCHAR(100) NOT NULL,
+   548→    month INT NOT NULL,
+   549→    year INT NOT NULL,
+   550→    challan_number VARCHAR(100),
+   551→    challan_date DATE,
+   552→    amount DECIMAL(12,2),
+   553→    total_employees INT DEFAULT 0,
+   554→    remarks TEXT,
+   555→    created_by INT,
+   556→    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+   557→    INDEX idx_state_month_year (state, month, year)
+   558→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   559→
+   560→-- ---------------------------------------------------------------------------
+   561→-- from modules/settings/holidays.php
+   562→-- ---------------------------------------------------------------------------
+   563→CREATE TABLE IF NOT EXISTS `holidays` (
+   564→    id INT AUTO_INCREMENT PRIMARY KEY,
+   565→    year INT NOT NULL,
+   566→    holiday_date DATE NOT NULL,
+   567→    holiday_name VARCHAR(200) NOT NULL,
+   568→    holiday_type ENUM('national','state','company','optional') DEFAULT 'national',
+   569→    is_active TINYINT(1) DEFAULT 1,
+   570→    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+   571→    UNIQUE KEY uniq_date (holiday_date)
+   572→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   573→
+   574→-- ---------------------------------------------------------------------------
+   575→-- from modules/unit/salary-templates.php
+   576→-- ---------------------------------------------------------------------------
+   577→CREATE TABLE IF NOT EXISTS `unit_salary_templates` (
+   578→    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+   579→    `unit_id` INT UNSIGNED NOT NULL,
+   580→    `template_name` VARCHAR(100) NOT NULL,
+   581→    `worker_categories` VARCHAR(500) DEFAULT NULL,
+   582→    `is_default` TINYINT(1) NOT NULL DEFAULT 0,
+   583→    `net_salary` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+   584→    `basic_da` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+   585→    `hra` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+   586→    `leave_encashment` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+   587→    `bonus_encashment` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+   588→    `washing_allowance` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+   589→    `gross_salary` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+   590→    `pf_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+   591→    `esi_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+   592→    `pt_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+   593→    `lwf_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+   594→    `overtime_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+   595→    `bonus_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+   596→    `gratuity_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+   597→    `bonus_percent` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+   598→    `leave_percent` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+   599→    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+   600→    `created_by` VARCHAR(50) DEFAULT NULL,
+   601→    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+   602→    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   603→    INDEX `idx_unit_active` (`unit_id`, `is_active`),
+   604→    INDEX `idx_unit_default` (`unit_id`, `is_default`)
+   605→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+   606→
+   607→-- ---------------------------------------------------------------------------
+   608→-- from modules/payroll/salary-revision.php
+   609→-- ---------------------------------------------------------------------------
+   610→CREATE TABLE IF NOT EXISTS `salary_revision_uploads` (
+   611→    `id` INT AUTO_INCREMENT PRIMARY KEY,
+   612→    `uploaded_by` INT NOT NULL,
+   613→    `effective_from` DATE NOT NULL,
+   614→    `original_filename` VARCHAR(255) NOT NULL,
+   615→    `uploaded_file` VARCHAR(500) DEFAULT NULL,
+   616→    `error_file` VARCHAR(500) DEFAULT NULL,
+   617→    `total_rows` INT NOT NULL DEFAULT 0,
+   618→    `succeeded` INT NOT NULL DEFAULT 0,
+   619→    `failed` INT NOT NULL DEFAULT 0,
+   620→    `status` ENUM('success','partial','failed') NOT NULL DEFAULT 'success',
+   621→    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   622→    INDEX `idx_uploaded_by` (`uploaded_by`),
+   623→    INDEX `idx_created_at` (`created_at`)
+   624→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   625→
+   626→-- ---------------------------------------------------------------------------
+   627→-- from modules/forms/labour/form-32.php
+   628→-- ---------------------------------------------------------------------------
+   629→CREATE TABLE IF NOT EXISTS `injury_register` (
+   630→    id INT AUTO_INCREMENT PRIMARY KEY,
+   631→    injury_date DATE NOT NULL,
+   632→    employee_id INT,
+   633→    employee_code VARCHAR(100) DEFAULT '',
+   634→    employee_name VARCHAR(255) DEFAULT '',
+   635→    nature_of_injury VARCHAR(255) NOT NULL,
+   636→    cause_of_injury VARCHAR(255) DEFAULT '',
+   637→    body_part_affected VARCHAR(255) DEFAULT '',
+   638→    treatment_given VARCHAR(500) DEFAULT '',
+   639→    hospital_name VARCHAR(255) DEFAULT '',
+   640→    days_lost INT DEFAULT 0,
+   641→    compensation_amount DECIMAL(12,2) DEFAULT 0,
+   642→    accident_type VARCHAR(50) DEFAULT 'minor',
+   643→    status VARCHAR(50) DEFAULT 'open',
+   644→    remarks TEXT DEFAULT '',
+   645→    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+   646→    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+   647→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   648→
+   649→-- ---------------------------------------------------------------------------
+   650→-- from modules/forms/labour/form-xxi.php
+   651→-- ---------------------------------------------------------------------------
+   652→CREATE TABLE IF NOT EXISTS `deductions_register` (
+   653→    id INT AUTO_INCREMENT PRIMARY KEY,
+   654→    deduction_date DATE NOT NULL,
+   655→    employee_id INT,
+   656→    employee_code VARCHAR(100) DEFAULT '',
+   657→    employee_name VARCHAR(255) DEFAULT '',
+   658→    nature_of_deduction VARCHAR(255) NOT NULL,
+   659→    amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+   660→    authority VARCHAR(255) DEFAULT '',
+   661→    recovery_date DATE,
+   662→    remarks TEXT DEFAULT '',
+   663→    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+   664→    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+   665→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   666→
+   667→-- ---------------------------------------------------------------------------
+   668→-- from modules/forms/labour/form-24.php
+   669→-- ---------------------------------------------------------------------------
+   670→CREATE TABLE IF NOT EXISTS `contractors_register` (
+   671→    id INT AUTO_INCREMENT PRIMARY KEY,
+   672→    contractor_name VARCHAR(255) NOT NULL,
+   673→    registration_number VARCHAR(100) DEFAULT '',
+   674→    nature_of_work VARCHAR(255) DEFAULT '',
+   675→    total_workers INT DEFAULT 0,
+   676→    license_valid_from DATE,
+   677→    license_valid_to DATE,
+   678→    license_fee DECIMAL(12,2) DEFAULT 0,
+   679→    remarks TEXT DEFAULT '',
+   680→    status VARCHAR(50) DEFAULT 'active',
+   681→    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+   682→    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+   683→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   684→
+   685→-- ---------------------------------------------------------------------------
+   686→-- from modules/report/gumastadhara-fine-register.php
+   687→-- ---------------------------------------------------------------------------
+   688→CREATE TABLE IF NOT EXISTS `fine_register` (
+   689→    id INT AUTO_INCREMENT PRIMARY KEY,
+   690→    date DATE NOT NULL,
+   691→    employee_id INT NOT NULL,
+   692→    fine_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+   693→    nature_of_fine VARCHAR(500),
+   694→    recovery_date DATE,
+   695→    remarks TEXT,
+   696→    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+   697→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   698→
+   699→-- ---------------------------------------------------------------------------
+   700→-- from modules/entry/muster-entry.php, modules/report/muster-roll.php,
+   701→--      modules/report/gumastadhara-muster-roll.php
+   702→-- ---------------------------------------------------------------------------
+   703→ALTER TABLE `attendance_summary` ADD COLUMN `daily_data` LONGTEXT DEFAULT NULL AFTER `total_paid_days`;
+   704→
+   705→-- ---------------------------------------------------------------------------
+   706→-- from modules/employee/designation.php, modules/employee/add.php
+   707→-- (ensure worker_category column exists on designations table)
+   708→-- ---------------------------------------------------------------------------
+   709→ALTER TABLE `designations` ADD COLUMN `worker_category` VARCHAR(50) DEFAULT 'Unskilled' AFTER `name`;
+   710→
+   711→
+   712→-- ---------------------------------------------------------------------------
+   713→-- from modules/notifications/bulk-email.php
+   714→-- ---------------------------------------------------------------------------
+   715→CREATE TABLE IF NOT EXISTS `bulk_email_logs` (
+   716→    `id` INT AUTO_INCREMENT PRIMARY KEY,
+   717→    `campaign_subject` VARCHAR(500) NOT NULL,
+   718→    `recipient_email` VARCHAR(255) NOT NULL,
+   719→    `recipient_name` VARCHAR(255),
+   720→    `status` ENUM('sent','failed','skipped') NOT NULL DEFAULT 'sent',
+   721→    `error_message` TEXT,
+   722→    `sent_by` INT,
+   723→    `sent_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+   724→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+   725→
