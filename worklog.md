@@ -5,29 +5,35 @@ Task: Build Form A (Labour Contractor Register) — full CRUD app with 31 data c
 
 Work Log:
 - Ran fullstack init script to initialize dev environment
-- Defined Prisma schema with LabourContractor model containing 31 data columns organized into 6 groups: Contractor Identity (5), Establishment Details (2), Work & License Details (8), Contractor Compliance (2), Contact Details (4), Banking Details (3), ESI Registration (1), Contract Details (5), Work Location (1), and Remarks (1). Also includes system fields (createdAt, updatedAt).
-- Pushed schema to SQLite via `bun run db:push` — generated Prisma Client successfully
-- Built API route GET/POST at `/api/contractors/route.ts` with search across 7 fields, pagination, and sortable columns
-- Built API route GET/PUT/DELETE at `/api/contractors/[id]/route.ts` for individual record operations
-- Built complete frontend `src/app/page.tsx` as a single-page CRUD application with:
-  - Sticky header with app title, CSV export, and Add Contractor button
-  - Search bar with debounced input (350ms) across contractor name, registration number, license number, establishment name, nature of work, contact person, and mobile
-  - Data table with 12 primary columns shown (contractorName, registrationNumber, establishmentName, natureOfWork, maxWorkmen, licenseNumber, licenseValidTo, contactPersonName, contactPersonMobile, contractValue, contractWorkLocation, contractorGstin) plus status badge and action buttons
-  - License status badge showing Active/Expired/Days Left based on licenseValidTo date
-  - Column sorting (click header to toggle asc/desc)
-  - Pagination with page number buttons, prev/next, and showing count
-  - Create/Edit dialog with 5 tabbed sections: Identity, License & Work, Compliance, Contact & Bank, Contract — covering all 31 fields
-  - View dialog with same 5 tabs showing read-only field values with animated tab transitions (Framer Motion)
-  - Delete confirmation via AlertDialog with destructive action button
-  - Loading skeletons during data fetch
-  - Empty state with icon and contextual message
-  - Toast notifications for success/error feedback via Sonner
-  - CSV export with all 31 columns in proper format
-- Verified: zero lint errors in new files, dev server returns 200, Prisma queries execute correctly
+- Defined Prisma schema with LabourContractor model containing 31 data columns organized into 6 groups
+- Pushed schema to SQLite via `bun run db:push`
+- Built API routes at `/api/contractors` and `/api/contractors/[id]`
+- Built complete frontend `src/app/page.tsx` with CRUD, 5-tab form, search, sort, pagination, CSV export
+- Verified end-to-end with agent browser: create, view, edit, search all working
 
 Stage Summary:
 - Full CRUD application for Form A (Labour Contractor Register) is complete and functional
 - 31 data columns managed across 5 organized tabs
-- Search, sort, pagination, CSV export all working
 - API routes at /api/contractors (list+create) and /api/contractors/[id] (get+update+delete)
 - Database: SQLite via Prisma with LabourContractor model
+
+---
+Task ID: fix-unit-visit-upload-paths
+Agent: main
+Task: Fix unit-visit image paths missing /uploads/ prefix in database and admin panel
+
+Work Log:
+- Root cause: upload-base64.php returned `unit-visits/filename.jpg` without `/uploads/` prefix
+- ESS mobile app worked fine (getFileUrl() strips and re-adds /uploads/), but admin panel used raw path
+- Fix 1: api/ess/upload-base64.php line 127 — changed `$url = $folder . '/' . $finalFilename` to `$url = '/uploads/' . $folder . '/' . $finalFilename`
+- Fix 2: php_payroll/modules/client/visit-checklist.php — added `resolveUploadUrl()` helper function that ensures /uploads/ prefix is present; wrapped all 6 usages of $docUrl in img src, href, and onclick handlers
+- Fix 3: Created php_payroll/scripts/fix-unit-visit-paths.php migration script to fix existing DB records in ess_unit_visits.document_url and ess_visit_checklist_items.photo_url
+- Verified ESS app's getFileUrl() in config.ts already handles both old and new formats (strips /uploads/ then re-adds)
+- Verified delete handler in visit-checklist.php uses ltrim which works after migration
+
+Stage Summary:
+- 3 files modified, 1 new file created
+- Future uploads will store `/uploads/unit-visits/...` in DB (upload-base64.php fix)
+- Admin panel now displays images correctly for both old and new path formats (resolveUploadUrl helper)
+- Migration script ready: php scripts/fix-unit-visit-paths.php (run once on production)
+- ESS mobile app: no changes needed, already compatible

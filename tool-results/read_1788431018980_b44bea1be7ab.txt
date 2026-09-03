@@ -1,0 +1,697 @@
+     1→     1→<?php
+     2→     2→/**
+     3→     3→ * RCS HRMS Pro - Visit Checklist Viewer
+     4→     4→ * 
+     5→     5→ * View managers' uploaded unit visit checklists from ESS app.
+     6→     6→ * Table: ess_unit_visits
+     7→     7→ */
+     8→     8→
+     9→     9→$pageTitle = 'Unit Visit Checklists';
+    10→    10→
+    11→    11→// -- Filters --
+    12→    12→$filterEmployee = isset($_GET['employee_id']) ? (int)$_GET['employee_id'] : 0;
+    13→    13→$filterMonthYear = isset($_GET['my']) ? sanitize($_GET['my']) : ''; // format: YYYY-MM
+    14→    14→$filterMonth = 0;
+    15→    15→$filterYear = 0;
+    16→    16→if (preg_match('/^(\d{4})-(\d{2})$/', $filterMonthYear, $m)) {
+    17→    17→    $filterYear = (int)$m[1];
+    18→    18→    $filterMonth = (int)$m[2];
+    19→    19→}
+    20→    20→$viewImage = isset($_GET['view']) ? (int)$_GET['view'] : 0;
+    21→    21→
+    22→    22→// -- Dropdowns --
+    23→    23→// 1) Managers who have uploaded checklists
+    24→    24→$managers = $db->fetchAll(
+    25→    25→    "SELECT DISTINCT v.employee_id, e.employee_code, e.full_name, e.designation
+    26→    26→     FROM ess_unit_visits v
+    27→    27→     LEFT JOIN employees e ON v.employee_id = e.id
+    28→    28→     ORDER BY e.full_name"
+    29→    29→);
+    30→    30→
+    31→    31→// 2) Available month-year combos (newest first)
+    32→    32→$monthYearList = $db->fetchAll(
+    33→    33→    "SELECT DISTINCT visit_year, visit_month
+    34→    34→     FROM ess_unit_visits
+    35→    35→     ORDER BY visit_year DESC, visit_month DESC"
+    36→    36→);
+    37→    37→$monthNames = [1=>'January',2=>'February',3=>'March',4=>'April',5=>'May',6=>'June',
+    38→    38→               7=>'July',8=>'August',9=>'September',10=>'October',11=>'November',12=>'December'];
+    39→    39→
+    40→    40→// -- Handle status update --
+    41→    41→if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    42→    42→    // CSRF check (Round 9)
+    43→    43→    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+    44→    44→        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+    45→    45→        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    46→    46→    }
+    47→    47→    $action = sanitize($_POST['action']);
+    48→    48→    
+    49→    49→    if ($action === 'update_status' && isset($_POST['visit_id'])) {
+    50→    50→        $visitId = (int)$_POST['visit_id'];
+    51→    51→        $newStatus = sanitize($_POST['new_status']);
+    52→    52→        $allowedStatuses = ['submitted', 'reviewed', 'approved', 'rejected'];
+    53→    53→        if (in_array($newStatus, $allowedStatuses)) {
+    54→    54→            $db->update('ess_unit_visits', ['status' => $newStatus, 'updated_at' => date('Y-m-d H:i:s')], 'id = :id', ['id' => $visitId]);
+    55→    55→            setFlash('success', 'Checklist status updated to "' . ucfirst($newStatus) . '".');
+    56→    56→        }
+    57→    57→        redirect('index.php?page=client/visit-checklist' . buildFilterUrl());
+    58→    58→    }
+    59→    59→    
+    60→    60→    if ($action === 'delete' && isset($_POST['visit_id'])) {
+    61→    61→        $visitId = (int)$_POST['visit_id'];
+    62→    62→        $visit = $db->fetch("SELECT document_url FROM ess_unit_visits WHERE id = ?", [$visitId]);
+    63→    63→        if ($visit) {
+    64→    64→            $filePath = $_SERVER['DOCUMENT_ROOT'] . '/' . ltrim($visit['document_url'], '/');
+    65→    65→            if (file_exists($filePath)) {
+    66→    66→                @unlink($filePath);
+    67→    67→            }
+    68→    68→            $db->delete('ess_unit_visits', 'id = :id', ['id' => $visitId]);
+    69→    69→            setFlash('success', 'Checklist deleted.');
+    70→    70→        }
+    71→    71→        redirect('index.php?page=client/visit-checklist' . buildFilterUrl());
+    72→    72→    }
+    73→    73→}
+    74→    74→
+    75→    75→// -- Build filter URL helper --
+    76→    76→function buildFilterUrl($overrides = []) {
+    77→    77→    $params = [
+    78→    78→        'employee_id' => $GLOBALS['filterEmployee'] ?? 0,
+    79→    79→        'my'          => $GLOBALS['filterMonthYear'] ?? '',
+    80→    80→    ];
+    81→    81→    $params = array_merge($params, $overrides);
+    82→    82→    $parts = [];
+    83→    83→    foreach ($params as $k => $v) {
+    84→    84→        if ($v !== '' && $v !== 0) {
+    85→    85→            $parts[] = $k . '=' . urlencode($v);
+    86→    86→        }
+    87→    87→    }
+    88→    88→    return $parts ? '&' . implode('&', $parts) : '';
+    89→    89→}
+    90→    90→
+    91→    91→// -- Fetch visit checklists --
+    92→    92→$perPage = 50;
+    93→    93→$currentPage = max(1, (int)($_GET['pg'] ?? 1));
+    94→    94→
+    95→    95→$whereSQL = "1=1";
+    96→    96→$params = [];
+    97→    97→
+    98→    98→if ($filterEmployee > 0) {
+    99→    99→    $whereSQL .= " AND v.employee_id = ?";
+   100→   100→    $params[] = $filterEmployee;
+   101→   101→}
+   102→   102→if ($filterMonth > 0) {
+   103→   103→    $whereSQL .= " AND v.visit_month = ?";
+   104→   104→    $params[] = $filterMonth;
+   105→   105→}
+   106→   106→if ($filterYear > 0) {
+   107→   107→    $whereSQL .= " AND v.visit_year = ?";
+   108→   108→    $params[] = $filterYear;
+   109→   109→}
+   110→   110→
+   111→   111→// Total count
+   112→   112→$totalRecords = (int)$db->fetchColumn(
+   113→   113→    "SELECT COUNT(*) FROM ess_unit_visits v
+   114→   114→     LEFT JOIN employees e ON v.employee_id = e.id
+   115→   115→     LEFT JOIN units u ON v.unit_id = u.id
+   116→   116→     LEFT JOIN clients c ON u.client_id = c.id
+   117→   117→     WHERE $whereSQL", $params
+   118→   118→) ?: 0;
+   119→   119→$totalPages = (int)ceil($totalRecords / $perPage);
+   120→   120→if ($currentPage > $totalPages && $totalPages > 0) $currentPage = $totalPages;
+   121→   121→$offset = ($currentPage - 1) * $perPage;
+   122→   122→
+   123→   123→$query = "
+   124→   124→    SELECT v.id, v.document_url, v.document_type, v.visit_number, v.status,
+   125→   125→           v.visit_month, v.visit_year, v.created_at, v.notes,
+   126→   126→           v.employee_id, v.unit_id,
+   127→   127→           e.employee_code, e.full_name as employee_name, e.designation,
+   128→   128→           u.name as unit_name, u.unit_code,
+   129→   129→           c.name as client_name
+   130→   130→    FROM ess_unit_visits v
+   131→   131→    LEFT JOIN employees e ON v.employee_id = e.id
+   132→   132→    LEFT JOIN units u ON v.unit_id = u.id
+   133→   133→    LEFT JOIN clients c ON u.client_id = c.id
+   134→   134→    WHERE $whereSQL
+   135→   135→    ORDER BY v.created_at DESC
+   136→   136→    LIMIT $perPage OFFSET $offset";
+   137→   137→$visits = $db->fetchAll($query, $params);
+   138→   138→
+   139→   139→// Pagination URL helper
+   140→   140→function paginationUrl($page) {
+   141→   141→    $base = 'index.php?page=client/visit-checklist';
+   142→   142→    $parts = [];
+   143→   143→    if (!empty($GLOBALS['filterEmployee'])) $parts[] = 'employee_id=' . urlencode($GLOBALS['filterEmployee']);
+   144→   144→    if (!empty($GLOBALS['filterMonthYear'])) $parts[] = 'my=' . urlencode($GLOBALS['filterMonthYear']);
+   145→   145→    if ($page > 1) $parts[] = 'pg=' . $page;
+   146→   146→    return $base . ($parts ? '&' . implode('&', $parts) : '');
+   147→   147→}
+   148→   148→
+   149→   149→// -- View single image --
+   150→   150→$viewVisit = null;
+   151→   151→if ($viewImage > 0) {
+   152→   152→    $viewVisit = $db->fetch("SELECT v.*, e.full_name as employee_name, u.name as unit_name 
+   153→   153→                              FROM ess_unit_visits v
+   154→   154→                              LEFT JOIN employees e ON v.employee_id = e.id
+   155→   155→                              LEFT JOIN units u ON v.unit_id = u.id
+   156→   156→                              WHERE v.id = ?", [$viewImage]);
+   157→   157→}
+   158→   158→
+   159→   159→// -- Stats --
+   160→   160→$stats = [
+   161→   161→    'total'     => $totalRecords,
+   162→   162→    'submitted' => 0,
+   163→   163→    'reviewed'  => 0,
+   164→   164→    'approved'  => 0,
+   165→   165→    'rejected'  => 0,
+   166→   166→    'images'    => 0,
+   167→   167→    'pdfs'      => 0,
+   168→   168→];
+   169→   169→foreach ($visits as $v) {
+   170→   170→    $st = $v['status'] ?? '';
+   171→   171→    if (isset($stats[$st])) $stats[$st]++;
+   172→   172→    if (($v['document_type'] ?? '') === 'image') $stats['images']++;
+   173→   173→    if (($v['document_type'] ?? '') === 'pdf') $stats['pdfs']++;
+   174→   174→}
+   175→   175→?>
+   176→   176→
+   177→   177→<style>
+   178→   178→.checklist-card {
+   179→   179→    transition: transform 0.15s, box-shadow 0.15s;
+   180→   180→}
+   181→   181→.checklist-card:hover {
+   182→   182→    transform: translateY(-2px);
+   183→   183→    box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+   184→   184→}
+   185→   185→.visit-thumb {
+   186→   186→    width: 100%;
+   187→   187→    height: 180px;
+   188→   188→    object-fit: cover;
+   189→   189→    border-radius: 6px 6px 0 0;
+   190→   190→    cursor: pointer;
+   191→   191→    background: #f0f0f0;
+   192→   192→}
+   193→   193→.visit-thumb:hover {
+   194→   194→    opacity: 0.9;
+   195→   195→}
+   196→   196→.status-badge-submitted { background: #0dcaf0; color: #000; }
+   197→   197→.status-badge-reviewed  { background: #ffc107; color: #000; }
+   198→   198→.status-badge-approved  { background: #198754; color: #fff; }
+   199→   199→.status-badge-rejected  { background: #dc3545; color: #fff; }
+   200→   200→
+   201→   201→/* Image modal */
+   202→   202→#imageViewerModal .modal-dialog {
+   203→   203→    max-width: 900px;
+   204→   204→}
+   205→   205→#imageViewerModal .modal-body {
+   206→   206→    padding: 0;
+   207→   207→    background: #000;
+   208→   208→    border-radius: 0 0 8px 8px;
+   209→   209→    overflow: hidden;
+   210→   210→}
+   211→   211→#imageViewerModal img {
+   212→   212→    max-width: 100%;
+   213→   213→    max-height: 80vh;
+   214→   214→    display: block;
+   215→   215→    margin: 0 auto;
+   216→   216→}
+   217→   217→/* PDF viewer */
+   218→   218→#imageViewerModal iframe {
+   219→   219→    width: 100%;
+   220→   220→    height: 80vh;
+   221→   221→    border: none;
+   222→   222→    display: block;
+   223→   223→}
+   224→   224→
+   225→   225→.stat-card {
+   226→   226→    border-left: 3px solid;
+   227→   227→    padding: 8px 12px;
+   228→   228→}
+   229→   229→</style>
+   230→   230→
+   231→   231→<!-- FILTER BAR -->
+   232→   232→<div class="card mb-3">
+   233→   233→    <div class="card-body py-2">
+   234→   234→        <form method="GET" class="row g-2 align-items-end" id="filterForm">
+   235→   235→            <input type="hidden" name="page" value="client/visit-checklist">
+   236→   236→
+   237→   237→            <div class="col-lg-4 col-md-5 col-sm-6">
+   238→   238→                <label class="form-label mb-0 small">Manager</label>
+   239→   239→                <select class="form-select form-select-sm" name="employee_id" id="employeeSelect">
+   240→   240→                    <option value="">All Managers</option>
+   241→   241→                    <?php foreach ($managers as $mgr): ?>
+   242→   242→                    <option value="<?= $mgr['employee_id'] ?>" <?= $filterEmployee == $mgr['employee_id'] ? 'selected' : '' ?>>
+   243→   243→                        <?= sanitize($mgr['full_name'] ?? 'Unknown') ?>
+   244→   244→                        <?php if (!empty($mgr['employee_code'])): ?>(<?= sanitize($mgr['employee_code']) ?>)<?php endif; ?>
+   245→   245→                        <?php if (!empty($mgr['designation'])): ?> - <?= sanitize($mgr['designation']) ?><?php endif; ?>
+   246→   246→                    </option>
+   247→   247→                    <?php endforeach; ?>
+   248→   248→                </select>
+   249→   249→            </div>
+   250→   250→
+   251→   251→            <div class="col-lg-3 col-md-4 col-sm-6">
+   252→   252→                <label class="form-label mb-0 small">Month / Year</label>
+   253→   253→                <select class="form-select form-select-sm" name="my">
+   254→   254→                    <option value="">All Months</option>
+   255→   255→                    <?php foreach ($monthYearList as $my): 
+   256→   256→                        $myKey = $my['visit_year'] . '-' . str_pad($my['visit_month'], 2, '0', STR_PAD_LEFT);
+   257→   257→                        $myLabel = $monthNames[(int)$my['visit_month']] . ' ' . $my['visit_year'];
+   258→   258→                    ?>
+   259→   259→                    <option value="<?= $myKey ?>" <?= $filterMonthYear === $myKey ? 'selected' : '' ?>>
+   260→   260→                        <?= $myLabel ?>
+   261→   261→                    </option>
+   262→   262→                    <?php endforeach; ?>
+   263→   263→                </select>
+   264→   264→            </div>
+   265→   265→
+   266→   266→            <div class="col-lg-auto col-md-auto col-sm-auto">
+   267→   267→                <button type="submit" class="btn btn-primary btn-sm">
+   268→   268→                    <i class="bi bi-funnel me-1"></i>Filter
+   269→   269→                </button>
+   270→   270→                <a href="index.php?page=client/visit-checklist" class="btn btn-outline-secondary btn-sm">
+   271→   271→                    <i class="bi bi-x-lg"></i>
+   272→   272→                </a>
+   273→   273→            </div>
+   274→   274→        </form>
+   275→   275→    </div>
+   276→   276→</div>
+   277→   277→
+   278→   278→<!-- STATS BAR -->
+   279→   279→<div class="row g-2 mb-3">
+   280→   280→    <div class="col-auto">
+   281→   281→        <div class="stat-card bg-light rounded border" style="border-color:#6c757d!important;">
+   282→   282→            <div class="text-muted small">Total</div>
+   283→   283→            <div class="fw-bold"><?= $stats['total'] ?></div>
+   284→   284→        </div>
+   285→   285→    </div>
+   286→   286→    <div class="col-auto">
+   287→   287→        <div class="stat-card bg-light rounded border" style="border-color:#0dcaf0!important;">
+   288→   288→            <div class="text-muted small">Submitted</div>
+   289→   289→            <div class="fw-bold text-info"><?= $stats['submitted'] ?></div>
+   290→   290→        </div>
+   291→   291→    </div>
+   292→   292→    <div class="col-auto">
+   293→   293→        <div class="stat-card bg-light rounded border" style="border-color:#ffc107!important;">
+   294→   294→            <div class="text-muted small">Reviewed</div>
+   295→   295→            <div class="fw-bold text-warning"><?= $stats['reviewed'] ?></div>
+   296→   296→        </div>
+   297→   297→    </div>
+   298→   298→    <div class="col-auto">
+   299→   299→        <div class="stat-card bg-light rounded border" style="border-color:#198754!important;">
+   300→   300→            <div class="text-muted small">Approved</div>
+   301→   301→            <div class="fw-bold text-success"><?= $stats['approved'] ?></div>
+   302→   302→        </div>
+   303→   303→    </div>
+   304→   304→    <div class="col-auto">
+   305→   305→        <div class="stat-card bg-light rounded border" style="border-color:#dc3545!important;">
+   306→   306→            <div class="text-muted small">Rejected</div>
+   307→   307→            <div class="fw-bold text-danger"><?= $stats['rejected'] ?></div>
+   308→   308→        </div>
+   309→   309→    </div>
+   310→   310→    <div class="col-auto ms-auto">
+   311→   311→        <div class="stat-card bg-light rounded border">
+   312→   312→            <div class="text-muted small"><i class="bi bi-image me-1"></i>Images</div>
+   313→   313→            <div class="fw-bold"><?= $stats['images'] ?></div>
+   314→   314→        </div>
+   315→   315→    </div>
+   316→   316→    <div class="col-auto">
+   317→   317→        <div class="stat-card bg-light rounded border">
+   318→   318→            <div class="text-muted small"><i class="bi bi-file-earmark-pdf me-1"></i>PDFs</div>
+   319→   319→            <div class="fw-bold"><?= $stats['pdfs'] ?></div>
+   320→   320→        </div>
+   321→   321→    </div>
+   322→   322→</div>
+   323→   323→
+   324→   324→<!-- VIEW / LIST TOGGLE -->
+   325→   325→<div class="d-flex justify-content-between align-items-center mb-3">
+   326→   326→    <h6 class="mb-0"><i class="bi bi-clipboard-check me-2"></i>Uploaded Checklists (<?= count($visits) ?>)</h6>
+   327→   327→    <div class="btn-group btn-group-sm">
+   328→   328→        <button type="button" class="btn btn-outline-primary active" id="btnViewGrid" onclick="setView('grid')">
+   329→   329→            <i class="bi bi-grid-3x3-gap"></i> Grid
+   330→   330→        </button>
+   331→   331→        <button type="button" class="btn btn-outline-primary" id="btnViewTable" onclick="setView('table')">
+   332→   332→            <i class="bi bi-table"></i> Table
+   333→   333→        </button>
+   334→   334→    </div>
+   335→   335→</div>
+   336→   336→
+   337→   337→<?php if (empty($visits)): ?>
+   338→   338→<div class="text-center py-5 text-muted">
+   339→   339→    <i class="bi bi-clipboard-x fs-1"></i>
+   340→   340→    <p class="mt-3">No visit checklists found.</p>
+   341→   341→    <small>Checklists are uploaded by managers via the ESS app during unit visits.</small>
+   342→   342→</div>
+   343→   343→<?php else: ?>
+   344→   344→
+   345→   345→<?php if ($totalPages > 1): ?>
+   346→   346→<nav aria-label="Page navigation" class="mb-3">
+   347→   347→    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+   348→   348→        <small class="text-muted">Showing <?= min($perPage, $totalRecords) ?> of <?= $totalRecords ?> records (Page <?= $currentPage ?>/<?= $totalPages ?>)</small>
+   349→   349→        <ul class="pagination pagination-sm mb-0">
+   350→   350→            <?php if ($currentPage > 1): ?>
+   351→   351→            <li class="page-item"><a class="page-link" href="<?= paginationUrl($currentPage - 1) ?>">Previous</a></li>
+   352→   352→            <?php endif; ?>
+   353→   353→            <?php
+   354→   354→            $startP = max(1, $currentPage - 2);
+   355→   355→            $endP = min($totalPages, $currentPage + 2);
+   356→   356→            if ($startP > 1) echo '<li class="page-item"><a class="page-link" href="' . paginationUrl(1) . '">1</a></li><li class="page-item disabled"><span class="page-link">...</span></li>';
+   357→   357→            for ($p = $startP; $p <= $endP; $p++):
+   358→   358→            ?>
+   359→   359→            <li class="page-item <?= $p === $currentPage ? 'active' : '' ?>"><a class="page-link" href="<?= paginationUrl($p) ?>"><?= $p ?></a></li>
+   360→   360→            <?php endfor; ?>
+   361→   361→            <?php if ($endP < $totalPages) echo '<li class="page-item disabled"><span class="page-link">...</span></li><li class="page-item"><a class="page-link" href="' . paginationUrl($totalPages) . '">' . $totalPages . '</a></li>'; ?>
+   362→   362→            <?php if ($currentPage < $totalPages): ?>
+   363→   363→            <li class="page-item"><a class="page-link" href="<?= paginationUrl($currentPage + 1) ?>">Next</a></li>
+   364→   364→            <?php endif; ?>
+   365→   365→        </ul>
+   366→   366→    </div>
+   367→   367→</nav>
+   368→   368→<?php endif; ?>
+   369→   369→
+   370→   370→<!-- GRID VIEW -->
+   371→   371→<div id="gridView" class="row g-3">
+   372→   372→<?php foreach ($visits as $v):
+   373→   373→    $docUrl = $v['document_url'] ?? '';
+   374→   374→    $docType = $v['document_type'] ?? 'image';
+   375→   375→    $isImage = ($docType === 'image');
+   376→   376→    $isPdf = ($docType === 'pdf');
+   377→   377→    $visitNum = (int)($v['visit_number'] ?? 1);
+   378→   378→    $visitLabel = $visitNum === 1 ? '1st Visit' : ($visitNum === 2 ? '2nd Visit' : $visitNum . 'th Visit');
+   379→   379→    $status = $v['status'] ?? 'submitted';
+   380→   380→    $monthLabel = $monthNames[(int)($v['visit_month'] ?? 1)] ?? '';
+   381→   381→    $createdDate = date('d-M-Y h:i A', strtotime($v['created_at'] ?? 'now'));
+   382→   382→    $notes = $v['notes'] ?? '';
+   383→   383→?>
+   384→   384→    <div class="col-lg-3 col-md-4 col-sm-6">
+   385→   385→        <div class="card checklist-card h-100">
+   386→   386→            <?php if ($isImage): ?>
+   387→   387→            <img src="<?= htmlspecialchars($docUrl) ?>" 
+   388→   388→                 class="visit-thumb" 
+   389→   389→                 alt="Visit Checklist"
+   390→   390→                 onclick="openViewer(<?= $v['id'] ?>, 'image', '<?= htmlspecialchars(addslashes($docUrl)) ?>')"
+   391→   391→                 onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22180%22><rect fill=%22%23f0f0f0%22 width=%22200%22 height=%22180%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2214%22>Image not found</text></svg>'">
+   392→   392→            <?php elseif ($isPdf): ?>
+   393→   393→            <div class="visit-thumb d-flex flex-column align-items-center justify-content-center bg-dark text-white"
+   394→   394→                 onclick="openViewer(<?= $v['id'] ?>, 'pdf', '<?= htmlspecialchars(addslashes($docUrl)) ?>')"
+   395→   395→                 style="cursor:pointer;">
+   396→   396→                <i class="bi bi-file-earmark-pdf-fill" style="font-size:3rem;"></i>
+   397→   397→                <small class="mt-1">View PDF</small>
+   398→   398→            </div>
+   399→   399→            <?php else: ?>
+   400→   400→            <div class="visit-thumb d-flex align-items-center justify-content-center bg-secondary text-white">
+   401→   401→                <i class="bi bi-file-earmark" style="font-size:2rem;"></i>
+   402→   402→            </div>
+   403→   403→            <?php endif; ?>
+   404→   404→
+   405→   405→            <div class="card-body p-2">
+   406→   406→                <!-- Employee & Unit -->
+   407→   407→                <div class="fw-semibold small" title="<?= htmlspecialchars($v['employee_name'] ?? '') ?>">
+   408→   408→                    <i class="bi bi-person me-1 text-primary"></i><?= sanitize($v['employee_name'] ?? 'Unknown') ?>
+   409→   409→                </div>
+   410→   410→                <div class="text-muted small" title="<?= htmlspecialchars($v['unit_name'] ?? '') ?>">
+   411→   411→                    <i class="bi bi-geo-alt me-1"></i><?= sanitize($v['unit_name'] ?? 'Unknown Unit') ?>
+   412→   412→                    <?php if (!empty($v['client_name'])): ?>
+   413→   413→                    <span class="text-muted"> (<?= sanitize($v['client_name']) ?>)</span>
+   414→   414→                    <?php endif; ?>
+   415→   415→                </div>
+   416→   416→
+   417→   417→                <!-- Visit info -->
+   418→   418→                <div class="d-flex justify-content-between align-items-center mt-1">
+   419→   419→                    <small>
+   420→   420→                        <span class="badge bg-light text-dark border">
+   421→   421→                            <i class="bi bi-calendar3 me-1"></i><?= $monthLabel ?> <?= $v['visit_year'] ?? '' ?>
+   422→   422→                        </span>
+   423→   423→                        <span class="badge bg-light text-dark border ms-1">
+   424→   424→                            <i class="bi bi-pin-map me-1"></i><?= $visitLabel ?>
+   425→   425→                        </span>
+   426→   426→                    </small>
+   427→   427→                    <span class="badge status-badge-<?= $status ?>"><?= ucfirst($status) ?></span>
+   428→   428→                </div>
+   429→   429→
+   430→   430→                <?php if ($notes): ?>
+   431→   431→                <div class="text-muted small mt-1" style="max-height:36px; overflow:hidden; font-size:0.72rem;" title="<?= htmlspecialchars($notes) ?>">
+   432→   432→                    <i class="bi bi-chat-left-text me-1"></i><?= sanitize(mb_strlen($notes) > 60 ? mb_substr($notes, 0, 60) . '...' : $notes) ?>
+   433→   433→                </div>
+   434→   434→                <?php endif; ?>
+   435→   435→
+   436→   436→                <!-- Date & Actions -->
+   437→   437→                <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
+   438→   438→                    <small class="text-muted" title="<?= $createdDate ?>">
+   439→   439→                        <i class="bi bi-clock me-1"></i><?= $createdDate ?>
+   440→   440→                    </small>
+   441→   441→                    <div class="dropdown">
+   442→   442→                        <button class="btn btn-sm btn-outline-secondary py-0 px-1" data-bs-toggle="dropdown" aria-expanded="false">
+   443→   443→                            <i class="bi bi-three-dots-vertical"></i>
+   444→   444→                        </button>
+   445→   445→                        <ul class="dropdown-menu dropdown-menu-end" style="font-size:0.8rem;">
+   446→   446→                            <?php if ($isImage): ?>
+   447→   447→                            <li><a class="dropdown-item" href="<?= htmlspecialchars($docUrl) ?>" target="_blank">
+   448→   448→                                <i class="bi bi-box-arrow-up-right me-2"></i>Open Image
+   449→   449→                            </a></li>
+   450→   450→                            <?php elseif ($isPdf): ?>
+   451→   451→                            <li><a class="dropdown-item" href="<?= htmlspecialchars($docUrl) ?>" target="_blank">
+   452→   452→                                <i class="bi bi-box-arrow-up-right me-2"></i>Open PDF
+   453→   453→                            </a></li>
+   454→   454→                            <?php endif; ?>
+   455→   455→                            <?php if ($status === 'submitted' || $status === 'reviewed'): ?>
+   456→   456→                            <li><hr class="dropdown-divider"></li>
+   457→   457→                            <li>
+   458→   458→                                <form method="POST" class="d-inline" onsubmit="return confirm('Mark as Approved?')">
+   459→   459→            <?php echo getCSRFTokenField(); ?>
+   460→   460→                                    <input type="hidden" name="action" value="update_status">
+   461→   461→                                    <input type="hidden" name="visit_id" value="<?= $v['id'] ?>">
+   462→   462→                                    <input type="hidden" name="new_status" value="approved">
+   463→   463→                                    <button type="submit" class="dropdown-item text-success">
+   464→   464→                                        <i class="bi bi-check-circle me-2"></i>Approve
+   465→   465→                                    </button>
+   466→   466→                                </form>
+   467→   467→                            </li>
+   468→   468→                            <li>
+   469→   469→                                <form method="POST" class="d-inline" onsubmit="return confirm('Mark as Rejected?')">
+   470→   470→            <?php echo getCSRFTokenField(); ?>
+   471→   471→                                    <input type="hidden" name="action" value="update_status">
+   472→   472→                                    <input type="hidden" name="visit_id" value="<?= $v['id'] ?>">
+   473→   473→                                    <input type="hidden" name="new_status" value="rejected">
+   474→   474→                                    <button type="submit" class="dropdown-item text-danger">
+   475→   475→                                        <i class="bi bi-x-circle me-2"></i>Reject
+   476→   476→                                    </button>
+   477→   477→                                </form>
+   478→   478→                            </li>
+   479→   479→                            <?php endif; ?>
+   480→   480→                            <?php if ($status !== 'submitted'): ?>
+   481→   481→                            <li>
+   482→   482→                                <form method="POST" class="d-inline">
+   483→   483→            <?php echo getCSRFTokenField(); ?>
+   484→   484→                                    <input type="hidden" name="action" value="update_status">
+   485→   485→                                    <input type="hidden" name="visit_id" value="<?= $v['id'] ?>">
+   486→   486→                                    <input type="hidden" name="new_status" value="submitted">
+   487→   487→                                    <button type="submit" class="dropdown-item">
+   488→   488→                                        <i class="bi bi-arrow-counterclockwise me-2"></i>Reset to Submitted
+   489→   489→                                    </button>
+   490→   490→                                </form>
+   491→   491→                            </li>
+   492→   492→                            <?php endif; ?>
+   493→   493→                            <li><hr class="dropdown-divider"></li>
+   494→   494→                            <li>
+   495→   495→                                <form method="POST" class="d-inline" onsubmit="return confirm('Delete this checklist permanently?')">
+   496→   496→            <?php echo getCSRFTokenField(); ?>
+   497→   497→                                    <input type="hidden" name="action" value="delete">
+   498→   498→                                    <input type="hidden" name="visit_id" value="<?= $v['id'] ?>">
+   499→   499→                                    <button type="submit" class="dropdown-item text-danger">
+   500→   500→                                        <i class="bi bi-trash me-2"></i>Delete
+   501→   501→                                    </button>
+   502→   502→                                </form>
+   503→   503→                            </li>
+   504→   504→                        </ul>
+   505→   505→                    </div>
+   506→   506→                </div>
+   507→   507→            </div>
+   508→   508→        </div>
+   509→   509→    </div>
+   510→   510→<?php endforeach; ?>
+   511→   511→</div>
+   512→   512→
+   513→   513→<!-- TABLE VIEW -->
+   514→   514→<div id="tableView" class="d-none">
+   515→   515→    <div class="card">
+   516→   516→        <div class="card-body p-0">
+   517→   517→            <div class="table-responsive">
+   518→   518→                <table class="table table-hover table-sm mb-0" id="visitsTable">
+   519→   519→                    <thead class="table-light">
+   520→   520→                        <tr>
+   521→   521→                            <th>#</th>
+   522→   522→                            <th>Employee</th>
+   523→   523→                            <th>Unit</th>
+   524→   524→                            <th>Client</th>
+   525→   525→                            <th class="text-center">Visit</th>
+   526→   526→                            <th class="text-center">Month</th>
+   527→   527→                            <th class="text-center">Type</th>
+   528→   528→                            <th>Status</th>
+   529→   529→                            <th>Notes</th>
+   530→   530→                            <th>Uploaded</th>
+   531→   531→                            <th></th>
+   532→   532→                        </tr>
+   533→   533→                    </thead>
+   534→   534→                    <tbody>
+   535→   535→                    <?php foreach ($visits as $idx => $v):
+   536→   536→                        $docUrl = $v['document_url'] ?? '';
+   537→   537→                        $docType = $v['document_type'] ?? 'image';
+   538→   538→                        $visitNum = (int)($v['visit_number'] ?? 1);
+   539→   539→                        $visitLabel = $visitNum === 1 ? '1st' : ($visitNum === 2 ? '2nd' : $visitNum . 'th');
+   540→   540→                        $status = $v['status'] ?? 'submitted';
+   541→   541→                        $monthLabel = $monthNames[(int)($v['visit_month'] ?? 1)] ?? '';
+   542→   542→                    ?>
+   543→   543→                        <tr>
+   544→   544→                            <td><?= $idx + 1 ?></td>
+   545→   545→                            <td>
+   546→   546→                                <div class="fw-medium small"><?= sanitize($v['employee_name'] ?? 'Unknown') ?></div>
+   547→   547→                                <small class="text-muted"><?= sanitize($v['employee_code'] ?? '') ?></small>
+   548→   548→                            </td>
+   549→   549→                            <td class="small"><?= sanitize($v['unit_name'] ?? '-') ?></td>
+   550→   550→                            <td class="small"><?= sanitize($v['client_name'] ?? '-') ?></td>
+   551→   551→                            <td class="text-center">
+   552→   552→                                <span class="badge bg-light border"><?= $visitLabel ?></span>
+   553→   553→                            </td>
+   554→   554→                            <td class="text-center small"><?= $monthLabel ?> <?= $v['visit_year'] ?? '' ?></td>
+   555→   555→                            <td class="text-center">
+   556→   556→                                <?php if ($docType === 'image'): ?>
+   557→   557→                                <i class="bi bi-image text-primary"></i>
+   558→   558→                                <?php elseif ($docType === 'pdf'): ?>
+   559→   559→                                <i class="bi bi-file-earmark-pdf text-danger"></i>
+   560→   560→                                <?php else: ?>
+   561→   561→                                <i class="bi bi-file-earmark text-muted"></i>
+   562→   562→                                <?php endif; ?>
+   563→   563→                            </td>
+   564→   564→                            <td><span class="badge status-badge-<?= $status ?>"><?= ucfirst($status) ?></span></td>
+   565→   565→                            <td class="small text-muted" style="max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="<?= htmlspecialchars($v['notes'] ?? '') ?>">
+   566→   566→                                <?= sanitize(mb_strlen($v['notes'] ?? '') > 40 ? mb_substr($v['notes'] ?? '', 0, 40) . '...' : ($v['notes'] ?? '')) ?>
+   567→   567→                            </td>
+   568→   568→                            <td class="small text-muted"><?= date('d-M-Y', strtotime($v['created_at'] ?? 'now')) ?></td>
+   569→   569→                            <td>
+   570→   570→                                <div class="btn-group btn-group-sm">
+   571→   571→                                    <?php if ($docType === 'image'): ?>
+   572→   572→                                    <a href="<?= htmlspecialchars($docUrl) ?>" target="_blank" class="btn btn-outline-primary py-0 px-1" title="View Image">
+   573→   573→                                        <i class="bi bi-eye"></i>
+   574→   574→                                    </a>
+   575→   575→                                    <?php elseif ($docType === 'pdf'): ?>
+   576→   576→                                    <a href="<?= htmlspecialchars($docUrl) ?>" target="_blank" class="btn btn-outline-danger py-0 px-1" title="View PDF">
+   577→   577→                                        <i class="bi bi-eye"></i>
+   578→   578→                                    </a>
+   579→   579→                                    <?php endif; ?>
+   580→   580→                                    <?php if ($status === 'submitted' || $status === 'reviewed'): ?>
+   581→   581→                                    <form method="POST" class="d-inline" onsubmit="return confirm('Approve?')">
+   582→   582→            <?php echo getCSRFTokenField(); ?>
+   583→   583→                                        <input type="hidden" name="action" value="update_status">
+   584→   584→                                        <input type="hidden" name="visit_id" value="<?= $v['id'] ?>">
+   585→   585→                                        <input type="hidden" name="new_status" value="approved">
+   586→   586→                                        <button type="submit" class="btn btn-outline-success py-0 px-1" title="Approve"><i class="bi bi-check-lg"></i></button>
+   587→   587→                                    </form>
+   588→   588→                                    <?php endif; ?>
+   589→   589→                                </div>
+   590→   590→                            </td>
+   591→   591→                        </tr>
+   592→   592→                    <?php endforeach; ?>
+   593→   593→                    </tbody>
+   594→   594→                </table>
+   595→   595→            </div>
+   596→   596→        </div>
+   597→   597→    </div>
+   598→   598→</div>
+   599→   599→
+   600→   600→<?php endif; ?>
+   601→   601→
+   602→   602→<!-- IMAGE/PDF VIEWER MODAL -->
+   603→   603→<div class="modal fade" id="imageViewerModal" tabindex="-1" aria-hidden="true">
+   604→   604→    <div class="modal-dialog modal-dialog-centered modal-lg">
+   605→   605→        <div class="modal-content">
+   606→   606→            <div class="modal-header py-2 bg-dark text-white">
+   607→   607→                <h6 class="modal-title mb-0" id="viewerTitle">
+   608→   608→                    <i class="bi bi-eye me-2"></i>Checklist Viewer
+   609→   609→                </h6>
+   610→   610→                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+   611→   611→            </div>
+   612→   612→            <div class="modal-body" id="viewerBody">
+   613→   613→                <!-- Content loaded dynamically -->
+   614→   614→            </div>
+   615→   615→            <div class="modal-footer py-2 bg-dark">
+   616→   616→                <div class="small text-white-50" id="viewerInfo">--</div>
+   617→   617→                <div class="ms-auto">
+   618→   618→                    <a href="#" id="viewerDownload" class="btn btn-sm btn-light me-2" download>
+   619→   619→                        <i class="bi bi-download me-1"></i>Download
+   620→   620→                    </a>
+   621→   621→                    <?php if ($viewVisit && ($viewVisit['status'] ?? '') !== 'approved'): ?>
+   622→   622→                    <form method="POST" class="d-inline" onsubmit="return confirm('Approve this checklist?')">
+   623→   623→            <?php echo getCSRFTokenField(); ?>
+   624→   624→                        <input type="hidden" name="action" value="update_status">
+   625→   625→                        <input type="hidden" name="visit_id" value="<?= $viewVisit['id'] ?? 0 ?>">
+   626→   626→                        <input type="hidden" name="new_status" value="approved">
+   627→   627→                        <button type="submit" class="btn btn-sm btn-success">
+   628→   628→                            <i class="bi bi-check-lg me-1"></i>Approve
+   629→   629→                        </button>
+   630→   630→                    </form>
+   631→   631→                    <?php endif; ?>
+   632→   632→                </div>
+   633→   633→            </div>
+   634→   634→        </div>
+   635→   635→    </div>
+   636→   636→</div>
+   637→   637→
+   638→   638→<!-- JAVASCRIPT -->
+   639→   639→<script>
+   640→   640→// -- View toggle --
+   641→   641→function setView(mode) {
+   642→   642→    var gridView = document.getElementById('gridView');
+   643→   643→    var tableView = document.getElementById('tableView');
+   644→   644→    var btnGrid = document.getElementById('btnViewGrid');
+   645→   645→    var btnTable = document.getElementById('btnViewTable');
+   646→   646→
+   647→   647→    if (mode === 'grid') {
+   648→   648→        gridView.classList.remove('d-none');
+   649→   649→        tableView.classList.add('d-none');
+   650→   650→        btnGrid.classList.add('active');
+   651→   651→        btnTable.classList.remove('active');
+   652→   652→    } else {
+   653→   653→        gridView.classList.add('d-none');
+   654→   654→        tableView.classList.remove('d-none');
+   655→   655→        btnTable.classList.add('active');
+   656→   656→        btnGrid.classList.remove('active');
+   657→   657→    }
+   658→   658→}
+   659→   659→
+   660→   660→// -- Image/PDF Viewer --
+   661→   661→var viewerModal = null;
+   662→   662→
+   663→   663→function openViewer(visitId, docType, docUrl) {
+   664→   664→    if (!viewerModal) viewerModal = new bootstrap.Modal(document.getElementById('imageViewerModal'));
+   665→   665→
+   666→   666→    var body = document.getElementById('viewerBody');
+   667→   667→    var title = document.getElementById('viewerTitle');
+   668→   668→    var info = document.getElementById('viewerInfo');
+   669→   669→    var dlLink = document.getElementById('viewerDownload');
+   670→   670→
+   671→   671→    dlLink.href = docUrl;
+   672→   672→
+   673→   673→    if (docType === 'image') {
+   674→   674→        body.innerHTML = '<img src="' + docUrl + '" alt="Checklist" style="max-width:100%; max-height:80vh; display:block; margin:0 auto;">';
+   675→   675→    } else if (docType === 'pdf') {
+   676→   676→        body.innerHTML = '<iframe src="' + docUrl + '" style="width:100%; height:80vh; border:none;"></iframe>';
+   677→   677→    }
+   678→   678→
+   679→   679→    title.innerHTML = '<i class="bi bi-eye me-2"></i>Checklist #' + visitId;
+   680→   680→    viewerModal.show();
+   681→   681→}
+   682→   682→</script>
+   683→   683→
+   684→   684→<?php
+   685→   685→// DataTable init for table view
+   686→   686→$inlineJS = <<<'JS'
+   687→   687→$('#visitsTable').DataTable({
+   688→   688→    responsive: true,
+   689→   689→    pageLength: 25,
+   690→   690→    order: [[9, 'desc']],
+   691→   691→    columnDefs: [
+   692→   692→        { orderable: false, targets: [10] }
+   693→   693→    ]
+   694→   694→});
+   695→   695→JS;
+   696→   696→?>
+   697→   697→
