@@ -6,6 +6,20 @@
  * Table: ess_unit_visits
  */
 
+
+
+// ── Resolve upload URL ────────────────────────────────────────────────────
+// Ensures paths from DB (old: "unit-visits/x.jpg" or new: "/uploads/unit-visits/x.jpg")
+// always resolve to a valid web-accessible URL with /uploads/ prefix.
+function resolveUploadUrl(string $path): string {
+    if (empty($path)) return '';
+    if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) return $path;
+    // Already has /uploads/ prefix
+    if (str_starts_with($path, '/uploads/')) return $path;
+    // Missing prefix — add it
+    return '/uploads/' . ltrim($path, '/');
+}
+
 $pageTitle = 'Unit Visit Checklists';
 
 // -- Filters --
@@ -384,7 +398,7 @@ foreach ($visits as $v) {
     <div class="col-lg-3 col-md-4 col-sm-6">
         <div class="card checklist-card h-100">
             <?php if ($isImage): ?>
-            <img src="<?= htmlspecialchars($docUrl) ?>" 
+            <img src="<?= htmlspecialchars(resolveUploadUrl($docUrl)) ?>" 
                  class="visit-thumb" 
                  alt="Visit Checklist"
                  onclick="openViewer(<?= $v['id'] ?>, 'image', '<?= htmlspecialchars(addslashes($docUrl)) ?>')"
@@ -444,11 +458,11 @@ foreach ($visits as $v) {
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end" style="font-size:0.8rem;">
                             <?php if ($isImage): ?>
-                            <li><a class="dropdown-item" href="<?= htmlspecialchars($docUrl) ?>" target="_blank">
+                            <li><a class="dropdown-item" href="<?= htmlspecialchars(resolveUploadUrl($docUrl)) ?>" target="_blank">
                                 <i class="bi bi-box-arrow-up-right me-2"></i>Open Image
                             </a></li>
                             <?php elseif ($isPdf): ?>
-                            <li><a class="dropdown-item" href="<?= htmlspecialchars($docUrl) ?>" target="_blank">
+                            <li><a class="dropdown-item" href="<?= htmlspecialchars(resolveUploadUrl($docUrl)) ?>" target="_blank">
                                 <i class="bi bi-box-arrow-up-right me-2"></i>Open PDF
                             </a></li>
                             <?php endif; ?>
@@ -569,11 +583,11 @@ foreach ($visits as $v) {
                             <td>
                                 <div class="btn-group btn-group-sm">
                                     <?php if ($docType === 'image'): ?>
-                                    <a href="<?= htmlspecialchars($docUrl) ?>" target="_blank" class="btn btn-outline-primary py-0 px-1" title="View Image">
+                                    <a href="<?= htmlspecialchars(resolveUploadUrl($docUrl)) ?>" target="_blank" class="btn btn-outline-primary py-0 px-1" title="View Image">
                                         <i class="bi bi-eye"></i>
                                     </a>
                                     <?php elseif ($docType === 'pdf'): ?>
-                                    <a href="<?= htmlspecialchars($docUrl) ?>" target="_blank" class="btn btn-outline-danger py-0 px-1" title="View PDF">
+                                    <a href="<?= htmlspecialchars(resolveUploadUrl($docUrl)) ?>" target="_blank" class="btn btn-outline-danger py-0 px-1" title="View PDF">
                                         <i class="bi bi-eye"></i>
                                     </a>
                                     <?php endif; ?>
