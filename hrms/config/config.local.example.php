@@ -22,7 +22,7 @@ define('DB_CHARSET', 'utf8mb4');
 // Application Settings
 define('APP_NAME', 'RCS HRMS Pro');
 define('APP_VERSION', '1.0.0');
-define('APP_URL', 'https://sid.rcsfacility.com/php_payroll/');  // Your application URL
+define('APP_URL', 'https://join.rcsfacility.com/hrms/');  // Your application URL
 
 // Session Settings
 define('SESSION_NAME', 'rcs_hrms_session');

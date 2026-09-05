@@ -59,8 +59,10 @@ RCS_HRMS/
 └── .github/workflows/     ← deploy-php.yml, deploy-ess.yml, lint, security-audit
 ```
 
-> ⚠️ **The PHP Admin folder was renamed from `php_payroll/` to `hrms/`.**
-> See `CURRENT_STATE.md` for a critical deploy-workflow issue this caused.
+> ℹ️ **The PHP Admin folder was renamed from `php_payroll/` to `hrms/`
+> earlier in the project's history.** All path references (deploy
+> workflow, `.gitignore`, `config.local.example.php`) were corrected
+> to `hrms/` in the most recent cleanup — see `CURRENT_STATE.md`.
 
 ---
 
@@ -141,9 +143,17 @@ Fully automated via GitHub Actions on push to `main`:
 - `.github/workflows/deploy-ess.yml` → builds and FTP-deploys the React app
 - Both are **diff-based** — only changed files are pushed, not a full re-upload
 
-⚠️ **See `CURRENT_STATE.md` — the PHP deploy workflow still references the
-old `php_payroll/` path and needs updating to `hrms/` or it will silently
-stop deploying admin changes.**
+✅ **Deploy workflow is fixed.** The earlier `php_payroll/` → `hrms/` path
+mismatch (which silently skipped every `hrms/` upload for weeks) was
+corrected in commit `d04e6d6`. A `force_full_sync` manual dispatch input
+was also added so a full re-upload can be triggered from the Actions tab
+if ever needed. See `CURRENT_STATE.md` for the full history.
+
+> ⚠️ **Limitation:** the deploy workflow only uploads/updates files — it
+> does **not** delete files on the live server that were removed from git.
+> When a file is removed (e.g. `api/ess/debug-schema.php` in the latest
+> cleanup), the operator must delete the remote copy manually via
+> FTP/cPanel.
 
 ### Secrets (never commit real values)
 - `api/ess/config.php` — gitignored, contains real DB creds + JWT secret + API key

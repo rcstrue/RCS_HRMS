@@ -1,49 +1,79 @@
 # CURRENT_STATE.md — RCS HRMS
-**Last verified:** Fresh clone + full scan, post file-cleanup
-**Git history:** Only 1 commit exists (`67faea0 Add files via upload`) — the
-repo was re-uploaded manually rather than cleaned via normal git commits, so
-there is no commit history to review for "what changed recently." Everything
-below was determined by direct code inspection, not by reading commit diffs.
+**Last verified:** Post-deploy-workflow-fix session (commits `5e97251`, `68c6d29`, `d04e6d6`, plus this cleanup commit).
+**Git history:** The repo was re-uploaded manually as a single commit
+(`67faea0 Add files via upload`) at one point, but normal git history has
+since resumed. Recent fixes are now real, reviewable commits on `main`:
+- `5e97251` Fix: Menu button hidden under visit-checklist images
+- `68c6d29` Fix: 404 on profile photo (and other docs) on employee/add edit page
+- `d04e6d6` Fix: deployment workflow never uploaded hrms/ files
+- _(this commit)_ Clear remaining pending items from this list
 
 ---
 
-## 🔴 Most Urgent — Fix First
+## ✅ Resolved (this session)
 
-### 1. Deploy workflow is broken after the `php_payroll/` → `hrms/` rename
+### 1. Deploy workflow was broken after the `php_payroll/` → `hrms/` rename
 **File:** `.github/workflows/deploy-php.yml`
-Still watches and deploys from `php_payroll/**` — that folder no longer
-exists (renamed to `hrms/`). Since the trigger path doesn't match anything,
-**pushing changes to `hrms/` will silently never trigger a deploy.**
-**Fix:** Replace every `php_payroll/` reference in this workflow file with `hrms/`.
+**Status:** FIXED in `d04e6d6`.
+The trigger paths watched `hrms/**` but the changed-files step diffed
+against `php_payroll/**` (which no longer exists). Every push therefore
+triggered the workflow but uploaded **zero** files — silently skipping
+every `hrms/` fix for weeks, including the profile-photo fix. Now diffs
+against `hrms/` + `database/`. A `force_full_sync` manual dispatch input
+was also added so a full re-upload can be triggered from the Actions tab.
+**Verified:** GitHub Actions log for `d04e6d6` shows
+`hrms/modules/employee/add.php → /hrms/modules/employee/add.php` was
+actually uploaded this run (previous runs had "Upload via FTP: skipped").
 
-### 2. `.gitignore` still references the old path
+### 2. `.gitignore` still referenced the old path
 **File:** `.gitignore`
-```
-php_payroll/config/config.local.php
-```
-Should be:
-```
-hrms/config/config.local.php
-```
-Low risk today (the file likely doesn't exist at the old path so nothing is
-exposed), but fix this before anyone creates a local config at the new path —
-otherwise real DB credentials could get committed by accident.
+**Status:** FIXED.
+Was `php_payroll/config/config.local.php`; now `hrms/config/config.local.php`.
+The local config file would have been committed by accident if anyone
+created it at the new path before this fix.
 
-### 3. `hrms/config/config.local.example.php` still has the old URL path
-```php
-define('APP_URL', 'https://sid.rcsfacility.com/php_payroll/');
-```
-Should reference `hrms/` and the correct live domain
-(`https://join.rcsfacility.com/hrms/`) for anyone copying this template.
+### 3. `hrms/config/config.local.example.php` had the old URL
+**Status:** FIXED.
+Was `https://sid.rcsfacility.com/php_payroll/`; now
+`https://join.rcsfacility.com/hrms/` (the live domain + correct path).
 
-### 4. `api/ess/debug-schema.php` is live on the server
-A debug/inspection file with this name is almost certainly not meant to be
-publicly reachable in production. Confirm what it does — if it exposes table
-structure or data without auth, delete it or add an auth+IP gate immediately.
+### 4. `api/ess/debug-schema.php` was live on the server
+**Status:** REMOVED.
+This was a temporary diagnostic file (its own docblock said
+"DELETE AFTER FIX") that ran with **no authentication** and leaked:
+- Full DDL of `ess_attendance` (table structure + indexes)
+- Column type/nullability of `employees.status`
+- Real employee PII (id, employee_code, full_name, status, unit_id)
+  for unit 137, plus today's attendance rows for those employees
+Deleted from the repo. **Action required on the live server:**
+delete the file `/api/ess/debug-schema.php` via FTP/cPanel — the deploy
+workflow only uploads/updates files; it does not delete remote files
+that were removed from git.
+
+### 5. Menu button hidden under visit-checklist images
+**Status:** FIXED in `5e97251`.
+The hamburger `#sidebar-toggle` in the sticky topbar was being painted
+under visit-checklist thumbnail images because `.checklist-card:hover`
+applied `transform: translateY(-2px)` (creates a stacking context).
+Fixed by giving `.checklist-card` an explicit low `z-index` + raising it
+only when its dropdown is open, and adding `isolation: isolate` to
+`.topbar`. Same safeguard applied to `.module-card`, `.hover-lift`, and
+`.quick-action-card`.
+
+### 6. Profile photo + aadhaar + bank doc 404s on employee/add edit page
+**Status:** FIXED in `68c6d29` (and verified deployed by `d04e6d6`).
+`employee/add.php` was rendering DB upload paths raw in `<img src>` /
+`<a href>`. Legacy rows store relative paths like
+`profile/profile-photo_e494f75c.jpg` (no leading `/uploads/`), which the
+browser resolved against the page URL → `/hrms/profile/...` → 404.
+Added an `addUploadUrl()` helper (matching the existing `viewUploadUrl()`
+/ `listUploadUrl()` pattern) and ran all 4 document URL outputs through
+it (profile pic, aadhaar front, aadhaar back, bank doc), plus the JS
+photo editor's `photoUrl`.
 
 ---
 
-## ✅ What's Completed
+## ✅ What's Completed (pre-existing)
 
 - Core payroll engine (`class.payroll.php`) — PF/ESI/PT/LWF calculations
   verified correct; known historical bugs (bonus/gratuity using pro-rated
@@ -100,7 +130,6 @@ structure or data without auth, delete it or add an auth+IP gate immediately.
   other** for the same roles — a role can have access via one action type
   but not another for the same module. Never consolidated into one shared
   source. Documented but not fixed.
-- `api/ess/debug-schema.php` — undetermined risk, see Urgent #4 above
 - No formal `database/migrations/` folder exists currently — earlier project
   work built one, but it's not present after the recent file cleanup. Schema
   changes are currently tracked ad-hoc (loose `.sql` files in `hrms/download/`).
@@ -109,6 +138,10 @@ structure or data without auth, delete it or add an auth+IP gate immediately.
   instead of being one-time migrations — a consolidation effort was planned
   (46 files identified) but status of that cleanup is unconfirmed after the
   file reorganization.
+- **Deploy workflow does not delete remote files** removed from git. The
+  `debug-schema.php` deletion in this commit removes it from future uploads
+  but does NOT remove the copy already on the live server. Operator must
+  delete `/api/ess/debug-schema.php` on the host manually.
 
 ---
 
@@ -142,22 +175,19 @@ structure or data without auth, delete it or add an auth+IP gate immediately.
 
 **Priority order for the next work session:**
 
-1. Fix the 3 broken path references from the `php_payroll/` → `hrms/` rename
-   (deploy workflow, `.gitignore`, config example) — 15 minutes, prevents
-   silent deploy failures
-2. Investigate `api/ess/debug-schema.php` — confirm it's not a live security
-   exposure, remove or gate it
-3. Confirm push notification delivery end-to-end on a real device/network
+1. **Operator action — delete `/api/ess/debug-schema.php` on the live
+   server** via FTP/cPanel. The file is removed from git but the deploy
+   workflow doesn't delete remote files. Until this is done, the
+   unauthenticated DB-schema/PII leak remains exploitable at the old URL.
+2. Confirm push notification delivery end-to-end on a real device/network
    (not an in-app browser, not a restricted network) — this has been "almost
-   working" for several sessions and just needs a clean test to close out
-4. Re-read `hrms/scripts/cron-push-notifications.php` to confirm exactly
+   working" for several sessions and just needs a clean test to close out.
+3. Re-read `hrms/scripts/cron-push-notifications.php` to confirm exactly
    which of the 15 planned auto-notification types are implemented vs. still
-   needed, then continue building the missing ones
+   needed, then continue building the missing ones.
+4. Consolidate the four inconsistent `$moduleAccess` arrays in
+   `hrms/index.php` into a single shared source of truth (page routing,
+   API, export, delete all read from one place).
 5. If none of the above are blocking: start building Form A using the
    existing spec file (`RCS_HRMS_Form_A_Employee_Register.md`) — the table
-   design and column mapping are already finalized, implementation has not started
-
-**Before starting any of the above:** confirm with whoever did the file
-cleanup exactly what was intentionally deleted vs. what might need
-restoring — 541 files remain, but there's no git history to diff against to
-confirm nothing load-bearing was accidentally removed.
+   design and column mapping are already finalized, implementation has not started.
