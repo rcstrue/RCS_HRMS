@@ -3,11 +3,17 @@
  * RCS HRMS Pro - Add/Edit Employee Page
  * Updated with file upload support
  * NOTE: All documents upload to web root (/uploads/...) with / prefix in database
- * 
+ *
  * Upload Paths:
  * - Profile photos: /uploads/profile/
  * - Aadhaar documents: /uploads/aadhaar/
  * - Bank documents: /uploads/bank/
+ *
+ * NOTE: Legacy DB rows may still store relative paths WITHOUT the leading
+ * "/uploads/" prefix (e.g. "profile/photo.jpg"). All stored upload URLs must
+ * be passed through addUploadUrl() before being rendered in <img src> / <a href>
+ * so the browser resolves them to "/uploads/profile/photo.jpg" instead of the
+ * 404-causing "/hrms/profile/photo.jpg". See addUploadUrl() below.
  */
 
 $pageTitle = 'Add Employee';

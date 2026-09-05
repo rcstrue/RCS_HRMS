@@ -8,6 +8,12 @@ on:
       - 'database/**'
       - '.github/workflows/deploy-php.yml'
   workflow_dispatch:
+    inputs:
+      force_full_sync:
+        description: 'Upload ALL hrms/ & database/ files (ignore diff)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   deploy:
@@ -24,15 +30,24 @@ jobs:
 
       - name: Get changed files
         id: changed
+        env:
+          FORCE_FULL: ${{ github.event.inputs.force_full_sync }}
         run: |
           BEFORE="${{ github.event.before }}"
           AFTER="${{ github.event.after }}"
 
-          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            CHANGED=$(git ls-files -- php_payroll/ database/)
-            echo "Manual/first push — deploying all PHP & database files"
+          # NOTE: The repo's PHP source lives under `hrms/` (renamed from the
+          # old `php_payroll/` directory). The previous version of this step
+          # only looked for changes under `php_payroll/` and `database/`, which
+          # meant EVERY push to `hrms/**` triggered the workflow but uploaded
+          # ZERO files. As a result, fixes to e.g. hrms/modules/employee/add.php
+          # never reached the live server. We now diff against `hrms/` and
+          # `database/` (the directories that actually exist in this repo).
+          if [ "$FORCE_FULL" = "true" ] || [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            CHANGED=$(git ls-files -- hrms/ database/)
+            echo "Full sync — deploying all HRMS & database files"
           else
-            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" -- php_payroll/ database/)
+            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" -- hrms/ database/)
             echo "Deploying only changed files"
           fi
 
@@ -67,8 +82,8 @@ jobs:
           set net:reconnect-interval-base 5;"
 
           while IFS= read -r file; do
-            # Strip php_payroll/ or database/ prefix → upload to /hrms/
-            RELATIVE="${file#php_payroll/}"
+            # Strip hrms/ or database/ prefix → upload to /hrms/
+            RELATIVE="${file#hrms/}"
             RELATIVE="${RELATIVE#database/}"
             REMOTE_DIR="/hrms/$(dirname "$RELATIVE")"
             FILE_NAME=$(basename "$RELATIVE")
