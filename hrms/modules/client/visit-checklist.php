@@ -189,12 +189,25 @@ foreach ($visits as $v) {
 ?>
 
 <style>
+/* Fix: Give checklist cards an explicit low z-index so the transformed
+   (stacking-context-creating) cards never paint above the sticky topbar
+   that holds the hamburger menu button (#sidebar-toggle, z-index 900).
+   Without this, the hover `transform` promotes cards to composited layers
+   that render above the sticky topbar, hiding the menu button under images. */
 .checklist-card {
+    position: relative;
+    z-index: 1;
     transition: transform 0.15s, box-shadow 0.15s;
 }
 .checklist-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+    z-index: 2;
+}
+/* Raise the card above its siblings while its "..." action dropdown is open,
+   so the menu is not clipped/covered by neighbouring cards/images. */
+.checklist-card:has(.dropdown.show) {
+    z-index: 20;
 }
 .visit-thumb {
     width: 100%;

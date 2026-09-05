@@ -291,6 +291,12 @@ img {
     justify-content: space-between;
     padding: 0 1.5rem;
     z-index: 900;
+    /* Keep the topbar (and its hamburger menu button #sidebar-toggle) above
+       page content. `isolation: isolate` gives the topbar its own stacking
+       context so transformed cards/thumbnails inside .page-content can never
+       paint above it (a common issue with position: sticky + transformed
+       siblings being promoted to composited layers). */
+    isolation: isolate;
 }
 
 .topbar-left {
@@ -1162,12 +1168,15 @@ img {
 }
 
 .hover-lift {
+    position: relative;
+    z-index: 1;
     transition: transform var(--transition), box-shadow var(--transition);
 }
 
 .hover-lift:hover {
     transform: translateY(-2px);
     box-shadow: var(--shadow-md);
+    z-index: 2;
 }
 
 .loading-spinner {
@@ -1211,12 +1220,17 @@ img {
     cursor: pointer;
     overflow: hidden;
     position: relative;
+    /* Explicit low z-index so the hover `transform` (which creates a stacking
+       context) can never paint this card above the sticky topbar (z-index 900)
+       and hide the menu button. */
+    z-index: 1;
     text-decoration: none;
     color: inherit;
 }
 .module-card:hover {
     transform: translateY(-6px);
     box-shadow: 0 12px 32px rgba(0,0,0,0.12);
+    z-index: 2;
 }
 .module-card:active {
     transform: translateY(-2px);
@@ -1327,12 +1341,15 @@ img {
     cursor: pointer;
     text-align: center;
     min-height: 110px;
+    position: relative;
+    z-index: 1;
 }
 .quick-action-card:hover {
     transform: translateY(-4px);
     box-shadow: 0 8px 24px rgba(0,0,0,0.10);
     border-color: var(--qa-color, #2563eb);
     background: var(--qa-hover, #dbeafe);
+    z-index: 2;
 }
 .quick-action-card:active {
     transform: translateY(-1px);
