@@ -1,7 +1,6 @@
 <?php
 /**
  * RCS HRMS Pro - Visit Checklist Viewer
- * 
  * View managers' uploaded unit visit checklists from ESS app.
  * Table: ess_unit_visits
  */
