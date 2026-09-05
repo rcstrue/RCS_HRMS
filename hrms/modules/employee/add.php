@@ -22,6 +22,29 @@ define('EMPLOYEE_PHOTO_UPLOAD_PATH', 'uploads/profile/');
 define('EMPLOYEE_AADHAAR_UPLOAD_PATH', 'uploads/aadhaar/');
 define('EMPLOYEE_BANK_UPLOAD_PATH', 'uploads/bank/');
 
+/**
+ * Helper: build a correct web-accessible upload URL from a stored DB path.
+ *
+ * Why this exists: legacy employee rows store relative paths WITHOUT the
+ * leading "/uploads/" prefix (e.g. "profile/profile-photo_e494f75c.jpg").
+ * When rendered directly inside an <img src="..."> on
+ * index.php?page=employee/add&id=..., the browser resolves that relative
+ * path against the current URL, producing a 404 like
+ *   /hrms/profile/profile-photo_e494f75c.jpg
+ * This helper normalises legacy + new formats to an absolute "/uploads/..."
+ * URL, matching the behaviour already used by employee/view.php and
+ * employee/list.php.
+ *
+ * @param string|null $path Raw path from the database
+ * @return string Absolute web path, or '' for empty input
+ */
+function addUploadUrl($path) {
+    if (empty($path)) return '';
+    if (preg_match('#^https?://#i', $path)) return $path;      // already absolute
+    if (strpos($path, '/uploads/') === 0) return $path;        // new format
+    return '/uploads/' . ltrim($path, '/');                     // legacy format
+}
+
 // Check if editing
 if (isset($_GET['id'])) {
     $employeeData = $employee->getById($_GET['id']);
@@ -788,7 +811,7 @@ $appRoles = [
                             <label for="profile_pic" class="form-label">Profile Photo</label>
                             <?php if (!empty($employeeData['profile_pic_url'])): ?>
                             <div class="mb-2">
-                                <img id="empProfilePhoto" src="<?php echo sanitize($employeeData['profile_pic_url']); ?>" 
+                                <img id="empProfilePhoto" src="<?php echo sanitize(addUploadUrl($employeeData['profile_pic_url'])); ?>" 
                                      alt="Profile photo" class="img-thumbnail" style="max-height: 100px;">
                             </div>
                             <?php if ($isEdit): ?>
@@ -804,7 +827,7 @@ $appRoles = [
                             <label for="aadhaar_front" class="form-label">Aadhaar Front</label>
                             <?php if (!empty($employeeData['aadhaar_front_url'])): ?>
                             <div class="mb-2">
-                                <a href="<?php echo sanitize($employeeData['aadhaar_front_url']); ?>" target="_blank" class="btn btn-sm btn-outline-success">
+                                <a href="<?php echo sanitize(addUploadUrl($employeeData['aadhaar_front_url'])); ?>" target="_blank" class="btn btn-sm btn-outline-success">
                                     <i class="bi bi-eye"></i> View
                                 </a>
                             </div>
@@ -816,7 +839,7 @@ $appRoles = [
                             <label for="aadhaar_back" class="form-label">Aadhaar Back</label>
                             <?php if (!empty($employeeData['aadhaar_back_url'])): ?>
                             <div class="mb-2">
-                                <a href="<?php echo sanitize($employeeData['aadhaar_back_url']); ?>" target="_blank" class="btn btn-sm btn-outline-success">
+                                <a href="<?php echo sanitize(addUploadUrl($employeeData['aadhaar_back_url'])); ?>" target="_blank" class="btn btn-sm btn-outline-success">
                                     <i class="bi bi-eye"></i> View
                                 </a>
                             </div>
@@ -828,7 +851,7 @@ $appRoles = [
                             <label for="bank_document" class="form-label">Bank Passbook</label>
                             <?php if (!empty($employeeData['bank_document_url'])): ?>
                             <div class="mb-2">
-                                <a href="<?php echo sanitize($employeeData['bank_document_url']); ?>" target="_blank" class="btn btn-sm btn-outline-success">
+                                <a href="<?php echo sanitize(addUploadUrl($employeeData['bank_document_url'])); ?>" target="_blank" class="btn btn-sm btn-outline-success">
                                     <i class="bi bi-eye"></i> View
                                 </a>
                             </div>
@@ -1046,7 +1069,7 @@ function editEmpProfilePhoto() {
     const photoImg = document.getElementById('empProfilePhoto');
     if (!photoImg || !photoImg.src) return;
     
-    const photoUrl = '<?php echo sanitize($employeeData['profile_pic_url'] ?? ''); ?>';
+    const photoUrl = '<?php echo sanitize(addUploadUrl($employeeData['profile_pic_url'] ?? '')); ?>';
     
     openLiteEditor(photoImg.src + '?t=' + Date.now(), function(base64DataUrl) {
         const formData = new FormData();
