@@ -29,11 +29,12 @@ const MONTHS = [
   { value: 12, label: 'December' },
 ];
 
-const STATUS_OPTIONS = [
-  { value: '', label: 'All Status' },
-  { value: 'submitted', label: 'Submitted' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'rejected', label: 'Rejected' },
+// Scope filter: whose checklists to show.
+// 'all'  → every manager's checklists (backend `all=1`, role-gated to manager+)
+// 'mine' → only the logged-in manager's own checklists (employee_id filter)
+const SCOPE_OPTIONS = [
+  { value: 'all', label: 'All Checklist' },
+  { value: 'mine', label: 'My Checklist' },
 ];
 
 interface UnitVisitsPageProps {
@@ -56,7 +57,8 @@ export default function UnitVisitsPage({ employeeId, employeeName, unitIds }: Un
   // checklists by default (user can switch to "All Months" via the filter).
   const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
-  const [filterStatus, setFilterStatus] = useState('');
+  // Scope: 'all' = all managers' checklists (default), 'mine' = only own.
+  const [filterScope, setFilterScope] = useState<'all' | 'mine'>('all');
 
   const [units, setUnits] = useState<UnitOption[]>([]);
 
@@ -68,18 +70,17 @@ export default function UnitVisitsPage({ employeeId, employeeName, unitIds }: Un
     });
   }, [employeeId, unitIds]);
 
-  // Load visits — fetch ALL managers' checklists (not just the caller's own).
-  // The backend `all=1` flag is role-gated to manager+; regular employees
-  // are silently scoped to self, so this call is safe for any logged-in user.
+  // Load visits. When scope='all', fetch ALL managers' checklists (backend
+  // `all=1` flag, role-gated to manager+). When scope='mine', fetch only the
+  // logged-in manager's own checklists via employee_id filter.
   const loadVisits = useCallback(async (p = page) => {
     setLoading(true);
     const { data, error } = await fetchUnitVisits({
-      all: true,
+      ...(filterScope === 'all' ? { all: true } : { employee_id: employeeId }),
       page: p,
       limit: 20,
       ...(filterMonth > 0 ? { month: filterMonth } : {}),
       ...(filterYear ? { year: filterYear } : {}),
-      ...(filterStatus ? { status: filterStatus } : {}),
     });
     if (error) { toast.error(error); setLoading(false); return; }
     const res = data as { items?: unknown[]; pagination?: { total?: number; total_pages?: number } } | null;
@@ -87,7 +88,7 @@ export default function UnitVisitsPage({ employeeId, employeeName, unitIds }: Un
     setTotal(res?.pagination?.total || 0);
     setTotalPages(res?.pagination?.total_pages || 1);
     setLoading(false);
-  }, [filterMonth, filterYear, filterStatus, page]);
+  }, [employeeId, filterScope, filterMonth, filterYear, page]);
 
   useEffect(() => { loadVisits(); }, [loadVisits]);
 
@@ -154,9 +155,9 @@ export default function UnitVisitsPage({ employeeId, employeeName, unitIds }: Un
           </Select>
         </div>
         <div className="w-28">
-          <Select value={filterStatus} onValueChange={v => { setFilterStatus(v); setPage(1); }}>
+          <Select value={filterScope} onValueChange={v => { setFilterScope(v as 'all' | 'mine'); setPage(1); }}>
             <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>{STATUS_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+            <SelectContent>{SCOPE_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
           </Select>
         </div>
       </div>
