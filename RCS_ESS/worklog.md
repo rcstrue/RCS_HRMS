@@ -251,3 +251,65 @@ Stage Summary:
   role/permission 403 errors do NOT.
 - After successful re-login the app works normally again.
 - Build passes, lint passes (0 new issues).
+
+---
+Task ID: 6
+Agent: main
+Task: Unit Visit Checklist — default to current month, show all managers' visits, show manager name
+
+Requirements:
+1. By default, show only the current month's checklist.
+2. All managers should be able to see checklists submitted by all managers (not only their own).
+3. Show the manager name on each checklist so it's clear who completed the visit.
+4. Keep existing checklist functionality, filters, and design unchanged.
+5. Ensure data is properly filtered by the current month.
+6. Do not restrict visibility based on the logged-in manager.
+
+Work Log:
+- Inspected existing flow:
+  - RCS_ESS/src/components/ess/UnitVisitsPage.tsx: filterMonth defaulted to 0 (All Months);
+    fetchUnitVisits({ employee_id: employeeId, ... }) filtered to only the logged-in
+    manager's own visits; card showed unit_name/client_name but NOT the manager name.
+  - RCS_ESS/src/lib/ess-api.ts: fetchUnitVisits() always sent employee_id as a required
+    query param.
+  - api/ess/unit-visits.php _handleGetList(): hardcoded WHERE v.employee_id = ? — always
+    scoped to a single employee. SELECT already joined employees e and returned
+    employee_name + employee_code (just not displayed in the UI).
+
+- Backend change (api/ess/unit-visits.php):
+  - Added an `all=1` query param. When set AND the caller is manager+ (checked via
+    _guard_lookupRole + ESS_GUARD_ROLES_SUPERVISOR from auth-guard.php), the employee_id
+    WHERE clause is dropped so ALL managers' visits are returned.
+  - Regular employees passing all=1 are silently scoped to self (security preserved).
+  - Existing employee_id filter behavior is unchanged for all other callers.
+
+- Frontend API change (RCS_ESS/src/lib/ess-api.ts):
+  - fetchUnitVisits params: employee_id is now optional; added `all?: boolean`.
+  - When all=true, sends `all=1` instead of `employee_id`. Otherwise behaves as before.
+
+- Frontend page change (RCS_ESS/src/components/ess/UnitVisitsPage.tsx):
+  - filterMonth now defaults to new Date().getMonth() + 1 (current month, 1-12)
+    instead of 0 (All Months). User can still switch to "All Months" via the filter.
+  - loadVisits() now calls fetchUnitVisits({ all: true, ... }) instead of
+    { employee_id: employeeId, ... }.
+  - Removed employeeId from the loadVisits useCallback deps (no longer used there;
+    employeeId is still used for loading units).
+  - Added the manager name to each visit card: a small emerald dot + employee_name
+    (and employee_code if present) shown between client_name and the visit meta row.
+    Rendered only when visit.employee_name is present (defensive).
+
+- Verification:
+  - bun run build → ✓ 0 errors (only pre-existing chunk-size warning).
+  - bun run lint → 0 errors, 131 warnings — all pre-existing; 0 new in touched files.
+  - PHP brace/paren balance check on _handleGetList → balanced.
+  - Traced the 4 requirements: current-month default ✓, all-managers visibility ✓,
+    manager name shown ✓, existing filters/design unchanged ✓.
+
+Stage Summary:
+- Unit Visit Checklist page now defaults to the current month.
+- All managers see checklists from ALL managers (not just their own).
+- Each card shows the manager who completed the visit (name + code).
+- Existing filters (month/year/status), pagination, form, detail view, and design
+  are unchanged.
+- Backend all=1 mode is role-gated to manager+ so regular employees cannot use it
+  to see other people's visits.

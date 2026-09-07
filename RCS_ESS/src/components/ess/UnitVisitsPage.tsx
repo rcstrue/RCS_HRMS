@@ -52,7 +52,9 @@ export default function UnitVisitsPage({ employeeId, employeeName, unitIds }: Un
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const [filterMonth, setFilterMonth] = useState(0);
+  // Default to the CURRENT month/year so the page shows this month's
+  // checklists by default (user can switch to "All Months" via the filter).
+  const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
   const [filterStatus, setFilterStatus] = useState('');
 
@@ -66,11 +68,13 @@ export default function UnitVisitsPage({ employeeId, employeeName, unitIds }: Un
     });
   }, [employeeId, unitIds]);
 
-  // Load visits
+  // Load visits — fetch ALL managers' checklists (not just the caller's own).
+  // The backend `all=1` flag is role-gated to manager+; regular employees
+  // are silently scoped to self, so this call is safe for any logged-in user.
   const loadVisits = useCallback(async (p = page) => {
     setLoading(true);
     const { data, error } = await fetchUnitVisits({
-      employee_id: employeeId,
+      all: true,
       page: p,
       limit: 20,
       ...(filterMonth > 0 ? { month: filterMonth } : {}),
@@ -83,7 +87,7 @@ export default function UnitVisitsPage({ employeeId, employeeName, unitIds }: Un
     setTotal(res?.pagination?.total || 0);
     setTotalPages(res?.pagination?.total_pages || 1);
     setLoading(false);
-  }, [employeeId, filterMonth, filterYear, filterStatus, page]);
+  }, [filterMonth, filterYear, filterStatus, page]);
 
   useEffect(() => { loadVisits(); }, [loadVisits]);
 
@@ -185,6 +189,13 @@ export default function UnitVisitsPage({ employeeId, employeeName, unitIds }: Un
                       <Badge variant="outline" className={`text-[10px] shrink-0 ${statusBadge[visit.status] || ''}`}>{visit.status.charAt(0).toUpperCase() + visit.status.slice(1)}</Badge>
                     </div>
                     <p className="text-xs text-gray-500">{visit.client_name || ''}</p>
+                    {/* Manager who completed the visit — shown so it's clear who submitted each checklist */}
+                    {visit.employee_name && (
+                      <p className="text-xs text-emerald-700 font-medium mt-1 flex items-center gap-1">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        {visit.employee_name}{visit.employee_code ? ` · ${visit.employee_code}` : ''}
+                      </p>
+                    )}
                     <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
                       <span>{visit.visit_number === 1 ? '1st' : '2nd'} Visit</span>
                       <span>{MONTHS[visit.visit_month]?.label || ''} {visit.visit_year}</span>

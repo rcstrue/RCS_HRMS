@@ -294,7 +294,11 @@ export async function fetchChecklistCategories(): Promise<{ data: ChecklistCateg
 }
 
 export async function fetchUnitVisits(params: {
-  employee_id: number;
+  employee_id?: number;
+  /** When true, fetch checklists from ALL managers (not just the caller's own).
+   *  Backend ignores employee_id and returns every manager's visits.
+   *  Only honored for manager+ roles; lower roles are silently scoped to self. */
+  all?: boolean;
   month?: number;
   year?: number;
   unit_id?: number;
@@ -303,7 +307,12 @@ export async function fetchUnitVisits(params: {
   limit?: number;
   include_checklist?: boolean;
 }) {
-  const searchParams = new URLSearchParams({ employee_id: String(params.employee_id) });
+  const searchParams = new URLSearchParams();
+  if (params.all) {
+    searchParams.set('all', '1');
+  } else if (params.employee_id != null) {
+    searchParams.set('employee_id', String(params.employee_id));
+  }
   if (params.month) searchParams.set('month', String(params.month));
   if (params.year) searchParams.set('year', String(params.year));
   if (params.unit_id) searchParams.set('unit_id', String(params.unit_id));

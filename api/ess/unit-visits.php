@@ -218,12 +218,24 @@ function _handleGetList(mysqli $conn, string $authId): void
     $unitId = (int)($_GET['unit_id'] ?? 0);
     $status = $_GET['status'] ?? '';
     $includeChecklist = ($_GET['include_checklist'] ?? '') === '1';
+    // `all=1` → return checklists from ALL managers (not just the caller's own).
+    // Only permitted for manager+ roles; lower roles are silently scoped to self
+    // so the endpoint stays safe even if a regular employee passes all=1.
+    $allManagers = (($_GET['all'] ?? '') === '1')
+        && in_array(_guard_lookupRole($authId, $conn), ESS_GUARD_ROLES_SUPERVISOR, true);
     [$page, $limit, $offset] = getPaginationParams();
 
     // Build where
-    $where = 'WHERE v.employee_id = ?';
-    $types = 's';
-    $params = [$employeeId];
+    if ($allManagers) {
+        // No employee_id filter — return every manager's visits.
+        $where = 'WHERE 1=1';
+        $types = '';
+        $params = [];
+    } else {
+        $where = 'WHERE v.employee_id = ?';
+        $types = 's';
+        $params = [$employeeId];
+    }
 
     if ($month > 0) { $where .= ' AND v.visit_month = ?'; $types .= 'i'; $params[] = $month; }
     if ($year > 0) { $where .= ' AND v.visit_year = ?'; $types .= 'i'; $params[] = $year; }
