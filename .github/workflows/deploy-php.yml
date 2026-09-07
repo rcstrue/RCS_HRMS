@@ -5,6 +5,7 @@ on:
     branches: [ "main", "master" ]
     paths:
       - 'hrms/**'
+      - 'api/**'
       - 'database/**'
       - '.github/workflows/deploy-php.yml'
   workflow_dispatch:
@@ -41,13 +42,13 @@ jobs:
           # only looked for changes under `php_payroll/` and `database/`, which
           # meant EVERY push to `hrms/**` triggered the workflow but uploaded
           # ZERO files. As a result, fixes to e.g. hrms/modules/employee/add.php
-          # never reached the live server. We now diff against `hrms/` and
-          # `database/` (the directories that actually exist in this repo).
+          # never reached the live server. We now diff against `hrms/`, `api/`,
+          # and `database/` (the directories that actually exist in this repo).
           if [ "$FORCE_FULL" = "true" ] || [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            CHANGED=$(git ls-files -- hrms/ database/)
-            echo "Full sync — deploying all HRMS & database files"
+            CHANGED=$(git ls-files -- hrms/ api/ database/)
+            echo "Full sync — deploying all HRMS, API & database files"
           else
-            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" -- hrms/ database/)
+            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" -- hrms/ api/ database/)
             echo "Deploying only changed files"
           fi
 
@@ -82,10 +83,20 @@ jobs:
           set net:reconnect-interval-base 5;"
 
           while IFS= read -r file; do
-            # Strip hrms/ or database/ prefix → upload to /hrms/
-            RELATIVE="${file#hrms/}"
-            RELATIVE="${RELATIVE#database/}"
-            REMOTE_DIR="/hrms/$(dirname "$RELATIVE")"
+            # Strip the source-dir prefix to get the path relative to that dir,
+            # then upload under the matching remote dir.
+            #   hrms/foo/bar.php      → /hrms/foo/bar.php
+            #   api/ess/x.php         → /api/ess/x.php
+            #   database/seed.sql     → /database/seed.sql  (historical: mapped
+            #                            to /hrms/ by the old workflow; kept as
+            #                            /database/ now for correctness)
+            case "$file" in
+              hrms/*)    RELATIVE="${file#hrms/}";    REMOTE_BASE="/hrms/" ;;
+              api/*)     RELATIVE="${file#api/}";     REMOTE_BASE="/api/" ;;
+              database/*) RELATIVE="${file#database/}"; REMOTE_BASE="/database/" ;;
+              *)         RELATIVE="$file";             REMOTE_BASE="/" ;;
+            esac
+            REMOTE_DIR="${REMOTE_BASE}$(dirname "$RELATIVE")"
             FILE_NAME=$(basename "$RELATIVE")
 
             echo "  $file → $REMOTE_DIR/$FILE_NAME"

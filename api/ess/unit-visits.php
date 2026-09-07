@@ -2,6 +2,8 @@
 /**
  * ESS API — Unit Visits Endpoint (Enhanced with Checklist)
  * GET:    List/detail/dashboard unit visit submissions
+ *         - all=1 (manager+ only): return checklists from ALL managers,
+ *           not just the caller's own. See _handleGetList().
  * POST:   Submit a unit visit with checklist items
  * PUT:    Approve/reject a visit
  * DELETE: Delete a visit submission
