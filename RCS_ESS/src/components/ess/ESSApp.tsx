@@ -6,7 +6,6 @@ import type { ESSSession, ChangeRequest } from '@/lib/ess-types';
 import { getFileUrl, resetSessionExpiredGuard } from '@/lib/api/config';
 import { stopProactiveRefresh } from '@/lib/ess-auth';
 import { fetchChangeRequests, updateProfile, submitChangeRequest, fetchFullProfile } from '@/lib/ess-api';
-
 // Extracted modules
 import LoginScreen from './LoginScreen';
 import ForceChangePin from './ForceChangePin';
@@ -57,6 +56,12 @@ import { Building2, Loader2, UserPlus, Bell, Users } from 'lucide-react';
 // ESSApp — Slim orchestrator: auth, navigation, routing
 // ══════════════════════════════════════════════════════════════
 
+/** Info passed to <LoginScreen> when the session expired in-app. */
+interface SessionExpiryInfo {
+  reason: string;       // human-readable message to show as a persistent banner
+  mobile: string;       // last-used mobile number to pre-fill
+}
+
 export default function ESSApp({ onBackToRegistration }: { onBackToRegistration: () => void }) {
   return (
     <AccessProvider>
@@ -70,6 +75,11 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
   const [session, setSession] = useState<ESSSession | null>(null);
   const [forcePinSession, setForcePinSession] = useState<ESSSession | null>(null);
   const [authReady, setAuthReady] = useState(false);
+
+  // ── Session-expiry info (set when a 401/403-auth triggers in-app logout) ──
+  // Passed down to <LoginScreen> so it can pre-fill the mobile number and
+  // show a persistent "Your session has expired" banner WITHOUT a page reload.
+  const [sessionExpiry, setSessionExpiry] = useState<SessionExpiryInfo | null>(null);
 
   const loadSession = useCallback(() => {
     try {
@@ -104,17 +114,35 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
     setAuthReady(true);
   }, [loadSession]);
 
-  // ── Listen for session expiry (401 interceptor dispatches this) ──
+  // ── Listen for session expiry (401/403-auth interceptor dispatches this) ──
+  // Soft in-app transition: clear React session state so <LoginScreen>
+  // renders immediately, WITHOUT a hard page reload. This preserves the
+  // in-memory SPA state, lets us pre-fill the last-used mobile number,
+  // and shows a persistent (non-transient) expiry banner on LoginScreen.
   useEffect(() => {
-    const handler = () => {
+    const handler = (e: Event) => {
+      // CustomEvent detail is set by config.ts apiRequest()
+      const detail = (e as CustomEvent<SessionExpiryInfo>).detail;
+      const reason = detail?.reason || 'Session expired. Please login again.';
+      const mobile = detail?.mobile || '';
+
+      // Clear the expired session from storage + stop the refresh timer.
+      // (apiRequest already removed 'ess_employee' from localStorage before
+      // dispatching, but clearing again here is a safe idempotent no-op.)
       localStorage.removeItem('ess_employee');
       // R11 final: ess_token no longer stored (cookie only)
       stopProactiveRefresh();
-      toast.error('Session expired. Please login again.');
-      // Hard reload to fetch latest app version
-      setTimeout(() => {
-        window.location.replace(window.location.href.split('#')[0] + '#ess');
-      }, 800);
+
+      // Stash expiry info for LoginScreen BEFORE clearing React state so
+      // the LoginScreen render path can read it.
+      setSessionExpiry({ reason, mobile });
+
+      // Clear React session state → triggers re-render to <LoginScreen>.
+      setSession(null);
+      setForcePinSession(null);
+
+      // Also show a transient toast for immediate feedback.
+      toast.error(reason);
     };
     window.addEventListener('ess:session-expired', handler);
     return () => window.removeEventListener('ess:session-expired', handler);
@@ -149,6 +177,8 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
 
   const handleLogin = useCallback((s: ESSSession) => {
     saveSession(s);
+    // Clear any session-expiry banner now that the user has re-logged in.
+    setSessionExpiry(null);
     toast.success(`Welcome, ${s.employee.full_name}!`);
   }, [saveSession]);
 
@@ -358,6 +388,8 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
         onLogin={handleLogin}
         onBackToRegistration={onBackToRegistration}
         onForcePinChange={handleForcePinChange}
+        expiryReason={sessionExpiry?.reason || null}
+        prefilledMobile={sessionExpiry?.mobile || null}
       />
     );
   }

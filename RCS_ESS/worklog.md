@@ -166,3 +166,88 @@ Stage Summary:
 - "Manpower Status" card added to home page dashboard (clickable → manpower-status page)
 - Menu item "Manpower Status" added to More menu (role-gated like Unit Visits)
 - All changes pass lint with 0 errors
+
+---
+Task ID: 5
+Agent: main
+Task: Global automatic session-expiry handling in RCS ESS app
+
+Problem: When an employee's JWT/session expired, the app stayed open and pages
+continued to display, but API calls stopped working (401s). The employee
+thought the app was broken. The existing expiry handler did a hard
+window.location.replace() reload — which discarded in-memory SPA state,
+lost the chance to pre-fill the mobile number, and made the expiry toast
+disappear before the user could read it.
+
+Work Log:
+- Inspected existing auth/API/routing/login flow:
+  - src/lib/api/config.ts: apiRequest() already had partial 401 handling
+    (silent refresh attempt → clear ess_employee → dispatch
+    'ess:session-expired' CustomEvent, guarded by _sessionExpiredFired).
+  - src/lib/ess-auth.ts: JWT decode/expiry + proactive refresh timer.
+  - src/components/ess/ESSApp.tsx: listened for the event but did a hard
+    window.location.replace() reload (the root cause of the poor UX).
+  - src/components/ess/LoginScreen.tsx: mobile+PIN login UI, no prefill
+    or expiry-banner support.
+  - api/ess/example.config.php requireAuth(): emits 401 for missing/expired
+    JWT; api/ess/auth-guard.php emits 403 for role/permission denials;
+    config.php emits 403 "Invalid API key" for gateway auth failures.
+
+- Designed minimal central fix (3 files, +152/-17 lines):
+  1. config.ts:
+     - Added LAST_MOBILE_KEY + rememberLastMobile()/getLastMobile() helpers
+       that persist the last-used mobile number under a key that is NEVER
+       cleared by logout (so it survives session clearing).
+     - Added isAuthFailure(status, errorMsg) classifier: returns true for
+       401 (any message) AND 403-with-"api key" message (gateway auth
+       failure). Returns FALSE for role/permission 403s ("access denied",
+       "forbidden", "you do not own") — those stay as normal errors.
+     - In apiRequest's !response.ok block: extract errMsg once, use
+       isAuthFailure() instead of `status === 401`. Before clearing the
+       session, persist the mobile number from ess_employee.mobile_number.
+       Dispatch the CustomEvent with detail: { reason, mobile } so the
+       LoginScreen can pre-fill + show a persistent banner.
+  2. ESSApp.tsx:
+     - Added SessionExpiryInfo type + sessionExpiry state.
+     - Replaced the hard window.location.replace() reload with a soft
+       in-app transition: read event.detail, stash expiry info, clear
+       React session state (setSession(null) + setForcePinSession(null))
+       → React re-renders to <LoginScreen> with NO page reload.
+     - Pass expiryReason + prefilledMobile props to <LoginScreen>.
+     - Clear sessionExpiry on successful re-login (handleLogin).
+  3. LoginScreen.tsx:
+     - Accept optional expiryReason + prefilledMobile props (default null).
+     - Initialize mobile state from prefilledMobile.
+     - Call rememberLastMobile() on successful login (for next time).
+     - Added EmployeeRole to the type import (was used but not imported).
+     - Added a persistent amber "Your session has expired" banner with
+       AlertCircle icon, shown above the lockdown banner when expiryReason
+       is set. NOT a transient toast — stays until the user re-logs in.
+
+- Verification:
+  - `bun run build` → ✓ built in 5.50s, 0 errors (only pre-existing
+    chunk-size warning, unrelated to this change).
+  - `bun run lint` → 0 errors, 131 warnings — NONE in the 3 files touched.
+  - Manually traced the flow for each requirement:
+    * 401 expired JWT → isAuthFailure=true → refresh attempt → clear →
+      event with detail → soft Login render with prefill + banner ✓
+    * 403 "Invalid API key" → isAuthFailure=true → same path ✓
+    * 403 "Access denied"/"forbidden" → isAuthFailure=false → returned
+      as normal error to caller (no session clearing) ✓
+    * 500 / network error / validation error → not 401/403-auth →
+      returned as normal error ✓
+    * Successful re-login → sessionExpiry cleared, banner gone,
+      app works normally ✓
+
+Stage Summary:
+- Session-expiry is now handled centrally in the API layer (config.ts),
+  not on every page.
+- Login appears IN-APP without a browser refresh, preserving SPA state.
+- Last-used mobile number is pre-filled on the Login page.
+- Persistent "Your session has expired. Please login again." banner
+  (not a transient toast).
+- Reuses the existing LoginScreen + OTP/PIN flow unchanged.
+- 401, 403-auth failures trigger expiry; 500, network, validation, and
+  role/permission 403 errors do NOT.
+- After successful re-login the app works normally again.
+- Build passes, lint passes (0 new issues).

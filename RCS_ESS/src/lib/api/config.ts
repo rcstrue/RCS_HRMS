@@ -24,6 +24,53 @@ let _sessionExpiredFired = false;
 /** Reset the session-expired guard (call after successful login) */
 export function resetSessionExpiredGuard() { _sessionExpiredFired = false; }
 
+// ── Session-expiry: remember the last-used mobile number so the Login
+// screen can pre-fill it after the session is cleared. We persist it
+// under a key that is NEVER cleared by logout (so it survives the
+// localStorage.removeItem('ess_employee') call below). It contains no
+// sensitive data (the mobile is already shown masked on the login UI).
+const LAST_MOBILE_KEY = 'ess_last_mobile';
+
+/** Persist the last-used mobile number (no-op if empty). */
+export function rememberLastMobile(mobile: string): void {
+  const cleaned = (mobile || '').replace(/\D/g, '');
+  if (cleaned) localStorage.setItem(LAST_MOBILE_KEY, cleaned);
+}
+
+/** Read the last-used mobile number (or '' if none). */
+export function getLastMobile(): string {
+  return localStorage.getItem(LAST_MOBILE_KEY) || '';
+}
+
+/**
+ * Determine whether a non-OK JSON response represents an authentication
+ * failure that should trigger global session-expiry handling.
+ *
+ * Auth failures (→ show login):
+ *   - HTTP 401 (any message)  — JWT missing, invalid, or expired
+ *   - HTTP 403 + body error indicates an API-key / gateway auth problem
+ *     (NOT a role/permission 403, which is a regular error)
+ *
+ * Permission failures (→ NOT session-expiry, show as normal error):
+ *   - HTTP 403 + body error mentions "access denied" / "forbidden" /
+ *     "not allowed" / "you do not own" / "only ... can"
+ */
+function isAuthFailure(status: number, errorMsg: string): boolean {
+  if (status === 401) return true;
+  if (status === 403) {
+    const msg = (errorMsg || '').toLowerCase();
+    // API-key / gateway auth failure → treat as session-expiry.
+    // These are the only 403s that mean "you are not authenticated"
+    // rather than "you are authenticated but lack permission".
+    if (msg.includes('invalid api key') || msg.includes('api key')) {
+      return true;
+    }
+    // All other 403s are role/permission denials — NOT session expiry.
+    return false;
+  }
+  return false;
+}
+
 // ── Silent token-refresh state ──────────────────────────────────
 let _refreshPromise: Promise<string | null> | null = null;
 
@@ -182,8 +229,16 @@ export async function apiRequest<T>(
     }
 
     if (!response.ok) {
+      // Extract a human-readable error message for auth-failure detection
+      const errMsg: string = (data && typeof data === 'object' && (data.error || data.message))
+        ? String(data.error || data.message)
+        : '';
+
       // ── Token expiry / invalid → try silent refresh first ──
-      if (response.status === 401) {
+      // Handles both 401 (JWT missing/invalid/expired) and 403 with an
+      // API-key/gateway-auth message (NOT role/permission 403s — those are
+      // returned to the caller as normal errors).
+      if (isAuthFailure(response.status, errMsg)) {
         const isEss = localStorage.getItem('ess_employee'); // cookie-only: check session exists
         if (isEss) {
           // Don't nuke tokens if user is in force PIN change flow (has_custom_pin=false)
@@ -194,12 +249,19 @@ export async function apiRequest<T>(
               const s = JSON.parse(sessionStr);
               if (!s.has_custom_pin) {
                 // User is changing PIN — just return the error, don't clear tokens
-                return { data: null, error: data?.error || data?.message || 'Authentication error. Please try again.' };
+                return { data: null, error: errMsg || 'Authentication error. Please try again.' };
+              }
+              // Persist the last-used mobile number BEFORE clearing the
+              // session, so LoginScreen can pre-fill it after expiry.
+              if (s?.employee?.mobile_number) {
+                rememberLastMobile(String(s.employee.mobile_number));
               }
             }
           } catch { /* parse error — proceed with normal clear */ }
 
           // ── Attempt silent token refresh ──
+          // Only meaningful for 401 (expired JWT). For 403 API-key failures
+          // the refresh won't help, but the attempt is cheap and idempotent.
           const newToken = await tryRefreshToken();
           if (newToken) {
             // Retry the original request with the new token
@@ -230,17 +292,26 @@ export async function apiRequest<T>(
             // Refresh succeeded but retry still failed — fall through to logout
           }
 
-          // Refresh failed or retry failed — clear session
+          // Refresh failed or retry failed — clear session + dispatch event.
+          // We pass the prefilled mobile + reason via the event detail so the
+          // LoginScreen can pre-fill the number and show a persistent banner
+          // WITHOUT a hard page reload.
+          const prefilledMobile = getLastMobile();
           localStorage.removeItem('ess_employee'); // cookie-only: just remove session
           // Dispatch only ONCE to prevent toast spam from concurrent 401s
           if (!_sessionExpiredFired) {
             _sessionExpiredFired = true;
-            window.dispatchEvent(new CustomEvent('ess:session-expired'));
+            window.dispatchEvent(new CustomEvent('ess:session-expired', {
+              detail: {
+                reason: errMsg || 'Session expired. Please login again.',
+                mobile: prefilledMobile,
+              },
+            }));
           }
-          return { data: null, error: data?.error || data?.message || 'Session expired. Please login again.' };
+          return { data: null, error: errMsg || 'Session expired. Please login again.' };
         }
       }
-      return { data: null, error: data?.error || data?.message || 'Request failed' };
+      return { data: null, error: errMsg || 'Request failed' };
     }
 
     return { data: data as T, error: null };
