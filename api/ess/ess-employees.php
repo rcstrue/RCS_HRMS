@@ -112,7 +112,7 @@ function handleGetById($conn, $targetId) {
         FROM employees e
         LEFT JOIN clients c ON e.client_id = c.id
         LEFT JOIN units u ON e.unit_id = u.id
-        WHERE e.id = ? AND e.status IN ('approved', 'active')
+        WHERE e.id = ? AND e.status = 'approved'
         LIMIT 1
     ");
     $stmt->bind_param('i', $targetId);
@@ -142,9 +142,9 @@ function handleGet($conn) {
     $unitId = getParam('unit_id');
     $clientId = getParam('client_id');
     $scope = getParam('scope');
-    $requesterId = getParam('requester_id');
+    $requesterId = (int)getParam('requester_id');
 
-    $where = ["e.status IN ('approved', 'active')"];
+    $where = ["e.status = 'approved'"];
     $params = [];
     $types = '';
 
@@ -154,19 +154,19 @@ function handleGet($conn) {
             case 'unit':
                 $where[] = 'e.unit_id = (SELECT unit_id FROM employees WHERE id = ? LIMIT 1)';
                 $params[] = $requesterId;
-                $types .= 's';
+                $types .= 'i';
                 break;
             case 'city':
                 $where[] = 'e.state = (SELECT state FROM employees WHERE id = ? LIMIT 1)';
                 $params[] = $requesterId;
-                $types .= 's';
+                $types .= 'i';
                 break;
             case 'all':
                 break;
             case 'self':
                 $where[] = 'e.id = ?';
                 $params[] = $requesterId;
-                $types .= 's';
+                $types .= 'i';
                 break;
         }
     }
@@ -264,12 +264,12 @@ function handleGet($conn) {
             case 'unit':
                 $summaryWhere[] = 'e.unit_id = (SELECT unit_id FROM employees WHERE id = ? LIMIT 1)';
                 $summaryParams[] = $requesterId;
-                $summaryTypes .= 's';
+                $summaryTypes .= 'i';
                 break;
             case 'city':
                 $summaryWhere[] = 'e.state = (SELECT state FROM employees WHERE id = ? LIMIT 1)';
                 $summaryParams[] = $requesterId;
-                $summaryTypes .= 's';
+                $summaryTypes .= 'i';
                 break;
             case 'all':
                 break;
@@ -282,7 +282,7 @@ function handleGet($conn) {
             COUNT(DISTINCT e.unit_id) as total_units,
             COUNT(DISTINCT e.state) as total_cities
             FROM employees e
-            WHERE e.status IN ('approved', 'active') AND {$summaryWhereStr}";
+            WHERE e.status = 'approved' AND {$summaryWhereStr}";
 
         $sumStmt = $conn->prepare($sumSql);
         if ($summaryParams) {

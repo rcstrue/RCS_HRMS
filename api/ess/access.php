@@ -125,23 +125,32 @@ try {
 
     // ─── Fallback: read from employee_city_allocations (legacy) — unit only ──
     if (!$hasUserAccess) {
-        $legacyStmt = $conn->prepare('
-            SELECT allocation_type, allocation_value
-            FROM employee_city_allocations
-            WHERE employee_id = ?
-        ');
-        $legacyStmt->bind_param('s', $employeeId);
-        $legacyStmt->execute();
-        $legacyResult = $legacyStmt->get_result();
-        while ($row = $legacyResult->fetch_assoc()) {
-            $type = strtolower(trim($row['allocation_type']));
-            $value = trim($row['allocation_value']);
-            // Only collect unit-type rows; ignore city rows
-            if ($type === 'unit' && $value !== '') {
-                $unitNames[] = $value;
+        try {
+            $legacyStmt = $conn->prepare('
+                SELECT allocation_type, allocation_value
+                FROM employee_city_allocations
+                WHERE employee_id = ?
+            ');
+            if ($legacyStmt) {
+                $legacyStmt->bind_param('s', $employeeId);
+                $legacyStmt->execute();
+                $legacyResult = $legacyStmt->get_result();
+                while ($row = $legacyResult->fetch_assoc()) {
+                    $type = strtolower(trim($row['allocation_type']));
+                    $value = trim($row['allocation_value']);
+                    // Only collect unit-type rows; ignore city rows
+                    if ($type === 'unit' && $value !== '') {
+                        $unitNames[] = $value;
+                    }
+                }
+                $legacyStmt->close();
             }
+        } catch (\Throwable $legacyEx) {
+            // employee_city_allocations table doesn't exist on this server — safe to skip.
+            // The code already has a further-down fallback: any manager/supervisor with
+            // no allocations at all defaults to their own unit (ownUnitId), so this
+            // failing silently does not lose functionality.
         }
-        $legacyStmt->close();
     }
 
     // ─── Convert unit names → unit IDs ────────────────────────────────

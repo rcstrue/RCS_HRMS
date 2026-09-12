@@ -86,7 +86,7 @@ try {
         $whereClause = "WHERE e.status IN ('inactive', 'resigned', 'removed')";
     } else {
         // Default: active only
-        $whereClause = "WHERE e.status IN ('approved', 'active')";
+        $whereClause = "WHERE e.status = 'approved'";
     }
     $types = '';
     $params = array();
