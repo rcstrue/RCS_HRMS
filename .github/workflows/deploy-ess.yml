@@ -52,7 +52,7 @@ jobs:
             mirror -R --no-symlinks --parallel=4 --no-perms --overwrite RCS_ESS/dist .
 
             # Deploy API PHP files to api/ess/ (exclude config.php and .htaccess — managed manually on server)
-            mirror -R --no-symlinks --parallel=4 --no-perms --overwrite -x ^config\.php$ -x ^\.htaccess$ api/ess api/ess;
+            mirror -R --no-symlinks --parallel=4 --no-perms --overwrite --ignore-time -x ^config\.php$ -x ^\.htaccess$ api/ess api/ess;
 
             quit
           "
