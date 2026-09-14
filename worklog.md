@@ -59,3 +59,25 @@ Stage Summary:
 - Status filter fix: removed 'active' from status check — 'active' is not a valid status value in the database
 - Frontend analysis: scope and requester_id params ARE correctly sent by DirectoryPage for manager/supervisor roles — bug is backend-only
 - access.php fix: try/catch around missing employee_city_allocations table prevents 500 for supervisors with no user_access rows
+
+---
+Task ID: deploy-pipeline-fix
+Agent: main
+Task: Fix CI deploy pipeline — api/ess/ files not deployed to live server
+
+Work Log:
+- Verified fix is in GitHub main branch (access.php lines 128-153 show try/catch wrapper)
+- Checked GitHub Actions: ESS deploy (Run #180) completed successfully but deploy-php (Run #202) failed at "Get changed files" step
+- ROOT CAUSE 1: deploy-php.yml only triggered on php_payroll/** and database/** paths — api/ess/** was entirely excluded from both trigger paths and git diff scope
+- ROOT CAUSE 2: deploy-ess.yml used lftp mirror -R --overwrite but without --ignore-time, so if the remote file had a newer timestamp (e.g. manual edit on server), lftp would skip it even with --overwrite
+- Fix 1: deploy-php.yml — added api/ess/** to on.push.paths trigger, added api/ess/ to git ls-files/diff scope, added case for api/ess/* path mapping in FTP upload (→ /api/ess/ on server), added skip for config.php and .htaccess
+- Fix 2: deploy-ess.yml — added --ignore-time flag to lftp mirror command so files are re-uploaded regardless of remote timestamp
+- Committed and pushed (SHA 405494a6), both workflows re-triggered
+- deploy-php Run #203: completed successfully (no PHP files changed in this push, only yml)
+- deploy-ess Run #181: completed successfully (mirror with --ignore-time re-uploaded all api/ess/ files)
+
+Stage Summary:
+- 2 workflow files fixed: deploy-php.yml and deploy-ess.yml
+- api/ess/ files now included in BOTH deploy pipelines (redundancy for safety)
+- --ignore-time flag prevents lftp from skipping files based on timestamp comparison
+- All 3 PHP bug fixes should now be live on the server after ESS deploy Run #181
