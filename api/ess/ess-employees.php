@@ -18,11 +18,14 @@ require_once __DIR__ . '/security-headers.php';
 // shipped in the SPA bundle and therefore public) was required. That allowed
 // anyone to fetch ANY employee's full PII (Aadhaar, bank, IFSC, UAN, nominee)
 // via ?id=N. Require a valid JWT and restrict to admin / regional_manager /
-// manager / hr roles.
+// manager / supervisor / hr roles. Supervisors can only view employees
+// in their allocated units (user_access table).
+require_once __DIR__ . '/auth-guard.php';
+
 $authId = requireAuth();
 $conn = getDbConnection();
 $callerRole = strtolower((string)(getEmployeeRole($conn, $authId) ?? ''));
-if (!in_array($callerRole, ['admin', 'regional_manager', 'manager', 'hr'], true)) {
+if (!in_array($callerRole, ESS_GUARD_ROLES_SUPERVISOR, true) && $callerRole !== 'hr') {
     jsonOutput(['success' => false, 'error' => 'Access denied. Insufficient permissions.'], 403);
 }
 
@@ -33,7 +36,7 @@ try {
         case 'GET':
             $targetId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
             if ($targetId > 0) {
-                handleGetById($conn, $targetId);
+                handleGetById($conn, $targetId, $authId, $callerRole);
             } else {
                 handleGet($conn);
             }
@@ -56,7 +59,42 @@ function getParam($key, $default = '') {
 // ============================================================================
 // GET - Single Employee Detail by ID (full profile with all columns)
 // ============================================================================
-function handleGetById($conn, $targetId) {
+function handleGetById($conn, $targetId, $authId, $callerRole) {
+    // For supervisors, verify the target employee belongs to an allocated unit
+    if ($callerRole === 'supervisor') {
+        $allocStmt = $conn->prepare("SELECT access_id FROM user_access WHERE user_id = ? AND access_type = 'unit'");
+        if ($allocStmt) {
+            $allocStmt->bind_param('s', $authId);
+            $allocStmt->execute();
+            $allocRes = $allocStmt->get_result();
+            $allocatedUnitIds = [];
+            while ($allocRow = $allocRes->fetch_assoc()) {
+                $uid = (int)$allocRow['access_id'];
+                if ($uid > 0) $allocatedUnitIds[] = $uid;
+            }
+            $allocStmt->close();
+            // Also include the supervisor's own unit
+            $ownUnit = getEmployeeUnitId($authId, $conn);
+            if ($ownUnit > 0 && !in_array($ownUnit, $allocatedUnitIds, true)) $allocatedUnitIds[] = $ownUnit;
+
+            // Check if the target employee's unit is in the supervisor's allocations
+            if (!empty($allocatedUnitIds)) {
+                $unitPlaceholders = implode(',', array_fill(0, count($allocatedUnitIds), '?'));
+                $checkStmt = $conn->prepare("SELECT 1 FROM employees WHERE id = ? AND unit_id IN ({$unitPlaceholders}) LIMIT 1");
+                $types = 'i' . str_repeat('i', count($allocatedUnitIds));
+                $params = array_merge([$targetId], $allocatedUnitIds);
+                bindDynamicParams($checkStmt, $types, $params);
+                $checkStmt->execute();
+                $allowed = $checkStmt->get_result()->num_rows > 0;
+                $checkStmt->close();
+                if (!$allowed) {
+                    jsonOutput(['success' => false, 'error' => 'Access denied. You can only view employees in your allocated units.'], 403);
+                }
+            } else {
+                jsonOutput(['success' => false, 'error' => 'Access denied. No unit allocation found for your account.'], 403);
+            }
+        }
+    }
     $stmt = $conn->prepare("
         SELECT
             e.id as employee_id,
