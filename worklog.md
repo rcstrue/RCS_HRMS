@@ -81,3 +81,36 @@ Stage Summary:
 - api/ess/ files now included in BOTH deploy pipelines (redundancy for safety)
 - --ignore-time flag prevents lftp from skipping files based on timestamp comparison
 - All 3 PHP bug fixes should now be live on the server after ESS deploy Run #181
+
+---
+Task ID: manager-allocation-rewrite
+Agent: main
+Task: Rewrite manager-allocation page per RCS_HRMS_Manager_Allocation_Fix.md spec
+
+Work Log:
+- Read uploaded spec from /home/z/my-project/upload/RCS_HRMS_Manager_Allocation_Fix.md
+- Read full current php_payroll/modules/settings/manager-allocation.php (538 lines)
+- Identified supervisor-exclusion bug: $roleGroups only had manager/regional_manager/employee keys — supervisor group was never rendered in the dropdown
+- Removed designation filter entirely (PHP query params + HTML select + JS onDesignationFilter)
+- Replaced "Select User" dropdown with employee-code search box + live search (matches by code OR name, shows 20 results with role badges)
+- Added Bootstrap tabs: "Allocate Units" (form) and "Already Allocated" (table with count badge)
+- Moved Current Allocations table into "Already Allocated" tab, added app_role column with colored badges
+- Computed $allocatedCount before tabs render for badge: SELECT COUNT(DISTINCT user_id) FROM user_access
+- Added JS: live search on input, Enter key handler, outside-click to close dropdown, auto-switch to Allocate tab when ?employee= is set
+- Committed and pushed (SHA c65ab4ed)
+- PHP Lint: passed, Deploy PHP Admin via FTP Run #204: SUCCESS (Upload via FTP step: success)
+- Verified live page: 200 OK, no 500/parse errors, redirects to login for unauthenticated (expected)
+
+GIXED BUGS:
+1. Supervisor exclusion: supervisors were silently excluded from the dropdown (never rendered) — now all roles are searchable
+2. Designation filter was filtering by free-text designation column, not app_role — removed entirely
+
+UX CHANGES:
+1. Replaced dropdown with search box (employee code + name search)
+2. Added tabs: Allocate Units / Already Allocated
+3. Role badges shown in allocated table for clarity
+
+Stage Summary:
+- 1 PHP file rewritten: php_payroll/modules/settings/manager-allocation.php (312 insertions, 281 deletions)
+- Deploy confirmed: PHP FTP deploy Run #204 succeeded, file uploaded
+- Live page verified: 200 OK, no errors
