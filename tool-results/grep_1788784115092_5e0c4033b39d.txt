@@ -1,0 +1,252 @@
+/home/z/my-project/api/ess/employee-actions.php:29:    // TODO: add unit-scope verification — a manager should only be able to
+/home/z/my-project/api/ess/verify-certificate.php:5: * GET /api/ess/verify-certificate.php?cert=XXXXX
+/home/z/my-project/hrms/config/config.php:331:        $result = 'XXXX-XXXX-' . substr($aadhaar, -4);
+/home/z/my-project/hrms/modules/compliance/pf.php:90:    $estbId = $company['pf_establishment_id'] ?? 'GJXXX123456789';
+/home/z/my-project/hrms/modules/compliance/pf.php:292:                                <div class="col-8"><code><?php echo sanitize($company['pf_establishment_id'] ?? 'GJXXX123456789'); ?></code></div>
+/home/z/my-project/hrms/modules/compliance/pf.php:418:    let previewContent = `#ERS:<?php echo $company['pf_establishment_id'] ?? 'GJXXX123456789'; ?>~01~<?php echo str_pad($month, 2, '0', STR_PAD_LEFT); ?>~<?php echo $year; ?>
+/home/z/my-project/hrms/modules/compliance/esi.php:213:                                <div class="col-8"><code><?php echo sanitize($company['esi_establishment_id'] ?? 'XXXXXXXXXX'); ?></code></div>
+/home/z/my-project/hrms/modules/portal/profile.php:386:                            echo $aadhaar ? 'XXXX-XXXX-' . substr($aadhaar, -4) : 'N/A';
+/home/z/my-project/hrms/modules/portal/profile.php:431:                            echo $acc ? 'XXXX' . substr($acc, -4) : 'N/A';
+/home/z/my-project/hrms/modules/api/image-tool.php:4: * Accessed via: ?page=api/image-tool&ie_action=XXX
+/home/z/my-project/hrms/modules/forms/appointment.php:96:                    <p class="mb-0">Email: hr@rcsfacility.com | Phone: +91-XXXXXXXXXX</p>
+/home/z/my-project/RCS_ESS/src/components/registration/steps/Step2AadhaarFront.tsx:296:                placeholder="XXXX XXXX XXXX"
+/home/z/my-project/hrms/modules/forms/service_certificate.php:93:                Phone: <?php echo sanitize($company['contact_phone'] ?? '+91-XXXXXXXXXX'); ?> | 
+/home/z/my-project/hrms/modules/forms/nomination_pf.php:81:                <td><?php echo sanitize($company['pf_establishment_id'] ?? 'MH/XXXXX/XXXX'); ?></td>
+/home/z/my-project/RCS_ESS/src/components/registration/steps/Step4BankDocument.tsx:187:                placeholder="XXXX0XXXXXX"
+/home/z/my-project/hrms/modules/report/pf/form-10.php:232:                        <span class="detail-value"><?= $employee['aadhaar_number'] ? 'XXXX XXXX ' . substr($employee['aadhaar_number'], -4) : 'Not Available' ?></span>
+/home/z/my-project/hrms/modules/report/pf/form-10.php:261:                        <span class="detail-value"><?= $employee['account_number'] ? 'XXXX XXXX ' . substr($employee['account_number'], -4) : 'Not Available' ?></span>
+/home/z/my-project/hrms/modules/report/pf/form-2-revised.php:200:                    <span class="form2-field-value"><?= $employee['aadhaar_number'] ? 'XXXX XXXX ' . substr($employee['aadhaar_number'], -4) : 'Not Available' ?></span>
+/home/z/my-project/hrms/modules/report/pf/form-2-revised.php:225:                    <span class="form2-field-value"><?= $employee['account_number'] ? 'XXXX XXXX ' . substr($employee['account_number'], -4) : '—' ?></span>
+/home/z/my-project/hrms/modules/report/pf/form-13.php:277:                        <tr><td class="text-muted" style="width:180px">Aadhaar (last 4)</td><td><?= $employee['aadhaar_number'] ? 'XXXX' . substr($employee['aadhaar_number'], -4) : '—' ?></td></tr>
+/home/z/my-project/hrms/modules/report/pf/form-13.php:327:                <div class="col-md-4"><strong>A/C:</strong> <?= $employee['account_number'] ? 'XXXX' . substr($employee['account_number'], -4) : '—' ?></div>
+/home/z/my-project/hrms/modules/report/pf/form-19.php:257:                        <tr><td class="text-muted">Aadhaar (last 4)</td><td><?= $employee['aadhaar_number'] ? 'XXXX' . substr($employee['aadhaar_number'], -4) : '—' ?></td></tr>
+/home/z/my-project/hrms/modules/report/pf/form-19.php:293:                <div class="col-md-4"><strong>A/C:</strong> <?= $employee['account_number'] ? 'XXXX' . substr($employee['account_number'], -4) : '—' ?></div>
+/home/z/my-project/hrms/modules/report/pf/form-10c.php:259:                        <tr><td class="text-muted">Aadhaar (last 4)</td><td><?= $employee['aadhaar_number'] ? 'XXXX' . substr($employee['aadhaar_number'], -4) : '—' ?></td></tr>
+/home/z/my-project/hrms/modules/report/pf/form-10c.php:393:                <div class="col-md-4"><strong>A/C:</strong> <?= $employee['account_number'] ? 'XXXX' . substr($employee['account_number'], -4) : '—' ?></div>
+/home/z/my-project/hrms/modules/report/mis/employee-entry-form.php:67:            <p class="small text-muted mb-0">Phone: XXXX-XXXXXX | Email: info@company.com</p>
+/home/z/my-project/node_modules/effect/dist/dts/Effect.d.ts:8332: * **Example** (Fetching a TODO Item)
+/home/z/my-project/node_modules/effect/dist/dts/Effect.d.ts:8397:     * **Example** (Fetching a TODO Item)
+/home/z/my-project/node_modules/effect/dist/dts/Effect.d.ts:8465:     * **Example** (Fetching a TODO Item)
+/home/z/my-project/node_modules/effect/src/Option.ts:2874:// TODO(4.0): remove?
+/home/z/my-project/node_modules/effect/src/Option.ts:2900:  // TODO(4.0): remove?
+/home/z/my-project/node_modules/effect/src/Option.ts:2926:  // TODO(4.0): remove?
+/home/z/my-project/node_modules/effect/src/internal/channel/channelExecutor.ts:453:      // TODO: remove
+/home/z/my-project/node_modules/effect/src/internal/stream.ts:4271:          // TODO: remove
+/home/z/my-project/node_modules/effect/src/internal/blockedRequests.ts:421:// TODO
+/home/z/my-project/node_modules/effect/src/Arbitrary.ts:808:      // TODO(4.0): remove the `lazyArb` parameter
+/home/z/my-project/node_modules/effect/src/Effect.ts:8897: * **Example** (Fetching a TODO Item)
+/home/z/my-project/node_modules/effect/src/Effect.ts:8962:   * **Example** (Fetching a TODO Item)
+/home/z/my-project/node_modules/effect/src/Effect.ts:9032:   * **Example** (Fetching a TODO Item)
+/home/z/my-project/node_modules/effect/src/Schedule.ts:483:// TODO(4.0): rename to `zip`?
+/home/z/my-project/node_modules/effect/src/Schedule.ts:502:  // TODO(4.0): rename to `zip`?
+/home/z/my-project/node_modules/effect/src/Schedule.ts:521:  // TODO(4.0): rename to `zip`?
+/home/z/my-project/node_modules/effect/src/Schedule.ts:1451:// TODO(4.0): remove?
+/home/z/my-project/node_modules/effect/src/Schedule.ts:1460:// TODO(4.0): remove?
+/home/z/my-project/node_modules/effect/src/Schedule.ts:1468:  // TODO(4.0): remove?
+/home/z/my-project/node_modules/effect/src/Schedule.ts:1476:  // TODO(4.0): remove?
+/home/z/my-project/node_modules/effect/src/Schedule.ts:1486:// TODO(4.0): remove?
+/home/z/my-project/node_modules/effect/src/Schedule.ts:1494:  // TODO(4.0): remove?
+/home/z/my-project/node_modules/effect/src/Schedule.ts:1505:  // TODO(4.0): remove?
+/home/z/my-project/node_modules/effect/src/Schedule.ts:2680:// TODO(4.0): remove?
+/home/z/my-project/node_modules/effect/src/ConfigProvider.ts:202:// TODO(4.0): use `_` for nested configs instead of `.` in next major
+/home/z/my-project/node_modules/effect/src/Schema.ts:4583:  // TODO(4.0): replace `readonly [P]` with `readonly []`
+/home/z/my-project/node_modules/effect/src/Schema.ts:6466:// TODO(4.0): remove HRTime union member
+/home/z/my-project/node_modules/effect/src/ParseResult.ts:378:// TODO(4.0): remove
+/home/z/my-project/node_modules/effect/src/ParseResult.ts:1838:// TODO: replace with Either.void when 3.13 lands
+/home/z/my-project/node_modules/effect/src/BigDecimal.ts:1396:// TODO(4.0): Rename this to `fromNumber` after removing the current, unsafe implementation of `fromNumber`.
+/home/z/my-project/node_modules/effect/src/Either.ts:39:// TODO(4.0): flip the order of the type parameters
+/home/z/my-project/node_modules/effect/src/Either.ts:57:// TODO(4.0): flip the order of the type parameters
+/home/z/my-project/node_modules/effect/src/Either.ts:1026:// TODO(4.0): by default should throw `L` (i.e getOrThrowWith with the identity function)
+/home/z/my-project/node_modules/effect/src/Predicate.ts:568:// TODO: make public
+/home/z/my-project/node_modules/effect/src/Cron.ts:409:    // TODO: This implementation currently only skips forward when transitioning into daylight savings time.
+/home/z/my-project/node_modules/effect/src/Cause.ts:936:// TODO(4.0): remove? what's the point of this API?
+/home/z/my-project/node_modules/effect/src/Context.ts:115:// TODO(4.0): move key narrowing to the Tag interface
+/home/z/my-project/node_modules/effect/src/Context.ts:125:// TODO(4.0): move key narrowing to the Reference interface
+/home/z/my-project/node_modules/effect/src/Match.ts:1130:// TODO(4.0): Rename to "orThrow"? Like Either.getOrThrow
+/home/z/my-project/node_modules/typescript/lib/typescript.d.ts:273:             * A request to get TODO comments from the file
+/home/z/my-project/node_modules/typescript/lib/typescript.d.ts:284:                 * Array of target TodoCommentDescriptors that describes TODO comments to be found
+/home/z/my-project/node_modules/@hookform/resolvers/fluentvalidation-ts/src/fluentvalidation-ts.ts:38:    // TODO: check this but i think its always one validation error
+/home/z/my-project/node_modules/bun-types/bun.d.ts:1337:    // TODO
+/home/z/my-project/node_modules/bun-types/bun.d.ts:5371:    // TODO: DataView
+/home/z/my-project/node_modules/bun-types/bun.d.ts:7450:     * INFO = { prod/dev/optional/peer dependencies, os, cpu, libc (TODO), bin, binDir }
+/home/z/my-project/node_modules/bun-types/bun.d.ts:7453:     * npm         -> [ "name@version", registry (TODO: remove if default), INFO, integrity]
+/home/z/my-project/node_modules/bun-types/bun.d.ts:7459:     * git         -> [ "name@git+repo", INFO, .bun-tag string (TODO: remove this) ]
+/home/z/my-project/node_modules/bun-types/bun.d.ts:7460:     * github      -> [ "name@github:user/repo", INFO, .bun-tag string (TODO: remove this) ]
+/home/z/my-project/node_modules/bun-types/s3.d.ts:428:     * TODO: figure out how to get the typescript types to not error for this property.
+/home/z/my-project/node_modules/bun-types/globals.d.ts:635:       * TODO: make an enum for this number
+/home/z/my-project/node_modules/bun-types/test.d.ts:542:     * @param condition if the test should be marked TODO
+/home/z/my-project/node_modules/date-fns/parse.d.ts:177: * |                                 |     | XXX     | -08:00, +05:30, Z                 |       |
+/home/z/my-project/node_modules/date-fns/parse.d.ts:178: * |                                 |     | XXXX    | -0800, +0530, Z, +123456          | 2     |
+/home/z/my-project/node_modules/date-fns/parse.d.ts:179: * |                                 |     | XXXXX   | -08:00, +05:30, Z, +12:34:56      |       |
+/home/z/my-project/node_modules/date-fns/format.d.ts:169: * |                                 | XXX     | -08:00, +05:30, Z                 |       |
+/home/z/my-project/node_modules/date-fns/format.d.ts:170: * |                                 | XXXX    | -0800, +0530, Z, +123456          | 2     |
+/home/z/my-project/node_modules/date-fns/format.d.ts:171: * |                                 | XXXXX   | -08:00, +05:30, Z, +12:34:56      |       |
+/home/z/my-project/node_modules/date-fns/intlFormat.d.ts:6: * [TODO] Remove in v4
+/home/z/my-project/node_modules/date-fns/isMatch.d.ts:172: * |                                 |     | XXX     | -08:00, +05:30, Z                 |       |
+/home/z/my-project/node_modules/date-fns/isMatch.d.ts:173: * |                                 |     | XXXX    | -0800, +0530, Z, +123456          | 2     |
+/home/z/my-project/node_modules/date-fns/isMatch.d.ts:174: * |                                 |     | XXXXX   | -08:00, +05:30, Z, +12:34:56      |       |
+/home/z/my-project/node_modules/date-fns-jalali/parse.d.ts:177: * |                                 |     | XXX     | -08:00, +05:30, Z                 |       |
+/home/z/my-project/node_modules/date-fns-jalali/parse.d.ts:178: * |                                 |     | XXXX    | -0800, +0530, Z, +123456          | 2     |
+/home/z/my-project/node_modules/date-fns-jalali/parse.d.ts:179: * |                                 |     | XXXXX   | -08:00, +05:30, Z, +12:34:56      |       |
+/home/z/my-project/node_modules/date-fns-jalali/format.d.ts:169: * |                                 | XXX     | -08:00, +05:30, Z                 |       |
+/home/z/my-project/node_modules/date-fns-jalali/format.d.ts:170: * |                                 | XXXX    | -0800, +0530, Z, +123456          | 2     |
+/home/z/my-project/node_modules/date-fns-jalali/format.d.ts:171: * |                                 | XXXXX   | -08:00, +05:30, Z, +12:34:56      |       |
+/home/z/my-project/node_modules/date-fns-jalali/intlFormat.d.ts:6: * [TODO] Remove in v4
+/home/z/my-project/node_modules/date-fns-jalali/isMatch.d.ts:172: * |                                 |     | XXX     | -08:00, +05:30, Z                 |       |
+/home/z/my-project/node_modules/date-fns-jalali/isMatch.d.ts:173: * |                                 |     | XXXX    | -0800, +0530, Z, +123456          | 2     |
+/home/z/my-project/node_modules/date-fns-jalali/isMatch.d.ts:174: * |                                 |     | XXXXX   | -08:00, +05:30, Z, +12:34:56      |       |
+/home/z/my-project/node_modules/@jridgewell/gen-mapping/src/gen-mapping.ts:308:  // TODO: implement originalScopes/generatedRanges
+/home/z/my-project/node_modules/@jridgewell/remapping/src/build-source-map-tree.ts:70:    // TODO: We should eventually support async loading of sourcemap files.
+/home/z/my-project/node_modules/@jridgewell/remapping/src/source-map-tree.ts:102:  // TODO: Eventually support sourceRoot, which has to be removed because the sources are already
+/home/z/my-project/node_modules/motion-dom/dist/index.d.ts:582: * TODO: Replace with types from inView()
+/home/z/my-project/node_modules/motion-dom/dist/index.d.ts:2243:     * TODO: Filter out cancelled or stopped animations before returning
+/home/z/my-project/node_modules/motion-dom/dist/index.d.ts:2612:     * TODO: This is currently set on every individual VisualElement but feels
+/home/z/my-project/node_modules/motion-dom/dist/index.d.ts:2622:     * TODO: This might be better replaced with a method isParentMounted
+/home/z/my-project/node_modules/motion-dom/dist/index.d.ts:3205: * TODO Revisit this approach once we've moved to data models for values,
+/home/z/my-project/node_modules/motion-dom/dist/index.d.ts:4259:         * TODO: This could be faster to iterate as a flat array stored on the root node.
+/home/z/my-project/node_modules/motion-dom/dist/index.d.ts:4406:         * TODO: Lazy-init
+/home/z/my-project/node_modules/openid-client/types/index.d.ts:166:  scope?: string; // TODO: remove in v6.x
+/home/z/my-project/node_modules/fast-check/lib/types/check/arbitrary/definition/Value.d.ts:28:     * TODO - Do we want to clone it too?
+/home/z/my-project/node_modules/fast-check/lib/esm/types/check/arbitrary/definition/Value.d.ts:28:     * TODO - Do we want to clone it too?
+/home/z/my-project/node_modules/undici-types/client.d.ts:37:    /** TODO */
+/home/z/my-project/node_modules/undici-types/client.d.ts:47:    /** TODO */
+/home/z/my-project/node_modules/undici-types/client.d.ts:63:    /** TODO */
+/home/z/my-project/node_modules/undici-types/client.d.ts:71:    /** TODO */
+/home/z/my-project/node_modules/undici-types/client.d.ts:73:    /** TODO */
+/home/z/my-project/node_modules/undici-types/client.d.ts:75:    /** TODO */
+/home/z/my-project/node_modules/undici-types/client.d.ts:77:    /** TODO */
+/home/z/my-project/node_modules/undici-types/h2c-client.d.ts:35:    /** TODO */
+/home/z/my-project/node_modules/undici-types/h2c-client.d.ts:45:    /** TODO */
+/home/z/my-project/node_modules/undici-types/h2c-client.d.ts:51:    /** TODO */
+/home/z/my-project/node_modules/undici-types/h2c-client.d.ts:53:    /** TODO */
+/home/z/my-project/node_modules/undici-types/h2c-client.d.ts:55:    /** TODO */
+/home/z/my-project/node_modules/undici-types/h2c-client.d.ts:57:    /** TODO */
+/home/z/my-project/node_modules/undici-types/webidl.d.ts:304:  // TODO(@KhafraDev): a type could likely be implemented that can infer the return type
+/home/z/my-project/node_modules/undici-types/cache-interceptor.d.ts:37:     * TODO docs
+/home/z/my-project/node_modules/preact/src/index.d.ts:332:// TODO: Revisit what the public type of this is...
+/home/z/my-project/node_modules/preact/src/dom.d.ts:756:	// TODO: Spec for `auxclick` events was changed to make it a PointerEvent but only
+/home/z/my-project/node_modules/preact/src/index-5.d.ts:330:// TODO: Revisit what the public type of this is...
+/home/z/my-project/node_modules/preact/src/jsx.d.ts:850:		// TODO: Spec for `auxclick` events was changed to make it a PointerEvent but only
+/home/z/my-project/node_modules/path-key/index.d.ts:34:	// TODO: Remove this for the next major release, refactor the whole definition to:
+/home/z/my-project/node_modules/zod/src/v3/tests/string.test.ts:24:  includesFromIndex2.parse("XXXincludesXX");
+/home/z/my-project/node_modules/zod/src/v3/tests/async-parsing.test.ts:10:  const goodData = "XXX";
+/home/z/my-project/node_modules/zod/src/v3/tests/async-parsing.test.ts:86:  const badData = "XXX";
+/home/z/my-project/node_modules/zod/src/v3/tests/async-parsing.test.ts:116:  // const badData = 'XXX';
+/home/z/my-project/node_modules/zod/src/v3/tests/async-parsing.test.ts:131:  // const badData = 'XXX';
+/home/z/my-project/node_modules/zod/src/v3/tests/async-parsing.test.ts:160:  const goodData = ["XXX"];
+/home/z/my-project/node_modules/zod/src/v3/tests/async-parsing.test.ts:161:  const badData = "XXX";
+/home/z/my-project/node_modules/zod/src/v3/tests/async-parsing.test.ts:175:  const goodData = { string: "XXX" };
+/home/z/my-project/node_modules/zod/src/v3/tests/async-parsing.test.ts:221:  const badData = "XXX";
+/home/z/my-project/node_modules/zod/src/v3/tests/async-parsing.test.ts:300:  const badData = Promise.resolve("XXX");
+/home/z/my-project/node_modules/zod/src/v4/classic/from-json-schema.ts:461:      // TODO: uniqueItems is not supported
+/home/z/my-project/node_modules/zod/src/v4/classic/from-json-schema.ts:462:      // TODO: contains/minContains/maxContains are not supported
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/refine.test.ts:434:  // TODO: Implement type narrowing for superRefine
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/string.test.ts:32:  includesFromIndex2.parse("XXXincludesXX");
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/async-parsing.test.ts:9:  const goodData = "XXX";
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/async-parsing.test.ts:85:  const badData = "XXX";
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/async-parsing.test.ts:115:  // const badData = 'XXX';
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/async-parsing.test.ts:130:  // const badData = 'XXX';
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/async-parsing.test.ts:159:  const goodData = ["XXX"];
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/async-parsing.test.ts:160:  const badData = "XXX";
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/async-parsing.test.ts:174:  const goodData = { string: "XXX" };
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/async-parsing.test.ts:220://   const badData = "XXX";
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/async-parsing.test.ts:292:  const badData = Promise.resolve("XXX");
+/home/z/my-project/node_modules/zod/src/v4/classic/tests/lazy.test.ts:175:// TODO
+/home/z/my-project/node_modules/highlight.js/types/index.d.ts:107:    // TODO: Old API, remove with v12
+/home/z/my-project/node_modules/eslint-plugin-react/lib/types.d.ts:6:    [_: string]: any; // TODO: fixme
+/home/z/my-project/node_modules/callsites/index.d.ts:90:	// TODO: Remove this for the next major release, refactor the whole definition to:
+/home/z/my-project/node_modules/@typescript-eslint/utils/dist/ts-eslint/SourceCode.d.ts:272:     * TODO: rename to 'tokens'
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/react-native.d.ts:2404:    count = "count",// TODO: count does not actually exist in DMMF
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/react-native.d.ts:2935:    /** TODO what is this */
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/react-native.d.ts:2937:    /** TODO what is this */
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/client.d.ts:2404:    count = "count",// TODO: count does not actually exist in DMMF
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/client.d.ts:2935:    /** TODO what is this */
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/client.d.ts:2937:    /** TODO what is this */
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/edge.d.ts:2404:    count = "count",// TODO: count does not actually exist in DMMF
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/edge.d.ts:2935:    /** TODO what is this */
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/edge.d.ts:2937:    /** TODO what is this */
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/library.d.ts:2404:    count = "count",// TODO: count does not actually exist in DMMF
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/library.d.ts:2935:    /** TODO what is this */
+/home/z/my-project/node_modules/prisma/prisma-client/runtime/library.d.ts:2937:    /** TODO what is this */
+/home/z/my-project/node_modules/next/dist/client/components/segment-cache/scheduler.d.ts:39:     * TODO: We can add additional fields here to indicate what kind of prefetch
+/home/z/my-project/node_modules/next/dist/client/components/router-reducer/set-cache-busting-search-param.d.ts:15: * TODO: Since we need to use a search param anyway, we could simplify by removing the custom
+/home/z/my-project/node_modules/next/dist/server/request-meta.d.ts:101:     * TODO: Consider not using custom request headers at all, and instead encode
+/home/z/my-project/node_modules/@tanstack/table-core/src/features/RowSelection.ts:558:  // if ( // TODO: enforce grouping row selection rules
+/home/z/my-project/node_modules/@prisma/client/runtime/react-native.d.ts:2404:    count = "count",// TODO: count does not actually exist in DMMF
+/home/z/my-project/node_modules/@prisma/client/runtime/react-native.d.ts:2935:    /** TODO what is this */
+/home/z/my-project/node_modules/@prisma/client/runtime/react-native.d.ts:2937:    /** TODO what is this */
+/home/z/my-project/node_modules/@prisma/client/runtime/client.d.ts:2404:    count = "count",// TODO: count does not actually exist in DMMF
+/home/z/my-project/node_modules/@prisma/client/runtime/client.d.ts:2935:    /** TODO what is this */
+/home/z/my-project/node_modules/@prisma/client/runtime/client.d.ts:2937:    /** TODO what is this */
+/home/z/my-project/node_modules/@prisma/client/runtime/edge.d.ts:2404:    count = "count",// TODO: count does not actually exist in DMMF
+/home/z/my-project/node_modules/@prisma/client/runtime/edge.d.ts:2935:    /** TODO what is this */
+/home/z/my-project/node_modules/@prisma/client/runtime/edge.d.ts:2937:    /** TODO what is this */
+/home/z/my-project/node_modules/@prisma/client/runtime/library.d.ts:2404:    count = "count",// TODO: count does not actually exist in DMMF
+/home/z/my-project/node_modules/@prisma/client/runtime/library.d.ts:2935:    /** TODO what is this */
+/home/z/my-project/node_modules/@prisma/client/runtime/library.d.ts:2937:    /** TODO what is this */
+/home/z/my-project/node_modules/@prisma/config/dist/index.d.ts:213: * TODO: remove in Prisma 7.
+/home/z/my-project/node_modules/@prisma/get-platform/dist/getPlatform.d.ts:101: * TODO: deprecate this function in favor of `os.machine()` once either Node v16.18.0 or v18.9.0 becomes the minimum
+/home/z/my-project/node_modules/next/dist/compiled/@next/font/dist/google/get-fallback-font-override-metrics.d.ts:4: * TODO:
+/home/z/my-project/node_modules/next-auth/core/lib/cookie.d.ts:24: * @TODO Review cookie settings (names, options)
+/home/z/my-project/node_modules/next-auth/src/react/index.tsx:268:  // TODO: Do not redirect for Credentials and Email providers by default in next major
+/home/z/my-project/node_modules/next-auth/src/react/index.tsx:449:  // TODO: Flip this behavior in next major version
+/home/z/my-project/node_modules/next-auth/src/core/index.ts:53:// TODO:
+/home/z/my-project/node_modules/next-auth/src/core/index.ts:59:    // TODO: handle custom paths?
+/home/z/my-project/node_modules/next-auth/src/core/lib/oauth/callback.ts:81:        // TODO: Ask to allow object to be passed upstream:
+/home/z/my-project/node_modules/next-auth/src/core/lib/assert.ts:53:    // TODO: Make this throw an error in next major. This will also get rid of `NODE_ENV`
+/home/z/my-project/node_modules/next-auth/src/core/lib/cookie.ts:54: * @TODO Review cookie settings (names, options)
+/home/z/my-project/node_modules/next-auth/src/core/lib/utils.ts:39:    // TODO: Remove falling back to default secret, and error in dev if one isn't provided
+/home/z/my-project/node_modules/next-auth/src/core/types.ts:351:    // TODO: remove in `@auth/core` in favor of `trigger: "signUp"`
+/home/z/my-project/node_modules/next-auth/src/next/middleware.ts:95:// TODO: `NextMiddleware` should allow returning `void`
+/home/z/my-project/node_modules/next-auth/src/utils/logger.ts:3:// TODO: better typing
+/home/z/my-project/node_modules/next-auth/src/providers/email.ts:12:// TODO: Make use of https://www.typescriptlang.org/docs/handbook/2/template-literal-types.html for the string
+/home/z/my-project/node_modules/next-auth/src/providers/email.ts:105:  // TODO figure out a better way than copying from EmailUserConfig
+/home/z/my-project/node_modules/next-auth/src/providers/email.ts:113:// TODO: Rename to Token provider
+/home/z/my-project/node_modules/next-auth/src/providers/azure-ad.ts:43:      // TODO: Do this without Buffer
+/home/z/my-project/node_modules/next-auth/src/providers/hubspot.ts:4:  // TODO: figure out additional fields, for now using
+/home/z/my-project/node_modules/next-auth/src/providers/hubspot.ts:62:        // TODO: get image from profile once it's available
+/home/z/my-project/node_modules/next-auth/src/providers/twitter.ts:185:        // TODO: Remove this
+/home/z/my-project/node_modules/next-auth/src/providers/azure-ad-b2c.ts:41:        // TODO: Find out how to retrieve the profile picture
+/home/z/my-project/node_modules/next-auth/src/providers/oauth.ts:139:  // TODO: only allow for BattleNet
+/home/z/my-project/node_modules/next-auth/src/providers/oauth.ts:141:  // TODO: only allow for some
+/home/z/my-project/node_modules/next/dist/build/turborepo-access-trace/helpers.d.ts:3: * Trace access to the filesystem (TODO), environment variables, and TCP addresses and
+/home/z/my-project/node_modules/compute-scroll-into-view/src/index.ts:77:// @TODO better shadowdom test, 11 = document fragment
+/home/z/my-project/node_modules/compute-scroll-into-view/src/index.ts:369:    // @TODO add a shouldScroll hook here that allows userland code to take control
+/home/z/my-project/node_modules/compute-scroll-into-view/src/index.ts:375:    // @TODO targetBlock and targetInline should be taken into account to be compliant with https://github.com/w3c/csswg-drafts/pull/1805/files#diff-3c17f0e43c20f8ecf89419d49e7ef5e0R1333
+/home/z/my-project/node_modules/compute-scroll-into-view/src/index.ts:401:    // @TODO find out if the "as HTMLElement" overrides can be dropped
+/home/z/my-project/node_modules/compute-scroll-into-view/src/index.ts:474:      // @TODO add more test cases to cover this 100%
+/home/z/my-project/node_modules/next/dist/shared/lib/app-router-types.d.ts:88:     *   TODO: We should rethink the protocol for dynamic requests. It might not
+/home/z/my-project/node_modules/next/dist/shared/lib/app-router-types.d.ts:131:    /** TODO: this doesn't feel like it belongs here, because it's only used during build, in `collectSegmentData` */
+/home/z/my-project/node_modules/next/types/global.d.ts:22:    // TODO: Should be optional and possibly undefined
+/home/z/my-project/node_modules/next/types/compiled.d.ts:5:// TODO: Use tsconfig#paths instead
+/home/z/my-project/node_modules/yjs/dist/src/types/YXmlFragment.d.ts:120:     * TODO:
+/home/z/my-project/node_modules/lexical/nodes/LexicalTextNode.d.ts:162:     * // TODO 0.12 This should just be a `string`.
+/home/z/my-project/node_modules/lexical/nodes/LexicalTextNode.d.ts:174:     * // TODO 0.12 This should just be a `string`.
+/home/z/my-project/node_modules/internal-slot/index.d.ts:2:	type InternalSlot = string; // `[[${string}]]`; // TODO: restrict this to require the brackets
+/home/z/my-project/node_modules/@types/react/index.d.ts:447:    // TODO: generalize this to everything in `keyof ReactHTML`, not just "input"
+/home/z/my-project/node_modules/@types/react/index.d.ts:955:        // TODO: Ideally we'd infer the constructor signatur from `contextType`.
+/home/z/my-project/node_modules/@types/react/index.d.ts:2010:    // TODO: change any to unknown when moving to TS v3
+/home/z/my-project/node_modules/@types/react/index.d.ts:3872:    // TODO: Move to react-dom
+/home/z/my-project/node_modules/@types/react/index.d.ts:3993:    // TODO: Move to react-dom
+/home/z/my-project/node_modules/@types/react/index.d.ts:4101:        // TODO: Check impact of making React.ElementType<P = any> = React.JSXElementConstructor<P>
+/home/z/my-project/node_modules/@types/react/index.d.ts:4251:            animate: React.SVGProps<SVGElement>; // TODO: It is SVGAnimateElement but is not in TypeScript's lib.dom.d.ts for now.
+/home/z/my-project/node_modules/@types/react/index.d.ts:4253:            animateTransform: React.SVGProps<SVGElement>; // TODO: It is SVGAnimateTransformElement but is not in TypeScript's lib.dom.d.ts for now.
+/home/z/my-project/node_modules/@types/react/ts5.0/index.d.ts:448:    // TODO: generalize this to everything in `keyof ReactHTML`, not just "input"
+/home/z/my-project/node_modules/@types/react/ts5.0/index.d.ts:956:        // TODO: Ideally we'd infer the constructor signatur from `contextType`.
+/home/z/my-project/node_modules/@types/react/ts5.0/index.d.ts:2009:    // TODO: change any to unknown when moving to TS v3
+/home/z/my-project/node_modules/@types/react/ts5.0/index.d.ts:3868:    // TODO: Move to react-dom
+/home/z/my-project/node_modules/@types/react/ts5.0/index.d.ts:3989:    // TODO: Move to react-dom
+/home/z/my-project/node_modules/@types/react/ts5.0/index.d.ts:4235:            animate: React.SVGProps<SVGElement>; // TODO: It is SVGAnimateElement but is not in TypeScript's lib.dom.d.ts for now.
+/home/z/my-project/node_modules/@types/react/ts5.0/index.d.ts:4237:            animateTransform: React.SVGProps<SVGElement>; // TODO: It is SVGAnimateTransformElement but is not in TypeScript's lib.dom.d.ts for now.
+/home/z/my-project/node_modules/@types/node/buffer.d.ts:124:    // TODO: remove in future major
+/home/z/my-project/node_modules/@types/node/module.d.ts:806:        // TODO: consider removing in a future major version update
+/home/z/my-project/node_modules/@types/node/wasi.d.ts:165:        start(instance: object): number; // TODO: avoid DOM dependency until WASM moved to own lib.
+/home/z/my-project/node_modules/@types/node/wasi.d.ts:175:        initialize(instance: object): void; // TODO: avoid DOM dependency until WASM moved to own lib.
+/home/z/my-project/node_modules/@types/node/wasi.d.ts:197:        readonly wasiImport: NodeJS.Dict<any>; // TODO: Narrow to DOM types
+/home/z/my-project/node_modules/@types/node/perf_hooks.d.ts:611:    // TODO: remove these in a future major
+/home/z/my-project/node_modules/@types/node/timers.d.ts:68:            // TODO: remove in a future major version bump
+/home/z/my-project/node_modules/@types/node/util.d.ts:152:    // TODO: Remove these in a future major
+/home/z/my-project/node_modules/@types/node/util.d.ts:1250:    // TODO: remove in future major
+/home/z/my-project/node_modules/@types/node/crypto.d.ts:1345:    // TODO: signing algorithm type
+
+[Showing results with pagination = limit: 250]

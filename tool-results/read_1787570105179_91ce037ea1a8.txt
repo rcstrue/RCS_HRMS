@@ -1,0 +1,550 @@
+     1→[11-Aug-2026 11:01:06 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+     2→[11-Aug-2026 11:01:06 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+     3→[11-Aug-2026 11:01:06 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+     4→[11-Aug-2026 11:35:59 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+     5→[11-Aug-2026 11:35:59 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+     6→[11-Aug-2026 11:35:59 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+     7→[11-Aug-2026 11:39:07 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+     8→[11-Aug-2026 11:39:07 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+     9→[11-Aug-2026 11:39:07 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+    10→[11-Aug-2026 11:40:13 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+    11→[11-Aug-2026 11:40:13 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+    12→[11-Aug-2026 11:40:13 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+    13→[11-Aug-2026 11:41:07 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+    14→[11-Aug-2026 11:41:07 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+    15→[11-Aug-2026 11:41:07 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+    16→[11-Aug-2026 11:41:55 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+    17→[11-Aug-2026 11:41:55 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+    18→[11-Aug-2026 11:41:55 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+    19→[11-Aug-2026 11:46:58 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+    20→[11-Aug-2026 11:46:58 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+    21→[11-Aug-2026 11:46:58 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+    22→[11-Aug-2026 11:46:59 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+    23→[11-Aug-2026 11:46:59 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+    24→[11-Aug-2026 11:46:59 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+    25→[11-Aug-2026 11:47:00 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+    26→[11-Aug-2026 11:47:00 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+    27→[11-Aug-2026 11:47:00 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+    28→[11-Aug-2026 17:22:15 Asia/Kolkata] Database Connection Error: SQLSTATE[HY000] [1040] Too many connections
+    29→[11-Aug-2026 17:22:22 Asia/Kolkata] Database Connection Error: SQLSTATE[HY000] [1040] Too many connections
+    30→[11-Aug-2026 17:22:23 Asia/Kolkata] Database Connection Error: SQLSTATE[HY000] [1040] Too many connections
+    31→[11-Aug-2026 17:22:23 Asia/Kolkata] Database Connection Error: SQLSTATE[HY000] [1040] Too many connections
+    32→[11-Aug-2026 17:22:23 Asia/Kolkata] Database Connection Error: SQLSTATE[HY000] [1040] Too many connections
+    33→[11-Aug-2026 17:22:23 Asia/Kolkata] Database Connection Error: SQLSTATE[HY000] [1040] Too many connections
+    34→[11-Aug-2026 17:22:24 Asia/Kolkata] Database Connection Error: SQLSTATE[HY000] [1040] Too many connections
+    35→[11-Aug-2026 17:22:24 Asia/Kolkata] Database Connection Error: SQLSTATE[HY000] [1040] Too many connections
+    36→[11-Aug-2026 17:22:24 Asia/Kolkata] Database Connection Error: SQLSTATE[HY000] [1040] Too many connections
+    37→[11-Aug-2026 17:22:30 Asia/Kolkata] Database Connection Error: SQLSTATE[HY000] [1040] Too many connections
+    38→[11-Aug-2026 17:25:03 Asia/Kolkata] Database Connection Error: SQLSTATE[HY000] [1040] Too many connections
+    39→[12-Aug-2026 12:33:40 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+    40→                 FROM professional_tax_slabs
+    41→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+    42→                 ORDER BY min_gross
+    43→[12-Aug-2026 12:33:45 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+    44→                 FROM professional_tax_slabs
+    45→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+    46→                 ORDER BY min_gross
+    47→[12-Aug-2026 12:36:39 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+    48→                 FROM professional_tax_slabs
+    49→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+    50→                 ORDER BY min_gross
+    51→[12-Aug-2026 12:39:21 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    52→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    53→[12-Aug-2026 12:39:28 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    54→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    55→[12-Aug-2026 12:39:57 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+    56→                 FROM professional_tax_slabs
+    57→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+    58→                 ORDER BY min_gross
+    59→[12-Aug-2026 12:39:59 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+    60→                 FROM professional_tax_slabs
+    61→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+    62→                 ORDER BY min_gross
+    63→[12-Aug-2026 12:40:01 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+    64→                 FROM professional_tax_slabs
+    65→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+    66→                 ORDER BY min_gross
+    67→[12-Aug-2026 12:40:40 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    68→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    69→[12-Aug-2026 13:03:59 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+    70→                 FROM professional_tax_slabs
+    71→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+    72→                 ORDER BY min_gross
+    73→[12-Aug-2026 14:01:38 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+    74→                 FROM professional_tax_slabs
+    75→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+    76→                 ORDER BY min_gross
+    77→[12-Aug-2026 14:09:42 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+    78→                 FROM professional_tax_slabs
+    79→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+    80→                 ORDER BY min_gross
+    81→[12-Aug-2026 15:29:11 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    82→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    83→[12-Aug-2026 15:29:33 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    84→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    85→[12-Aug-2026 15:29:34 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    86→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    87→[12-Aug-2026 15:30:07 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    88→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    89→[12-Aug-2026 15:30:11 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    90→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    91→[12-Aug-2026 15:30:13 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    92→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    93→[12-Aug-2026 15:30:14 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    94→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    95→[12-Aug-2026 15:30:32 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    96→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    97→[12-Aug-2026 15:32:15 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'employee_contribution' in 'SELECT' | SQL: SELECT employee_contribution FROM lwf_rates
+    98→             WHERE (LOWER(state_code) = LOWER(?) OR LOWER(state) = LOWER(?)) AND is_active = 1 LIMIT 1
+    99→[12-Aug-2026 15:38:55 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   100→                 FROM professional_tax_slabs
+   101→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   102→                 ORDER BY min_gross
+   103→[12-Aug-2026 15:39:11 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   104→                 FROM professional_tax_slabs
+   105→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   106→                 ORDER BY min_gross
+   107→[12-Aug-2026 15:40:59 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   108→                 FROM professional_tax_slabs
+   109→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   110→                 ORDER BY min_gross
+   111→[12-Aug-2026 15:41:00 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   112→                 FROM professional_tax_slabs
+   113→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   114→                 ORDER BY min_gross
+   115→[12-Aug-2026 15:41:35 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   116→                 FROM professional_tax_slabs
+   117→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   118→                 ORDER BY min_gross
+   119→[12-Aug-2026 15:41:36 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   120→                 FROM professional_tax_slabs
+   121→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   122→                 ORDER BY min_gross
+   123→[12-Aug-2026 15:41:53 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   124→                 FROM professional_tax_slabs
+   125→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   126→                 ORDER BY min_gross
+   127→[12-Aug-2026 15:42:15 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   128→                 FROM professional_tax_slabs
+   129→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   130→                 ORDER BY min_gross
+   131→[12-Aug-2026 15:42:22 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   132→                 FROM professional_tax_slabs
+   133→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   134→                 ORDER BY min_gross
+   135→[12-Aug-2026 15:43:18 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'formula_type' in 'WHERE' | SQL: SELECT * FROM unit_salary_formulas WHERE unit_id = ? AND formula_type = 'overtime' LIMIT 1
+   136→[12-Aug-2026 15:44:16 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   137→                 FROM professional_tax_slabs
+   138→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   139→                 ORDER BY min_gross
+   140→[12-Aug-2026 15:44:18 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   141→                 FROM professional_tax_slabs
+   142→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   143→                 ORDER BY min_gross
+   144→[12-Aug-2026 15:45:46 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   145→                 FROM professional_tax_slabs
+   146→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   147→                 ORDER BY min_gross
+   148→[12-Aug-2026 15:45:47 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   149→                 FROM professional_tax_slabs
+   150→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   151→                 ORDER BY min_gross
+   152→[12-Aug-2026 15:48:13 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   153→                 FROM professional_tax_slabs
+   154→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   155→                 ORDER BY min_gross
+   156→[12-Aug-2026 15:49:09 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   157→                 FROM professional_tax_slabs
+   158→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   159→                 ORDER BY min_gross
+   160→[12-Aug-2026 15:49:12 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   161→                 FROM professional_tax_slabs
+   162→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   163→                 ORDER BY min_gross
+   164→[12-Aug-2026 15:49:41 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   165→                 FROM professional_tax_slabs
+   166→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   167→                 ORDER BY min_gross
+   168→[12-Aug-2026 15:52:34 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   169→                 FROM professional_tax_slabs
+   170→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   171→                 ORDER BY min_gross
+   172→[12-Aug-2026 15:52:45 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   173→                 FROM professional_tax_slabs
+   174→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   175→                 ORDER BY min_gross
+   176→[12-Aug-2026 15:52:59 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   177→                 FROM professional_tax_slabs
+   178→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   179→                 ORDER BY min_gross
+   180→[12-Aug-2026 15:55:26 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   181→                 FROM professional_tax_slabs
+   182→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   183→                 ORDER BY min_gross
+   184→[12-Aug-2026 15:55:50 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   185→                 FROM professional_tax_slabs
+   186→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   187→                 ORDER BY min_gross
+   188→[17-Aug-2026 16:21:05 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   189→Stack trace:
+   190→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   191→#1 {main}
+   192→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   193→[17-Aug-2026 16:21:07 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   194→Stack trace:
+   195→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   196→#1 {main}
+   197→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   198→[17-Aug-2026 16:21:07 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   199→Stack trace:
+   200→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   201→#1 {main}
+   202→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   203→[17-Aug-2026 16:21:09 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   204→Stack trace:
+   205→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   206→#1 {main}
+   207→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   208→[17-Aug-2026 16:21:10 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:671
+   209→Stack trace:
+   210→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   211→#1 {main}
+   212→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 671
+   213→[17-Aug-2026 16:21:11 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:671
+   214→Stack trace:
+   215→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   216→#1 {main}
+   217→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 671
+   218→[17-Aug-2026 16:21:12 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:671
+   219→Stack trace:
+   220→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   221→#1 {main}
+   222→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 671
+   223→[17-Aug-2026 16:21:12 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   224→Stack trace:
+   225→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   226→#1 {main}
+   227→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   228→[17-Aug-2026 16:21:13 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   229→Stack trace:
+   230→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   231→#1 {main}
+   232→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   233→[17-Aug-2026 16:21:13 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   234→Stack trace:
+   235→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   236→#1 {main}
+   237→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   238→[17-Aug-2026 16:21:14 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:671
+   239→Stack trace:
+   240→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   241→#1 {main}
+   242→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 671
+   243→[17-Aug-2026 16:21:15 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:671
+   244→Stack trace:
+   245→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   246→#1 {main}
+   247→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 671
+   248→[17-Aug-2026 16:21:16 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   249→Stack trace:
+   250→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   251→#1 {main}
+   252→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   253→[17-Aug-2026 16:21:17 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   254→Stack trace:
+   255→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   256→#1 {main}
+   257→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   258→[17-Aug-2026 16:30:17 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   259→Stack trace:
+   260→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   261→#1 {main}
+   262→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   263→[17-Aug-2026 16:30:18 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   264→Stack trace:
+   265→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   266→#1 {main}
+   267→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   268→[17-Aug-2026 16:38:39 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   269→Stack trace:
+   270→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   271→#1 {main}
+   272→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   273→[17-Aug-2026 16:38:40 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Call to undefined function getCSRFToken() in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php:528
+   274→Stack trace:
+   275→#0 /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/index.php(489): include()
+   276→#1 {main}
+   277→  thrown in /home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms/modules/employee/change-requests.php on line 528
+   278→[19-Aug-2026 10:00:01 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near ':employee_id, :title, :message, :type, :link, NOW())' at line 2 | SQL: INSERT INTO ess_notifications (employee_id, title, message, type, link, created_at)
+   279→                VALUES (:employee_id, :title, :message, :type, :link, NOW())
+   280→[19-Aug-2026 10:00:01 Asia/Kolkata] [change-request in-app notif] SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near ':employee_id, :title, :message, :type, :link, NOW())' at line 2
+   281→[19-Aug-2026 15:04:05 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   282→[19-Aug-2026 15:04:05 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   283→[19-Aug-2026 15:04:05 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   284→[19-Aug-2026 15:06:45 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   285→[19-Aug-2026 15:06:45 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   286→[19-Aug-2026 15:06:45 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   287→[19-Aug-2026 15:07:49 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   288→[19-Aug-2026 15:07:49 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   289→[19-Aug-2026 15:07:49 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   290→[19-Aug-2026 15:08:33 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   291→[19-Aug-2026 15:08:33 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   292→[19-Aug-2026 15:08:33 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   293→[19-Aug-2026 15:26:50 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   294→[19-Aug-2026 15:26:50 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   295→[19-Aug-2026 15:26:50 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   296→[19-Aug-2026 15:27:02 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   297→[19-Aug-2026 15:27:02 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   298→[19-Aug-2026 15:27:02 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   299→[19-Aug-2026 15:30:49 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   300→[19-Aug-2026 15:30:49 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   301→[19-Aug-2026 15:30:49 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   302→[19-Aug-2026 15:30:49 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   303→[19-Aug-2026 15:30:49 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   304→[19-Aug-2026 15:30:49 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   305→[19-Aug-2026 15:30:57 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   306→[19-Aug-2026 15:30:57 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   307→[19-Aug-2026 15:30:57 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   308→[19-Aug-2026 15:32:31 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   309→[19-Aug-2026 15:32:31 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   310→[19-Aug-2026 15:32:31 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   311→[19-Aug-2026 15:45:08 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3910903877' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   312→[19-Aug-2026 15:45:08 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911042376' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   313→[19-Aug-2026 15:45:08 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911046088' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   314→[19-Aug-2026 15:45:08 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911702247' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   315→[19-Aug-2026 15:45:08 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911695716' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   316→[19-Aug-2026 15:45:08 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911696241' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   317→[19-Aug-2026 15:45:08 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3912039836' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   318→[19-Aug-2026 15:45:08 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911887533' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   319→[19-Aug-2026 15:45:08 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911524599' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   320→[19-Aug-2026 15:45:08 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911986928' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   321→[19-Aug-2026 15:45:42 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3910903877' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   322→[19-Aug-2026 15:45:42 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911042376' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   323→[19-Aug-2026 15:45:42 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911046088' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   324→[19-Aug-2026 15:45:42 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911702247' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   325→[19-Aug-2026 15:45:42 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911695716' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   326→[19-Aug-2026 15:45:42 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911696241' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   327→[19-Aug-2026 15:45:42 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3912039836' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   328→[19-Aug-2026 15:45:42 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911887533' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   329→[19-Aug-2026 15:45:42 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911524599' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   330→[19-Aug-2026 15:45:42 Asia/Kolkata] Query Error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '3911986928' for key 'ip_number' | SQL: UPDATE esic_ip_master SET ip_number = ? WHERE id = ?
+   331→[19-Aug-2026 15:45:48 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   332→[19-Aug-2026 15:45:48 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   333→[19-Aug-2026 15:45:48 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   334→[19-Aug-2026 15:56:55 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_table' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_table` VARCHAR(50) DEFAULT NULL AFTER `employee_id`
+   335→[19-Aug-2026 15:56:55 Asia/Kolkata] Exec Error: SQLSTATE[42S21]: Column already exists: 1060 Duplicate column name 'target_record_id' | SQL: ALTER TABLE `employee_data_sync_logs` ADD COLUMN `target_record_id` VARCHAR(50) DEFAULT NULL AFTER `target_table`
+   336→[19-Aug-2026 15:56:55 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1061 Duplicate key name 'idx_target' | SQL: ALTER TABLE `employee_data_sync_logs` ADD INDEX `idx_target` (`target_table`, `target_record_id`)
+   337→[20-Aug-2026 11:20:56 Asia/Kolkata] Prepare Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'e.personal_email' in 'SELECT' | SQL: SELECT p.id, e.id as employee_id, e.full_name, e.personal_email
+   338→             FROM payroll p
+   339→             JOIN employees e ON p.employee_id = e.employee_code
+   340→             WHERE p.month = ? AND p.year = ?
+   341→[20-Aug-2026 13:47:03 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   342→                 FROM professional_tax_slabs
+   343→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   344→                 ORDER BY min_gross
+   345→[20-Aug-2026 13:48:43 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'payroll_id' in 'SET' | SQL: UPDATE loan_emi_log SET payroll_id = ? WHERE loan_id = ? AND month = ? AND year = ?
+   346→[20-Aug-2026 13:48:43 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'payroll_id' in 'SET' | SQL: UPDATE loan_emi_log SET payroll_id = ? WHERE loan_id = ? AND month = ? AND year = ?
+   347→[20-Aug-2026 13:48:43 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'payroll_id' in 'SET' | SQL: UPDATE loan_emi_log SET payroll_id = ? WHERE loan_id = ? AND month = ? AND year = ?
+   348→[20-Aug-2026 13:48:48 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   349→                 FROM professional_tax_slabs
+   350→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   351→                 ORDER BY min_gross
+   352→[20-Aug-2026 13:48:50 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   353→                 FROM professional_tax_slabs
+   354→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   355→                 ORDER BY min_gross
+   356→[20-Aug-2026 14:00:05 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   357→                 FROM professional_tax_slabs
+   358→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   359→                 ORDER BY min_gross
+   360→[20-Aug-2026 14:00:07 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   361→                 FROM professional_tax_slabs
+   362→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   363→                 ORDER BY min_gross
+   364→[20-Aug-2026 14:00:16 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   365→                 FROM professional_tax_slabs
+   366→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   367→                 ORDER BY min_gross
+   368→[20-Aug-2026 14:02:16 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'payroll_id' in 'SET' | SQL: UPDATE loan_emi_log SET payroll_id = ? WHERE loan_id = ? AND month = ? AND year = ?
+   369→[20-Aug-2026 14:02:16 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'payroll_id' in 'SET' | SQL: UPDATE loan_emi_log SET payroll_id = ? WHERE loan_id = ? AND month = ? AND year = ?
+   370→[20-Aug-2026 14:02:17 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'payroll_id' in 'SET' | SQL: UPDATE loan_emi_log SET payroll_id = ? WHERE loan_id = ? AND month = ? AND year = ?
+   371→[20-Aug-2026 14:04:31 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   372→                 FROM professional_tax_slabs
+   373→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   374→                 ORDER BY min_gross
+   375→[20-Aug-2026 14:04:36 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   376→                 FROM professional_tax_slabs
+   377→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   378→                 ORDER BY min_gross
+   379→[20-Aug-2026 14:04:57 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   380→                 FROM professional_tax_slabs
+   381→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   382→                 ORDER BY min_gross
+   383→[20-Aug-2026 14:05:05 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   384→                 FROM professional_tax_slabs
+   385→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   386→                 ORDER BY min_gross
+   387→[20-Aug-2026 14:05:12 Asia/Kolkata] Query Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'payroll_id' in 'SET' | SQL: UPDATE loan_emi_log SET payroll_id = ? WHERE loan_id = ? AND month = ? AND year = ?
+   388→[20-Aug-2026 14:05:18 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   389→                 FROM professional_tax_slabs
+   390→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   391→                 ORDER BY min_gross
+   392→[20-Aug-2026 14:13:03 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near ':employee_id, :title, :message, :type, :link, NOW())' at line 2 | SQL: INSERT INTO ess_notifications (employee_id, title, message, type, link, created_at)
+   393→                VALUES (:employee_id, :title, :message, :type, :link, NOW())
+   394→[20-Aug-2026 14:13:03 Asia/Kolkata] [change-request in-app notif] SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near ':employee_id, :title, :message, :type, :link, NOW())' at line 2
+   395→[20-Aug-2026 14:13:19 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near ':employee_id, :title, :message, :type, :link, NOW())' at line 2 | SQL: INSERT INTO ess_notifications (employee_id, title, message, type, link, created_at)
+   396→                VALUES (:employee_id, :title, :message, :type, :link, NOW())
+   397→[20-Aug-2026 14:13:19 Asia/Kolkata] [change-request in-app notif] SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near ':employee_id, :title, :message, :type, :link, NOW())' at line 2
+   398→[20-Aug-2026 14:13:36 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   399→                 FROM professional_tax_slabs
+   400→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   401→                 ORDER BY min_gross
+   402→[20-Aug-2026 14:13:43 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   403→                 FROM professional_tax_slabs
+   404→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   405→                 ORDER BY min_gross
+   406→[20-Aug-2026 14:13:43 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   407→                 FROM professional_tax_slabs
+   408→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   409→                 ORDER BY min_gross
+   410→[20-Aug-2026 14:13:44 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   411→                 FROM professional_tax_slabs
+   412→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   413→                 ORDER BY min_gross
+   414→[20-Aug-2026 14:21:57 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.professional_tax_slabs' doesn't exist | SQL: SELECT min_gross, max_gross, pt_amount
+   415→                 FROM professional_tax_slabs
+   416→                 WHERE (state_name = ? OR state_name = ?) AND is_active = 1
+   417→                 ORDER BY min_gross
+   418→[20-Aug-2026 15:38:06 Asia/Kolkata] Prepare Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.employee_family' doesn't exist | SQL: SELECT * FROM employee_family WHERE employee_id = ?
+   419→[20-Aug-2026 15:40:48 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.attendance' doesn't exist | SQL: SELECT e.employee_code, e.full_name, e.father_name, e.designation, e.worker_category,
+   420→                        COALESCE(a.present_days, 0) as present_days,
+   421→                        COALESCE(a.absent_days, 0) as absent_days,
+   422→                        COALESCE(a.weekly_offs, 0) as weekly_offs,
+   423→                        COALESCE(a.holidays, 0) as holidays,
+   424→                        COALESCE(a.total_working_days, 0) as total_working_days,
+   425→                        COALESCE(a.overtime_hours, 0) as total_overtime_hours
+   426→                 FROM employees e
+   427→                 LEFT JOIN attendance a ON e.id = a.employee_id AND MONTH(a.attendance_date) = :month AND YEAR(a.attendance_date) = :year
+   428→                 WHERE e.unit_id = :unit_id
+   429→                 AND e.status = 'approved'
+   430→                 ORDER BY e.employee_code
+   431→[20-Aug-2026 15:41:09 Asia/Kolkata] Query Error: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'rcsfaxhz_bolt.attendance' doesn't exist | SQL: SELECT e.employee_code, e.full_name, e.father_name, e.designation, e.worker_category,
+   432→                        COALESCE(a.present_days, 0) as present_days,
+   433→                        COALESCE(a.absent_days, 0) as absent_days,
+   434→                        COALESCE(a.weekly_offs, 0) as weekly_offs,
+   435→                        COALESCE(a.holidays, 0) as holidays,
+   436→                        COALESCE(a.total_working_days, 0) as total_working_days,
+   437→                        COALESCE(a.overtime_hours, 0) as total_overtime_hours
+   438→                 FROM employees e
+   439→                 LEFT JOIN attendance a ON e.id = a.employee_id AND MONTH(a.attendance_date) = :month AND YEAR(a.attendance_date) = :year
+   440→                 WHERE e.unit_id = :unit_id
+   441→                 AND e.status = 'approved'
+   442→                 ORDER BY e.employee_code
+   443→[24-Aug-2026 15:07:30 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = 'No subscribers found', sent_at = NOW() WHERE id = ?
+   444→[24-Aug-2026 15:07:30 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   445→[24-Aug-2026 15:08:47 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = 'No subscribers found', sent_at = NOW() WHERE id = ?
+   446→[24-Aug-2026 15:08:47 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   447→[24-Aug-2026 15:09:00 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = 'No subscribers found', sent_at = NOW() WHERE id = ?
+   448→[24-Aug-2026 15:09:00 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   449→[24-Aug-2026 15:09:05 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = 'No subscribers found', sent_at = NOW() WHERE id = ?
+   450→[24-Aug-2026 15:09:05 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   451→[24-Aug-2026 15:16:00 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   452→[24-Aug-2026 15:16:00 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   453→[24-Aug-2026 15:19:04 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   454→[24-Aug-2026 15:19:04 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   455→[24-Aug-2026 15:29:05 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   456→[24-Aug-2026 15:29:05 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   457→[24-Aug-2026 15:29:05 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   458→[24-Aug-2026 15:29:05 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   459→[24-Aug-2026 15:29:26 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   460→[24-Aug-2026 15:29:26 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   461→[24-Aug-2026 15:42:32 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   462→[24-Aug-2026 15:42:32 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   463→[24-Aug-2026 15:42:52 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   464→[24-Aug-2026 15:42:52 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   465→[24-Aug-2026 16:00:18 Asia/Kolkata] [push-debug] send_now POST, queueId=6
+   466→[24-Aug-2026 16:00:18 Asia/Kolkata] [push-debug] process block reached, queueId=6
+   467→[24-Aug-2026 16:00:18 Asia/Kolkata] [push-debug] fetch result: id=6 status=pending target=all
+   468→[24-Aug-2026 16:00:18 Asia/Kolkata] [push-debug] class.webpush.php loaded, APP_ROOT=/home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms
+   469→[24-Aug-2026 16:00:18 Asia/Kolkata] [push-debug] VAPID keys: priv=Y pub=Y
+   470→[24-Aug-2026 16:00:18 Asia/Kolkata] [push-debug] WebPush instantiated
+   471→[24-Aug-2026 16:00:18 Asia/Kolkata] [push-debug] found 4 subscriptions for target=all
+   472→[24-Aug-2026 16:00:18 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   473→[24-Aug-2026 16:00:18 Asia/Kolkata] [push-debug] EXCEPTION: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1
+   474→[24-Aug-2026 16:00:18 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   475→[24-Aug-2026 16:00:31 Asia/Kolkata] [push-debug] process block reached, queueId=6
+   476→[24-Aug-2026 16:00:31 Asia/Kolkata] [push-debug] fetch result: id=6 status=pending target=all
+   477→[24-Aug-2026 16:00:31 Asia/Kolkata] [push-debug] class.webpush.php loaded, APP_ROOT=/home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms
+   478→[24-Aug-2026 16:00:31 Asia/Kolkata] [push-debug] VAPID keys: priv=Y pub=Y
+   479→[24-Aug-2026 16:00:31 Asia/Kolkata] [push-debug] WebPush instantiated
+   480→[24-Aug-2026 16:00:31 Asia/Kolkata] [push-debug] found 4 subscriptions for target=all
+   481→[24-Aug-2026 16:00:31 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   482→[24-Aug-2026 16:00:31 Asia/Kolkata] [push-debug] EXCEPTION: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1
+   483→[24-Aug-2026 16:00:31 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   484→[24-Aug-2026 16:01:26 Asia/Kolkata] [push-debug] send_now POST, queueId=6
+   485→[24-Aug-2026 16:01:26 Asia/Kolkata] [push-debug] process block reached, queueId=6
+   486→[24-Aug-2026 16:01:26 Asia/Kolkata] [push-debug] fetch result: id=6 status=pending target=all
+   487→[24-Aug-2026 16:01:26 Asia/Kolkata] [push-debug] class.webpush.php loaded, APP_ROOT=/home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms
+   488→[24-Aug-2026 16:01:26 Asia/Kolkata] [push-debug] VAPID keys: priv=Y pub=Y
+   489→[24-Aug-2026 16:01:26 Asia/Kolkata] [push-debug] WebPush instantiated
+   490→[24-Aug-2026 16:01:27 Asia/Kolkata] [push-debug] found 4 subscriptions for target=all
+   491→[24-Aug-2026 16:01:27 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   492→[24-Aug-2026 16:01:27 Asia/Kolkata] [push-debug] EXCEPTION: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1
+   493→[24-Aug-2026 16:01:27 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   494→[24-Aug-2026 16:06:08 Asia/Kolkata] [push-debug] send_now POST, queueId=1
+   495→[24-Aug-2026 16:06:08 Asia/Kolkata] [push-debug] process block reached, queueId=1
+   496→[24-Aug-2026 16:06:08 Asia/Kolkata] [push-debug] fetch result: id=1 status=pending target=all
+   497→[24-Aug-2026 16:06:08 Asia/Kolkata] [push-debug] class.webpush.php loaded, APP_ROOT=/home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms
+   498→[24-Aug-2026 16:06:08 Asia/Kolkata] [push-debug] VAPID keys: priv=Y pub=Y
+   499→[24-Aug-2026 16:06:08 Asia/Kolkata] [push-debug] WebPush instantiated
+   500→[24-Aug-2026 16:06:08 Asia/Kolkata] [push-debug] found 4 subscriptions for target=all
+   501→[24-Aug-2026 16:06:08 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   502→[24-Aug-2026 16:06:08 Asia/Kolkata] [push-debug] EXCEPTION: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1
+   503→[24-Aug-2026 16:06:08 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   504→[24-Aug-2026 16:07:21 Asia/Kolkata] [push-debug] send_now POST, queueId=4
+   505→[24-Aug-2026 16:07:21 Asia/Kolkata] [push-debug] process block reached, queueId=4
+   506→[24-Aug-2026 16:07:21 Asia/Kolkata] [push-debug] fetch result: id=4 status=pending target=selected
+   507→[24-Aug-2026 16:07:21 Asia/Kolkata] [push-debug] class.webpush.php loaded, APP_ROOT=/home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms
+   508→[24-Aug-2026 16:07:21 Asia/Kolkata] [push-debug] VAPID keys: priv=Y pub=Y
+   509→[24-Aug-2026 16:07:21 Asia/Kolkata] [push-debug] WebPush instantiated
+   510→[24-Aug-2026 16:07:21 Asia/Kolkata] [push-debug] found 4 subscriptions for target=selected
+   511→[24-Aug-2026 16:07:21 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   512→[24-Aug-2026 16:07:21 Asia/Kolkata] [push-debug] EXCEPTION: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1
+   513→[24-Aug-2026 16:07:21 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   514→[24-Aug-2026 16:17:04 Asia/Kolkata] [push-debug] center.php LOADED, method=GET tab=push process=4 post_action=NONE
+   515→[24-Aug-2026 16:17:14 Asia/Kolkata] [push-debug] process block reached, queueId=4
+   516→[24-Aug-2026 16:17:14 Asia/Kolkata] [push-debug] fetch result: id=4 status=pending target=selected
+   517→[24-Aug-2026 16:17:14 Asia/Kolkata] [push-debug] class.webpush.php loaded, APP_ROOT=/home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms
+   518→[24-Aug-2026 16:17:14 Asia/Kolkata] [push-debug] VAPID keys: priv=Y pub=Y
+   519→[24-Aug-2026 16:17:14 Asia/Kolkata] [push-debug] WebPush instantiated
+   520→[24-Aug-2026 16:17:14 Asia/Kolkata] [push-debug] found 4 subscriptions for target=selected
+   521→[24-Aug-2026 16:17:14 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   522→[24-Aug-2026 16:17:14 Asia/Kolkata] [push-debug] EXCEPTION: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1
+   523→[24-Aug-2026 16:17:14 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   524→[24-Aug-2026 16:17:18 Asia/Kolkata] [push-debug] center.php LOADED, method=GET tab=NONE process=NONE post_action=NONE
+   525→[24-Aug-2026 16:17:19 Asia/Kolkata] [push-debug] center.php LOADED, method=GET tab=push process=NONE post_action=NONE
+   526→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] center.php LOADED, method=POST tab=push process=NONE post_action=send_now
+   527→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] POST handler entered, action=send_now
+   528→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] CSRF passed
+   529→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] send_now POST, queueId=6
+   530→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] center.php LOADED, method=GET tab=push process=6 post_action=NONE
+   531→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] process block reached, queueId=6
+   532→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] fetch result: id=6 status=pending target=all
+   533→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] class.webpush.php loaded, APP_ROOT=/home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms
+   534→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] VAPID keys: priv=Y pub=Y
+   535→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] WebPush instantiated
+   536→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] found 4 subscriptions for target=all
+   537→[24-Aug-2026 16:17:22 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   538→[24-Aug-2026 16:17:22 Asia/Kolkata] [push-debug] EXCEPTION: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1
+   539→[24-Aug-2026 16:17:22 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   540→[24-Aug-2026 16:17:30 Asia/Kolkata] [push-debug] center.php LOADED, method=GET tab=push process=6 post_action=NONE
+   541→[24-Aug-2026 16:17:30 Asia/Kolkata] [push-debug] process block reached, queueId=6
+   542→[24-Aug-2026 16:17:30 Asia/Kolkata] [push-debug] fetch result: id=6 status=pending target=all
+   543→[24-Aug-2026 16:17:30 Asia/Kolkata] [push-debug] class.webpush.php loaded, APP_ROOT=/home/rcsfaxhz/domains/join.rcsfacility.com/public_html/hrms
+   544→[24-Aug-2026 16:17:30 Asia/Kolkata] [push-debug] VAPID keys: priv=Y pub=Y
+   545→[24-Aug-2026 16:17:30 Asia/Kolkata] [push-debug] WebPush instantiated
+   546→[24-Aug-2026 16:17:30 Asia/Kolkata] [push-debug] found 4 subscriptions for target=all
+   547→[24-Aug-2026 16:17:30 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'sending' WHERE id = ?
+   548→[24-Aug-2026 16:17:30 Asia/Kolkata] [push-debug] EXCEPTION: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1
+   549→[24-Aug-2026 16:17:30 Asia/Kolkata] Exec Error: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '? WHERE id = ?' at line 1 | SQL: UPDATE push_notification_queue SET status = 'failed', errors = ? WHERE id = ?
+   550→

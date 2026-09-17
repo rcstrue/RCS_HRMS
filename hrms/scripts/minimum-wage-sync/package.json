@@ -1,0 +1,16 @@
+{
+  "name": "rcs-hrms-minimum-wage-sync",
+  "version": "1.0.0",
+  "description": "Fetches minimum wage data from Simpliance.in and syncs to RCS HRMS",
+  "main": "minimum-wage-sync.js",
+  "scripts": {
+    "sync": "node minimum-wage-sync.js",
+    "dry-run": "node minimum-wage-sync.js --dry-run",
+    "single": "node minimum-wage-sync.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "cheerio": "^1.0.0",
+    "mysql2": "^3.9.0"
+  }
+}

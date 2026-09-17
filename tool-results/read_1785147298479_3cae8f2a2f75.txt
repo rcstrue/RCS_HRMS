@@ -1,0 +1,846 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro — Salary Calculator Engine
+     4→ * =====================================================================
+     5→ * Reverse calculation from Target Net → Gross → Components.
+     6→ *
+     7→ * ALGORITHM (per HR spec — 2025):
+     8→ *
+     9→ *   INPUT:  target_net, worker_category, unit_id (→ state, zone, PF/ESI/PT/LWF flags)
+    10→ *
+    11→ *   STEP 1: Lookup min_wage for (state, zone, worker_category, effective_date)
+    12→ *   STEP 2: Lookup PT slab + LWF rate for state
+    13→ *
+    14→ *   STEP 3: Iterative solver (max 20 iterations, tolerance ₹0.01):
+    15→ *
+    16→ *     Basic+DA = MAX(min_wage, 50% of gross_estimate)
+    17→ *        ↑ For high target net, the 50% rule drives Basic+DA UP.
+    18→ *          For low target net, min_wage is the floor.
+    19→ *
+    20→ *     Then escalate components IN ORDER:
+    21→ *
+    22→ *       Level 0 — Basic+DA only
+    23→ *         gross = basic_da
+    24→ *         net = gross − (PF + ESI + PT + LWF)
+    25→ *         if net ≈ target → DONE (bonus=0, leave=0, hra=0)
+    26→ *         if net > target → ERROR (target below min wage feasibility)
+    27→ *
+    28→ *       Level 1 — + Bonus (8.33% of basic_da)
+    29→ *         Q3=C: only add if bonus ≤ gap_to_target; else SKIP bonus
+    30→ *         if net ≈ target → DONE (leave=0, hra=0)
+    31→ *
+    32→ *       Level 2 — + Leave Encashment (5% → 11.23% of basic_da, progressive)
+    33→ *         Binary search the exact leave% that hits target.
+    34→ *         if net ≈ target → DONE (hra=0)
+    35→ *
+    36→ *       Level 3 — + HRA (remaining balance, up to 40% of basic_da)
+    37→ *         if net ≈ target → DONE
+    38→ *         if HRA capped AND target not reached →
+    39→ *            Per Q4=A: raise gross_estimate → 50% rule raises basic_da → retry
+    40→ *
+    41→ *     If after 20 iterations still not matched → ERROR with validation msg
+    42→ *
+    43→ *   STATUTORY RULES:
+    44→ *     PF   = 12% × min(basic_da, ₹15,000)         [hard-coded ceiling, Q6=A]
+    45→ *     ESI  = 0.75% × gross                        [only if gross ≤ ₹21,000, Q6=A]
+    46→ *     PT   = from professional_tax_rates table    [by state + gross slab]
+    47→ *     LWF  = from lwf_rates table                 [by state, employee contribution]
+    48→ *
+    49→ *   All calculation logic lives HERE (backend). The UI never computes anything.
+    50→ *   (Architecture Rule 12 — no hard-coded rules in the UI.)
+    51→ */
+    52→
+    53→if (!function_exists('reverseCalculateSalary')) {
+    54→
+    55→/**
+    56→ * Reverse calculate gross components from a target Net Salary.
+    57→ *
+    58→ * @param float  $netSalary       Target net (take-home) — entered manually
+    59→ * @param float  $bonusPercent    IGNORED (auto-calculated) — kept for backward compat
+    60→ * @param float  $leavePercent    IGNORED (auto-calculated) — kept for backward compat
+    61→ * @param bool   $pfApplicable    PF deduction flag (default from unit, override allowed)
+    62→ * @param bool   $esiApplicable   ESI deduction flag
+    63→ * @param bool   $ptApplicable    PT deduction flag
+    64→ * @param bool   $lwfApplicable   LWF deduction flag
+    65→ * @param string $state           For PT + LWF + min wage lookup
+    66→ * @param string $workerCategory  For minimum wage lookup (REQUIRED)
+    67→ * @param string $effectiveDate   For minimum wage effective_from lookup (Y-m-d)
+    68→ * @param object $db              Database instance
+    69→ * @param bool   $bonusApplicable If false, skip bonus and go to leave (default true)
+    70→ * @return array                  Calculation result with components + deductions + warnings
+    71→ */
+    72→function reverseCalculateSalary(
+    73→    float $netSalary,
+    74→    float $bonusPercent,
+    75→    float $leavePercent,
+    76→    bool $pfApplicable,
+    77→    bool $esiApplicable,
+    78→    bool $ptApplicable,
+    79→    bool $lwfApplicable,
+    80→    string $state,
+    81→    string $workerCategory,
+    82→    string $effectiveDate,
+    83→    $db,
+    84→    bool $bonusApplicable = true
+    85→): array {
+    86→    if ($netSalary <= 0) {
+    87→        return _emptyResult(0);
+    88→    }
+    89→
+    90→    // ── Constants (Q6=A: hard-coded statutory values) ──
+    91→    $PF_RATE            = 0.12;
+    92→    $PF_WAGE_CEILING    = 15000;     // PF calculated on Basic+DA capped at ₹15,000
+    93→    $ESI_RATE           = 0.0075;
+    94→    $ESI_WAGE_LIMIT     = 21000;     // ESI applies only if gross ≤ ₹21,000
+    95→    $BONUS_PCT          = 8.33;      // Statutory minimum bonus
+    96→    $LEAVE_MIN_PCT      = 5.0;       // Leave starts at 5% of Basic+DA
+    97→    $LEAVE_MAX_PCT      = 11.23;     // Leave capped at 11.23% of Basic+DA
+    98→    $HRA_MAX_PCT        = 40.0;      // HRA capped at 40% of Basic+DA
+    99→    $BASIC_FLOOR_PCT    = 50.0;      // New Wage Code: Basic+DA ≥ 50% of gross
+   100→    $TOLERANCE          = 0.01;      // ₹0.01 rounding tolerance
+   101→    $MAX_ITER           = 20;        // Max iterations for convergence
+   102→
+   103→    // ── Step 1: Lookup minimum wage for (state, zone, category, date) ──
+   104→    // Zone is fetched by salary-calc.php from the units table and passed in $state
+   105→    // as "STATE|ZONE" — split here for min wage lookup only.
+   106→    $zone = '';
+   107→    $stateForLookup = $state;
+   108→    if (strpos($state, '|') !== false) {
+   109→        list($stateForLookup, $zone) = explode('|', $state, 2);
+   110→    }
+   111→
+   112→    $minWage = _lookupMinWage($db, $stateForLookup, $zone, $workerCategory, $effectiveDate);
+   113→
+   114→    // ── Step 2: Lookup LWF (PT is dynamic — depends on gross, looked up per iteration) ──
+   115→    $lwfAmount = $lwfApplicable ? _lookupLWF($db, $stateForLookup) : 0;
+   116→
+   117→    // ── Helper: compute all deductions given (gross, basic_da) ──
+   118→    $computeDeductions = function(float $gross, float $basicDa) use (
+   119→        $pfApplicable, $esiApplicable, $ptApplicable, $lwfApplicable,
+   120→        $stateForLookup, $db, $lwfAmount,
+   121→        $PF_RATE, $PF_WAGE_CEILING, $ESI_RATE, $ESI_WAGE_LIMIT
+   122→    ): array {
+   123→        $pf  = $pfApplicable  ? round(min($basicDa, $PF_WAGE_CEILING) * $PF_RATE, 2) : 0;
+   124→        $esi = ($esiApplicable && $gross <= $ESI_WAGE_LIMIT) ? round($gross * $ESI_RATE, 2) : 0;
+   125→        $pt  = $ptApplicable  ? _lookupPT($db, $stateForLookup, $gross) : 0;
+   126→        $lwf = $lwfAmount;
+   127→        $total = round($pf + $esi + $pt + $lwf, 2);
+   128→        return ['pf' => $pf, 'esi' => $esi, 'pt' => $pt, 'lwf' => $lwf, 'total' => $total];
+   129→    };
+   130→
+   131→    // ── Step 3: Iterative solver ──
+   132→    // Initial gross estimate: target_net + ~20% headroom for deductions
+   133→    $grossEstimate = $netSalary * 1.25;
+   134→
+   135→    $basicDa       = 0;
+   136→    $bonus         = 0;
+   137→    $leave         = 0;
+   138→    $hra           = 0;
+   139→    $actualGross   = 0;
+   140→    $pfDed         = 0;
+   141→    $esiDed        = 0;
+   142→    $ptAmount      = 0;
+   143→    $calculatedNet = 0;
+   144→    $warnings      = [];
+   145→    $levelReached  = 0;
+   146→    $matched       = false;
+   147→    $errorCode     = null;
+   148→    $errorMsg      = null;
+   149→    $basicDaPrev   = -1;
+   150→
+   151→    for ($iter = 0; $iter < $MAX_ITER; $iter++) {
+   152→
+   153→        // ── Apply 50% rule: Basic+DA = MAX(min_wage, 50% of gross_estimate) ──
+   154→        $basicDa = max($minWage, round(0.5 * $grossEstimate, 2));
+   155→        $levelReached = 0;
+   156→
+   157→        // ── Level 0: Basic+DA only ──
+   158→        $gross0 = $basicDa;
+   159→        $ded0   = $computeDeductions($gross0, $basicDa);
+   160→        $net0   = round($gross0 - $ded0['total'], 2);
+   161→
+   162→        if (abs($net0 - $netSalary) < $TOLERANCE) {
+   163→            // ✅ Target reached with just Basic+DA — no need for bonus/leave/HRA
+   164→            $bonus = 0; $leave = 0; $hra = 0;
+   165→            $actualGross = $gross0;
+   166→            $pfDed = $ded0['pf']; $esiDed = $ded0['esi']; $ptAmount = $ded0['pt'];
+   167→            $calculatedNet = $net0;
+   168→            $matched = true;
+   169→            $warnings[] = "✓ Target reached with Basic+DA only (Level 0) — no Bonus, Leave, or HRA added.";
+   170→            break;
+   171→        }
+   172→
+   173→        if ($net0 > $netSalary) {
+   174→            // ⚠️ Basic+DA alone overshoots target
+   175→            if ($minWage > 0 && abs($basicDa - $minWage) < 0.01) {
+   176→                // At min_wage floor — cannot reduce further → ERROR
+   177→                $errorCode = 'TARGET_BELOW_MIN_WAGE';
+   178→                $errorMsg  = "Target net salary ₹" . number_format($netSalary, 2)
+   179→                           . " is below the minimum wage floor. With Basic+DA = ₹"
+   180→                           . number_format($minWage, 2) . " (statutory minimum for {$workerCategory} in {$stateForLookup}"
+   181→                           . ($zone ? " / {$zone}" : '') . "), the calculated net is ₹"
+   182→                           . number_format($net0, 2) . " which is ₹"
+   183→                           . number_format($net0 - $netSalary, 2)
+   184→                           . " HIGHER than the target. Please increase the target net salary.";
+   185→                break;
+   186→            }
+   187→            // basic_da was driven up by 50% rule — reduce gross estimate and retry
+   188→            $grossEstimate = ($netSalary + $ded0['total']) / max(0.001, 1 - ($esiApplicable && $gross0 <= $ESI_WAGE_LIMIT ? $ESI_RATE : 0));
+   189→            continue;
+   190→        }
+   191→
+   192→        // ── Level 1: + Bonus (8.33% of basic_da) ──
+   193→        // Q3=C: only add if bonus ≤ gap_to_target; else skip bonus
+   194→        $levelReached = 1;
+   195→        $bonusFull = round($basicDa * $BONUS_PCT / 100, 2);
+   196→        $gapAfterBasic = round($netSalary - $net0, 2);
+   197→
+   198→        if (!$bonusApplicable) {
+   199→            $bonus = 0;
+   200→            $warnings[] = "Bonus skipped — not applicable for this template/employee.";
+   201→        } elseif ($bonusFull > $gapAfterBasic) {
+   202→            // Bonus would overshoot — skip and go to leave (Q3=C)
+   203→            $bonus = 0;
+   204→            $warnings[] = "Bonus (8.33% = ₹" . number_format($bonusFull, 2) . ") skipped — would overshoot target by ₹"
+   205→                        . number_format($bonusFull - $gapAfterBasic, 2) . ". Proceeding to Leave.";
+   206→        } else {
+   207→            $bonus = $bonusFull;
+   208→        }
+   209→
+   210→        $gross1 = round($basicDa + $bonus, 2);
+   211→        $ded1   = $computeDeductions($gross1, $basicDa);
+   212→        $net1   = round($gross1 - $ded1['total'], 2);
+   213→
+   214→        if (abs($net1 - $netSalary) < $TOLERANCE) {
+   215→            $leave = 0; $hra = 0;
+   216→            $actualGross = $gross1;
+   217→            $pfDed = $ded1['pf']; $esiDed = $ded1['esi']; $ptAmount = $ded1['pt'];
+   218→            $calculatedNet = $net1;
+   219→            $matched = true;
+   220→            $warnings[] = "✓ Target reached at Level 1 (Basic+DA + Bonus).";
+   221→            break;
+   222→        }
+   223→
+   224→        // ── Level 2: + Leave Encashment (5% → 11.23% of basic_da, progressive) ──
+   225→        $levelReached = 2;
+   226→
+   227→        // Check max leave first — is even max leave enough?
+   228→        $leaveMax = round($basicDa * $LEAVE_MAX_PCT / 100, 2);
+   229→        $grossMax = round($basicDa + $bonus + $leaveMax, 2);
+   230→        $dedMax   = $computeDeductions($grossMax, $basicDa);
+   231→        $netMax   = round($grossMax - $dedMax['total'], 2);
+   232→
+   233→        $leaveMatched = false;
+   234→        $leave        = 0;
+   235→        $gross2       = $gross1;
+   236→        $ded2         = $ded1;
+   237→        $net2         = $net1;
+   238→
+   239→        if (abs($netMax - $netSalary) < $TOLERANCE) {
+   240→            // Max leave (11.23%) hits target exactly
+   241→            $leave = $leaveMax;
+   242→            $gross2 = $grossMax;
+   243→            $ded2 = $dedMax;
+   244→            $net2 = $netMax;
+   245→            $leaveMatched = true;
+   246→        } elseif ($netMax > $netSalary) {
+   247→            // Some leave% between 5% and 11.23% hits target — binary search
+   248→            // First check 5% boundary
+   249→            $leave5  = round($basicDa * $LEAVE_MIN_PCT / 100, 2);
+   250→            $gross5  = round($basicDa + $bonus + $leave5, 2);
+   251→            $ded5    = $computeDeductions($gross5, $basicDa);
+   252→            $net5    = round($gross5 - $ded5['total'], 2);
+   253→
+   254→            if (abs($net5 - $netSalary) < $TOLERANCE) {
+   255→                $leave = $leave5;
+   256→                $gross2 = $gross5;
+   257→                $ded2 = $ded5;
+   258→                $net2 = $net5;
+   259→                $leaveMatched = true;
+   260→            } elseif ($net5 >= $netSalary) {
+   261→                // Even 5% overshoots — skip leave entirely (spec: leave starts at 5%)
+   262→                $leave = 0;
+   263→                $warnings[] = "Leave skipped — even minimum 5% (₹" . number_format($leave5, 2) . ") would overshoot target.";
+   264→                $gross2 = $gross1;
+   265→                $ded2 = $ded1;
+   266→                $net2 = $net1;
+   267→            } else {
+   268→                // Binary search between 5% and 11.23%
+   269→                $loPct = $LEAVE_MIN_PCT;
+   270→                $hiPct = $LEAVE_MAX_PCT;
+   271→                for ($bs = 0; $bs < 30; $bs++) {
+   272→                    $midPct = ($loPct + $hiPct) / 2;
+   273→                    $leaveTry = round($basicDa * $midPct / 100, 2);
+   274→                    $grossTry = round($basicDa + $bonus + $leaveTry, 2);
+   275→                    $dedTry   = $computeDeductions($grossTry, $basicDa);
+   276→                    $netTry   = round($grossTry - $dedTry['total'], 2);
+   277→
+   278→                    if (abs($netTry - $netSalary) < $TOLERANCE) {
+   279→                        $leave = $leaveTry;
+   280→                        $gross2 = $grossTry;
+   281→                        $ded2 = $dedTry;
+   282→                        $net2 = $netTry;
+   283→                        $leaveMatched = true;
+   284→                        break;
+   285→                    }
+   286→                    if ($netTry < $netSalary) {
+   287→                        $loPct = $midPct;
+   288→                    } else {
+   289→                        $hiPct = $midPct;
+   290→                    }
+   291→                }
+   292→                if (!$leaveMatched) {
+   293→                    // Use max leave as the best approximation
+   294→                    $leave = $leaveMax;
+   295→                    $gross2 = $grossMax;
+   296→                    $ded2 = $dedMax;
+   297→                    $net2 = $netMax;
+   298→                }
+   299→            }
+   300→        } else {
+   301→            // Max leave (11.23%) still not enough — use max and continue to HRA
+   302→            $leave = $leaveMax;
+   303→            $gross2 = $grossMax;
+   304→            $ded2 = $dedMax;
+   305→            $net2 = $netMax;
+   306→            $warnings[] = "Leave at maximum 11.23% (₹" . number_format($leaveMax, 2) . ") — still short, adding HRA.";
+   307→        }
+   308→
+   309→        if ($leaveMatched && abs($net2 - $netSalary) < $TOLERANCE) {
+   310→            $hra = 0;
+   311→            $actualGross = $gross2;
+   312→            $pfDed = $ded2['pf']; $esiDed = $ded2['esi']; $ptAmount = $ded2['pt'];
+   313→            $calculatedNet = $net2;
+   314→            $matched = true;
+   315→            $warnings[] = "✓ Target reached at Level 2 (Basic+DA + Bonus + Leave @ " . round(($leave / max($basicDa, 1)) * 100, 2) . "%).";
+   316→            break;
+   317→        }
+   318→
+   319→        // ── Level 3: + HRA (remaining balance, up to 40% of basic_da) ──
+   320→        $levelReached = 3;
+   321→        $maxHra = round($basicDa * $HRA_MAX_PCT / 100, 2);
+   322→        $gap = round($netSalary - $net2, 2);
+   323→
+   324→        if ($gap <= 0) {
+   325→            // Already at or above target — no HRA needed
+   326→            $hra = 0;
+   327→            $actualGross = $gross2;
+   328→            $pfDed = $ded2['pf']; $esiDed = $ded2['esi']; $ptAmount = $ded2['pt'];
+   329→            $calculatedNet = $net2;
+   330→            $matched = true;
+   331→            break;
+   332→        }
+   333→
+   334→        // Initial HRA guess = min(max_hra, gap)
+   335→        $hra = min($maxHra, $gap);
+   336→
+   337→        // Fine-tune HRA — deductions change slightly with gross
+   338→        $hraMatched = false;
+   339→        for ($adj = 0; $adj < 8; $adj++) {
+   340→            $grossTry = round($basicDa + $bonus + $leave + $hra, 2);
+   341→            $dedTry   = $computeDeductions($grossTry, $basicDa);
+   342→            $netTry   = round($grossTry - $dedTry['total'], 2);
+   343→
+   344→            if (abs($netTry - $netSalary) < $TOLERANCE) {
+   345→                $actualGross = $grossTry;
+   346→                $pfDed = $dedTry['pf']; $esiDed = $dedTry['esi']; $ptAmount = $dedTry['pt'];
+   347→                $calculatedNet = $netTry;
+   348→                $hraMatched = true;
+   349→                $matched = true;
+   350→                $warnings[] = "✓ Target reached at Level 3 (Basic+DA + Bonus + Leave + HRA).";
+   351→                break;
+   352→            }
+   353→
+   354→            $diff = $netSalary - $netTry;
+   355→            $hra = round($hra + $diff, 2);
+   356→
+   357→            if ($hra > $maxHra) {
+   358→                $hra = $maxHra;
+   359→                $grossTry = round($basicDa + $bonus + $leave + $hra, 2);
+   360→                $dedTry   = $computeDeductions($grossTry, $basicDa);
+   361→                $netTry   = round($grossTry - $dedTry['total'], 2);
+   362→                $actualGross = $grossTry;
+   363→                $pfDed = $dedTry['pf']; $esiDed = $dedTry['esi']; $ptAmount = $dedTry['pt'];
+   364→                $calculatedNet = $netTry;
+   365→                break;
+   366→            }
+   367→            if ($hra < 0) {
+   368→                $hra = 0;
+   369→                break;
+   370→            }
+   371→        }
+   372→
+   373→        if ($hraMatched) break;
+   374→
+   375→        // Check if matched after HRA adjustment
+   376→        if (abs($calculatedNet - $netSalary) < $TOLERANCE) {
+   377→            $matched = true;
+   378→            break;
+   379→        }
+   380→
+   381→        // ── HRA capped and still not matched ──
+   382→        // Per Q4=A: increase gross_estimate → 50% rule raises basic_da → retry
+   383→        if ($hra >= $maxHra) {
+   384→            // Avoid infinite loop: if basic_da didn't change between iterations, give up
+   385→            if (abs($basicDa - $basicDaPrev) < 0.01 && $iter > 0) {
+   386→                $errorCode = 'TARGET_NOT_ACHIEVABLE';
+   387→                $totalDeductionsNow = $pfDed + $esiDed + $ptAmount + $lwfAmount;
+   388→                $maxGrossPossible = round($basicDa * (1 + $BONUS_PCT/100 + $LEAVE_MAX_PCT/100 + $HRA_MAX_PCT/100), 2);
+   389→                $maxNetPossible = round($maxGrossPossible - $totalDeductionsNow, 2);
+   390→                $errorMsg = "Target net salary ₹" . number_format($netSalary, 2)
+   391→                          . " cannot be achieved with the current salary component limits. "
+   392→                          . "Maximum achievable with Basic+DA=₹" . number_format($basicDa, 2)
+   393→                          . ", Bonus=8.33%, Leave=11.23%, HRA=40% is ₹" . number_format($maxNetPossible, 2)
+   394→                          . " (shortfall of ₹" . number_format($netSalary - $maxNetPossible, 2) . "). "
+   395→                          . "Please increase the target net salary or adjust the unit's worker category.";
+   396→                break;
+   397→            }
+   398→            $basicDaPrev = $basicDa;
+   399→
+   400→            // Estimate required basic_da so that max_gross - deductions = target
+   401→            // max_gross ≈ basic_da * 1.5956
+   402→            $totalDeductionsNow = $pfDed + $esiDed + $ptAmount + $lwfAmount;
+   403→            $requiredBasic = ($netSalary + $totalDeductionsNow) / 1.5956;
+   404→            if ($requiredBasic <= $minWage) {
+   405→                // Required basic is at or below min_wage — target should be achievable
+   406→                // at min_wage level. We shouldn't be here — break to avoid infinite loop.
+   407→                $errorCode = 'TARGET_NOT_ACHIEVABLE';
+   408→                $errorMsg = "Convergence issue: target ₹" . number_format($netSalary, 2)
+   409→                          . " could not be reached after {$MAX_ITER} iterations. "
+   410→                          . "Last calculated net: ₹" . number_format($calculatedNet, 2) . ".";
+   411→                break;
+   412→            }
+   413→            // Set gross estimate so that 50% of it ≈ required_basic
+   414→            $grossEstimate = $requiredBasic * 2;
+   415→            $warnings[] = "Iter {$iter}: HRA capped at ₹" . number_format($maxHra, 2)
+   416→                        . " — raising Basic+DA from ₹" . number_format($basicDa, 2)
+   417→                        . " to ~₹" . number_format($requiredBasic, 2) . " via 50% rule.";
+   418→            continue;
+   419→        }
+   420→
+   421→        // No change in basic_da and HRA not capped — break to avoid infinite loop
+   422→        if (abs($basicDa - $basicDaPrev) < 0.01 && $iter > 0) {
+   423→            break;
+   424→        }
+   425→        $basicDaPrev = $basicDa;
+   426→    }
+   427→
+   428→    // ── Final computations ──
+   429→    $actualGross = round($basicDa + $bonus + $leave + $hra, 2);
+   430→    $totalDeductions = round($pfDed + $esiDed + $ptAmount + $lwfAmount, 2);
+   431→    $calculatedNet = round($actualGross - $totalDeductions, 2);
+   432→    $matched = abs($calculatedNet - $netSalary) < $TOLERANCE;
+   433→
+   434→    if (!$matched && !$errorCode) {
+   435→        $warnings[] = "⚠️ Could not exactly match target net ₹" . number_format($netSalary, 2)
+   436→                    . ". Best achievable: ₹" . number_format($calculatedNet, 2)
+   437→                    . " (off by ₹" . number_format(abs($netSalary - $calculatedNet), 2) . ").";
+   438→    }
+   439→
+   440→    // ── Build result ──
+   441→    $result = [
+   442→        'success'           => !$errorCode,
+   443→        'error'             => $errorCode,
+   444→        'error_message'     => $errorMsg,
+   445→        'net_salary'        => round($netSalary, 2),
+   446→        'basic_da'          => round($basicDa, 2),
+   447→        'hra'               => round($hra, 2),
+   448→        'leave_encashment'  => round($leave, 2),
+   449→        'bonus_encashment'  => round($bonus, 2),
+   450→        'washing_allowance' => 0,
+   451→        'gross_salary'      => $actualGross,
+   452→        'bonus_percent'     => $basicDa > 0 ? round(($bonus / $basicDa) * 100, 2) : 0,
+   453→        'leave_percent'     => $basicDa > 0 ? round(($leave / $basicDa) * 100, 2) : 0,
+   454→        'deductions'        => [
+   455→            'pf'  => round($pfDed, 2),
+   456→            'esi' => round($esiDed, 2),
+   457→            'pt'  => round($ptAmount, 2),
+   458→            'lwf' => round($lwfAmount, 2),
+   459→        ],
+   460→        'total_deductions'  => $totalDeductions,
+   461→        'calculated_net'    => $calculatedNet,
+   462→        'fifty_fifty_ok'    => $actualGross > 0 ? ($basicDa >= $actualGross * 0.50 - 0.01) : false,
+   463→        'basic_percent'     => $actualGross > 0 ? round(($basicDa / $actualGross) * 100, 2) : 0,
+   464→        'min_wage'          => round($minWage, 2),
+   465→        'min_wage_warning'  => ($minWage > 0 && $basicDa < $minWage - 0.01) ? "Basic+DA below minimum wage" : null,
+   466→        'hra_capped'        => ($hra > 0 && abs($hra - round($basicDa * $HRA_MAX_PCT / 100, 2)) < 0.01),
+   467→        'level_reached'     => $levelReached,
+   468→        'level_label'       => ['Level 0: Basic+DA only', 'Level 1: + Bonus', 'Level 2: + Leave', 'Level 3: + HRA'][$levelReached] ?? "Level {$levelReached}",
+   469→        'warnings'          => $warnings,
+   470→        'matched'           => $matched,
+   471→        'iterations'        => $iter + 1,
+   472→    ];
+   473→
+   474→    return $result;
+   475→}
+   476→
+   477→/**
+   478→ * Apply matching salary template to an employee.
+   479→ *
+   480→ * @param int    $empId
+   481→ * @param object $db
+   482→ * @param int    $month  (1-12)
+   483→ * @param int    $year   (e.g. 2026)
+   484→ * @return bool
+   485→ */
+   486→function applyTemplateToEmployee(int $empId, $db, int $month, int $year): bool {
+   487→    $emp = $db->fetch(
+   488→        "SELECT e.unit_id, e.worker_category, u.state, u.zone
+   489→         FROM employees e
+   490→         LEFT JOIN units u ON e.unit_id = u.id
+   491→         WHERE e.id = ?",
+   492→        [$empId]
+   493→    );
+   494→    if (!$emp || !$emp['unit_id']) return false;
+   495→
+   496→    $templates = $db->fetchAll(
+   497→        "SELECT * FROM unit_salary_templates
+   498→         WHERE unit_id = ? AND is_active = 1
+   499→         ORDER BY is_default DESC, id ASC",
+   500→        [$emp['unit_id']]
+   501→    );
+   502→    if (empty($templates)) return false;
+   503→
+   504→    // Find matching template by worker_category
+   505→    $matched = null;
+   506→    $empCategory = $emp['worker_category'] ?? '';
+   507→    foreach ($templates as $t) {
+   508→        $cats = array_map('trim', explode(',', $t['worker_categories'] ?? ''));
+   509→        $cats = array_filter($cats);
+   510→        if (in_array($empCategory, $cats)) {
+   511→            $matched = $t;
+   512→            break;
+   513→        }
+   514→    }
+   515→    // Fallback: catch-all (empty/null worker_categories)
+   516→    if (!$matched) {
+   517→        foreach ($templates as $t) {
+   518→            if (empty($t['worker_categories'])) {
+   519→                $matched = $t;
+   520→                break;
+   521→            }
+   522→        }
+   523→    }
+   524→    if (!$matched) return false;
+   525→
+   526→    $effectiveFrom = $year . '-' . str_pad($month, 2, '0', STR_PAD_LEFT) . '-01';
+   527→
+   528→    // Close any existing open-ended structures
+   529→    $db->query(
+   530→        "UPDATE employee_salary_structures
+   531→         SET effective_to = DATE_SUB(?, INTERVAL 1 DAY), updated_at = NOW()
+   532→         WHERE employee_id = ? AND effective_to IS NULL",
+   533→        [$effectiveFrom, $empId]
+   534→    );
+   535→
+   536→    // Insert new structure from template
+   537→    // Try with template_id + applied_month first, fall back to without them
+   538→    try {
+   539→        $db->query(
+   540→            "INSERT INTO employee_salary_structures
+   541→             (employee_id, template_id, applied_month, effective_from,
+   542→              basic_da, hra, leave_encashment, bonus_encashment, washing_allowance,
+   543→              gross_salary, pf_applicable, esi_applicable, pt_applicable, lwf_applicable,
+   544→              overtime_applicable, bonus_applicable, gratuity_applicable, created_by)
+   545→             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+   546→            [
+   547→                $empId, $matched['id'], $effectiveFrom, $effectiveFrom,
+   548→                $matched['basic_da'], $matched['hra'], $matched['leave_encashment'],
+   549→                $matched['bonus_encashment'], 0,
+   550→                $matched['gross_salary'], $matched['pf_applicable'], $matched['esi_applicable'],
+   551→                $matched['pt_applicable'], $matched['lwf_applicable'],
+   552→                $matched['overtime_applicable'], $matched['bonus_applicable'],
+   553→                $matched['gratuity_applicable'],
+   554→                $_SESSION['user_id'] ?? null,
+   555→            ]
+   556→        );
+   557→    } catch (\Throwable $e) {
+   558→        // Fallback: columns template_id/applied_month may not exist yet
+   559→        error_log("[applyTemplate] template_id insert failed, trying without: " . $e->getMessage());
+   560→        try {
+   561→            $db->query(
+   562→                "INSERT INTO employee_salary_structures
+   563→                 (employee_id, effective_from,
+   564→                  basic_da, hra, leave_encashment, bonus_encashment, washing_allowance,
+   565→                  gross_salary, pf_applicable, esi_applicable, pt_applicable, lwf_applicable,
+   566→                  overtime_applicable, bonus_applicable, gratuity_applicable, created_by)
+   567→                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+   568→                [
+   569→                    $empId, $effectiveFrom,
+   570→                    $matched['basic_da'], $matched['hra'], $matched['leave_encashment'],
+   571→                    $matched['bonus_encashment'], 0,
+   572→                    $matched['gross_salary'], $matched['pf_applicable'], $matched['esi_applicable'],
+   573→                    $matched['pt_applicable'], $matched['lwf_applicable'],
+   574→                    $matched['overtime_applicable'], $matched['bonus_applicable'],
+   575→                    $matched['gratuity_applicable'],
+   576→                    $_SESSION['user_id'] ?? null,
+   577→                ]
+   578→            );
+   579→        } catch (\Throwable $e2) {
+   580→            error_log("[applyTemplate] Failed for emp {$empId}: " . $e2->getMessage());
+   581→            return false;
+   582→        }
+   583→    }
+   584→    return true;
+   585→}
+   586→
+   587→// ════════════════════════════════════════════════════════════
+   588→// Internal helpers
+   589→// ════════════════════════════════════════════════════════════
+   590→
+   591→/**
+   592→ * Look up Professional Tax for a state + salary slab.
+   593→ */
+   594→function _lookupPT($db, string $state, float $salaryEstimate): float {
+   595→    if (!$state || !$salaryEstimate) return 0;
+   596→    try {
+   597→        $row = $db->fetch(
+   598→            "SELECT ptr.pt_amount FROM professional_tax_rates ptr
+   599→             JOIN states s ON ptr.state_id = s.id
+   600→             WHERE (s.state_code = ? OR s.state_name = ?)
+   601→             AND ptr.salary_from <= ?
+   602→             AND (ptr.salary_to IS NULL OR ptr.salary_to >= ?)
+   603→             AND ptr.is_active = 1
+   604→             ORDER BY ptr.salary_from DESC LIMIT 1",
+   605→            [$state, $state, $salaryEstimate, $salaryEstimate]
+   606→        );
+   607→        return floatval($row['pt_amount'] ?? 0);
+   608→    } catch (\Throwable $e) {
+   609→        return 0;
+   610→    }
+   611→}
+   612→
+   613→/**
+   614→ * Look up LWF employee contribution for a state.
+   615→ */
+   616→function _lookupLWF($db, string $state): float {
+   617→    if (!$state) return 0;
+   618→    try {
+   619→        $row = $db->fetch(
+   620→            "SELECT employee_contribution FROM lwf_rates
+   621→             WHERE (state_code = ? OR state = ?) AND is_active = 1 LIMIT 1",
+   622→            [$state, $state]
+   623→        );
+   624→        return floatval($row['employee_contribution'] ?? 0);
+   625→    } catch (\Throwable $e) {
+   626→        return 0;
+   627→    }
+   628→}
+   629→
+   630→/**
+   631→ * Look up minimum wage for a worker category in a state + zone.
+   632→ *
+   633→ * SCHEMA: the `minimum_wages` table is populated by the Simpliance sync and
+   634→ * stores rows keyed by `state_id` (FK → states.id) + `worker_category`
+   635→ * (VARCHAR e.g. 'Unskilled','Semi-Skilled','Skilled','Highly Skilled') +
+   636→ * `zone` (VARCHAR, NULL for state-wide) + `effective_from`. The wage value
+   637→ * is in `total_per_month` (basic + DA + HRA etc.) with `basic_per_month` +
+   638→ * `da_per_month` as a fallback.
+   639→ *
+   640→ * NOTE: previous versions of this function queried non-existent columns
+   641→ * (`minimum_wage`, `state`, `designation LIKE …`) which silently returned
+   642→ * 0 ("Not found"). This version joins `states` to resolve the state name →
+   643→ * state_id, and matches `worker_category` case-insensitively (the sync
+   644→ * stores 'Semi-Skilled' but the UI may send 'Semi-skilled').
+   645→ *
+   646→ * Lookup priority:
+   647→ *   1. state + zone + category + effective_from <= date
+   648→ *   2. state + zone IS NULL/'' + category + effective_from <= date  (state-wide)
+   649→ *   3. any zone for state + category + effective_from <= date        (zone fallback)
+   650→ *
+   651→ * Returns 0 if not found.
+   652→ */
+   653→function _lookupMinWage($db, string $state, string $zone, string $category, string $date): float {
+   654→    if (!$category || !$state) return 0;
+   655→    $effDate = $date ?: date('Y-m-d');
+   656→    $zone = trim($zone);
+   657→
+   658→    // Resolve the wage-value column once (total_per_month preferred,
+   659→    // fallback to basic_per_month + da_per_month).
+   660→    $wageExpr = 'COALESCE(NULLIF(total_per_month,0), (COALESCE(basic_per_month,0) + COALESCE(da_per_month,0)), 0)';
+   661→
+   662→    try {
+   663→        // Priority 1: state + exact zone + category
+   664→        if ($zone !== '') {
+   665→            $row = $db->fetch(
+   666→                "SELECT {$wageExpr} AS wage FROM minimum_wages mw
+   667→                 JOIN states s ON s.id = mw.state_id
+   668→                 WHERE (s.state_name = ? OR s.state_code = ?)
+   669→                 AND mw.zone = ?
+   670→                 AND LOWER(mw.worker_category) = LOWER(?)
+   671→                 AND mw.effective_from <= ?
+   672→                 AND (mw.is_active = 1 OR mw.is_active IS NULL)
+   673→                 ORDER BY mw.effective_from DESC LIMIT 1",
+   674→                [$state, $state, $zone, $category, $effDate]
+   675→            );
+   676→            if ($row && floatval($row['wage']) > 0) {
+   677→                return floatval($row['wage']);
+   678→            }
+   679→        }
+   680→
+   681→        // Priority 2: state + zone IS NULL/'' (state-wide rate)
+   682→        $row = $db->fetch(
+   683→            "SELECT {$wageExpr} AS wage FROM minimum_wages mw
+   684→             JOIN states s ON s.id = mw.state_id
+   685→             WHERE (s.state_name = ? OR s.state_code = ?)
+   686→             AND (mw.zone IS NULL OR mw.zone = '')
+   687→             AND LOWER(mw.worker_category) = LOWER(?)
+   688→             AND mw.effective_from <= ?
+   689→             AND (mw.is_active = 1 OR mw.is_active IS NULL)
+   690→             ORDER BY mw.effective_from DESC LIMIT 1",
+   691→            [$state, $state, $category, $effDate]
+   692→        );
+   693→        if ($row && floatval($row['wage']) > 0) {
+   694→            return floatval($row['wage']);
+   695→        }
+   696→
+   697→        // Priority 3: state + any zone (zone fallback) + category
+   698→        $row = $db->fetch(
+   699→            "SELECT {$wageExpr} AS wage FROM minimum_wages mw
+   700→             JOIN states s ON s.id = mw.state_id
+   701→             WHERE (s.state_name = ? OR s.state_code = ?)
+   702→             AND LOWER(mw.worker_category) = LOWER(?)
+   703→             AND mw.effective_from <= ?
+   704→             AND (mw.is_active = 1 OR mw.is_active IS NULL)
+   705→             ORDER BY (mw.zone IS NULL OR mw.zone = '') DESC, mw.effective_from DESC LIMIT 1",
+   706→            [$state, $state, $category, $effDate]
+   707→        );
+   708→        if ($row && floatval($row['wage']) > 0) {
+   709→            return floatval($row['wage']);
+   710→        }
+   711→    } catch (\Throwable $e) {
+   712→        // Fall through to return 0
+   713→    }
+   714→    return 0;
+   715→}
+   716→
+   717→/**
+   718→ * Legacy min wage check helper — kept for backward compatibility.
+   719→ * Fixed to use the correct minimum_wages schema (state_id JOIN, worker_category, total_per_month).
+   720→ */
+   721→function _checkMinWage($db, string $state, string $category, string $date, float $gross): ?string {
+   722→    if (!$state && !$category) return null;
+   723→    $minWage = _lookupMinWage($db, $state, '', $category, $date ?: date('Y-m-d'));
+   724→    if ($minWage > 0 && $gross > 0 && $gross < $minWage) {
+   725→        return "Gross {$gross} is below minimum wage {$minWage} for {$category}";
+   726→    }
+   727→    return null;
+   728→}
+   729→
+   730→/**
+   731→ * Diagnostics for min-wage lookup — explains WHY the lookup returned 0.
+   732→ * Returned to the UI so the user knows whether to run the sync, fix the
+   733→ * state name, pick a different category, or select a zone.
+   734→ */
+   735→function _minWageDiagnostics($db, string $state, string $zone, string $category): array {
+   736→    $diag = [
+   737→        'state'              => $state,
+   738→        'zone'               => $zone,
+   739→        'category'           => $category,
+   740→        'state_found'        => false,
+   741→        'rows_for_state'     => 0,
+   742→        'categories_for_state' => [],
+   743→        'zones_for_state'    => [],
+   744→        'category_matched'   => false,
+   745→        'reason'             => '',
+   746→    ];
+   747→    if (!$state || !$category) {
+   748→        $diag['reason'] = 'Missing state or worker category';
+   749→        return $diag;
+   750→    }
+   751→    try {
+   752→        $st = $db->fetch(
+   753→            "SELECT id FROM states WHERE state_name = ? OR state_code = ? LIMIT 1",
+   754→            [$state, $state]
+   755→        );
+   756→        $diag['state_found'] = !empty($st);
+   757→        if (!$diag['state_found']) {
+   758→            $diag['reason'] = "State '{$state}' not found in states table. Check the unit's State field or run the minimum-wage sync.";
+   759→            return $diag;
+   760→        }
+   761→
+   762→        $countRow = $db->fetch(
+   763→            "SELECT COUNT(*) c FROM minimum_wages mw
+   764→             JOIN states s ON s.id = mw.state_id
+   765→             WHERE (s.state_name = ? OR s.state_code = ?)
+   766→               AND (mw.is_active = 1 OR mw.is_active IS NULL)",
+   767→            [$state, $state]
+   768→        );
+   769→        $diag['rows_for_state'] = (int)($countRow['c'] ?? 0);
+   770→
+   771→        if ($diag['rows_for_state'] === 0) {
+   772→            $diag['reason'] = "No minimum_wages rows for state '{$state}'. Run the minimum-wage sync for this state.";
+   773→            return $diag;
+   774→        }
+   775→
+   776→        $catRows = $db->fetchAll(
+   777→            "SELECT DISTINCT mw.worker_category FROM minimum_wages mw
+   778→             JOIN states s ON s.id = mw.state_id
+   779→             WHERE (s.state_name = ? OR s.state_code = ?)
+   780→               AND (mw.is_active = 1 OR mw.is_active IS NULL)",
+   781→            [$state, $state]
+   782→        );
+   783→        $diag['categories_for_state'] = array_map(function($r){ return $r['worker_category']; }, $catRows);
+   784→
+   785→        $zoneRows = $db->fetchAll(
+   786→            "SELECT DISTINCT mw.zone FROM minimum_wages mw
+   787→             JOIN states s ON s.id = mw.state_id
+   788→             WHERE (s.state_name = ? OR s.state_code = ?)
+   789→               AND mw.zone IS NOT NULL AND mw.zone <> ''
+   790→               AND (mw.is_active = 1 OR mw.is_active IS NULL)",
+   791→            [$state, $state]
+   792→        );
+   793→        $diag['zones_for_state'] = array_map(function($r){ return $r['zone']; }, $zoneRows);
+   794→
+   795→        // Does the requested category exist (case-insensitive)?
+   796→        foreach ($diag['categories_for_state'] as $c) {
+   797→            if (strtolower($c) === strtolower($category)) {
+   798→                $diag['category_matched'] = true;
+   799→                break;
+   800→            }
+   801→        }
+   802→        if (!$diag['category_matched']) {
+   803→            $list = $diag['categories_for_state'] ? implode(', ', $diag['categories_for_state']) : '(none)';
+   804→            $diag['reason'] = "Category '{$category}' not found for state '{$state}'. Available categories: {$list}";
+   805→            return $diag;
+   806→        }
+   807→
+   808→        $diag['reason'] = 'OK — min wage should resolve. If still 0, check effective_from dates.';
+   809→    } catch (\Throwable $e) {
+   810→        $diag['reason'] = 'DB error during diagnostics: ' . $e->getMessage();
+   811→    }
+   812→    return $diag;
+   813→}
+   814→
+   815→function _emptyResult(float $netSalary): array {
+   816→    return [
+   817→        'success'           => false,
+   818→        'error'             => 'NET_ZERO',
+   819→        'error_message'     => 'Net salary must be greater than 0',
+   820→        'net_salary'        => round($netSalary, 2),
+   821→        'basic_da'          => 0,
+   822→        'hra'               => 0,
+   823→        'leave_encashment'  => 0,
+   824→        'bonus_encashment'  => 0,
+   825→        'washing_allowance' => 0,
+   826→        'gross_salary'      => 0,
+   827→        'bonus_percent'     => 0,
+   828→        'leave_percent'     => 0,
+   829→        'deductions'        => ['pf' => 0, 'esi' => 0, 'pt' => 0, 'lwf' => 0],
+   830→        'total_deductions'  => 0,
+   831→        'calculated_net'    => 0,
+   832→        'fifty_fifty_ok'    => false,
+   833→        'basic_percent'     => 0,
+   834→        'min_wage'          => 0,
+   835→        'min_wage_warning'  => null,
+   836→        'hra_capped'        => false,
+   837→        'level_reached'     => 0,
+   838→        'level_label'       => 'N/A',
+   839→        'warnings'          => [],
+   840→        'matched'           => false,
+   841→        'iterations'        => 0,
+   842→    ];
+   843→}
+   844→
+   845→}
+   846→

@@ -1,0 +1,613 @@
+     1→    50→// Handle profile update
+     2→    51→$message = '';
+     3→    52→$messageType = '';
+     4→    53→
+     5→    54→if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+     6→    55→    // CSRF check (Round 9)
+     7→    56→    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+     8→    57→        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+     9→    58→        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    10→    59→    }
+    11→    60→    if ($_POST['action'] === 'update_contact') {
+    12→    61→        try {
+    13→    62→            $db->update('employees', [
+    14→    63→                'mobile_number' => sanitize($_POST['mobile_number']),
+    15→    64→                'alternate_mobile' => sanitize($_POST['alternate_mobile'] ?? ''),
+    16→    65→                'email' => sanitize($_POST['email'] ?? ''),
+    17→    66→                'emergency_contact_name' => sanitize($_POST['emergency_contact_name'] ?? ''),
+    18→    67→                'emergency_contact_number' => sanitize($_POST['emergency_contact_number'] ?? ''),
+    19→    68→                'emergency_contact_relation' => sanitize($_POST['emergency_contact_relation'] ?? ''),
+    20→    69→                'updated_at' => date('Y-m-d H:i:s')
+    21→    70→            ], 'id = :id', ['id' => $employeeId]);
+    22→    71→            
+    23→    72→            $message = 'Contact details updated successfully!';
+    24→    73→            $messageType = 'success';
+    25→    74→            
+    26→    75→            // Refresh data
+    27→    76→            $employee = $db->fetch(
+    28→    77→                "SELECT e.*, c.name as client_name,
+    29→    78→                        u.name as unit_name
+    30→    79→                 FROM employees e
+    31→    80→                 LEFT JOIN clients c ON e.client_id = c.id
+    32→    81→                 LEFT JOIN units u ON e.unit_id = u.id
+    33→    82→                 WHERE e.id = :id",
+    34→    83→                ['id' => $employeeId]
+    35→    84→            );
+    36→    85→        } catch (Exception $e) {
+    37→    86→            $message = 'Error updating details: ' . $e->getMessage();
+    38→    87→            $messageType = 'danger';
+    39→    88→        }
+    40→    89→    }
+    41→    90→    
+    42→    91→    if ($_POST['action'] === 'update_bank') {
+    43→    92→        try {
+    44→    93→            $db->update('employees', [
+    45→    94→                'bank_name' => sanitize($_POST['bank_name']),
+    46→    95→                'bank_account_number' => sanitize($_POST['account_number']),
+    47→    96→                'bank_ifsc_code' => sanitize($_POST['ifsc_code']),
+    48→    97→                'bank_branch' => sanitize($_POST['branch'] ?? ''),
+    49→    98→                'updated_at' => date('Y-m-d H:i:s')
+    50→    99→            ], 'id = :id', ['id' => $employeeId]);
+    51→   100→            
+    52→   101→            $message = 'Bank details updated successfully!';
+    53→   102→            $messageType = 'success';
+    54→   103→            
+    55→   104→            // Refresh data
+    56→   105→            $employee = $db->fetch(
+    57→   106→                "SELECT e.*, c.name as client_name,
+    58→   107→                        u.name as unit_name
+    59→   108→                 FROM employees e
+    60→   109→                 LEFT JOIN clients c ON e.client_id = c.id
+    61→   110→                 LEFT JOIN units u ON e.unit_id = u.id
+    62→   111→                 WHERE e.id = :id",
+    63→   112→                ['id' => $employeeId]
+    64→   113→            );
+    65→   114→        } catch (Exception $e) {
+    66→   115→            $message = 'Error updating bank details: ' . $e->getMessage();
+    67→   116→            $messageType = 'danger';
+    68→   117→        }
+    69→   118→    }
+    70→   119→    
+    71→   120→    if ($_POST['action'] === 'update_address') {
+    72→   121→        try {
+    73→   122→            $db->update('employees', [
+    74→   123→                'current_address' => sanitize($_POST['current_address']),
+    75→   124→                'current_city' => sanitize($_POST['current_city'] ?? ''),
+    76→   125→                'current_state' => sanitize($_POST['current_state'] ?? ''),
+    77→   126→                'current_pincode' => sanitize($_POST['current_pincode'] ?? ''),
+    78→   127→                'updated_at' => date('Y-m-d H:i:s')
+    79→   128→            ], 'id = :id', ['id' => $employeeId]);
+    80→   129→            
+    81→   130→            $message = 'Address updated successfully!';
+    82→   131→            $messageType = 'success';
+    83→   132→            
+    84→   133→            // Refresh data
+    85→   134→            $employee = $db->fetch(
+    86→   135→                "SELECT e.*, c.name as client_name,
+    87→   136→                        u.name as unit_name
+    88→   137→                 FROM employees e
+    89→   138→                 LEFT JOIN clients c ON e.client_id = c.id
+    90→   139→                 LEFT JOIN units u ON e.unit_id = u.id
+    91→   140→                 WHERE e.id = :id",
+    92→   141→                ['id' => $employeeId]
+    93→   142→            );
+    94→   143→        } catch (Exception $e) {
+    95→   144→            $message = 'Error updating address: ' . $e->getMessage();
+    96→   145→            $messageType = 'danger';
+    97→   146→        }
+    98→   147→    }
+    99→   148→}
+   100→   149→
+   101→   150→include '../../templates/header.php';
+   102→   151→?>
+   103→   152→
+   104→   153→<style>
+   105→   154→.profile-header {
+   106→   155→    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+   107→   156→    color: white;
+   108→   157→    padding: 30px;
+   109→   158→    border-radius: 15px 15px 0 0;
+   110→   159→}
+   111→   160→.profile-img-large {
+   112→   161→    width: 150px;
+   113→   162→    height: 150px;
+   114→   163→    border-radius: 50%;
+   115→   164→    border: 5px solid white;
+   116→   165→    object-fit: cover;
+   117→   166→    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+   118→   167→}
+   119→   168→.info-section {
+   120→   169→    background: white;
+   121→   170→    border-radius: 15px;
+   122→   171→    box-shadow: 0 2px 15px rgba(0,0,0,0.08);
+   123→   172→    margin-bottom: 20px;
+   124→   173→}
+   125→   174→.info-section .section-header {
+   126→   175→    background: #f8f9fa;
+   127→   176→    padding: 15px 20px;
+   128→   177→    border-radius: 15px 15px 0 0;
+   129→   178→    border-bottom: 1px solid #eee;
+   130→   179→}
+   131→   180→.info-section .section-body {
+   132→   181→    padding: 20px;
+   133→   182→}
+   134→   183→.info-label {
+   135→   184→    color: #888;
+   136→   185→    font-size: 12px;
+   137→   186→    text-transform: uppercase;
+   138→   187→    letter-spacing: 0.5px;
+   139→   188→}
+   140→   189→.info-value {
+   141→   190→    font-weight: 500;
+   142→   191→    font-size: 15px;
+   143→   192→}
+   144→   193→</style>
+   145→   194→
+   146→   195→<?php if ($message): ?>
+   147→   196→<div class="alert alert-<?php echo $messageType; ?> alert-dismissible fade show" role="alert">
+   148→   197→    <i class="bi bi-<?php echo $messageType == 'success' ? 'check-circle' : 'exclamation-circle'; ?> me-2"></i>
+   149→   198→    <?php echo $message; ?>
+   150→   199→    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+   151→   200→</div>
+   152→   201→<?php endif; ?>
+   153→   202→
+   154→   203→<div class="row">
+   155→   204→    <div class="col-12">
+   156→   205→        <div class="info-section">
+   157→   206→            <div class="profile-header">
+   158→   207→                <div class="row align-items-center">
+   159→   208→                    <div class="col-auto">
+   160→   209→                        <?php if (!empty($employee['photo_path'])): ?>
+   161→   210→                        <img src="<?php echo sanitize($employee['photo_path']); ?>" class="profile-img-large" alt="Profile">
+   162→   211→                        <?php else: ?>
+   163→   212→                        <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($employee['full_name']); ?>&size=150&background=ffffff&color=667eea" 
+   164→   213→                             class="profile-img-large" alt="Profile">
+   165→   214→                        <?php endif; ?>
+   166→   215→                    </div>
+   167→   216→                    <div class="col">
+   168→   217→                        <h2 class="mb-1"><?php echo sanitize($employee['full_name']); ?></h2>
+   169→   218→                        <p class="mb-2 opacity-75">
+   170→   219→                            <i class="bi bi-badge-ad me-1"></i><?php echo sanitize($employee['employee_code']); ?>
+   171→   220→                            &nbsp;|&nbsp;
+   172→   221→                            <i class="bi bi-briefcase me-1"></i><?php echo sanitize($employee['designation'] ?? 'N/A'); ?>
+   173→   222→                        </p>
+   174→   223→                        <div class="d-flex gap-2 flex-wrap">
+   175→   224→                            <span class="badge bg-light text-dark">
+   176→   225→                                <i class="bi bi-building me-1"></i><?php echo sanitize($employee['client_name'] ?? 'N/A'); ?>
+   177→   226→                            </span>
+   178→   227→                            <span class="badge bg-light text-dark">
+   179→   228→                                <i class="bi bi-geo-alt me-1"></i><?php echo sanitize($employee['unit_name'] ?? 'N/A'); ?>
+   180→   229→                            </span>
+   181→   230→                            <span class="badge bg-<?php echo $employee['status'] == 'approved' ? 'success' : 'warning'; ?>">
+   182→   231→                                <?php echo ucfirst($employee['status']); ?>
+   183→   232→                            </span>
+   184→   233→                        </div>
+   185→   234→                    </div>
+   186→   235→                    <div class="col-auto">
+   187→   236→                        <a href="index.php?page=portal/dashboard" class="btn btn-light">
+   188→   237→                            <i class="bi bi-arrow-left me-1"></i>Back to Dashboard
+   189→   238→                        </a>
+   190→   239→                    </div>
+   191→   240→                </div>
+   192→   241→            </div>
+   193→   242→        </div>
+   194→   243→    </div>
+   195→   244→</div>
+   196→   245→
+   197→   246→<div class="row g-4">
+   198→   247→    <!-- Personal Information -->
+   199→   248→    <div class="col-md-6">
+   200→   249→        <div class="info-section">
+   201→   250→            <div class="section-header d-flex justify-content-between align-items-center">
+   202→   251→                <h5 class="mb-0"><i class="bi bi-person me-2"></i>Personal Information</h5>
+   203→   252→            </div>
+   204→   253→            <div class="section-body">
+   205→   254→                <div class="row g-3">
+   206→   255→                    <div class="col-6">
+   207→   256→                        <div class="info-label">Father's Name</div>
+   208→   257→                        <div class="info-value"><?php echo sanitize($employee['father_name'] ?? 'N/A'); ?></div>
+   209→   258→                    </div>
+   210→   259→                    <div class="col-6">
+   211→   260→                        <div class="info-label">Mother's Name</div>
+   212→   261→                        <div class="info-value"><?php echo sanitize($employee['mother_name'] ?? 'N/A'); ?></div>
+   213→   262→                    </div>
+   214→   263→                    <div class="col-6">
+   215→   264→                        <div class="info-label">Date of Birth</div>
+   216→   265→                        <div class="info-value"><?php echo formatDate($employee['date_of_birth']); ?></div>
+   217→   266→                    </div>
+   218→   267→                    <div class="col-6">
+   219→   268→                        <div class="info-label">Gender</div>
+   220→   269→                        <div class="info-value"><?php echo ucfirst($employee['gender'] ?? 'N/A'); ?></div>
+   221→   270→                    </div>
+   222→   271→                    <div class="col-6">
+   223→   272→                        <div class="info-label">Blood Group</div>
+   224→   273→                        <div class="info-value"><?php echo sanitize($employee['blood_group'] ?? 'N/A'); ?></div>
+   225→   274→                    </div>
+   226→   275→                    <div class="col-6">
+   227→   276→                        <div class="info-label">Marital Status</div>
+   228→   277→                        <div class="info-value"><?php echo ucfirst($employee['marital_status'] ?? 'N/A'); ?></div>
+   229→   278→                    </div>
+   230→   279→                </div>
+   231→   280→            </div>
+   232→   281→        </div>
+   233→   282→    </div>
+   234→   283→    
+   235→   284→    <!-- Contact Information (Editable) -->
+   236→   285→    <div class="col-md-6">
+   237→   286→        <div class="info-section">
+   238→   287→            <div class="section-header d-flex justify-content-between align-items-center">
+   239→   288→                <h5 class="mb-0"><i class="bi bi-telephone me-2"></i>Contact Information</h5>
+   240→   289→                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editContactModal">
+   241→   290→                    <i class="bi bi-pencil"></i>
+   242→   291→                </button>
+   243→   292→            </div>
+   244→   293→            <div class="section-body">
+   245→   294→                <div class="row g-3">
+   246→   295→                    <div class="col-6">
+   247→   296→                        <div class="info-label">Mobile Number</div>
+   248→   297→                        <div class="info-value"><?php echo sanitize($employee['mobile_number'] ?? 'N/A'); ?></div>
+   249→   298→                    </div>
+   250→   299→                    <div class="col-6">
+   251→   300→                        <div class="info-label">Alternate Mobile</div>
+   252→   301→                        <div class="info-value"><?php echo sanitize($employee['alternate_mobile'] ?? 'N/A'); ?></div>
+   253→   302→                    </div>
+   254→   303→                    <div class="col-12">
+   255→   304→                        <div class="info-label">Email</div>
+   256→   305→                        <div class="info-value"><?php echo sanitize($employee['email'] ?? $employee['personal_email'] ?? 'N/A'); ?></div>
+   257→   306→                    </div>
+   258→   307→                    <div class="col-12">
+   259→   308→                        <div class="info-label">Emergency Contact</div>
+   260→   309→                        <div class="info-value">
+   261→   310→                            <?php echo sanitize($employee['emergency_contact_name'] ?? 'N/A'); ?>
+   262→   311→                            <?php if (!empty($employee['emergency_contact_number'])): ?>
+   263→   312→                            <br><i class="bi bi-telephone me-1"></i><?php echo sanitize($employee['emergency_contact_number']); ?>
+   264→   313→                            <?php if (!empty($employee['emergency_contact_relation'])): ?>
+   265→   314→                            <span class="text-muted">(<?php echo sanitize($employee['emergency_contact_relation']); ?>)</span>
+   266→   315→                            <?php endif; ?>
+   267→   316→                            <?php endif; ?>
+   268→   317→                        </div>
+   269→   318→                    </div>
+   270→   319→                </div>
+   271→   320→            </div>
+   272→   321→        </div>
+   273→   322→    </div>
+   274→   323→    
+   275→   324→    <!-- Employment Details -->
+   276→   325→    <div class="col-md-6">
+   277→   326→        <div class="info-section">
+   278→   327→            <div class="section-header">
+   279→   328→                <h5 class="mb-0"><i class="bi bi-briefcase me-2"></i>Employment Details</h5>
+   280→   329→            </div>
+   281→   330→            <div class="section-body">
+   282→   331→                <div class="row g-3">
+   283→   332→                    <div class="col-6">
+   284→   333→                        <div class="info-label">Date of Joining</div>
+   285→   334→                        <div class="info-value"><?php echo formatDate($employee['date_of_joining']); ?></div>
+   286→   335→                    </div>
+   287→   336→                    <div class="col-6">
+   288→   337→                        <div class="info-label">Employment Type</div>
+   289→   338→                        <div class="info-value"><?php echo ucfirst($employee['employment_type'] ?? 'N/A'); ?></div>
+   290→   339→                    </div>
+   291→   340→                    <div class="col-6">
+   292→   341→                        <div class="info-label">Designation</div>
+   293→   342→                        <div class="info-value"><?php echo sanitize($employee['designation'] ?? 'N/A'); ?></div>
+   294→   343→                    </div>
+   295→   344→                    <div class="col-6">
+   296→   345→                        <div class="info-label">Department</div>
+   297→   346→                        <div class="info-value"><?php echo sanitize($employee['department'] ?? 'N/A'); ?></div>
+   298→   347→                    </div>
+   299→   348→                    <div class="col-6">
+   300→   349→                        <div class="info-label">Skill Category</div>
+   301→   350→                        <div class="info-value"><?php echo ucfirst(str_replace('_', ' ', $employee['skill_category'] ?? 'N/A')); ?></div>
+   302→   351→                    </div>
+   303→   352→                    <div class="col-6">
+   304→   353→                        <div class="info-label">Worker Category</div>
+   305→   354→                        <div class="info-value"><?php echo ucfirst($employee['worker_category'] ?? 'N/A'); ?></div>
+   306→   355→                    </div>
+   307→   356→                </div>
+   308→   357→            </div>
+   309→   358→        </div>
+   310→   359→    </div>
+   311→   360→    
+   312→   361→    <!-- Statutory Details -->
+   313→   362→    <div class="col-md-6">
+   314→   363→        <div class="info-section">
+   315→   364→            <div class="section-header">
+   316→   365→                <h5 class="mb-0"><i class="bi bi-shield-check me-2"></i>Statutory Details</h5>
+   317→   366→            </div>
+   318→   367→            <div class="section-body">
+   319→   368→                <div class="row g-3">
+   320→   369→                    <div class="col-6">
+   321→   370→                        <div class="info-label">UAN Number</div>
+   322→   371→                        <div class="info-value"><?php echo sanitize($employee['uan_number'] ?? 'N/A'); ?></div>
+   323→   372→                    </div>
+   324→   373→                    <div class="col-6">
+   325→   374→                        <div class="info-label">ESI Number</div>
+   326→   375→                        <div class="info-value"><?php echo sanitize($employee['esi_number'] ?? 'N/A'); ?></div>
+   327→   376→                    </div>
+   328→   377→                    <div class="col-6">
+   329→   378→                        <div class="info-label">PAN Number</div>
+   330→   379→                        <div class="info-value"><?php echo sanitize($employee['pan_number'] ?? 'N/A'); ?></div>
+   331→   380→                    </div>
+   332→   381→                    <div class="col-6">
+   333→   382→                        <div class="info-label">Aadhaar Number</div>
+   334→   383→                        <div class="info-value">
+   335→   384→                            <?php 
+   336→   385→                            $aadhaar = $employee['aadhaar_number'] ?? '';
+   337→   386→                            echo $aadhaar ? 'XXXX-XXXX-' . substr($aadhaar, -4) : 'N/A';
+   338→   387→                            ?>
+   339→   388→                        </div>
+   340→   389→                    </div>
+   341→   390→                    <div class="col-6">
+   342→   391→                        <div class="info-label">PF Applicable</div>
+   343→   392→                        <div class="info-value">
+   344→   393→                            <span class="badge bg-<?php echo ($employee['is_pf_applicable'] ?? 0) ? 'success' : 'secondary'; ?>">
+   345→   394→                                <?php echo ($employee['is_pf_applicable'] ?? 0) ? 'Yes' : 'No'; ?>
+   346→   395→                            </span>
+   347→   396→                        </div>
+   348→   397→                    </div>
+   349→   398→                    <div class="col-6">
+   350→   399→                        <div class="info-label">ESI Applicable</div>
+   351→   400→                        <div class="info-value">
+   352→   401→                            <span class="badge bg-<?php echo ($employee['is_esi_applicable'] ?? 0) ? 'success' : 'secondary'; ?>">
+   353→   402→                                <?php echo ($employee['is_esi_applicable'] ?? 0) ? 'Yes' : 'No'; ?>
+   354→   403→                            </span>
+   355→   404→                        </div>
+   356→   405→                    </div>
+   357→   406→                </div>
+   358→   407→            </div>
+   359→   408→        </div>
+   360→   409→    </div>
+   361→   410→    
+   362→   411→    <!-- Bank Details (Editable) -->
+   363→   412→    <div class="col-md-6">
+   364→   413→        <div class="info-section">
+   365→   414→            <div class="section-header d-flex justify-content-between align-items-center">
+   366→   415→                <h5 class="mb-0"><i class="bi bi-bank me-2"></i>Bank Details</h5>
+   367→   416→                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editBankModal">
+   368→   417→                    <i class="bi bi-pencil"></i>
+   369→   418→                </button>
+   370→   419→            </div>
+   371→   420→            <div class="section-body">
+   372→   421→                <div class="row g-3">
+   373→   422→                    <div class="col-12">
+   374→   423→                        <div class="info-label">Bank Name</div>
+   375→   424→                        <div class="info-value"><?php echo sanitize($employee['bank_name'] ?? 'N/A'); ?></div>
+   376→   425→                    </div>
+   377→   426→                    <div class="col-6">
+   378→   427→                        <div class="info-label">Account Number</div>
+   379→   428→                        <div class="info-value">
+   380→   429→                            <?php 
+   381→   430→                            $acc = $employee['bank_account_number'] ?? $employee['account_number'] ?? '';
+   382→   431→                            echo $acc ? 'XXXX' . substr($acc, -4) : 'N/A';
+   383→   432→                            ?>
+   384→   433→                        </div>
+   385→   434→                    </div>
+   386→   435→                    <div class="col-6">
+   387→   436→                        <div class="info-label">IFSC Code</div>
+   388→   437→                        <div class="info-value"><?php echo sanitize($employee['bank_ifsc_code'] ?? $employee['ifsc_code'] ?? 'N/A'); ?></div>
+   389→   438→                    </div>
+   390→   439→                    <div class="col-12">
+   391→   440→                        <div class="info-label">Branch</div>
+   392→   441→                        <div class="info-value"><?php echo sanitize($employee['bank_branch'] ?? 'N/A'); ?></div>
+   393→   442→                    </div>
+   394→   443→                </div>
+   395→   444→            </div>
+   396→   445→        </div>
+   397→   446→    </div>
+   398→   447→    
+   399→   448→    <!-- Address (Editable) -->
+   400→   449→    <div class="col-md-6">
+   401→   450→        <div class="info-section">
+   402→   451→            <div class="section-header d-flex justify-content-between align-items-center">
+   403→   452→                <h5 class="mb-0"><i class="bi bi-geo-alt me-2"></i>Current Address</h5>
+   404→   453→                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editAddressModal">
+   405→   454→                    <i class="bi bi-pencil"></i>
+   406→   455→                </button>
+   407→   456→            </div>
+   408→   457→            <div class="section-body">
+   409→   458→                <div class="row g-3">
+   410→   459→                    <div class="col-12">
+   411→   460→                        <div class="info-label">Address</div>
+   412→   461→                        <div class="info-value"><?php echo nl2br(sanitize($employee['current_address'] ?? $employee['permanent_address'] ?? 'N/A')); ?></div>
+   413→   462→                    </div>
+   414→   463→                    <div class="col-4">
+   415→   464→                        <div class="info-label">City</div>
+   416→   465→                        <div class="info-value"><?php echo sanitize($employee['current_city'] ?? $employee['permanent_city'] ?? 'N/A'); ?></div>
+   417→   466→                    </div>
+   418→   467→                    <div class="col-4">
+   419→   468→                        <div class="info-label">State</div>
+   420→   469→                        <div class="info-value"><?php echo sanitize($employee['current_state'] ?? $employee['permanent_state'] ?? 'N/A'); ?></div>
+   421→   470→                    </div>
+   422→   471→                    <div class="col-4">
+   423→   472→                        <div class="info-label">Pincode</div>
+   424→   473→                        <div class="info-value"><?php echo sanitize($employee['current_pincode'] ?? $employee['permanent_pincode'] ?? 'N/A'); ?></div>
+   425→   474→                    </div>
+   426→   475→                </div>
+   427→   476→            </div>
+   428→   477→        </div>
+   429→   478→    </div>
+   430→   479→    
+   431→   480→    <!-- Documents -->
+   432→   481→    <div class="col-12">
+   433→   482→        <div class="info-section">
+   434→   483→            <div class="section-header">
+   435→   484→                <h5 class="mb-0"><i class="bi bi-folder me-2"></i>My Documents</h5>
+   436→   485→            </div>
+   437→   486→            <div class="section-body">
+   438→   487→                <?php if (empty($documents)): ?>
+   439→   488→                <div class="text-center py-4 text-muted">
+   440→   489→                    <i class="bi bi-folder2-open fs-1"></i>
+   441→   490→                    <p>No documents uploaded</p>
+   442→   491→                </div>
+   443→   492→                <?php else: ?>
+   444→   493→                <div class="row g-3">
+   445→   494→                    <?php foreach ($documents as $doc): ?>
+   446→   495→                    <div class="col-md-3">
+   447→   496→                        <div class="card h-100">
+   448→   497→                            <div class="card-body text-center">
+   449→   498→                                <i class="bi bi-file-earmark-<?php echo strpos($doc['document_path'], '.pdf') !== false ? 'pdf' : 'image'; ?> fs-1 text-primary"></i>
+   450→   499→                                <h6 class="mt-2"><?php echo ucfirst($doc['document_type']); ?></h6>
+   451→   500→                                <small class="text-muted"><?php echo sanitize($doc['document_name']); ?></small>
+   452→   501→                                <div class="mt-2">
+   453→   502→                                    <span class="badge bg-<?php echo $doc['verification_status'] == 'verified' ? 'success' : ($doc['verification_status'] == 'rejected' ? 'danger' : 'warning'); ?>">
+   454→   503→                                        <?php echo ucfirst($doc['verification_status']); ?>
+   455→   504→                                    </span>
+   456→   505→                                </div>
+   457→   506→                            </div>
+   458→   507→                        </div>
+   459→   508→                    </div>
+   460→   509→                    <?php endforeach; ?>
+   461→   510→                </div>
+   462→   511→                <?php endif; ?>
+   463→   512→            </div>
+   464→   513→        </div>
+   465→   514→    </div>
+   466→   515→</div>
+   467→   516→
+   468→   517→<!-- Edit Contact Modal -->
+   469→   518→<div class="modal fade" id="editContactModal" tabindex="-1">
+   470→   519→    <div class="modal-dialog">
+   471→   520→        <div class="modal-content">
+   472→   521→            <form method="POST">
+   473→   522→            <?php echo getCSRFTokenField(); ?>
+   474→   523→                <input type="hidden" name="action" value="update_contact">
+   475→   524→                <div class="modal-header">
+   476→   525→                    <h5 class="modal-title">Edit Contact Information</h5>
+   477→   526→                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+   478→   527→                </div>
+   479→   528→                <div class="modal-body">
+   480→   529→                    <div class="mb-3">
+   481→   530→                        <label class="form-label">Mobile Number</label>
+   482→   531→                        <input type="tel" class="form-control" name="mobile_number" 
+   483→   532→                               value="<?php echo sanitize($employee['mobile_number'] ?? ''); ?>" maxlength="10" required>
+   484→   533→                    </div>
+   485→   534→                    <div class="mb-3">
+   486→   535→                        <label class="form-label">Alternate Mobile</label>
+   487→   536→                        <input type="tel" class="form-control" name="alternate_mobile" 
+   488→   537→                               value="<?php echo sanitize($employee['alternate_mobile'] ?? ''); ?>" maxlength="10">
+   489→   538→                    </div>
+   490→   539→                    <div class="mb-3">
+   491→   540→                        <label class="form-label">Email</label>
+   492→   541→                        <input type="email" class="form-control" name="email" 
+   493→   542→                               value="<?php echo sanitize($employee['email'] ?? $employee['personal_email'] ?? ''); ?>">
+   494→   543→                    </div>
+   495→   544→                    <div class="mb-3">
+   496→   545→                        <label class="form-label">Emergency Contact Name</label>
+   497→   546→                        <input type="text" class="form-control" name="emergency_contact_name" 
+   498→   547→                               value="<?php echo sanitize($employee['emergency_contact_name'] ?? ''); ?>">
+   499→   548→                    </div>
+   500→   549→                    <div class="row">
+   501→   550→                        <div class="col-8 mb-3">
+   502→   551→                            <label class="form-label">Emergency Contact Number</label>
+   503→   552→                            <input type="tel" class="form-control" name="emergency_contact_number" 
+   504→   553→                                   value="<?php echo sanitize($employee['emergency_contact_number'] ?? ''); ?>" maxlength="10">
+   505→   554→                        </div>
+   506→   555→                        <div class="col-4 mb-3">
+   507→   556→                            <label class="form-label">Relation</label>
+   508→   557→                            <select class="form-select" name="emergency_contact_relation">
+   509→   558→                                <option value="">Select</option>
+   510→   559→                                <option value="Father" <?php echo ($employee['emergency_contact_relation'] ?? '') == 'Father' ? 'selected' : ''; ?>>Father</option>
+   511→   560→                                <option value="Mother" <?php echo ($employee['emergency_contact_relation'] ?? '') == 'Mother' ? 'selected' : ''; ?>>Mother</option>
+   512→   561→                                <option value="Spouse" <?php echo ($employee['emergency_contact_relation'] ?? '') == 'Spouse' ? 'selected' : ''; ?>>Spouse</option>
+   513→   562→                                <option value="Brother" <?php echo ($employee['emergency_contact_relation'] ?? '') == 'Brother' ? 'selected' : ''; ?>>Brother</option>
+   514→   563→                                <option value="Sister" <?php echo ($employee['emergency_contact_relation'] ?? '') == 'Sister' ? 'selected' : ''; ?>>Sister</option>
+   515→   564→                                <option value="Other" <?php echo ($employee['emergency_contact_relation'] ?? '') == 'Other' ? 'selected' : ''; ?>>Other</option>
+   516→   565→                            </select>
+   517→   566→                        </div>
+   518→   567→                    </div>
+   519→   568→                </div>
+   520→   569→                <div class="modal-footer">
+   521→   570→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   522→   571→                    <button type="submit" class="btn btn-primary">Save Changes</button>
+   523→   572→                </div>
+   524→   573→            </form>
+   525→   574→        </div>
+   526→   575→    </div>
+   527→   576→</div>
+   528→   577→
+   529→   578→<!-- Edit Bank Modal -->
+   530→   579→<div class="modal fade" id="editBankModal" tabindex="-1">
+   531→   580→    <div class="modal-dialog">
+   532→   581→        <div class="modal-content">
+   533→   582→            <form method="POST">
+   534→   583→            <?php echo getCSRFTokenField(); ?>
+   535→   584→                <input type="hidden" name="action" value="update_bank">
+   536→   585→                <div class="modal-header">
+   537→   586→                    <h5 class="modal-title">Edit Bank Details</h5>
+   538→   587→                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+   539→   588→                </div>
+   540→   589→                <div class="modal-body">
+   541→   590→                    <div class="mb-3">
+   542→   591→                        <label class="form-label">Bank Name</label>
+   543→   592→                        <input type="text" class="form-control" name="bank_name" 
+   544→   593→                               value="<?php echo sanitize($employee['bank_name'] ?? ''); ?>" required>
+   545→   594→                    </div>
+   546→   595→                    <div class="mb-3">
+   547→   596→                        <label class="form-label">Account Number</label>
+   548→   597→                        <input type="text" class="form-control" name="account_number" 
+   549→   598→                               value="<?php echo sanitize($employee['bank_account_number'] ?? $employee['account_number'] ?? ''); ?>" required>
+   550→   599→                    </div>
+   551→   600→                    <div class="mb-3">
+   552→   601→                        <label class="form-label">IFSC Code</label>
+   553→   602→                        <input type="text" class="form-control" name="ifsc_code" 
+   554→   603→                               value="<?php echo sanitize($employee['bank_ifsc_code'] ?? $employee['ifsc_code'] ?? ''); ?>" required>
+   555→   604→                    </div>
+   556→   605→                    <div class="mb-3">
+   557→   606→                        <label class="form-label">Branch</label>
+   558→   607→                        <input type="text" class="form-control" name="branch" 
+   559→   608→                               value="<?php echo sanitize($employee['bank_branch'] ?? ''); ?>">
+   560→   609→                    </div>
+   561→   610→                </div>
+   562→   611→                <div class="modal-footer">
+   563→   612→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   564→   613→                    <button type="submit" class="btn btn-primary">Save Changes</button>
+   565→   614→                </div>
+   566→   615→            </form>
+   567→   616→        </div>
+   568→   617→    </div>
+   569→   618→</div>
+   570→   619→
+   571→   620→<!-- Edit Address Modal -->
+   572→   621→<div class="modal fade" id="editAddressModal" tabindex="-1">
+   573→   622→    <div class="modal-dialog">
+   574→   623→        <div class="modal-content">
+   575→   624→            <form method="POST">
+   576→   625→            <?php echo getCSRFTokenField(); ?>
+   577→   626→                <input type="hidden" name="action" value="update_address">
+   578→   627→                <div class="modal-header">
+   579→   628→                    <h5 class="modal-title">Edit Current Address</h5>
+   580→   629→                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+   581→   630→                </div>
+   582→   631→                <div class="modal-body">
+   583→   632→                    <div class="mb-3">
+   584→   633→                        <label class="form-label">Address</label>
+   585→   634→                        <textarea class="form-control" name="current_address" rows="3" required><?php echo sanitize($employee['current_address'] ?? $employee['permanent_address'] ?? ''); ?></textarea>
+   586→   635→                    </div>
+   587→   636→                    <div class="row">
+   588→   637→                        <div class="col-4 mb-3">
+   589→   638→                            <label class="form-label">City</label>
+   590→   639→                            <input type="text" class="form-control" name="current_city" 
+   591→   640→                                   value="<?php echo sanitize($employee['current_city'] ?? $employee['permanent_city'] ?? ''); ?>">
+   592→   641→                        </div>
+   593→   642→                        <div class="col-4 mb-3">
+   594→   643→                            <label class="form-label">State</label>
+   595→   644→                            <input type="text" class="form-control" name="current_state" 
+   596→   645→                                   value="<?php echo sanitize($employee['current_state'] ?? $employee['permanent_state'] ?? ''); ?>">
+   597→   646→                        </div>
+   598→   647→                        <div class="col-4 mb-3">
+   599→   648→                            <label class="form-label">Pincode</label>
+   600→   649→                            <input type="text" class="form-control" name="current_pincode" 
+   601→   650→                                   value="<?php echo sanitize($employee['current_pincode'] ?? $employee['permanent_pincode'] ?? ''); ?>" maxlength="6">
+   602→   651→                        </div>
+   603→   652→                    </div>
+   604→   653→                </div>
+   605→   654→                <div class="modal-footer">
+   606→   655→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   607→   656→                    <button type="submit" class="btn btn-primary">Save Changes</button>
+   608→   657→                </div>
+   609→   658→            </form>
+   610→   659→        </div>
+   611→   660→    </div>
+   612→   661→</div>
+   613→   662→

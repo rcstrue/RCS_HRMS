@@ -1,0 +1,693 @@
+     1→     1→import { useState } from 'react';
+     2→     2→import { 
+     3→     3→  User, Phone, Mail, Building, MapPin, CreditCard, 
+     4→     4→  Edit2, LogOut, AlertCircle, Check, X, Save, Loader2,
+     5→     5→  FileText, CreditCard as IdCard, Calendar, IndianRupee,
+     6→     6→  FileQuestion, Bell, HelpCircle, ChevronDown, ChevronRight,
+     7→     7→  FolderOpen, Eye, ExternalLink
+     8→     8→} from 'lucide-react';
+     9→     9→import { Button } from '@/components/ui/button';
+    10→    10→import { Input } from '@/components/ui/input';
+    11→    11→import { Label } from '@/components/ui/label';
+    12→    12→import { 
+    13→    13→  Select, 
+    14→    14→  SelectContent, 
+    15→    15→  SelectItem, 
+    16→    16→  SelectTrigger, 
+    17→    17→  SelectValue 
+    18→    18→} from '@/components/ui/select';
+    19→    19→import {
+    20→    20→  DropdownMenu,
+    21→    21→  DropdownMenuContent,
+    22→    22→  DropdownMenuItem,
+    23→    23→  DropdownMenuSeparator,
+    24→    24→  DropdownMenuTrigger,
+    25→    25→} from '@/components/ui/dropdown-menu';
+    26→    26→import {
+    27→    27→  Dialog,
+    28→    28→  DialogContent,
+    29→    29→  DialogHeader,
+    30→    30→  DialogTitle,
+    31→    31→} from '@/components/ui/dialog';
+    32→    32→import { ProfileCompletion } from './ProfileCompletion';
+    33→    33→import { IDCard } from './IDCard';
+    34→    34→import { Employee, calculateProfileCompletion, getMissingFields } from '@/hooks/useEmployeeSession';
+    35→    35→import { updateEmployee } from '@/lib/api/employees';
+    36→    36→import { MARITAL_STATUS_OPTIONS } from '@/types/registration';
+    37→    37→import { useToast } from '@/hooks/use-toast';
+    38→    38→import { getFileUrl } from '@/lib/api/config';
+    39→    39→import { toast } from 'sonner';
+    40→    40→import { formatDateDDMMYYYY } from '@/lib/utils';
+    41→    41→import { logger } from "@/lib/logger";
+    42→    42→
+    43→    43→interface EmployeeProfileProps {
+    44→    44→  employee: Employee;
+    45→    45→  onLogout: () => void;
+    46→    46→  onRefresh: () => Promise<void>;
+    47→    47→  onStartRegistration: () => void;
+    48→    48→}
+    49→    49→
+    50→    50→const FIELD_LABELS: Record<string, string> = {
+    51→    51→  mobile_number: 'Mobile Number',
+    52→    52→  date_of_birth: 'Date of Birth',
+    53→    53→  full_name: 'Full Name',
+    54→    54→  gender: 'Gender',
+    55→    55→  aadhaar_number: 'Aadhaar Number',
+    56→    56→  email: 'Email',
+    57→    57→  uan_number: 'UAN Number',
+    58→    58→  esic_number: 'ESIC Number',
+    59→    59→  marital_status: 'Marital Status',
+    60→    60→  address: 'Address',
+    61→    61→  pin_code: 'PIN Code',
+    62→    62→  state: 'State',
+    63→    63→  district: 'District',
+    64→    64→  bank_name: 'Bank Name',
+    65→    65→  account_number: 'Account Number',
+    66→    66→  ifsc_code: 'IFSC Code',
+    67→    67→  account_holder_name: 'Account Holder Name',
+    68→    68→  client_name: 'Client Name',
+    69→    69→  unit_name: 'Unit/Location',
+    70→    70→  profile_pic_url: 'Profile Photo',
+    71→    71→  aadhaar_front_url: 'Aadhaar Front',
+    72→    72→  aadhaar_back_url: 'Aadhaar Back',
+    73→    73→  bank_document_url: 'Bank Document',
+    74→    74→};
+    75→    75→
+    76→    76→type MenuView = 'documents' | 'idcard' | 'attendance' | 'salary' | 'leave' | 'notifications' | 'help' | null;
+    77→    77→
+    78→    78→export function EmployeeProfile({ employee, onLogout, onRefresh, onStartRegistration }: EmployeeProfileProps) {
+    79→    79→  const [isEditing, setIsEditing] = useState(false);
+    80→    80→  const [isSaving, setIsSaving] = useState(false);
+    81→    81→  const [editData, setEditData] = useState({
+    82→    82→    email: employee.email || '',
+    83→    83→    uan_number: employee.uan_number || '',
+    84→    84→    esic_number: employee.esic_number || '',
+    85→    85→    marital_status: employee.marital_status || '',
+    86→    86→  });
+    87→    87→  const [activeView, setActiveView] = useState<MenuView>(null);
+    88→    88→  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    89→    89→  const { toast: toastHook } = useToast();
+    90→    90→
+    91→    91→  const profileCompletion = calculateProfileCompletion(employee);
+    92→    92→  const missingFields = getMissingFields(employee);
+    93→    93→  
+    94→    94→  // Categorize missing fields
+    95→    95→  const documentFields = missingFields.filter(f => f.includes('_url'));
+    96→    96→  const personalFields = missingFields.filter(f => !f.includes('_url'));
+    97→    97→
+    98→    98→  // Documents list
+    99→    99→  const documents = [
+   100→   100→    { key: 'profile_pic_url', label: 'Profile Photo', url: employee.profile_pic_url },
+   101→   101→    { key: 'aadhaar_front_url', label: 'Aadhaar Card (Front)', url: employee.aadhaar_front_url },
+   102→   102→    { key: 'aadhaar_back_url', label: 'Aadhaar Card (Back)', url: employee.aadhaar_back_url },
+   103→   103→    { key: 'bank_document_url', label: 'Bank Document', url: employee.bank_document_url },
+   104→   104→  ];
+   105→   105→
+   106→   106→  const hasDocuments = documents.some(doc => doc.url);
+   107→   107→
+   108→   108→  const handleSave = async () => {
+   109→   109→    setIsSaving(true);
+   110→   110→    try {
+   111→   111→      const { error } = await updateEmployee(employee.id, {
+   112→   112→        email: editData.email || null,
+   113→   113→        uan_number: editData.uan_number || null,
+   114→   114→        esic_number: editData.esic_number || null,
+   115→   115→        marital_status: editData.marital_status || null,
+   116→   116→      });
+   117→   117→
+   118→   118→      if (error) throw new Error(error);
+   119→   119→
+   120→   120→      await onRefresh();
+   121→   121→      setIsEditing(false);
+   122→   122→      toastHook({
+   123→   123→        title: 'Profile Updated',
+   124→   124→        description: 'Your profile has been updated successfully.',
+   125→   125→      });
+   126→   126→    } catch (error) {
+   127→   127→      logger.error('Error updating profile:', error);
+   128→   128→      toastHook({
+   129→   129→        title: 'Update Failed',
+   130→   130→        description: 'Failed to update profile. Please try again.',
+   131→   131→        variant: 'destructive',
+   132→   132→      });
+   133→   133→    } finally {
+   134→   134→      setIsSaving(false);
+   135→   135→    }
+   136→   136→  };
+   137→   137→
+   138→   138→  const handleMenuClick = (view: MenuView) => {
+   139→   139→    setActiveView(view);
+   140→   140→  };
+   141→   141→
+   142→   142→  const hasRequiredDocuments = !documentFields.length;
+   143→   143→  const needsToCompleteRegistration = documentFields.length > 0 || personalFields.some(f => 
+   144→   144→    ['full_name', 'date_of_birth', 'aadhaar_number', 'address', 'bank_name', 'account_number', 'client_name'].includes(f)
+   145→   145→  );
+   146→   146→
+   147→   147→  return (
+   148→   148→    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
+   149→   149→      {/* Header - compact */}
+   150→   150→      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-lg border-b">
+   151→   151→        <div className="max-w-2xl mx-auto px-3 py-2 flex items-center justify-between">
+   152→   152→          <h1 className="text-sm font-semibold">My Profile</h1>
+   153→   153→          <div className="flex items-center gap-3">
+   154→   154→            <ProfileCompletion percentage={profileCompletion} />
+   155→   155→            <Button variant="ghost" size="icon" onClick={onLogout}>
+   156→   156→              <LogOut className="w-5 h-5" />
+   157→   157→            </Button>
+   158→   158→          </div>
+   159→   159→        </div>
+   160→   160→      </header>
+   161→   161→
+   162→   162→      <main className="max-w-2xl mx-auto p-4 pb-20 space-y-6">
+   163→   163→        {/* Profile Header with Menu */}
+   164→   164→        <div className="form-section">
+   165→   165→          <div className="flex items-start gap-4">
+   166→   166→            <div className="relative">
+   167→   167→              <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden border-2 border-primary/20">
+   168→   168→                {employee.profile_pic_url ? (
+   169→   169→                  <img 
+   170→   170→                    src={getFileUrl(employee.profile_pic_url) || undefined} 
+   171→   171→                    alt="Profile" 
+   172→   172→                    className="w-full h-full object-cover"
+   173→   173→                  />
+   174→   174→                ) : (
+   175→   175→                  <User className="w-10 h-10 text-primary" />
+   176→   176→                )}
+   177→   177→              </div>
+   178→   178→              
+   179→   179→              {/* Menu Button under profile image */}
+   180→   180→              <DropdownMenu>
+   181→   181→                <DropdownMenuTrigger asChild>
+   182→   182→                  <Button 
+   183→   183→                    variant="outline" 
+   184→   184→                    size="sm" 
+   185→   185→                    className="mt-2 w-full text-xs gap-1"
+   186→   186→                  >
+   187→   187→                    Menu <ChevronDown className="w-3 h-3" />
+   188→   188→                  </Button>
+   189→   189→                </DropdownMenuTrigger>
+   190→   190→                <DropdownMenuContent align="start" className="w-48">
+   191→   191→                  <DropdownMenuItem onClick={() => handleMenuClick('documents')}>
+   192→   192→                    <FolderOpen className="w-4 h-4 mr-2" />
+   193→   193→                    Documents
+   194→   194→                  </DropdownMenuItem>
+   195→   195→                  <DropdownMenuItem onClick={() => handleMenuClick('idcard')}>
+   196→   196→                    <IdCard className="w-4 h-4 mr-2" />
+   197→   197→                    ID Card
+   198→   198→                  </DropdownMenuItem>
+   199→   199→                  <DropdownMenuItem onClick={() => handleMenuClick('attendance')}>
+   200→   200→                    <Calendar className="w-4 h-4 mr-2" />
+   201→   201→                    Attendance
+   202→   202→                  </DropdownMenuItem>
+   203→   203→                  <DropdownMenuItem onClick={() => handleMenuClick('salary')}>
+   204→   204→                    <IndianRupee className="w-4 h-4 mr-2" />
+   205→   205→                    Salary / Payslip
+   206→   206→                  </DropdownMenuItem>
+   207→   207→                  <DropdownMenuItem onClick={() => handleMenuClick('leave')}>
+   208→   208→                    <FileQuestion className="w-4 h-4 mr-2" />
+   209→   209→                    Leave Request
+   210→   210→                  </DropdownMenuItem>
+   211→   211→                  <DropdownMenuSeparator />
+   212→   212→                  <DropdownMenuItem onClick={() => handleMenuClick('notifications')}>
+   213→   213→                    <Bell className="w-4 h-4 mr-2" />
+   214→   214→                    Notifications
+   215→   215→                  </DropdownMenuItem>
+   216→   216→                  <DropdownMenuItem onClick={() => handleMenuClick('help')}>
+   217→   217→                    <HelpCircle className="w-4 h-4 mr-2" />
+   218→   218→                    Help / Support
+   219→   219→                  </DropdownMenuItem>
+   220→   220→                </DropdownMenuContent>
+   221→   221→              </DropdownMenu>
+   222→   222→            </div>
+   223→   223→            
+   224→   224→            <div className="flex-1">
+   225→   225→              <h2 className="text-xl font-semibold">
+   226→   226→                {employee.full_name || 'Complete Your Profile'}
+   227→   227→              </h2>
+   228→   228→              <p className="text-muted-foreground text-sm">+91 {employee.mobile_number}</p>
+   229→   229→              <div className="mt-2">
+   230→   230→                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+   231→   231→                  employee.status === 'approved' || employee.status === 'verified'
+   232→   232→                    ? 'bg-green-100 text-green-700' 
+   233→   233→                    : 'bg-yellow-100 text-yellow-700'
+   234→   234→                }`}>
+   235→   235→                  {employee.status === 'approved' || employee.status === 'verified' ? (
+   236→   236→                    <Check className="w-3 h-3" />
+   237→   237→                  ) : (
+   238→   238→                    <AlertCircle className="w-3 h-3" />
+   239→   239→                  )}
+   240→   240→                  {employee.status === 'approved' || employee.status === 'verified' ? 'Verified' : 'Pending Verification'}
+   241→   241→                </span>
+   242→   242→              </div>
+   243→   243→            </div>
+   244→   244→          </div>
+   245→   245→        </div>
+   246→   246→
+   247→   247→        {/* Menu Views */}
+   248→   248→        {activeView && (
+   249→   249→          <div className="form-section animate-slide-up">
+   250→   250→            <div className="flex items-center justify-between mb-4">
+   251→   251→              <Button 
+   252→   252→                variant="ghost" 
+   253→   253→                size="sm" 
+   254→   254→                onClick={() => setActiveView(null)}
+   255→   255→                className="gap-1"
+   256→   256→              >
+   257→   257→                <ChevronRight className="w-4 h-4 rotate-180" />
+   258→   258→                Back
+   259→   259→              </Button>
+   260→   260→            </div>
+   261→   261→            
+   262→   262→            {activeView === 'documents' && (
+   263→   263→              <div>
+   264→   264→                <h3 className="font-semibold flex items-center gap-2 mb-4">
+   265→   265→                  <FolderOpen className="w-5 h-5 text-primary" />
+   266→   266→                  My Documents
+   267→   267→                </h3>
+   268→   268→                {hasDocuments ? (
+   269→   269→                  <div className="grid grid-cols-2 gap-3">
+   270→   270→                    {documents.map((doc) => (
+   271→   271→                      doc.url ? (
+   272→   272→                        <div 
+   273→   273→                          key={doc.key}
+   274→   274→                          className="relative group rounded-lg overflow-hidden border border-border bg-muted cursor-pointer"
+   275→   275→                          onClick={() => setSelectedImage(doc.url || null)}
+   276→   276→                        >
+   277→   277→                          <div className="aspect-[4/3]">
+   278→   278→                            <img 
+   279→   279→                              src={getFileUrl(doc.url) || undefined} 
+   280→   280→                              alt={doc.label}
+   281→   281→                              className="w-full h-full object-cover"
+   282→   282→                            />
+   283→   283→                          </div>
+   284→   284→                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+   285→   285→                            <Eye className="w-6 h-6 text-white" />
+   286→   286→                          </div>
+   287→   287→                          <p className="text-xs text-center py-2 bg-background">{doc.label}</p>
+   288→   288→                        </div>
+   289→   289→                      ) : (
+   290→   290→                        <div 
+   291→   291→                          key={doc.key}
+   292→   292→                          className="rounded-lg border border-dashed border-muted-foreground/30 bg-muted/50"
+   293→   293→                        >
+   294→   294→                          <div className="aspect-[4/3] flex items-center justify-center">
+   295→   295→                            <span className="text-xs text-muted-foreground">Not uploaded</span>
+   296→   296→                          </div>
+   297→   297→                          <p className="text-xs text-center py-2 bg-background">{doc.label}</p>
+   298→   298→                        </div>
+   299→   299→                      )
+   300→   300→                    ))}
+   301→   301→                  </div>
+   302→   302→                ) : (
+   303→   303→                  <div className="text-center py-8 text-muted-foreground">
+   304→   304→                    <FolderOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
+   305→   305→                    <p>No documents uploaded yet</p>
+   306→   306→                    <Button 
+   307→   307→                      variant="outline" 
+   308→   308→                      size="sm" 
+   309→   309→                      className="mt-3"
+   310→   310→                      onClick={onStartRegistration}
+   311→   311→                    >
+   312→   312→                      Upload Documents
+   313→   313→                    </Button>
+   314→   314→                  </div>
+   315→   315→                )}
+   316→   316→              </div>
+   317→   317→            )}
+   318→   318→            
+   319→   319→            {activeView === 'idcard' && (
+   320→   320→              <div>
+   321→   321→                <h3 className="font-semibold flex items-center gap-2 mb-4">
+   322→   322→                  <IdCard className="w-5 h-5 text-primary" />
+   323→   323→                  ID Card
+   324→   324→                </h3>
+   325→   325→                {employee.status === 'approved' || employee.status === 'verified' ? (
+   326→   326→                  <IDCard employee={employee} />
+   327→   327→                ) : (
+   328→   328→                  <div className="text-center py-8 text-muted-foreground">
+   329→   329→                    <IdCard className="w-12 h-12 mx-auto mb-3 opacity-50" />
+   330→   330→                    <p>ID Card not available</p>
+   331→   331→                    <p className="text-xs mt-2">Your profile needs to be verified first</p>
+   332→   332→                  </div>
+   333→   333→                )}
+   334→   334→              </div>
+   335→   335→            )}
+   336→   336→            
+   337→   337→            {activeView === 'attendance' && (
+   338→   338→              <div>
+   339→   339→                <h3 className="font-semibold flex items-center gap-2 mb-4">
+   340→   340→                  <Calendar className="w-5 h-5 text-primary" />
+   341→   341→                  Attendance
+   342→   342→                </h3>
+   343→   343→                <div className="text-center py-8 text-muted-foreground">
+   344→   344→                  <Calendar className="w-12 h-12 mx-auto mb-3 opacity-50" />
+   345→   345→                  <p>Attendance feature coming soon</p>
+   346→   346→                  <p className="text-xs mt-2">View your attendance records</p>
+   347→   347→                </div>
+   348→   348→              </div>
+   349→   349→            )}
+   350→   350→            
+   351→   351→            {activeView === 'salary' && (
+   352→   352→              <div>
+   353→   353→                <h3 className="font-semibold flex items-center gap-2 mb-4">
+   354→   354→                  <IndianRupee className="w-5 h-5 text-primary" />
+   355→   355→                  Salary / Payslip
+   356→   356→                </h3>
+   357→   357→                <div className="text-center py-8 text-muted-foreground">
+   358→   358→                  <IndianRupee className="w-12 h-12 mx-auto mb-3 opacity-50" />
+   359→   359→                  <p>Payslip feature coming soon</p>
+   360→   360→                  <p className="text-xs mt-2">View and download your payslips</p>
+   361→   361→                </div>
+   362→   362→              </div>
+   363→   363→            )}
+   364→   364→            
+   365→   365→            {activeView === 'leave' && (
+   366→   366→              <div>
+   367→   367→                <h3 className="font-semibold flex items-center gap-2 mb-4">
+   368→   368→                  <FileQuestion className="w-5 h-5 text-primary" />
+   369→   369→                  Leave Request
+   370→   370→                </h3>
+   371→   371→                <div className="text-center py-8 text-muted-foreground">
+   372→   372→                  <FileQuestion className="w-12 h-12 mx-auto mb-3 opacity-50" />
+   373→   373→                  <p>Leave request feature coming soon</p>
+   374→   374→                  <p className="text-xs mt-2">Apply and track your leave requests</p>
+   375→   375→                </div>
+   376→   376→              </div>
+   377→   377→            )}
+   378→   378→            
+   379→   379→            {activeView === 'notifications' && (
+   380→   380→              <div>
+   381→   381→                <h3 className="font-semibold flex items-center gap-2 mb-4">
+   382→   382→                  <Bell className="w-5 h-5 text-primary" />
+   383→   383→                  Notifications
+   384→   384→                </h3>
+   385→   385→                <div className="text-center py-8 text-muted-foreground">
+   386→   386→                  <Bell className="w-12 h-12 mx-auto mb-3 opacity-50" />
+   387→   387→                  <p>No notifications</p>
+   388→   388→                  <p className="text-xs mt-2">You're all caught up!</p>
+   389→   389→                </div>
+   390→   390→              </div>
+   391→   391→            )}
+   392→   392→            
+   393→   393→            {activeView === 'help' && (
+   394→   394→              <div>
+   395→   395→                <h3 className="font-semibold flex items-center gap-2 mb-4">
+   396→   396→                  <HelpCircle className="w-5 h-5 text-primary" />
+   397→   397→                  Help / Support
+   398→   398→                </h3>
+   399→   399→                <div className="space-y-4">
+   400→   400→                  <div className="p-4 bg-muted rounded-lg">
+   401→   401→                    <h4 className="font-medium mb-2">Contact HR</h4>
+   402→   402→                    <p className="text-sm text-muted-foreground mb-2">For any queries, please contact:</p>
+   403→   403→                    <p className="text-sm"><strong>Phone:</strong> +91 8469241414</p>
+   404→   404→                    <p className="text-sm"><strong>Email:</strong> hr@rcsfacility.com</p>
+   405→   405→                  </div>
+   406→   406→                  <div className="p-4 bg-muted rounded-lg">
+   407→   407→                    <h4 className="font-medium mb-2">Quick Help</h4>
+   408→   408→                    <ul className="text-sm text-muted-foreground space-y-1">
+   409→   409→                      <li>• Profile completion is required for verification</li>
+   410→   410→                      <li>• Upload clear photos of your documents</li>
+   411→   411→                      <li>• Contact HR if you face any issues</li>
+   412→   412→                    </ul>
+   413→   413→                  </div>
+   414→   414→                </div>
+   415→   415→              </div>
+   416→   416→            )}
+   417→   417→          </div>
+   418→   418→        )}
+   419→   419→
+   420→   420→        {/* Pending Data Alert */}
+   421→   421→        {needsToCompleteRegistration && !activeView && (
+   422→   422→          <div className="p-4 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-xl">
+   423→   423→            <div className="flex items-start gap-3">
+   424→   424→              <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
+   425→   425→              <div className="flex-1">
+   426→   426→                <h3 className="font-medium text-orange-800 dark:text-orange-200">
+   427→   427→                  Complete Your Registration
+   428→   428→                </h3>
+   429→   429→                <p className="text-sm text-orange-700 dark:text-orange-300 mt-1">
+   430→   430→                  Your profile is {profileCompletion}% complete. Complete the registration to enable all features.
+   431→   431→                </p>
+   432→   432→                {missingFields.length > 0 && (
+   433→   433→                  <div className="mt-2 flex flex-wrap gap-1">
+   434→   434→                    {missingFields.slice(0, 5).map(field => (
+   435→   435→                      <span key={field} className="text-xs bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded">
+   436→   436→                        {FIELD_LABELS[field] || field}
+   437→   437→                      </span>
+   438→   438→                    ))}
+   439→   439→                    {missingFields.length > 5 && (
+   440→   440→                      <span className="text-xs text-orange-600 dark:text-orange-400">
+   441→   441→                        +{missingFields.length - 5} more
+   442→   442→                      </span>
+   443→   443→                    )}
+   444→   444→                  </div>
+   445→   445→                )}
+   446→   446→                <Button 
+   447→   447→                  onClick={onStartRegistration} 
+   448→   448→                  className="mt-3"
+   449→   449→                  size="sm"
+   450→   450→                >
+   451→   451→                  Complete Registration
+   452→   452→                </Button>
+   453→   453→              </div>
+   454→   454→            </div>
+   455→   455→          </div>
+   456→   456→        )}
+   457→   457→
+   458→   458→        {/* Documents Preview - Always visible */}
+   459→   459→        {!activeView && hasDocuments && (
+   460→   460→          <div className="form-section">
+   461→   461→            <div className="flex items-center justify-between mb-4">
+   462→   462→              <h3 className="font-semibold flex items-center gap-2">
+   463→   463→                <FolderOpen className="w-4 h-4 text-muted-foreground" />
+   464→   464→                My Documents
+   465→   465→              </h3>
+   466→   466→              <Button 
+   467→   467→                variant="ghost" 
+   468→   468→                size="sm" 
+   469→   469→                onClick={() => setActiveView('documents')}
+   470→   470→                className="text-xs"
+   471→   471→              >
+   472→   472→                View All <ChevronRight className="w-3 h-3" />
+   473→   473→              </Button>
+   474→   474→            </div>
+   475→   475→            <div className="flex gap-2 overflow-x-auto pb-2">
+   476→   476→              {documents.filter(doc => doc.url).slice(0, 3).map((doc) => (
+   477→   477→                <div 
+   478→   478→                  key={doc.key}
+   479→   479→                  className="flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border border-border bg-muted cursor-pointer"
+   480→   480→                  onClick={() => setSelectedImage(doc.url || null)}
+   481→   481→                >
+   482→   482→                  <img 
+   483→   483→                    src={getFileUrl(doc.url!) || undefined} 
+   484→   484→                    alt={doc.label}
+   485→   485→                    className="w-full h-full object-cover"
+   486→   486→                  />
+   487→   487→                </div>
+   488→   488→              ))}
+   489→   489→            </div>
+   490→   490→          </div>
+   491→   491→        )}
+   492→   492→
+   493→   493→        {/* Editable Basic Info */}
+   494→   494→        {!activeView && (
+   495→   495→          <>
+   496→   496→            <div className="form-section">
+   497→   497→              <div className="flex items-center justify-between mb-4">
+   498→   498→                <h3 className="font-semibold flex items-center gap-2">
+   499→   499→                  <Mail className="w-4 h-4 text-muted-foreground" />
+   500→   500→                  Additional Information
+   501→   501→                </h3>
+   502→   502→                {!isEditing ? (
+   503→   503→                  <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)}>
+   504→   504→                    <Edit2 className="w-4 h-4 mr-1" />
+   505→   505→                    Edit
+   506→   506→                  </Button>
+   507→   507→                ) : (
+   508→   508→                  <div className="flex gap-2">
+   509→   509→                    <Button variant="ghost" size="sm" onClick={() => setIsEditing(false)}>
+   510→   510→                      <X className="w-4 h-4" />
+   511→   511→                    </Button>
+   512→   512→                    <Button size="sm" onClick={handleSave} disabled={isSaving}>
+   513→   513→                      {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+   514→   514→                    </Button>
+   515→   515→                  </div>
+   516→   516→                )}
+   517→   517→              </div>
+   518→   518→
+   519→   519→              {isEditing ? (
+   520→   520→                <div className="space-y-4">
+   521→   521→                  <div className="space-y-2">
+   522→   522→                    <Label htmlFor="edit-email">Email</Label>
+   523→   523→                    <Input
+   524→   524→                      id="edit-email"
+   525→   525→                      type="email"
+   526→   526→                      value={editData.email}
+   527→   527→                      onChange={(e) => setEditData(prev => ({ ...prev, email: e.target.value }))}
+   528→   528→                      placeholder="Enter email address"
+   529→   529→                    />
+   530→   530→                  </div>
+   531→   531→                  <div className="space-y-2">
+   532→   532→                    <Label htmlFor="edit-uan">UAN Number</Label>
+   533→   533→                    <Input
+   534→   534→                      id="edit-uan"
+   535→   535→                      value={editData.uan_number}
+   536→   536→                      onChange={(e) => setEditData(prev => ({ ...prev, uan_number: e.target.value }))}
+   537→   537→                      placeholder="Enter UAN number"
+   538→   538→                    />
+   539→   539→                  </div>
+   540→   540→                  <div className="space-y-2">
+   541→   541→                    <Label htmlFor="edit-esic">ESIC Number</Label>
+   542→   542→                    <Input
+   543→   543→                      id="edit-esic"
+   544→   544→                      value={editData.esic_number}
+   545→   545→                      onChange={(e) => setEditData(prev => ({ ...prev, esic_number: e.target.value }))}
+   546→   546→                      placeholder="Enter ESIC number"
+   547→   547→                    />
+   548→   548→                  </div>
+   549→   549→                  <div className="space-y-2">
+   550→   550→                    <Label>Marital Status</Label>
+   551→   551→                    <Select
+   552→   552→                      value={editData.marital_status}
+   553→   553→                      onValueChange={(value) => setEditData(prev => ({ ...prev, marital_status: value }))}
+   554→   554→                    >
+   555→   555→                      <SelectTrigger>
+   556→   556→                        <SelectValue placeholder="Select marital status" />
+   557→   557→                      </SelectTrigger>
+   558→   558→                      <SelectContent>
+   559→   559→                        {MARITAL_STATUS_OPTIONS.map((option) => (
+   560→   560→                          <SelectItem key={option.value} value={option.value}>
+   561→   561→                            {option.label}
+   562→   562→                          </SelectItem>
+   563→   563→                        ))}
+   564→   564→                      </SelectContent>
+   565→   565→                    </Select>
+   566→   566→                  </div>
+   567→   567→                </div>
+   568→   568→              ) : (
+   569→   569→                <div className="space-y-3">
+   570→   570→                  <InfoRow label="Email" value={employee.email} />
+   571→   571→                  <InfoRow label="UAN Number" value={employee.uan_number} />
+   572→   572→                  <InfoRow label="ESIC Number" value={employee.esic_number} />
+   573→   573→                  <InfoRow 
+   574→   574→                    label="Marital Status" 
+   575→   575→                    value={employee.marital_status ? employee.marital_status.charAt(0).toUpperCase() + employee.marital_status.slice(1) : null} 
+   576→   576→                  />
+   577→   577→                </div>
+   578→   578→              )}
+   579→   579→            </div>
+   580→   580→
+   581→   581→            {/* Personal Details - Read Only */}
+   582→   582→            <div className="form-section">
+   583→   583→              <h3 className="font-semibold flex items-center gap-2 mb-4">
+   584→   584→                <User className="w-4 h-4 text-muted-foreground" />
+   585→   585→                Personal Details
+   586→   586→              </h3>
+   587→   587→              <div className="space-y-3">
+   588→   588→                <InfoRow label="Full Name" value={employee.full_name} />
+   589→   589→                <InfoRow label="Date of Birth" value={employee.date_of_birth ? formatDateDDMMYYYY(employee.date_of_birth) : null} />
+   590→   590→                <InfoRow label="Gender" value={employee.gender ? employee.gender.charAt(0).toUpperCase() + employee.gender.slice(1) : null} />
+   591→   591→                <InfoRow label="Aadhaar Number" value={employee.aadhaar_number} masked />
+   592→   592→              </div>
+   593→   593→            </div>
+   594→   594→
+   595→   595→            {/* Address */}
+   596→   596→            <div className="form-section">
+   597→   597→              <h3 className="font-semibold flex items-center gap-2 mb-4">
+   598→   598→                <MapPin className="w-4 h-4 text-muted-foreground" />
+   599→   599→                Address
+   600→   600→              </h3>
+   601→   601→              <div className="space-y-3">
+   602→   602→                <InfoRow label="Address" value={employee.address} />
+   603→   603→                <InfoRow label="PIN Code" value={employee.pin_code} />
+   604→   604→                <InfoRow label="District" value={employee.district} />
+   605→   605→                <InfoRow label="State" value={employee.state} />
+   606→   606→              </div>
+   607→   607→            </div>
+   608→   608→
+   609→   609→            {/* Bank Details */}
+   610→   610→            <div className="form-section">
+   611→   611→              <h3 className="font-semibold flex items-center gap-2 mb-4">
+   612→   612→                <CreditCard className="w-4 h-4 text-muted-foreground" />
+   613→   613→                Bank Details
+   614→   614→              </h3>
+   615→   615→              <div className="space-y-3">
+   616→   616→                <InfoRow label="Bank Name" value={employee.bank_name} />
+   617→   617→                <InfoRow label="Account Number" value={employee.account_number} masked />
+   618→   618→                <InfoRow label="IFSC Code" value={employee.ifsc_code} />
+   619→   619→                <InfoRow label="Account Holder" value={employee.account_holder_name} />
+   620→   620→              </div>
+   621→   621→            </div>
+   622→   622→
+   623→   623→            {/* Assignment */}
+   624→   624→            <div className="form-section">
+   625→   625→              <h3 className="font-semibold flex items-center gap-2 mb-4">
+   626→   626→                <Building className="w-4 h-4 text-muted-foreground" />
+   627→   627→                Assignment
+   628→   628→              </h3>
+   629→   629→              <div className="space-y-3">
+   630→   630→                <InfoRow label="Client" value={employee.client_name} />
+   631→   631→                <InfoRow label="Unit/Location" value={employee.unit_name} />
+   632→   632→                {employee.designation && (
+   633→   633→                  <InfoRow label="Designation" value={employee.designation} />
+   634→   634→                )}
+   635→   635→              </div>
+   636→   636→            </div>
+   637→   637→          </>
+   638→   638→        )}
+   639→   639→      </main>
+   640→   640→
+   641→   641→      {/* Image Preview Dialog */}
+   642→   642→      <Dialog open={!!selectedImage} onOpenChange={() => setSelectedImage(null)}>
+   643→   643→        <DialogContent className="max-w-3xl">
+   644→   644→          <DialogHeader>
+   645→   645→            <DialogTitle>Document Preview</DialogTitle>
+   646→   646→          </DialogHeader>
+   647→   647→          {selectedImage && (
+   648→   648→            <div className="relative">
+   649→   649→              <img 
+   650→   650→                src={getFileUrl(selectedImage) || undefined} 
+   651→   651→                alt="Document"
+   652→   652→                className="w-full h-auto max-h-[70vh] object-contain rounded-lg"
+   653→   653→              />
+   654→   654→              <Button
+   655→   655→                variant="outline"
+   656→   656→                size="sm"
+   657→   657→                className="absolute top-2 right-2"
+   658→   658→                onClick={() => {
+   659→   659→                  const url = getFileUrl(selectedImage);
+   660→   660→                  if (url) window.open(url, '_blank');
+   661→   661→                }}
+   662→   662→              >
+   663→   663→                <ExternalLink className="w-4 h-4 mr-1" />
+   664→   664→                Open Full
+   665→   665→              </Button>
+   666→   666→            </div>
+   667→   667→          )}
+   668→   668→        </DialogContent>
+   669→   669→      </Dialog>
+   670→   670→    </div>
+   671→   671→  );
+   672→   672→}
+   673→   673→
+   674→   674→function InfoRow({ label, value, masked }: { label: string; value: string | null; masked?: boolean }) {
+   675→   675→  const displayValue = value 
+   676→   676→    ? (masked ? value.slice(0, 4) + ' **** ' + value.slice(-4) : value)
+   677→   677→    : null;
+   678→   678→
+   679→   679→  return (
+   680→   680→    <div className="flex justify-between items-center py-2 border-b border-border/50 last:border-0">
+   681→   681→      <span className="text-sm text-muted-foreground">{label}</span>
+   682→   682→      {displayValue ? (
+   683→   683→        <span className="text-sm font-medium">{displayValue}</span>
+   684→   684→      ) : (
+   685→   685→        <span className="text-xs text-orange-500 flex items-center gap-1">
+   686→   686→          <AlertCircle className="w-3 h-3" />
+   687→   687→          Not provided
+   688→   688→        </span>
+   689→   689→      )}
+   690→   690→    </div>
+   691→   691→  );
+   692→   692→}
+   693→   693→

@@ -1,0 +1,790 @@
+   170→
+   171→        $ttl = $ttl > 0 ? $ttl : self::DEFAULT_TTL;
+   172→
+   173→        // ── VAPID Authorization header ──
+   174→        $audience  = $this->extractAudience($endpoint);
+   175→        $jwt       = $this->createVapidJwt($audience);
+   176→        $authValue = 'vapid t=' . $jwt . ', k=' . $this->vapidPublicKey;
+   177→
+   178→        $headers = [
+   179→            'Authorization: ' . $authValue,
+   180→            'TTL: ' . $ttl,
+   181→        ];
+   182→
+   183→        $body = '';
+   184→
+   185→        // ── Encrypt payload when present ──
+   186→        if ($payload !== '') {
+   187→            if (strlen($payload) > self::MAX_PAYLOAD_SIZE) {
+   188→                return $this->result(false, 0, $endpoint, '',
+   189→                    'Payload exceeds ' . self::MAX_PAYLOAD_SIZE . ' bytes');
+   190→            }
+   191→
+   192→            $userPubKey = $subscription['keys']['p256dh'] ?? '';
+   193→            $userAuth   = $subscription['keys']['auth']   ?? '';
+   194→            if ($userPubKey === '' || $userAuth === '') {
+   195→                return $this->result(false, 0, $endpoint, '',
+   196→                    'Subscription is missing encryption keys (p256dh / auth)');
+   197→            }
+   198→
+   199→            $body = $this->encryptPayload(
+   200→                $payload,
+   201→                self::base64UrlDecode($userPubKey),
+   202→                self::base64UrlDecode($userAuth)
+   203→            );
+   204→
+   205→            $headers[] = 'Content-Type: application/octet-stream';
+   206→            $headers[] = 'Content-Encoding: aes128gcm';
+   207→        }
+   208→
+   209→        return $this->curlPost($endpoint, $headers, $body);
+   210→    }
+   211→
+   212→    /**
+   213→     * Broadcast the same notification to many subscriptions.
+   214→     *
+   215→     * @param array  $subscriptions  Array of subscription arrays (same shape as send()).
+   216→     * @param string $payload
+   217→     * @param int    $ttl
+   218→     *
+   219→     * @return array{total:int, succeeded:int, failed:int, results:array}
+   220→     */
+   221→    public function sendBatch(array $subscriptions, string $payload = '', int $ttl = 0): array
+   222→    {
+   223→        $results   = [];
+   224→        $succeeded = 0;
+   225→        $failed    = 0;
+   226→
+   227→        foreach ($subscriptions as $sub) {
+   228→            $r = $this->send($sub, $payload, $ttl);
+   229→            $results[] = $r;
+   230→            if ($r['success']) {
+   231→                $succeeded++;
+   232→            } else {
+   233→                $failed++;
+   234→            }
+   235→        }
+   236→
+   237→        return [
+   238→            'total'     => count($results),
+   239→            'succeeded' => $succeeded,
+   240→            'failed'    => $failed,
+   241→            'results'   => $results,
+   242→        ];
+   243→    }
+   244→
+   245→    // ═══════════════════════════════════════════════════════════════════
+   246→    //  VAPID JWT  (RFC 8292)
+   247→    // ═══════════════════════════════════════════════════════════════════
+   248→
+   249→    /**
+   250→ * Build a VAPID JWT for the given push-service origin.
+   251→     */
+   252→    private function createVapidJwt(string $audience): string
+   253→    {
+   254→        $now = time();
+   255→
+   256→        $header = self::base64UrlEncode(json_encode([
+   257→            'typ' => 'JWT',
+   258→            'alg' => 'ES256',
+   259→        ]));
+   260→
+   261→        $claims = self::base64UrlEncode(json_encode([
+   262→            'aud' => $audience,
+   263→            'exp' => $now + self::DEFAULT_TTL,
+   264→            'sub' => $this->vapidSubject,
+   265→        ]));
+   266→
+   267→        $signingInput = $header . '.' . $claims;
+   268→        $signature    = self::base64UrlEncode($this->es256Sign($signingInput));
+   269→
+   270→        return $signingInput . '.' . $signature;
+   271→    }
+   272→
+   273→    // ═══════════════════════════════════════════════════════════════════
+   274→    //  ES256 Signing  (ECDSA P-256 / SHA-256, RFC 7518 §3.4)
+   275→    // ═══════════════════════════════════════════════════════════════════
+   276→
+   277→    /**
+   278→ * Sign data with the VAPID private key using ES256.
+   279→     * Returns the raw 64-byte concatenated R || S values.
+   280→     */
+   281→    private function es256Sign(string $data): string
+   282→    {
+   283→        $privRaw = self::base64UrlDecode($this->vapidPrivateKey);
+   284→        $pubRaw  = self::base64UrlDecode($this->vapidPublicKey);
+   285→        $privPem = self::buildEcPrivateKeyPem($privRaw, $pubRaw);
+   286→
+   287→        $signature = null;
+   288→        $ok = openssl_sign($data, $signature, $privPem, OPENSSL_ALGO_SHA256);
+   289→
+   290→        if (!$ok || $signature === null) {
+   291→            throw new \RuntimeException(
+   292→                'ES256 signing failed: ' . openssl_error_string()
+   293→            );
+   294→        }
+   295→
+   296→        return self::derSigToRaw($signature);
+   297→    }
+   298→
+   299→    // ═══════════════════════════════════════════════════════════════════
+   300→    //  Payload Encryption  (aes128gcm — RFC 8291)
+   301→    // ═══════════════════════════════════════════════════════════════════
+   302→
+   303→    /**
+   304→ * Encrypt a push payload per RFC 8291 §3 (aes128gcm content encoding).
+   305→     *
+   306→ * @param string $payload        Plaintext (UTF-8).
+   307→ * @param string $userPubKey     Raw 65-byte uncompressed P-256 public key.
+   308→ * @param string $userAuthSecret Raw 16-byte authentication secret.
+   309→     *
+   310→ * @return string Binary encrypted body (salt || rs || serverPubKey || ciphertext || tag).
+   311→     */
+   312→    private function encryptPayload(
+   313→        string $payload,
+   314→        string $userPubKey,
+   315→        string $userAuthSecret
+   316→    ): string {
+   317→        if (strlen($userPubKey) !== 65 || $userPubKey[0] !== "\x04") {
+   318→            throw new \InvalidArgumentException('Invalid user public key');
+   319→        }
+   320→        if (strlen($userAuthSecret) !== 16) {
+   321→            throw new \InvalidArgumentException('User auth secret must be 16 bytes');
+   322→        }
+   323→
+   324→        // 1. Generate an ephemeral P-256 key pair
+   325→        $ephemKey = openssl_pkey_new([
+   326→            'curve_name'       => 'prime256v1',
+   327→            'private_key_type' => OPENSSL_KEYTYPE_EC,
+   328→        ]);
+   329→        if ($ephemKey === false) {
+   330→            throw new \RuntimeException(
+   331→                'Failed to generate ephemeral P-256 key: ' . openssl_error_string()
+   332→            );
+   333→        }
+   334→
+   335→        // Extract the ephemeral public key (65 bytes)
+   336→        $ephemDetails = openssl_pkey_get_details($ephemKey);
+   337→        $serverPubRaw = self::extractRawEcPublicKey(
+   338→            self::pemToDer($ephemDetails['key'])
+   339→        );
+   340→
+   341→        // Export the ephemeral private key as PEM
+   342→        $ephemPrivPem = null;
+   343→        openssl_pkey_export($ephemKey, $ephemPrivPem);
+   344→
+   345→        // 2. ECDH shared secret → x-coordinate (32 bytes)
+   346→        $sharedX = $this->computeEcdhSharedSecret($ephemPrivPem, $userPubKey);
+   347→
+   348→        // 3. Derive IKM = HKDF-Extract(salt=authSecret, IKM=0x00||0x00||sharedX)
+   349→        $ikm = $this->hkdfExtract($userAuthSecret, "\x00\x00" . $sharedX);
+   350→
+   351→        // 4. Random 16-byte salt
+   352→        $salt = sodium_randombytes_buf(16);
+   353→
+   354→        // 5. Derive CEK (16 bytes) and nonce (12 bytes) via second HKDF round
+   355→        $prk   = $this->hkdfExtract($salt, $ikm);
+   356→        $cek   = $this->hkdfExpand($prk, self::paddedInfo('Content-Encoding: aes128gcm'), 16);
+   357→        $nonce = $this->hkdfExpand($prk, self::paddedInfo('Content-Encoding: nonce'), 12);
+   358→
+   359→        // 6. AES-128-GCM encrypt
+   360→        $tag        = '';
+   361→        $ciphertext = openssl_encrypt(
+   362→            $payload,
+   363→            'aes-128-gcm',
+   364→            $cek,
+   365→            OPENSSL_RAW_DATA,
+   366→            $nonce,
+   367→            $tag,
+   368→            '',   // no Additional Authenticated Data
+   369→            16    // 128-bit authentication tag
+   370→        );
+   371→
+   372→        if ($ciphertext === false) {
+   373→            throw new \RuntimeException(
+   374→                'AES-128-GCM encryption failed: ' . openssl_error_string()
+   375→            );
+   376→        }
+   377→
+   378→        // 7. Assemble the encrypted body
+   379→        //    salt(16) || recordSize(4, big-endian) || serverPubKey(65) || ciphertext || tag(16)
+   380→        $body = $salt
+   381→            . pack('N', self::RECORD_SIZE)
+   382→            . $serverPubRaw
+   383→            . $ciphertext
+   384→            . $tag;
+   385→
+   386→        // 8. Zero sensitive material from memory
+   387→        sodium_memzero($cek);
+   388→        sodium_memzero($nonce);
+   389→        sodium_memzero($prk);
+   390→        sodium_memzero($ikm);
+   391→        sodium_memzero($sharedX);
+   392→
+   393→        return $body;
+   394→    }
+   395→
+   396→    // ═══════════════════════════════════════════════════════════════════
+   397→    //  ECDH Shared Secret  (P-256, x-coordinate only)
+   398→    // ═══════════════════════════════════════════════════════════════════
+   399→
+   400→    /**
+   401→ * Compute the ECDH shared secret between a local private key and a
+   402→     * remote uncompressed P-256 public key.
+   403→     *
+   404→ * @param string $privPem    PEM-encoded EC private key.
+   405→ * @param string $userPubRaw Raw 65-byte uncompressed P-256 public key.
+   406→     *
+   407→ * @return string 32-byte x-coordinate of the shared point.
+   408→     */
+   409→    private function computeEcdhSharedSecret(string $privPem, string $userPubRaw): string
+   410→    {
+   411→        // ── Strategy A: openssl_pkey_derive (PHP ≥ 8.0 with EC support) ──
+   412→        $priv = openssl_pkey_get_private($privPem);
+   413→        $pubPem = self::buildEcPublicKeyPem($userPubRaw);
+   414→        $pub = openssl_pkey_get_public($pubPem);
+   415→
+   416→        if ($priv !== false && $pub !== false && function_exists('openssl_pkey_derive')) {
+   417→            $shared = @openssl_pkey_derive($pub, $priv);
+   418→            if ($shared !== false && strlen($shared) === 32) {
+   419→                return $shared;
+   420→            }
+   421→        }
+   422→
+   423→        // ── Strategy B: bcmath P-256 scalar multiplication (PHP 7.4 fallback) ──
+   424→        if (!function_exists('bcadd')) {
+   425→            throw new \RuntimeException(
+   426→                'ECDH on PHP < 8.0 requires the bcmath extension. '
+   427→                . 'Enable bcmath or upgrade to PHP 8.0+.'
+   428→            );
+   429→        }
+   430→
+   431→        // Extract our private scalar (32 bytes) from the PEM
+   432→        $privDer = self::pemToDer($privPem);
+   433→        $privRaw = self::extractRawEcPrivateKey($privDer);
+   434→        $privHex = bin2hex($privRaw);
+   435→
+   436→        // Parse the user's public point (skip the 0x04 prefix byte)
+   437→        $pubXHex = bin2hex(substr($userPubRaw, 1, 32));
+   438→        $pubYHex = bin2hex(substr($userPubRaw, 33, 32));
+   439→
+   440→        // Compute scalar × point → shared x-coordinate
+   441→        $sharedXHex = self::p256Ecdh($privHex, $pubXHex, $pubYHex);
+   442→
+   443→        return hex2bin($sharedXHex);
+   444→    }
+   445→
+   446→    // ═══════════════════════════════════════════════════════════════════
+   447→    //  HKDF  (RFC 5869 — HMAC-based Extract-and-Expand Key Derivation)
+   448→    // ═══════════════════════════════════════════════════════════════════
+   449→
+   450→    /**
+   451→ * HKDF-Extract: PRK = HMAC-SHA256(salt, IKM).
+   452→     */
+   453→    private function hkdfExtract(string $salt, string $ikm): string
+   454→    {
+   455→        if ($salt === '') {
+   456→            $salt = str_repeat("\x00", 32);
+   457→        }
+   458→        return hash_hmac('sha256', $ikm, $salt, true);
+   459→    }
+   460→
+   461→    /**
+   462→ * HKDF-Expand: OKM = T(1) || T(2) || …  (truncated to $length bytes).
+   463→     */
+   464→    private function hkdfExpand(string $prk, string $info, int $length): string
+   465→    {
+   466→        $hashLen = 32; // SHA-256 output length
+   467→        $n       = (int)ceil($length / $hashLen);
+   468→        $okm     = '';
+   469→        $t       = '';
+   470→
+   471→        for ($i = 1; $i <= $n; $i++) {
+   472→            $t   = hash_hmac('sha256', $t . $info . chr($i), $prk, true);
+   473→            $okm .= $t;
+   474→        }
+   475→
+   476→        return substr($okm, 0, $length);
+   477→    }
+   478→
+   479→    // ═══════════════════════════════════════════════════════════════════
+   480→    //  P-256 ECDH via bcmath  (fallback for PHP < 8.0)
+   481→    // ═══════════════════════════════════════════════════════════════════
+   482→
+   483→    /**
+   484→ * Compute ECDH: returns the x-coordinate of k×(px,py) on P-256 as hex.
+   485→     */
+   486→    private static function p256Ecdh(string $kHex, string $pxHex, string $pyHex): string
+   487→    {
+   488→ $kDec  = self::hexToDec($kHex);
+   489→        $pxDec = self::hexToDec($pxHex);
+   490→        $pyDec = self::hexToDec($pyHex);
+   491→
+   492→        $result = self::p256ScalarMult($kDec, $pxDec, $pyDec);
+   493→        return self::decToHex($result[0]);
+   494→    }
+   495→
+   496→    /**
+   497→ * Scalar multiplication k×(px,py) on P-256 using double-and-add.
+   498→     * @return array{0:string, 1:string}  [x, y] as bcmath decimal strings.
+   499→     */
+   500→    private static function p256ScalarMult(string $k, string $px, string $py): array
+   501→    {
+   502→        $k = bcmod($k, self::P256_N, 0);
+   503→
+   504→        // Result starts as the point at infinity
+   505→        $rx = '0';
+   506→        $ry = '0';
+   507→        $isInf = true;
+   508→
+   509→        $kBin = self::decToBin($k);
+   510→        $len  = strlen($kBin);
+   511→
+   512→        for ($i = 0; $i < $len; $i++) {
+   513→            // Double
+   514→            if (!$isInf) {
+   515→                $d = self::p256PointDouble($rx, $ry);
+   516→                $rx = $d[0];
+   517→                $ry = $d[1];
+   518→            }
+   519→            // Add generator if bit is 1
+   520→            if ($kBin[$i] === '1') {
+   521→                if ($isInf) {
+   522→                    $rx    = $px;
+   523→                    $ry    = $py;
+   524→                    $isInf = false;
+   525→                } else {
+   526→                    $a = self::p256PointAdd($rx, $ry, $px, $py);
+   527→                    $rx = $a[0];
+   528→                    $ry = $a[1];
+   529→                }
+   530→            }
+   531→        }
+   532→
+   533→        return [$rx, $ry];
+   534→    }
+   535→
+   536→    /**
+   537→ * Point addition (x1,y1) + (x2,y2) on P-256.
+   538→     */
+   539→    private static function p256PointAdd(
+   540→        string $x1, string $y1, string $x2, string $y2
+   541→    ): array {
+   542→        $p = self::P256_P;
+   543→        $a = self::P256_A;
+   544→
+   545→        // Same x → check if points are additive inverses
+   546→        if (bccomp($x1, $x2) === 0) {
+   547→            if (bccomp($y1, $y2) === 0) {
+   548→                return self::p256PointDouble($x1, $y1);
+   549→            }
+   550→            throw new \RuntimeException('ECDH point addition produced point at infinity');
+   551→        }
+   552→
+   553→        $lambda = bcmod(
+   554→            bcmul(bcsub($y2, $y1, 0), self::modInverse(bcsub($x2, $x1, 0), $p)),
+   555→            $p
+   556→        );
+   557→
+   558→        $x3 = bcmod(bcsub(bcsub(bcmul($lambda, $lambda, 0), $x1, 0), $x2, 0), $p);
+   559→        $y3 = bcmod(bcsub(bcmul($lambda, bcsub($x1, $x3, 0), 0), $y1, 0), $p);
+   560→
+   561→        return [$x3, $y3];
+   562→    }
+   563→
+   564→    /**
+   565→ * Point doubling 2×(x,y) on P-256.
+   566→     */
+   567→    private static function p256PointDouble(string $x, string $y): array
+   568→    {
+   569→        $p = self::P256_P;
+   570→        $a = self::P256_A;
+   571→
+   572→        $lambda = bcmod(
+   573→            bcmul(
+   574→                bcadd(bcmul('3', bcmul($x, $x, 0), 0), $a, 0),
+   575→                self::modInverse(bcmul('2', $y, 0), $p)
+   576→            ),
+   577→            $p
+   578→        );
+   579→
+   580→        $x3 = bcmod(bcsub(bcmul($lambda, $lambda, 0), bcmul('2', $x, 0), 0), $p);
+   581→        $y3 = bcmod(bcsub(bcmul($lambda, bcsub($x, $x3, 0), 0), $y, 0), $p);
+   582→
+   583→        return [$x3, $y3];
+   584→    }
+   585→
+   586→    /**
+   587→ * Modular inverse via Fermat's little theorem:  a^(p−2) mod p.
+   588→     */
+   589→    private static function modInverse(string $a, string $p): string
+   590→    {
+   591→        return bcpowmod($a, bcsub($p, '2', 0), $p);
+   592→    }
+   593→
+   594→    // ═══════════════════════════════════════════════════════════════════
+   595→    //  cURL HTTP POST
+   596→    // ═══════════════════════════════════════════════════════════════════
+   597→
+   598→    /**
+   599→ * POST the encrypted push body to the subscription endpoint.
+   600→     */
+   601→    private function curlPost(string $endpoint, array $headers, string $body): array
+   602→    {
+   603→        $ch = curl_init($endpoint);
+   604→        if ($ch === false) {
+   605→            return $this->result(false, 0, $endpoint, '', 'cURL init failed');
+   606→        }
+   607→
+   608→        curl_setopt_array($ch, [
+   609→            CURLOPT_POST           => true,
+   610→            CURLOPT_RETURNTRANSFER => true,
+   611→            CURLOPT_HTTPHEADER     => $headers,
+   612→            CURLOPT_POSTFIELDS     => $body,
+   613→            CURLOPT_TIMEOUT        => 30,
+   614→            CURLOPT_CONNECTTIMEOUT => 10,
+   615→            CURLOPT_FOLLOWLOCATION => false,
+   616→            CURLOPT_HEADER         => false,
+   617→        ]);
+   618→
+   619→        $responseBody = curl_exec($ch);
+   620→        $httpCode     = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+   621→        $curlError    = curl_error($ch);
+   622→        curl_close($ch);
+   623→
+   624→        $success = ($httpCode >= 200 && $httpCode < 300);
+   625→
+   626→        return $this->result(
+   627→            $success,
+   628→            $httpCode,
+   629→            $endpoint,
+   630→            ($responseBody !== false) ? $responseBody : '',
+   631→            $success ? null : ($curlError !== '' ? $curlError : 'HTTP ' . $httpCode)
+   632→        );
+   633→    }
+   634→
+   635→    // ═══════════════════════════════════════════════════════════════════
+   636→    //  Private Helpers — General
+   637→    // ═══════════════════════════════════════════════════════════════════
+   638→
+   639→    private function result(
+   640→        bool $success,
+   641→        int $status,
+   642→        string $endpoint,
+   643→        string $body,
+   644→        ?string $error
+   645→    ): array {
+   646→        return [
+   647→            'success'  => $success,
+   648→            'status'   => $status,
+   649→            'endpoint' => $endpoint,
+   650→            'body'     => $body,
+   651→            'error'    => $error,
+   652→        ];
+   653→    }
+   654→
+   655→    /**
+   656→ * Extract origin (scheme://host) from a URL for the VAPID "aud" claim.
+   657→     */
+   658→    private function extractAudience(string $url): string
+   659→    {
+   660→        $p      = parse_url($url);
+   661→        $scheme = $p['scheme'] ?? 'https';
+   662→        $host   = $p['host'] ?? '';
+   663→        $port   = isset($p['port']) ? ':' . $p['port'] : '';
+   664→        return $scheme . '://' . $host . $port;
+   665→    }
+   666→
+   667→    /**
+   668→ * Pad an info string with null bytes so its length is a multiple of 16.
+   669→     * Per RFC 8291 §5.1: info || 0x00 || pad.
+   670→     */
+   671→    private static function paddedInfo(string $info): string
+   672→    {
+   673→        $info  .= "\x00";
+   674→        $remain = (16 - (strlen($info) % 16)) % 16;
+   675→        return $info . str_repeat("\x00", $remain);
+   676→    }
+   677→
+   678→    // ═══════════════════════════════════════════════════════════════════
+   679→    //  Private Static Helpers — Base64URL (RFC 4648 §5)
+   680→    // ═══════════════════════════════════════════════════════════════════
+   681→
+   682→    private static function base64UrlEncode(string $data): string
+   683→    {
+   684→        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+   685→    }
+   686→
+   687→    private static function base64UrlDecode(string $data): string
+   688→    {
+   689→        $padded = str_pad(strtr($data, '-_', '+/'), strlen($data) % 4, '=', STR_PAD_RIGHT);
+   690→        return base64_decode($padded, true);
+   691→    }
+   692→
+   693→    // ═══════════════════════════════════════════════════════════════════
+   694→    //  Private Static Helpers — DER / PEM Manipulation
+   695→    // ═══════════════════════════════════════════════════════════════════
+   696→
+   697→    /**
+   698→ * Strip PEM armour and return the raw base64-decoded DER bytes.
+   699→     */
+   700→    private static function pemToDer(string $pem): string
+   701→    {
+   702→        if (!preg_match('/-----BEGIN [A-Z ]+-----([\n\s]+)?([a-zA-Z0-9+\/\n\r=]+)-----END [A-Z ]+-----/', $pem, $m)) {
+   703→            throw new \RuntimeException('Cannot parse PEM data');
+   704→        }
+   705→        $b64 = preg_replace('/\s+/', '', $m[2]);
+   706→        return base64_decode($b64, true);
+   707→    }
+   708→
+   709→    /**
+   710→ * Encode a DER length in proper ASN.1 format.
+   711→     */
+   712→    private static function derLenEncode(int $length): string
+   713→    {
+   714→        if ($length < 0x80) {
+   715→            return chr($length);
+   716→        }
+   717→        $hex = dechex($length);
+   718→        if (strlen($hex) % 2 !== 0) {
+   719→            $hex = '0' . $hex;
+   720→        }
+   721→        $numBytes = strlen($hex) >> 1;
+   722→        return chr(0x80 | $numBytes) . hex2bin($hex);
+   723→    }
+   724→
+   725→    /**
+   726→ * Build a SEC 1 (RFC 5915) EC private key PEM from raw key bytes.
+   727→     *
+   728→ * @param string      $rawPriv  32-byte private key scalar.
+   729→ * @param string|null $rawPub   Optional 65-byte uncompressed public key.
+   730→     */
+   731→    private static function buildEcPrivateKeyPem(string $rawPriv, ?string $rawPub = null): string
+   732→    {
+   733→        // OCTET STRING wrapping the private key
+   734→        $octetStr = "\x04\x20" . $rawPriv;
+   735→
+   736→        // Context tag [0] — algorithm parameters
+   737→        $algoId = self::EC_ALGO_ID_DER;
+   738→        $ctx0   = "\xA0" . chr(strlen($algoId)) . $algoId;
+   739→
+   740→        // Inner: version(1) + privateKey + parameters [+ publicKey]
+   741→        $inner = "\x02\x01\x01" . $octetStr . $ctx0;
+   742→
+   743→        // Context tag [1] — public key (optional but recommended)
+   744→        if ($rawPub !== null) {
+   745→            $bitStr = "\x03\x42\x00" . $rawPub;
+   746→            $inner .= "\xA1" . chr(strlen($bitStr)) . $bitStr;
+   747→        }
+   748→
+   749→        $der = "\x30" . self::derLenEncode(strlen($inner)) . $inner;
+   750→
+   751→        return "-----BEGIN EC PRIVATE KEY-----\n"
+   752→            . chunk_split(base64_encode($der), 64)
+   753→            . "-----END EC PRIVATE KEY-----\n";
+   754→    }
+   755→
+   756→    /**
+   757→ * Build a SubjectPublicKeyInfo PEM from a raw 65-byte uncompressed EC point.
+   758→     */
+   759→    private static function buildEcPublicKeyPem(string $rawPub): string
+   760→    {
+   761→        $algoId   = self::EC_ALGO_ID_DER;
+   762→        $bitStr   = "\x03\x42\x00" . $rawPub;
+   763→        $inner    = $algoId . $bitStr;
+   764→        $der      = "\x30" . self::derLenEncode(strlen($inner)) . $inner;
+   765→
+   766→        return "-----BEGIN PUBLIC KEY-----\n"
+   767→            . chunk_split(base64_encode($der), 64)
+   768→            . "-----END PUBLIC KEY-----\n";
+   769→    }
+   770→
+   771→    /**
+   772→ * Extract the raw 32-byte private key scalar from a SEC 1 DER blob.
+   773→     * Handles both single-byte and multi-byte SEQUENCE length encodings.
+   774→     */
+   775→    private static function extractRawEcPrivateKey(string $der): string
+   776→    {
+   777→        $len = strlen($der);
+   778→        if ($len < 10 || $der[0] !== "\x30") {
+   779→            throw new \RuntimeException('Invalid EC private key DER');
+   780→        }
+   781→
+   782→        // Skip outer SEQUENCE tag + length
+   783→        $off = 1;
+   784→        $b   = ord($der[$off]);
+   785→        if ($b >= 0x80) {
+   786→            $off += 1 + ($b & 0x7F);
+   787→        } else {
+   788→            $off += 1;
+   789→        }
+   790→
+   791→        // Expect version INTEGER: 02 01 01
+   792→        if ($der[$off] !== "\x02") {
+   793→            throw new \RuntimeException('Expected version INTEGER in EC private key DER');
+   794→        }
+   795→        $off += 3; // skip 02 01 <version>
+   796→
+   797→        // Expect OCTET STRING: 04 20 <32 bytes>
+   798→        if ($der[$off] !== "\x04" || ord($der[$off + 1]) !== 0x20) {
+   799→            throw new \RuntimeException('Cannot locate private key octet in DER');
+   800→        }
+   801→
+   802→        return substr($der, $off + 2, 32);
+   803→    }
+   804→
+   805→    /**
+   806→ * Extract the raw 65-byte uncompressed public key point from a
+   807→     * SubjectPublicKeyInfo DER blob.
+   808→     */
+   809→    private static function extractRawEcPublicKey(string $der): string
+   810→    {
+   811→        $len = strlen($der);
+   812→        if ($len < 65 || $der[0] !== "\x30") {
+   813→            throw new \RuntimeException('Invalid SubjectPublicKeyInfo DER');
+   814→        }
+   815→
+   816→        // Skip outer SEQUENCE tag + length
+   817→        $off = 1;
+   818→        $b   = ord($der[$off]);
+   819→        if ($b >= 0x80) {
+   820→            $off += 1 + ($b & 0x7F);
+   821→        } else {
+   822→            $off += 1;
+   823→        }
+   824→
+   825→        // Skip inner SEQUENCE (AlgorithmIdentifier)
+   826→        if ($der[$off] !== "\x30") {
+   827→            throw new \RuntimeException('Expected AlgorithmIdentifier SEQUENCE');
+   828→        }
+   829→        $algoLen = ord($der[$off + 1]);
+   830→        if ($algoLen >= 0x80) {
+   831→            throw new \RuntimeException('Unexpected multi-byte length in AlgorithmIdentifier');
+   832→        }
+   833→        $off += 2 + $algoLen;
+   834→
+   835→        // BIT STRING: 03 <len> 00 <65 bytes of point>
+   836→        if ($der[$off] !== "\x03") {
+   837→            throw new \RuntimeException('Expected BIT STRING for public key point');
+   838→        }
+   839→        $off += 2; // skip tag + length
+   840→        $off += 1; // skip unused-bits byte (always 0x00)
+   841→
+   842→        return substr($der, $off, 65);
+   843→    }
+   844→
+   845→    /**
+   846→ * Convert a DER-encoded ECDSA signature to the raw R||S format (64 bytes).
+   847→     * OpenSSL produces DER; JWT / Web Push expect concatenated 32-byte values.
+   848→     */
+   849→    private static function derSigToRaw(string $der): string
+   850→    {
+   851→        $off = 0;
+   852→
+   853→        // Outer SEQUENCE
+   854→        if (ord($der[$off++]) !== 0x30) {
+   855→            throw new \RuntimeException('DER signature: expected SEQUENCE');
+   856→        }
+   857→        $b = ord($der[$off]);
+   858→        if ($b >= 0x80) {
+   859→            $off += 1 + ($b & 0x7F);
+   860→        } else {
+   861→            $off += 1;
+   862→        }
+   863→
+   864→        // R INTEGER
+   865→        if (ord($der[$off++]) !== 0x02) {
+   866→            throw new \RuntimeException('DER signature: expected INTEGER for R');
+   867→        }
+   868→        $rLen = ord($der[$off++]);
+   869→        if ($rLen >= 0x80) {
+   870→            $off += ($rLen & 0x7F);
+   871→            $rLen = ord($der[$off++]);
+   872→        }
+   873→        $r = substr($der, $off, $rLen);
+   874→        $off += $rLen;
+   875→
+   876→        // S INTEGER
+   877→        if (ord($der[$off++]) !== 0x02) {
+   878→            throw new \RuntimeException('DER signature: expected INTEGER for S');
+   879→        }
+   880→        $sLen = ord($der[$off++]);
+   881→        if ($sLen >= 0x80) {
+   882→            $off += ($sLen & 0x7F);
+   883→            $sLen = ord($der[$off++]);
+   884→        }
+   885→        $s = substr($der, $off, $sLen);
+   886→
+   887→        // Strip DER leading-zero padding (positivity marker)
+   888→        if (strlen($r) > 32 && $r[0] === "\x00") {
+   889→            $r = substr($r, 1);
+   890→        }
+   891→        if (strlen($s) > 32 && $s[0] === "\x00") {
+   892→            $s = substr($s, 1);
+   893→        }
+   894→
+   895→        // Left-pad each component to exactly 32 bytes
+   896→        return str_pad($r, 32, "\x00", STR_PAD_LEFT)
+   897→             . str_pad($s, 32, "\x00", STR_PAD_LEFT);
+   898→    }
+   899→
+   900→    // ═══════════════════════════════════════════════════════════════════
+   901→    //  Private Static Helpers — bcmath Conversions (P-256 ECDH)
+   902→    // ═══════════════════════════════════════════════════════════════════
+   903→
+   904→    /**
+   905→ * Hex string → bcmath decimal string.  Processes 8 hex chars at a time.
+   906→     */
+   907→    private static function hexToDec(string $hex): string
+   908→    {
+   909→        $hex = strtoupper($hex);
+   910→        if (strlen($hex) % 2 !== 0) {
+   911→            $hex = '0' . $hex;
+   912→        }
+   913→        $dec = '0';
+   914→        $len = strlen($hex);
+   915→        for ($i = 0; $i < $len; $i += 8) {
+   916→            $chunk    = substr($hex, $i, 8);
+   917→            $chunkLen = strlen($chunk);
+   918→            $dec = bcadd(
+   919→                bcmul($dec, bcpow('16', (string)$chunkLen, 0), 0),
+   920→                (string)hexdec($chunk),
+   921→                0
+   922→            );
+   923→        }
+   924→        return $dec;
+   925→    }
+   926→
+   927→    /**
+   928→ * bcmath decimal string → hex string.  Processes in 32-bit chunks.
+   929→     */
+   930→    private static function decToHex(string $dec): string
+   931→    {
+   932→        if (bccomp($dec, '0') === 0) {
+   933→            return '0';
+   934→        }
+   935→        $hex     = '';
+   936→        $basePow = '4294967296'; // 16^8
+   937→        while (bccomp($dec, '0') > 0) {
+   938→            $chunk = bcmod($dec, $basePow, 0);
+   939→            $hex   = sprintf('%08x', (int)$chunk) . $hex;
+   940→            $dec   = bcdiv($dec, $basePow, 0);
+   941→        }
+   942→        return ltrim($hex, '0');
+   943→    }
+   944→
+   945→    /**
+   946→ * bcmath decimal string → binary string (big-endian, MSB first).
+   947→     * Used for scanning scalar bits in double-and-add.
+   948→     */
+   949→    private static function decToBin(string $dec): string
+   950→    {
+   951→        $bin = '';
+   952→        while (bccomp($dec, '0') > 0) {
+   953→            $bin = (bcmod($dec, '2', 0) === '1' ? '1' : '0') . $bin;
+   954→            $dec = bcdiv($dec, '2', 0);
+   955→        }
+   956→        return $bin === '' ? '0' : $bin;
+   957→    }
+   958→}
+   959→

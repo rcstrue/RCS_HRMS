@@ -1,0 +1,729 @@
+     1→<?php
+     2→if (!isset($db) || !is_object($db)) { header("Location: index.php"); exit; }
+     3→// modules/expense/approvals.php
+     4→// Admin page for approving/rejecting expense entries submitted by managers.
+     5→
+     6→$pageTitle = 'Expense Approvals';
+     7→
+     8→// Shared auto-migration & helpers
+     9→require_once __DIR__ . '/expense-setup.php';
+    10→
+    11→// ─── POST Actions ────────────────────────────────────────────────────────────────
+    12→
+    13→if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    14→    // CSRF check (Round 9)
+    15→    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+    16→        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+    17→        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    18→    }
+    19→    $action = sanitize($_POST['action']);
+    20→
+    21→    // 1. Approve single entry
+    22→    if ($action === 'approve') {
+    23→        $id = (int) ($_POST['id'] ?? 0);
+    24→        if ($id > 0) {
+    25→            $db->update(
+    26→                'ess_expenses',
+    27→                [
+    28→                    'status'      => 'approved',
+    29→                    'approved_by' => $_SESSION['user_id'] ?? null,
+    30→                    'approved_at' => date('Y-m-d H:i:s'),
+    31→                ],
+    32→                'id = :id',
+    33→                ['id' => $id]
+    34→            );
+    35→            setFlash('success', 'Expense entry approved successfully.');
+    36→        }
+    37→        redirect('index.php?page=expense/approvals');
+    38→    }
+    39→
+    40→    // 2. Reject single entry (rejection_reason required)
+    41→    if ($action === 'reject') {
+    42→        $id     = (int) ($_POST['id'] ?? 0);
+    43→        $reason = sanitize(trim($_POST['rejection_reason'] ?? ''));
+    44→        if ($id > 0 && $reason !== '') {
+    45→            $db->update(
+    46→                'ess_expenses',
+    47→                [
+    48→                    'status'           => 'rejected',
+    49→                    'rejected_by'      => $_SESSION['user_id'] ?? null,
+    50→                    'rejection_reason' => $reason,
+    51→                ],
+    52→                'id = :id',
+    53→                ['id' => $id]
+    54→            );
+    55→            setFlash('success', 'Expense entry rejected.');
+    56→        } elseif ($id > 0 && $reason === '') {
+    57→            setFlash('danger', 'Rejection reason is required.');
+    58→        }
+    59→        redirect('index.php?page=expense/approvals');
+    60→    }
+    61→
+    62→    // 3. Edit entry (amount & description) – stay on same page
+    63→    if ($action === 'edit_entry') {
+    64→        $id   = (int) ($_POST['id'] ?? 0);
+    65→        $amt  = floatval($_POST['amount'] ?? 0);
+    66→        $desc = sanitize(trim($_POST['description'] ?? ''));
+    67→        if ($id > 0 && $amt >= 0) {
+    68→            $db->update(
+    69→                'ess_expenses',
+    70→                [
+    71→                    'amount'    => $amt,
+    72→                    'description' => $desc,
+    73→                    'edited_by' => 'admin',
+    74→                    'edited_at' => date('Y-m-d H:i:s'),
+    75→                ],
+    76→                'id = :id',
+    77→                ['id' => $id]
+    78→            );
+    79→            setFlash('success', 'Expense entry updated.');
+    80→        }
+    81→        redirect('index.php?page=expense/approvals');
+    82→    }
+    83→
+    84→    // 4. Bulk approve
+    85→    if ($action === 'bulk_approve') {
+    86→        $ids = $_POST['selected_ids'] ?? [];
+    87→        if (!empty($ids) && is_array($ids)) {
+    88→            $count = 0;
+    89→            foreach ($ids as $id) {
+    90→                $id = (int) $id;
+    91→                if ($id > 0) {
+    92→                    $db->update(
+    93→                        'ess_expenses',
+    94→                        [
+    95→                            'status'      => 'approved',
+    96→                            'approved_by' => $_SESSION['user_id'] ?? null,
+    97→                            'approved_at' => date('Y-m-d H:i:s'),
+    98→                        ],
+    99→                        'id = :id AND status = :status',
+   100→                        ['id' => $id, 'status' => 'pending']
+   101→                    );
+   102→                    $count++;
+   103→                }
+   104→            }
+   105→            setFlash('success', "{$count} expense(s) approved.");
+   106→        } else {
+   107→            setFlash('warning', 'No entries selected for approval.');
+   108→        }
+   109→        redirect('index.php?page=expense/approvals');
+   110→    }
+   111→}
+   112→
+   113→// Column flags already set by expense-setup.php
+   114→
+   115→// ─── GET Filters ────────────────────────────────────────────────────────────────
+   116→
+   117→$fStatus   = sanitize($_GET['status'] ?? 'all');
+   118→$fCategory = sanitize($_GET['category'] ?? 'all');
+   119→$fManager  = sanitize($_GET['manager'] ?? '');
+   120→$fMonth    = sanitize($_GET['month'] ?? '');
+   121→$fYear     = sanitize($_GET['year'] ?? '');
+   122→$fSearch   = sanitize(trim($_GET['search'] ?? ''));
+   123→
+   124→// ─── Build WHERE clause dynamically ─────────────────────────────────────────────
+   125→
+   126→$where  = ['1=1'];
+   127→$params = [];
+   128→
+   129→if ($fStatus !== 'all' && in_array($fStatus, ['pending', 'approved', 'rejected', 'reimbursed'], true)) {
+   130→    $where[]  = 'e.status = :status';
+   131→    $params['status'] = $fStatus;
+   132→}
+   133→
+   134→if ($categoryColExists && $fCategory !== 'all' && in_array($fCategory, ['advance', 'expense', 'employee_advance'], true)) {
+   135→    $where[]     = 'e.category = :category';
+   136→    $params['category'] = $fCategory;
+   137→}
+   138→
+   139→if ($fManager !== '') {
+   140→    if ($managerIdColExists) {
+   141→        $where[] = '(e.employee_id = :manager OR e.manager_id = :manager2)';
+   142→        $params['manager'] = $fManager;
+   143→        $params['manager2'] = $fManager;
+   144→    } else {
+   145→        $where[] = 'e.employee_id = :manager';
+   146→        $params['manager'] = $fManager;
+   147→    }
+   148→}
+   149→
+   150→if ($monthColExists && $fMonth !== '') {
+   151→    $m = (int) $fMonth;
+   152→    if ($m >= 1 && $m <= 12) {
+   153→        $where[]   = 'e.month = :month';
+   154→        $params['month'] = $m;
+   155→    }
+   156→}
+   157→
+   158→if ($monthColExists && $fYear !== '') {
+   159→    $y = (int) $fYear;
+   160→    if ($y >= 2000 && $y <= 2099) {
+   161→        $where[]  = 'e.year = :year';
+   162→        $params['year'] = $y;
+   163→    }
+   164→}
+   165→
+   166→if ($fSearch !== '') {
+   167→    $searchConds = ['e.description LIKE :search1', 'ec.full_name LIKE :search2'];
+   168→    $params['search1'] = "%{$fSearch}%";
+   169→    $params['search2'] = "%{$fSearch}%";
+   170→    if ($categoryColExists) {
+   171→        $searchConds[] = 'e.emp_name LIKE :search3';
+   172→        $params['search3'] = "%{$fSearch}%";
+   173→    }
+   174→    $where[] = '(' . implode(' OR ', $searchConds) . ')';
+   175→}
+   176→
+   177→$whereSql = implode(' AND ', $where);
+   178→
+   179→// ─── Fetch expenses ─────────────────────────────────────────────────────────────
+   180→
+   181→$sql = "SELECT e.*, ec.full_name AS manager_name, ec.mobile_number, ec.role, ec.designation
+   182→        FROM ess_expenses e
+   183→        LEFT JOIN ess_employee_cache ec ON e.employee_id = ec.employee_id
+   184→        WHERE {$whereSql}
+   185→        ORDER BY e.created_at DESC";
+   186→
+   187→$expenses = $db->fetchAll($sql, $params);
+   188→
+   189→// ─── Manager list for filter dropdown ───────────────────────────────────────────
+   190→
+   191→$managers = $db->fetchAll(
+   192→    "SELECT DISTINCT ec.employee_id, ec.full_name
+   193→     FROM ess_expenses e
+   194→     JOIN ess_employee_cache ec ON e.employee_id = ec.employee_id
+   195→     ORDER BY ec.full_name ASC"
+   196→);
+   197→
+   198→// ─── Summary calculations ───────────────────────────────────────────────────────
+   199→
+   200→$summaryTotal   = 0;
+   201→$summaryCounts  = ['pending' => 0, 'approved' => 0, 'rejected' => 0, 'reimbursed' => 0];
+   202→$summaryAmounts = ['pending' => 0, 'approved' => 0, 'rejected' => 0, 'reimbursed' => 0];
+   203→
+   204→foreach ($expenses as $exp) {
+   205→    $summaryTotal += (float) $exp['amount'];
+   206→    $st = $exp['status'];
+   207→    if (isset($summaryCounts[$st])) {
+   208→        $summaryCounts[$st]++;
+   209→        $summaryAmounts[$st] += (float) $exp['amount'];
+   210→    }
+   211→}
+   212→
+   213→// ─── Helper functions for view ──────────────────────────────────────────────────
+   214→
+   215→function categoryBadge($cat): string
+   216→{
+   217→    if (empty($cat)) $cat = 'expense';
+   218→    $map = [
+   219→        'advance'          => 'primary',
+   220→        'expense'          => 'info',
+   221→        'employee_advance' => 'warning',
+   222→    ];
+   223→    $color = $map[$cat] ?? 'secondary';
+   224→    $label = str_replace('_', ' ', ucfirst($cat ?? 'expense'));
+   225→    return "<span class=\"badge bg-{$color}\">{$label}</span>";
+   226→}
+   227→
+   228→function typeBadge($type): string
+   229→{
+   230→    if (empty($type)) $type = 'other';
+   231→    $map = [
+   232→        'travel'   => 'primary',
+   233→        'food'     => 'success',
+   234→        'cab'      => 'info',
+   235→        'supplies' => 'secondary',
+   236→        'medical'  => 'danger',
+   237→        'other'    => 'dark',
+   238→    ];
+   239→    $color = $map[$type] ?? 'secondary';
+   240→    return "<span class=\"badge bg-{$color}\">" . ucfirst($type ?? 'other') . "</span>";
+   241→}
+   242→
+   243→function statusBadge($status): string
+   244→{
+   245→    $map = [
+   246→        'pending'    => 'warning',
+   247→        'approved'   => 'success',
+   248→        'rejected'   => 'danger',
+   249→        'reimbursed' => 'info',
+   250→    ];
+   251→    $color = $map[$status] ?? 'secondary';
+   252→    $label = ucfirst($status);
+   253→    return "<span class=\"badge bg-{$color}\">{$label}</span>";
+   254→}
+   255→
+   256→// Base URL helper for filter links
+   257→$baseUrl = 'index.php?page=expense/approvals';
+   258→function filterUrl($baseUrl, $override = []): string
+   259→{
+   260→    $params = $_GET;
+   261→    foreach ($override as $k => $v) {
+   262→        if ($v === '' || $v === 'all') {
+   263→            unset($params[$k]);
+   264→        } else {
+   265→            $params[$k] = $v;
+   266→        }
+   267→    }
+   268→    return $baseUrl . (empty($params) ? '' : '&' . http_build_query($params));
+   269→}
+   270→
+   271→// ─── Output HTML ────────────────────────────────────────────────────────────────
+   272→?>
+   273→<div class="container-fluid py-4">
+   274→
+   275→    <!-- Page Header -->
+   276→    <div class="d-flex justify-content-between align-items-center mb-4">
+   277→        <h3 class="mb-0"><i class="bi bi-clipboard-check me-2"></i><?= htmlspecialchars($pageTitle) ?></h3>
+   278→        <span class="badge bg-secondary fs-6"><?= count($expenses) ?> records</span>
+   279→    </div>
+   280→
+   281→    <!-- Filter Bar -->
+   282→    <div class="card mb-4">
+   283→        <div class="card-body">
+   284→            <form method="GET" action="<?= htmlspecialchars($baseUrl) ?>" class="row g-2 align-items-end">
+   285→                <input type="hidden" name="page" value="expense/approvals">
+   286→
+   287→                <!-- Status -->
+   288→                <div class="col-md-2 col-sm-6">
+   289→                    <label class="form-label small fw-semibold">Status</label>
+   290→                    <select name="status" class="form-select form-select-sm">
+   291→                        <option value="all" <?= $fStatus === 'all' ? 'selected' : '' ?>>All Statuses</option>
+   292→                        <option value="pending" <?= $fStatus === 'pending' ? 'selected' : '' ?>>Pending</option>
+   293→                        <option value="approved" <?= $fStatus === 'approved' ? 'selected' : '' ?>>Approved</option>
+   294→                        <option value="rejected" <?= $fStatus === 'rejected' ? 'selected' : '' ?>>Rejected</option>
+   295→                        <option value="reimbursed" <?= $fStatus === 'reimbursed' ? 'selected' : '' ?>>Reimbursed</option>
+   296→                    </select>
+   297→                </div>
+   298→
+   299→                <!-- Category -->
+   300→                <div class="col-md-2 col-sm-6">
+   301→                    <label class="form-label small fw-semibold">Category</label>
+   302→                    <select name="category" class="form-select form-select-sm">
+   303→                        <option value="all" <?= $fCategory === 'all' ? 'selected' : '' ?>>All Categories</option>
+   304→                        <option value="advance" <?= $fCategory === 'advance' ? 'selected' : '' ?>>Advance</option>
+   305→                        <option value="expense" <?= $fCategory === 'expense' ? 'selected' : '' ?>>Expense</option>
+   306→                        <option value="employee_advance" <?= $fCategory === 'employee_advance' ? 'selected' : '' ?>>Employee Advance</option>
+   307→                    </select>
+   308→                </div>
+   309→
+   310→                <!-- Manager -->
+   311→                <div class="col-md-2 col-sm-6">
+   312→                    <label class="form-label small fw-semibold">Manager</label>
+   313→                    <select name="manager" class="form-select form-select-sm">
+   314→                        <option value="">All Managers</option>
+   315→                        <?php foreach ($managers as $m): ?>
+   316→                            <option value="<?= htmlspecialchars($m['employee_id']) ?>" <?= $fManager === (string)$m['employee_id'] ? 'selected' : '' ?>>
+   317→                                <?= htmlspecialchars($m['full_name']) ?>
+   318→                            </option>
+   319→                        <?php endforeach; ?>
+   320→                    </select>
+   321→                </div>
+   322→
+   323→                <!-- Month -->
+   324→                <div class="col-md-1 col-sm-3">
+   325→                    <label class="form-label small fw-semibold">Month</label>
+   326→                    <select name="month" class="form-select form-select-sm">
+   327→                        <option value="">--</option>
+   328→                        <?php for ($mi = 1; $mi <= 12; $mi++): ?>
+   329→                            <option value="<?= $mi ?>" <?= $fMonth === (string)$mi ? 'selected' : '' ?>>
+   330→                                <?= str_pad($mi, 2, '0', STR_PAD_LEFT) ?>
+   331→                            </option>
+   332→                        <?php endfor; ?>
+   333→                    </select>
+   334→                </div>
+   335→
+   336→                <!-- Year -->
+   337→                <div class="col-md-1 col-sm-3">
+   338→                    <label class="form-label small fw-semibold">Year</label>
+   339→                    <select name="year" class="form-select form-select-sm">
+   340→                        <option value="">--</option>
+   341→                        <?php
+   342→                        $currentYear = (int) date('Y');
+   343→                        for ($yi = $currentYear + 1; $yi >= $currentYear - 3; $yi--): ?>
+   344→                            <option value="<?= $yi ?>" <?= $fYear === (string)$yi ? 'selected' : '' ?>>
+   345→                                <?= $yi ?>
+   346→                            </option>
+   347→                        <?php endfor; ?>
+   348→                    </select>
+   349→                </div>
+   350→
+   351→                <!-- Search -->
+   352→                <div class="col-md-2 col-sm-8">
+   353→                    <label class="form-label small fw-semibold">Search</label>
+   354→                    <input type="text" name="search" class="form-control form-control-sm"
+   355→                           placeholder="Description / Name..."
+   356→                           value="<?= htmlspecialchars($fSearch) ?>">
+   357→                </div>
+   358→
+   359→                <!-- Buttons -->
+   360→                <div class="col-md-2 col-sm-4 d-flex gap-1">
+   361→                    <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+   362→                        <i class="bi bi-funnel me-1"></i> Filter
+   363→                    </button>
+   364→                    <a href="<?= htmlspecialchars($baseUrl) ?>" class="btn btn-outline-secondary btn-sm" title="Clear filters">
+   365→                        <i class="bi bi-x-circle"></i>
+   366→                    </a>
+   367→                </div>
+   368→            </form>
+   369→        </div>
+   370→    </div>
+   371→
+   372→    <?php if (empty($expenses)): ?>
+   373→        <div class="card">
+   374→            <div class="card-body text-center text-muted py-5">
+   375→                <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+   376→                <p class="mb-0">No expense entries found matching the current filters.</p>
+   377→            </div>
+   378→        </div>
+   379→    <?php else: ?>
+   380→
+   381→        <!-- Bulk Actions Bar -->
+   382→        <div class="d-flex justify-content-between align-items-center mb-3" id="bulkActionsBar">
+   383→            <div class="d-flex align-items-center gap-3">
+   384→                <div class="form-check">
+   385→                    <input class="form-check-input" type="checkbox" id="selectAll">
+   386→                    <label class="form-check-label small fw-semibold" for="selectAll">Select All</label>
+   387→                </div>
+   388→                <span class="text-muted small" id="selectedCount">0 selected</span>
+   389→            </div>
+   390→            <form method="POST" action="<?= htmlspecialchars($baseUrl) ?>" id="bulkApproveForm">
+   391→                <input type="hidden" name="action" value="bulk_approve">
+   392→                <input type="hidden" name="selected_ids" id="selectedIdsInput" value="">
+   393→                <button type="button" class="btn btn-success btn-sm" id="bulkApproveBtn" disabled>
+   394→                    <i class="bi bi-check-circle me-1"></i> Approve Selected
+   395→                </button>
+   396→                <?php echo getCSRFTokenField(); ?>
+   397→            </form>
+   398→        </div>
+   399→
+   400→        <!-- Main Table -->
+   401→        <div class="card">
+   402→            <div class="table-responsive">
+   403→                <table class="table table-hover table-striped align-middle mb-0" id="expensesTable">
+   404→                    <thead class="table-dark">
+   405→                        <tr>
+   406→                            <th style="width:40px;" class="text-center"><input class="form-check-input" type="checkbox" id="selectAllHeader"></th>
+   407→                            <th style="width:40px;" class="text-center">#</th>
+   408→                            <th style="width:100px;">Date</th>
+   409→                            <th style="width:140px;">Manager</th>
+   410→                            <th style="width:100px;">Category</th>
+   411→                            <th style="width:90px;">Type</th>
+   412→                            <th style="width:110px;" class="text-end">Amount</th>
+   413→                            <th>Description</th>
+   414→                            <th style="width:50px;" class="text-center">Bill</th>
+   415→                            <th style="width:90px;" class="text-center">Status</th>
+   416→                            <th style="width:120px;" class="text-center">Actions</th>
+   417→                        </tr>
+   418→                    </thead>
+   419→                    <tbody>
+   420→                    <?php $serial = 1; foreach ($expenses as $row):
+   421→                        $id            = (int) $row['id'];
+   422→                        $status        = $row['status'];
+   423→                        $billUrl       = $row['bill_url'] ?? '';
+   424→                        $isPending     = ($status === 'pending');
+   425→                        $descTruncated = mb_strlen($row['description']) > 50
+   426→                            ? mb_substr($row['description'], 0, 50) . '...'
+   427→                            : $row['description'];
+   428→                    ?>
+   429→                        <tr>
+   430→                            <!-- Checkbox -->
+   431→                            <td class="text-center">
+   432→                                <?php if ($isPending): ?>
+   433→                                    <input class="form-check-input row-checkbox" type="checkbox" name="selected_ids[]" value="<?= $id ?>">
+   434→                                <?php endif; ?>
+   435→                            </td>
+   436→
+   437→                            <!-- Serial -->
+   438→                            <td class="text-center text-muted small"><?= $serial++ ?></td>
+   439→
+   440→                            <!-- Date -->
+   441→                            <td>
+   442→                                <?= htmlspecialchars($row['expense_date'] ?? '') ?>
+   443→                                <br><small class="text-muted"><?= htmlspecialchars($row['month'] ?? '') . '/' . htmlspecialchars($row['year'] ?? '') ?></small>
+   444→                            </td>
+   445→
+   446→                            <!-- Manager -->
+   447→                            <td>
+   448→                                <strong><?= htmlspecialchars($row['manager_name'] ?? $row['emp_name'] ?? 'N/A') ?></strong>
+   449→                                <?php if (!empty($row['designation'])): ?>
+   450→                                    <br><small class="text-muted"><?= htmlspecialchars($row['designation']) ?></small>
+   451→                                <?php endif; ?>
+   452→                            </td>
+   453→
+   454→                            <!-- Category -->
+   455→                            <td><?= categoryBadge($row['category']) ?></td>
+   456→
+   457→                            <!-- Type -->
+   458→                            <td><?= typeBadge($row['type']) ?></td>
+   459→
+   460→                            <!-- Amount -->
+   461→                            <td class="text-end">
+   462→                                <strong><?= formatCurrency($row['amount']) ?></strong>
+   463→                            </td>
+   464→
+   465→                            <!-- Description -->
+   466→                            <td title="<?= htmlspecialchars($row['description'] ?? '') ?>">
+   467→                                <?= htmlspecialchars($descTruncated) ?>
+   468→                            </td>
+   469→
+   470→                            <!-- Bill -->
+   471→                            <td class="text-center">
+   472→                                <?php if (!empty($billUrl)): ?>
+   473→                                    <a href="<?= htmlspecialchars($billUrl) ?>" target="_blank" class="btn btn-outline-info btn-sm py-0 px-1" title="View Bill">
+   474→                                        <i class="bi bi-file-earmark-image"></i>
+   475→                                    </a>
+   476→                                <?php else: ?>
+   477→                                    <span class="text-muted">&mdash;</span>
+   478→                                <?php endif; ?>
+   479→                            </td>
+   480→
+   481→                            <!-- Status -->
+   482→                            <td class="text-center">
+   483→                                <?= statusBadge($status) ?>
+   484→                                <?php if (!empty($row['rejection_reason'])): ?>
+   485→                                    <br><small class="text-danger" title="<?= htmlspecialchars($row['rejection_reason'] ?? '') ?>">
+   486→                                        <i class="bi bi-chat-left-text"></i>
+   487→                                        <?= htmlspecialchars(mb_substr($row['rejection_reason'] ?? '', 0, 20)) ?>...
+   488→                                    </small>
+   489→                                <?php endif; ?>
+   490→                            </td>
+   491→
+   492→                            <!-- Actions — Single Edit button -->
+   493→                            <td class="text-center">
+   494→                                <button type="button" class="btn btn-primary btn-sm"
+   495→                                        data-bs-toggle="modal" data-bs-target="#editModal-<?= $id ?>" title="Edit / Actions">
+   496→                                    <i class="bi bi-pencil me-1"></i>Edit
+   497→                                </button>
+   498→                            </td>
+   499→                        </tr>
+   500→                    <?php endforeach; ?>
+   501→                    </tbody>
+   502→                </table>
+   503→            </div>
+   504→        </div>
+   505→
+   506→        <!-- Summary Footer -->
+   507→        <div class="card mt-3">
+   508→            <div class="card-body py-2">
+   509→                <div class="row align-items-center">
+   510→                    <div class="col-md-3">
+   511→                        <span class="fw-semibold">Total Displayed:</span>
+   512→                        <span class="fw-bold text-primary fs-5"><?= formatCurrency($summaryTotal) ?></span>
+   513→                        <span class="text-muted small">(<?= count($expenses) ?> entries)</span>
+   514→                    </div>
+   515→                    <div class="col-md-9">
+   516→                        <div class="d-flex flex-wrap gap-3 justify-content-end">
+   517→                            <span class="badge bg-warning text-dark fs-6 py-1 px-3">
+   518→                                Pending: <?= $summaryCounts['pending'] ?>
+   519→                                <small class="ms-1"><?= formatCurrency($summaryAmounts['pending']) ?></small>
+   520→                            </span>
+   521→                            <span class="badge bg-success fs-6 py-1 px-3">
+   522→                                Approved: <?= $summaryCounts['approved'] ?>
+   523→                                <small class="ms-1"><?= formatCurrency($summaryAmounts['approved']) ?></small>
+   524→                            </span>
+   525→                            <span class="badge bg-danger fs-6 py-1 px-3">
+   526→                                Rejected: <?= $summaryCounts['rejected'] ?>
+   527→                                <small class="ms-1"><?= formatCurrency($summaryAmounts['rejected']) ?></small>
+   528→                            </span>
+   529→                            <span class="badge bg-info fs-6 py-1 px-3">
+   530→                                Reimbursed: <?= $summaryCounts['reimbursed'] ?>
+   531→                                <small class="ms-1"><?= formatCurrency($summaryAmounts['reimbursed']) ?></small>
+   532→                            </span>
+   533→                        </div>
+   534→                    </div>
+   535→                </div>
+   536→            </div>
+   537→        </div>
+   538→
+   539→    <?php endif; ?>
+   540→
+   541→    <!-- Bootstrap Modals for Edit (placed outside table, inside container) -->
+   542→    <?php foreach ($expenses as $row):
+   543→        $id     = (int) $row['id'];
+   544→        $status = $row['status'];
+   545→    ?>
+   546→    <div class="modal fade" id="editModal-<?= $id ?>" tabindex="-1" aria-hidden="true">
+   547→        <div class="modal-dialog modal-dialog-centered">
+   548→            <div class="modal-content">
+   549→                <div class="modal-header py-2">
+   550→                    <h6 class="modal-title mb-0"><i class="bi bi-pencil-square me-1 text-primary"></i>Edit Entry #<?= $id ?> &mdash; <?= formatCurrency($row['amount'] ?? 0) ?></h6>
+   551→                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+   552→                </div>
+   553→                <div class="modal-body">
+   554→                    <form method="POST" action="<?= htmlspecialchars($baseUrl) ?>" id="editForm-<?= $id ?>">
+   555→                        <input type="hidden" name="action" value="edit_entry">
+   556→                        <input type="hidden" name="id" value="<?= $id ?>">
+   557→
+   558→                        <div class="row g-2 mb-3">
+   559→                            <div class="col-sm-4">
+   560→                                <label class="form-label small fw-semibold mb-1">Amount</label>
+   561→                                <input type="number" name="amount" class="form-control form-control-sm"
+   562→                                       step="0.01" min="0" value="<?= htmlspecialchars($row['amount'] ?? 0) ?>" required>
+   563→                            </div>
+   564→                            <div class="col-sm-8">
+   565→                                <label class="form-label small fw-semibold mb-1">Description</label>
+   566→                                <input type="text" name="description" class="form-control form-control-sm"
+   567→                                       value="<?= htmlspecialchars($row['description'] ?? '') ?>" required>
+   568→                            </div>
+   569→                        </div>
+   570→
+   571→                        <hr class="my-2">
+   572→
+   573→                        <!-- Approve / Reject / Add Expense -->
+   574→                        <div class="d-flex flex-wrap gap-2 mb-2">
+   575→                            <?php if ($status !== 'approved'): ?>
+   576→                            <button type="button" class="btn btn-success btn-sm"
+   577→                                    onclick="quickApprove(<?= $id ?>)">
+   578→                                <i class="bi bi-check-lg me-1"></i>Approve
+   579→                            </button>
+   580→                            <?php endif; ?>
+   581→
+   582→                            <?php if ($status !== 'rejected'): ?>
+   583→                            <button type="button" class="btn btn-danger btn-sm"
+   584→                                    onclick="toggleRejectInline(<?= $id ?>)">
+   585→                                <i class="bi bi-x-lg me-1"></i>Reject
+   586→                            </button>
+   587→                            <?php endif; ?>
+   588→
+   589→                            <a href="index.php?page=expense/ledger&manager=<?= htmlspecialchars($row['employee_id'] ?? '') ?>#admin-forms"
+   590→                               class="btn btn-outline-info btn-sm">
+   591→                                <i class="bi bi-plus-circle me-1"></i>Add Expense
+   592→                            </a>
+   593→                        </div>
+   594→
+   595→                        <!-- Inline reject reason (hidden) -->
+   596→                        <div id="rejectInline-<?= $id ?>" class="d-none mb-2">
+   597→                            <textarea id="rejectReason-<?= $id ?>"
+   598→                                      class="form-control form-control-sm"
+   599→                                      rows="2" placeholder="Enter rejection reason..."></textarea>
+   600→                            <div class="d-flex gap-1 mt-1 justify-content-end">
+   601→                                <button type="button" class="btn btn-outline-secondary btn-sm"
+   602→                                        onclick="toggleRejectInline(<?= $id ?>)">Cancel</button>
+   603→                                <button type="button" class="btn btn-danger btn-sm"
+   604→                                        onclick="quickReject(<?= $id ?>)">Confirm Reject</button>
+   605→                            </div>
+   606→                        </div>
+   607→                        <?php echo getCSRFTokenField(); ?>
+   608→                    </form>
+   609→                </div>
+   610→                <div class="modal-footer py-2">
+   611→                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+   612→                    <button type="submit" form="editForm-<?= $id ?>" class="btn btn-primary btn-sm">
+   613→                        <i class="bi bi-save me-1"></i>Save Changes
+   614→                    </button>
+   615→                </div>
+   616→            </div>
+   617→        </div>
+   618→    </div>
+   619→    <?php endforeach; ?>
+   620→
+   621→</div>
+   622→<script>
+   623→document.addEventListener('DOMContentLoaded', function () {
+   624→
+   625→    const allCheckboxes    = document.querySelectorAll('.row-checkbox');
+   626→    const selectAllHeader  = document.getElementById('selectAllHeader');
+   627→    const selectAllBelow   = document.getElementById('selectAll');
+   628→    const selectedCountEl  = document.getElementById('selectedCount');
+   629→    const bulkApproveBtn   = document.getElementById('bulkApproveBtn');
+   630→    const selectedIdsInput = document.getElementById('selectedIdsInput');
+   631→    const bulkApproveForm  = document.getElementById('bulkApproveForm');
+   632→
+   633→    function updateSelectedCount() {
+   634→        const checked = document.querySelectorAll('.row-checkbox:checked');
+   635→        const count   = checked.length;
+   636→        selectedCountEl.textContent = count + ' selected';
+   637→        bulkApproveBtn.disabled = (count === 0);
+   638→        const ids = Array.from(checked).map(cb => cb.value);
+   639→        selectedIdsInput.value = ids.join(',');
+   640→    }
+   641→
+   642→    function syncSelectAll() {
+   643→        const total  = allCheckboxes.length;
+   644→        const checked = document.querySelectorAll('.row-checkbox:checked').length;
+   645→        const state  = (checked === total && total > 0);
+   646→        if (selectAllHeader) selectAllHeader.checked = state;
+   647→        if (selectAllBelow)  selectAllBelow.checked  = state;
+   648→    }
+   649→
+   650→    if (selectAllHeader) {
+   651→        selectAllHeader.addEventListener('change', function () {
+   652→            allCheckboxes.forEach(cb => { cb.checked = this.checked; });
+   653→            syncSelectAll();
+   654→            updateSelectedCount();
+   655→        });
+   656→    }
+   657→
+   658→    if (selectAllBelow) {
+   659→        selectAllBelow.addEventListener('change', function () {
+   660→            allCheckboxes.forEach(cb => { cb.checked = this.checked; });
+   661→            syncSelectAll();
+   662→            updateSelectedCount();
+   663→        });
+   664→    }
+   665→
+   666→    allCheckboxes.forEach(cb => {
+   667→        cb.addEventListener('change', function () {
+   668→            syncSelectAll();
+   669→            updateSelectedCount();
+   670→        });
+   671→    });
+   672→
+   673→    if (bulkApproveBtn) {
+   674→        bulkApproveBtn.addEventListener('click', function () {
+   675→            const count = document.querySelectorAll('.row-checkbox:checked').length;
+   676→            if (count === 0) return;
+   677→            if (!confirm('Approve ' + count + ' selected expense(s)?')) return;
+   678→            const existing = bulkApproveForm.querySelectorAll('input[name="selected_ids[]"]');
+   679→            existing.forEach(el => el.remove());
+   680→            document.querySelectorAll('.row-checkbox:checked').forEach(cb => {
+   681→                const input = document.createElement('input');
+   682→                input.type  = 'hidden';
+   683→                input.name  = 'selected_ids[]';
+   684→                input.value = cb.value;
+   685→                bulkApproveForm.appendChild(input);
+   686→            });
+   687→            selectedIdsInput.remove();
+   688→            bulkApproveForm.submit();
+   689→        });
+   690→    }
+   691→});
+   692→
+   693→// Toggle inline reject textarea inside modal
+   694→function toggleRejectInline(id) {
+   695→    const el = document.getElementById('rejectInline-' + id);
+   696→    if (el) el.classList.toggle('d-none');
+   697→}
+   698→
+   699→// Quick approve via hidden form POST
+   700→function quickApprove(id) {
+   701→    if (!confirm('Approve this expense entry?')) return;
+   702→    const form = document.createElement('form');
+   703→    form.method = 'POST';
+   704→    form.action = '<?= htmlspecialchars($baseUrl) ?>';
+   705→    const a1 = document.createElement('input'); a1.type='hidden'; a1.name='action'; a1.value='approve';
+   706→    const a2 = document.createElement('input'); a2.type='hidden'; a2.name='id'; a2.value=id;
+   707→    form.appendChild(a1); form.appendChild(a2);
+   708→    document.body.appendChild(form);
+   709→    form.submit();
+   710→}
+   711→
+   712→// Quick reject via hidden form POST
+   713→function quickReject(id) {
+   714→    const reasonEl = document.getElementById('rejectReason-' + id);
+   715→    const reason = reasonEl ? reasonEl.value.trim() : '';
+   716→    if (!reason) { alert('Please enter a rejection reason.'); reasonEl.focus(); return; }
+   717→    if (!confirm('Reject this expense entry?')) return;
+   718→    const form = document.createElement('form');
+   719→    form.method = 'POST';
+   720→    form.action = '<?= htmlspecialchars($baseUrl) ?>';
+   721→    const a1 = document.createElement('input'); a1.type='hidden'; a1.name='action'; a1.value='reject';
+   722→    const a2 = document.createElement('input'); a2.type='hidden'; a2.name='id'; a2.value=id;
+   723→    const a3 = document.createElement('input'); a3.type='hidden'; a3.name='rejection_reason'; a3.value=reason;
+   724→    form.appendChild(a1); form.appendChild(a2); form.appendChild(a3);
+   725→    document.body.appendChild(form);
+   726→    form.submit();
+   727→}
+   728→</script>
+   729→

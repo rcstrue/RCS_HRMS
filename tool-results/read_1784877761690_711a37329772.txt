@@ -1,0 +1,589 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro — Import ESIC IP Data
+     4→ * Upload multiple ESIC CSV files → merge into esic_ip_master table.
+     5→ * Uses position-based column mapping (headers are untrustworthy).
+     6→ * Also: Match ESIC IPs to employees by UAN and merge esic_number.
+     7→ */
+     8→
+     9→$pageTitle = 'Import ESIC IP Data';
+    10→
+    11→// ── Role gate ──
+    12→$roleCode = $_SESSION['role_code'] ?? '';
+    13→if (!in_array($roleCode, ['admin', 'hr', 'hr_executive'])) {
+    14→    setFlash('error', 'Access denied. Only Admin, HR, and HR Executive can access this page.');
+    15→    redirect('index.php?page=dashboard');
+    16→    exit;
+    17→}
+    18→
+    19→// ── Ensure tables exist (self-heal on first visit) ──
+    20→$db->exec("CREATE TABLE IF NOT EXISTS `esic_ip_master` (
+    21→    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    22→    `ip_number` VARCHAR(50) NOT NULL,
+    23→    `ip_name` VARCHAR(255) DEFAULT NULL,
+    24→    `employer_code` VARCHAR(50) DEFAULT NULL,
+    25→    `employer_name` VARCHAR(255) DEFAULT NULL,
+    26→    `mobile` VARCHAR(20) DEFAULT NULL,
+    27→    `uan` VARCHAR(20) DEFAULT NULL,
+    28→    `account_number` VARCHAR(50) DEFAULT NULL,
+    29→    `bank_name` VARCHAR(255) DEFAULT NULL,
+    30→    `branch_name` VARCHAR(255) DEFAULT NULL,
+    31→    `ifsc_code` VARCHAR(20) DEFAULT NULL,
+    32→    `bank_account_status` VARCHAR(50) DEFAULT NULL,
+    33→    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    34→    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    35→    UNIQUE KEY `uk_ip_number` (`ip_number`),
+    36→    INDEX `idx_uan` (`uan`)
+    37→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    38→
+    39→$db->exec("CREATE TABLE IF NOT EXISTS `esic_import_errors` (
+    40→    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    41→    `import_id` INT UNSIGNED NOT NULL,
+    42→    `file_name` VARCHAR(255) NOT NULL,
+    43→    `row_number` INT UNSIGNED DEFAULT NULL,
+    44→    `ip_number` VARCHAR(50) DEFAULT NULL,
+    45→    `reason` VARCHAR(500) NOT NULL,
+    46→    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    47→    INDEX `idx_import_id` (`import_id`)
+    48→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    49→
+    50→$db->exec("CREATE TABLE IF NOT EXISTS `esic_import_history` (
+    51→    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    52→    `user_id` VARCHAR(50) NOT NULL,
+    53→    `user_name` VARCHAR(255) DEFAULT NULL,
+    54→    `files_uploaded` INT UNSIGNED NOT NULL DEFAULT 0,
+    55→    `rows_read` INT UNSIGNED NOT NULL DEFAULT 0,
+    56→    `rows_inserted` INT UNSIGNED NOT NULL DEFAULT 0,
+    57→    `rows_updated` INT UNSIGNED NOT NULL DEFAULT 0,
+    58→    `rows_skipped` INT UNSIGNED NOT NULL DEFAULT 0,
+    59→    `ip_address` VARCHAR(45) DEFAULT NULL,
+    60→    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    61→    INDEX `idx_created_at` (`created_at`)
+    62→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    63→
+    64→// ── Fix existing tables: collation + index (one-time migration) ──
+    65→try {
+    66→    $db->exec("ALTER TABLE esic_ip_master CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    67→} catch (\Throwable $e) {}
+    68→try {
+    69→    $db->exec("ALTER TABLE esic_import_errors CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    70→} catch (\Throwable $e) {}
+    71→try {
+    72→    $db->exec("ALTER TABLE esic_import_history CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    73→} catch (\Throwable $e) {}
+    74→// Index idx_uan already defined in CREATE TABLE above
+    75→
+    76→// ── Fetch recent import history ──
+    77→$recentImports = $db->fetchAll(
+    78→    "SELECT h.*, CONCAT(u.first_name, ' ', u.last_name) AS user_display
+    79→     FROM esic_import_history h
+    80→     LEFT JOIN users u ON h.user_id = u.id
+    81→     ORDER BY h.created_at DESC LIMIT 10"
+    82→);
+    83→
+    84→// ── Master record count ──
+    85→$totalRecords = (int)$db->fetchColumn("SELECT COUNT(*) FROM esic_ip_master") ?: 0;
+    86→$totalImports = (int)$db->fetchColumn("SELECT COUNT(*) FROM esic_import_history") ?: 0;
+    87→
+    88→// ── Handle ESIC merge (update esic_number in employees) ──
+    89→if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_esic' && !empty($_POST['selected_ids'])) {
+    90→    // CSRF check (Round 9)
+    91→    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+    92→        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+    93→        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    94→    }
+    95→    $ids = array_map('intval', $_POST['selected_ids']);
+    96→    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    97→
+    98→    $matchedRows = $db->fetchAll(
+    99→        "SELECT e.id AS emp_id, e.esic_number AS old_esic, ip.ip_number AS new_esic,
+   100→                e.full_name, e.employee_code
+   101→         FROM employees e
+   102→         JOIN esic_ip_master ip ON e.uan_number = ip.uan
+   103→         WHERE e.id IN ($placeholders)",
+   104→        $ids
+   105→    );
+   106→
+   107→    $updated = 0;
+   108→    foreach ($matchedRows as $r) {
+   109→        if (!empty($r['new_esic']) && $r['new_esic'] !== $r['old_esic']) {
+   110→            $db->query("UPDATE employees SET esic_number = ? WHERE id = ?", [$r['new_esic'], $r['emp_id']]);
+   111→            $updated++;
+   112→        }
+   113→    }
+   114→    logActivity('esic_merge', 'employees', 0, "Merged ESIC IP numbers for {$updated} employees");
+   115→    setFlash('success', "ESIC IP Number updated for {$updated} employee(s).");
+   116→    redirect('index.php?page=employee/esic-import');
+   117→    exit;
+   118→}
+   119→
+   120→// ── Matched records: employees whose UAN exists in esic_ip_master ──
+   121→$matchedRecords = [];
+   122→try {
+   123→    $matchedRecords = $db->fetchAll("
+   124→        SELECT e.id, e.employee_code, e.full_name, e.mobile_number,
+   125→               e.uan_number AS current_uan, e.esic_number AS current_esic,
+   126→               ip.ip_number AS esic_ip, ip.ip_name AS esic_name, ip.mobile AS esic_mobile
+   127→        FROM employees e
+   128→        JOIN esic_ip_master ip ON e.uan_number = ip.uan
+   129→        WHERE e.status = 'approved'
+   130→        ORDER BY e.full_name
+   131→    ");
+   132→} catch (\Throwable $th) {}
+   133→?>
+   134→
+   135→<!-- Page Header -->
+   136→<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+   137→    <h4 class="mb-0"><i class="bi bi-file-earmark-spreadsheet me-2"></i>Import ESIC IP Data</h4>
+   138→    <a href="index.php?page=employee/index" class="btn btn-outline-secondary btn-sm">
+   139→        <i class="bi bi-arrow-left me-1"></i>Back to Employee Hub
+   140→    </a>
+   141→</div>
+   142→
+   143→<?php if ($flash = getFlash()): ?>
+   144→<div class="alert alert-<?= $flash['type'] === 'error' ? 'danger' : $flash['type'] ?> alert-dismissible fade show" role="alert">
+   145→    <?= sanitize($flash['message']) ?>
+   146→    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+   147→</div>
+   148→<?php endif; ?>
+   149→
+   150→<!-- Stats Row -->
+   151→<div class="row g-3 mb-4">
+   152→    <div class="col-md-4">
+   153→        <div class="card">
+   154→            <div class="card-body py-3 text-center">
+   155→                <div class="text-muted small">Total IP Records</div>
+   156→                <div class="fs-3 fw-bold text-primary" id="totalRecords"><?= number_format($totalRecords) ?></div>
+   157→            </div>
+   158→        </div>
+   159→    </div>
+   160→    <div class="col-md-4">
+   161→        <div class="card">
+   162→            <div class="card-body py-3 text-center">
+   163→                <div class="text-muted small">Last Import</div>
+   164→                <div class="fs-6 fw-semibold" id="lastImportDate">
+   165→                    <?php if (!empty($recentImports)): ?>
+   166→                        <?= date('d-m-Y H:i', strtotime($recentImports[0]['created_at'])) ?>
+   167→                    <?php else: ?>
+   168→                        <span class="text-muted">No imports yet</span>
+   169→                    <?php endif; ?>
+   170→                </div>
+   171→            </div>
+   172→        </div>
+   173→    </div>
+   174→    <div class="col-md-4">
+   175→        <div class="card">
+   176→            <div class="card-body py-3 text-center">
+   177→                <div class="text-muted small">Total Imports</div>
+   178→                <div class="fs-3 fw-bold text-success" id="totalImports"><?= number_format($totalImports) ?></div>
+   179→            </div>
+   180→        </div>
+   181→    </div>
+   182→</div>
+   183→
+   184→<!-- Upload Card -->
+   185→<div class="card mb-4">
+   186→    <div class="card-header d-flex justify-content-between align-items-center">
+   187→        <span><i class="bi bi-upload me-2"></i>Upload CSV Files</span>
+   188→        <span class="badge bg-secondary">Max 500 files</span>
+   189→    </div>
+   190→    <div class="card-body">
+   191→        <!-- Drop Zone -->
+   192→        <div id="dropZone" class="border border-2 border-dashed rounded-3 p-5 text-center mb-3"
+   193→             style="cursor:pointer; transition: all 0.2s;"
+   194→             ondragover="event.preventDefault(); this.classList.add('border-primary','bg-light')"
+   195→             ondragleave="this.classList.remove('border-primary','bg-light')"
+   196→             ondrop="handleDrop(event)"
+   197→             onclick="document.getElementById('fileInput').click()">
+   198→            <i class="bi bi-cloud-arrow-up fs-1 text-muted d-block mb-2"></i>
+   199→            <div class="fw-semibold">Drag &amp; Drop CSV files here</div>
+   200→            <div class="text-muted small">or click to browse &mdash; up to 500 files at once</div>
+   201→            <input type="file" id="fileInput" class="d-none" multiple accept=".csv" onchange="handleFileSelect(this.files)">
+   202→        </div>
+   203→
+   204→        <!-- Selected Files List -->
+   205→        <div id="fileListContainer" class="d-none mb-3">
+   206→            <div class="d-flex justify-content-between align-items-center mb-2">
+   207→                <h6 class="mb-0"><i class="bi bi-files me-1"></i>Selected Files (<span id="fileCount">0</span>)</h6>
+   208→                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearFiles()">
+   209→                    <i class="bi bi-x-lg me-1"></i>Clear All
+   210→                </button>
+   211→            </div>
+   212→            <div id="fileList" class="border rounded" style="max-height:200px; overflow-y:auto;"></div>
+   213→        </div>
+   214→
+   215→        <!-- Progress Bar -->
+   216→        <div id="progressContainer" class="d-none mb-3">
+   217→            <div class="d-flex justify-content-between align-items-center mb-1">
+   218→                <span class="small fw-semibold" id="progressLabel">Importing...</span>
+   219→                <span class="small text-muted" id="progressPercent">0%</span>
+   220→            </div>
+   221→            <div class="progress" style="height: 22px;">
+   222→                <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width:0%"></div>
+   223→            </div>
+   224→        </div>
+   225→
+   226→        <!-- Action Buttons -->
+   227→        <div class="d-flex gap-2">
+   228→            <button type="button" id="importBtn" class="btn btn-primary" onclick="startImport()" disabled>
+   229→                <i class="bi bi-play-fill me-1"></i>Import
+   230→            </button>
+   231→            <button type="button" class="btn btn-outline-secondary" onclick="resetAll()">
+   232→                <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+   233→            </button>
+   234→            <button type="button" id="downloadErrorBtn" class="btn btn-outline-danger d-none" onclick="downloadErrorLog()">
+   235→                <i class="bi bi-download me-1"></i>Download Error Log
+   236→            </button>
+   237→        </div>
+   238→    </div>
+   239→</div>
+   240→
+   241→<!-- Import Summary (hidden until import completes) -->
+   242→<div id="summaryCard" class="card mb-4 d-none">
+   243→    <div class="card-header bg-success text-white">
+   244→        <i class="bi bi-check-circle me-2"></i>Import Summary
+   245→    </div>
+   246→    <div class="card-body">
+   247→        <div class="row g-3 text-center">
+   248→            <div class="col-6 col-md-2">
+   249→                <div class="text-muted small">Files</div>
+   250→                <div class="fs-4 fw-bold" id="sumFiles">0</div>
+   251→            </div>
+   252→            <div class="col-6 col-md-2">
+   253→                <div class="text-muted small">Rows Read</div>
+   254→                <div class="fs-4 fw-bold" id="sumRead">0</div>
+   255→            </div>
+   256→            <div class="col-6 col-md-2">
+   257→                <div class="text-success small">Inserted</div>
+   258→                <div class="fs-4 fw-bold text-success" id="sumInserted">0</div>
+   259→            </div>
+   260→            <div class="col-6 col-md-2">
+   261→                <div class="text-info small">Updated</div>
+   262→                <div class="fs-4 fw-bold text-info" id="sumUpdated">0</div>
+   263→            </div>
+   264→            <div class="col-6 col-md-2">
+   265→                <div class="text-warning small">Skipped</div>
+   266→                <div class="fs-4 fw-bold text-warning" id="sumSkipped">0</div>
+   267→            </div>
+   268→            <div class="col-6 col-md-2">
+   269→                <div class="text-danger small">Errors</div>
+   270→                <div class="fs-4 fw-bold text-danger" id="sumErrors">0</div>
+   271→            </div>
+   272→        </div>
+   273→    </div>
+   274→</div>
+   275→
+   276→<!-- Match & Merge ESIC IP to Employees -->
+   277→<div class="card border-primary mb-4">
+   278→    <div class="card-header bg-primary text-white">
+   279→        <div class="d-flex justify-content-between align-items-center">
+   280→            <h6 class="card-title mb-0"><i class="bi bi-arrow-repeat me-2"></i>Match &amp; Update ESIC Number in Employees</h6>
+   281→            <span class="badge bg-light text-primary"><?= count($matchedRecords) ?> matched by UAN</span>
+   282→        </div>
+   283→    </div>
+   284→    <div class="card-body">
+   285→        <div class="alert alert-secondary small mb-3">
+   286→            <i class="bi bi-info-circle me-1"></i>
+   287→            Matches found by comparing <strong>UAN</strong> between Employee records and ESIC IP master data.
+   288→            Select employees and click <strong>Update ESIC Number</strong> to copy the ESIC IP Number into the employee record.
+   289→        </div>
+   290→
+   291→        <?php if (empty($matchedRecords)): ?>
+   292→            <div class="text-center text-muted py-4">
+   293→                <i class="bi bi-search display-4 d-block mb-2"></i>
+   294→                <p class="mb-0">No matching records found. Import ESIC data first and ensure employees have UAN filled.</p>
+   295→            </div>
+   296→        <?php else: ?>
+   297→        <form method="POST" id="esicMergeForm">
+   298→            <?php echo getCSRFTokenField(); ?>
+   299→            <input type="hidden" name="action" value="update_esic">
+   300→
+   301→            <div class="d-flex gap-2 mb-3 align-items-center flex-wrap">
+   302→                <select class="form-select form-select-sm" style="width:auto" id="esicStatusFilter" onchange="filterEsicByStatus()">
+   303→                    <option value="update">Will Set / Will Update</option>
+   304→                    <option value="same">Already Same</option>
+   305→                    <option value="all">Show All</option>
+   306→                </select>
+   307→                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleAllEsic(true)">
+   308→                    <i class="bi bi-check-all me-1"></i>Select All
+   309→                </button>
+   310→                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleAllEsic(false)">
+   311→                    <i class="bi bi-x-square me-1"></i>Select None
+   312→                </button>
+   313→                <div class="ms-auto">
+   314→                    <span class="text-muted small me-2" id="esicVisibleCount"></span>
+   315→                    <button type="submit" class="btn btn-success btn-sm" id="updateEsicBtn" disabled>
+   316→                        <i class="bi bi-arrow-repeat me-1"></i>Update ESIC Number (<span id="esicSelectedCount">0</span>)
+   317→                    </button>
+   318→                </div>
+   319→            </div>
+   320→
+   321→            <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+   322→                <table class="table table-sm table-hover align-middle">
+   323→                    <thead class="table-light sticky-top">
+   324→                        <tr>
+   325→                            <th style="width:40px"><input type="checkbox" class="form-check-input" id="checkAllEsic" onchange="toggleAllEsic(this.checked)"></th>
+   326→                            <th>Emp Code</th>
+   327→                            <th>Employee Name</th>
+   328→                            <th>Mobile</th>
+   329→                            <th>Current ESIC No.</th>
+   330→                            <th>ESIC IP Number</th>
+   331→                            <th>ESIC IP Name</th>
+   332→                            <th>Status</th>
+   333→                        </tr>
+   334→                    </thead>
+   335→                    <tbody id="esicTableBody">
+   336→                        <?php foreach ($matchedRecords as $m): ?>
+   337→                        <?php
+   338→                            $isSame = (!empty($m['current_esic']) && $m['current_esic'] === $m['esic_ip']);
+   339→                            $isEmpty = empty($m['current_esic']);
+   340→                            $willUpdate = !$isSame && !empty($m['esic_ip']);
+   341→                        ?>
+   342→                        <tr class="<?= $isSame ? 'table-success' : ($isEmpty ? 'table-warning' : '') ?>" data-status="<?= $isSame ? 'same' : 'update' ?>" style="<?= $isSame ? 'display:none' : '' ?>">
+   343→                            <td>
+   344→                                <input type="checkbox" class="form-check-input esic-check" name="selected_ids[]" value="<?= $m['id'] ?>" <?= $willUpdate ? '' : 'disabled' ?> onchange="updateEsicCount()">
+   345→                            </td>
+   346→                            <td><?= sanitize($m['employee_code']) ?></td>
+   347→                            <td class="fw-semibold"><?= sanitize($m['full_name']) ?></td>
+   348→                            <td><?= sanitize($m['mobile_number']) ?></td>
+   349→                            <td><?= !empty($m['current_esic']) ? sanitize($m['current_esic']) : '<span class="text-muted">-- empty --</span>' ?></td>
+   350→                            <td><strong class="text-primary"><?= sanitize($m['esic_ip']) ?></strong></td>
+   351→                            <td><?= sanitize($m['esic_name']) ?></td>
+   352→                            <td>
+   353→                                <?php if ($isSame): ?>
+   354→                                    <span class="badge bg-success">Same</span>
+   355→                                <?php elseif ($isEmpty): ?>
+   356→                                    <span class="badge bg-warning text-dark">Will Set</span>
+   357→                                <?php else: ?>
+   358→                                    <span class="badge bg-info text-dark">Will Update</span>
+   359→                                <?php endif; ?>
+   360→                            </td>
+   361→                        </tr>
+   362→                        <?php endforeach; ?>
+   363→                    </tbody>
+   364→                </table>
+   365→            </div>
+   366→        </form>
+   367→        <?php endif; ?>
+   368→    </div>
+   369→</div>
+   370→
+   371→<!-- Recent Import History -->
+   372→<div class="card">
+   373→    <div class="card-header"><i class="bi bi-clock-history me-2"></i>Recent Imports</div>
+   374→    <div class="card-body p-0">
+   375→        <?php if (empty($recentImports)): ?>
+   376→        <div class="text-center text-muted py-4">No imports yet</div>
+   377→        <?php else: ?>
+   378→        <div class="table-responsive">
+   379→            <table class="table table-sm table-hover align-middle mb-0">
+   380→                <thead class="table-light">
+   381→                    <tr>
+   382→                        <th>#</th>
+   383→                        <th>Date &amp; Time</th>
+   384→                        <th>User</th>
+   385→                        <th>Files</th>
+   386→                        <th>Read</th>
+   387→                        <th>Inserted</th>
+   388→                        <th>Updated</th>
+   389→                        <th>Skipped</th>
+   390→                        <th>IP Address</th>
+   391→                    </tr>
+   392→                </thead>
+   393→                <tbody>
+   394→                    <?php foreach ($recentImports as $i => $h): ?>
+   395→                    <tr>
+   396→                        <td><?= $i + 1 ?></td>
+   397→                        <td><?= date('d-m-Y H:i', strtotime($h['created_at'])) ?></td>
+   398→                        <td><?= sanitize($h['user_display'] ?? $h['user_name'] ?? $h['user_id']) ?></td>
+   399→                        <td><?= (int)$h['files_uploaded'] ?></td>
+   400→                        <td><?= number_format((int)$h['rows_read']) ?></td>
+   401→                        <td><span class="text-success fw-semibold"><?= number_format((int)$h['rows_inserted']) ?></span></td>
+   402→                        <td><span class="text-info fw-semibold"><?= number_format((int)$h['rows_updated']) ?></span></td>
+   403→                        <td><span class="text-warning fw-semibold"><?= number_format((int)$h['rows_skipped']) ?></span></td>
+   404→                        <td><small><?= sanitize($h['ip_address']) ?></small></td>
+   405→                    </tr>
+   406→                    <?php endforeach; ?>
+   407→                </tbody>
+   408→            </table>
+   409→        </div>
+   410→        <?php endif; ?>
+   411→    </div>
+   412→</div>
+   413→
+   414→<script>
+   415→let selectedFiles = [];
+   416→let lastImportId = null;
+   417→
+   418→// ── File handling ──
+   419→function handleFileSelect(files) {
+   420→    for (const f of files) {
+   421→        if (!f.name.toLowerCase().endsWith('.csv')) continue;
+   422→        if (selectedFiles.length >= 500) break;
+   423→        if (!selectedFiles.some(x => x.name === f.name && x.size === f.size)) {
+   424→            selectedFiles.push(f);
+   425→        }
+   426→    }
+   427→    renderFileList();
+   428→}
+   429→function handleDrop(e) {
+   430→    e.preventDefault();
+   431→    e.currentTarget.classList.remove('border-primary', 'bg-light');
+   432→    handleFileSelect(e.dataTransfer.files);
+   433→}
+   434→function renderFileList() {
+   435→    const container = document.getElementById('fileListContainer');
+   436→    const list = document.getElementById('fileList');
+   437→    const count = document.getElementById('fileCount');
+   438→    const btn = document.getElementById('importBtn');
+   439→    count.textContent = selectedFiles.length;
+   440→    btn.disabled = selectedFiles.length === 0;
+   441→    if (selectedFiles.length === 0) { container.classList.add('d-none'); return; }
+   442→    container.classList.remove('d-none');
+   443→    let html = '';
+   444→    selectedFiles.forEach((f, i) => {
+   445→        const sizeKB = (f.size / 1024).toFixed(1);
+   446→        html += '<div class="d-flex justify-content-between align-items-center px-3 py-1 border-bottom">' +
+   447→            '<span class="small"><i class="bi bi-filetype-csv me-1 text-success"></i>' + f.name +
+   448→            ' <span class="text-muted">(' + sizeKB + ' KB)</span></span>' +
+   449→            '<button type="button" class="btn-close btn-close-sm" onclick="removeFile(' + i + ')"></button></div>';
+   450→    });
+   451→    list.innerHTML = html;
+   452→}
+   453→function removeFile(idx) { selectedFiles.splice(idx, 1); renderFileList(); }
+   454→function clearFiles() { selectedFiles = []; document.getElementById('fileInput').value = ''; renderFileList(); }
+   455→
+   456→// ── CSV Import ──
+   457→function startImport() {
+   458→    if (selectedFiles.length === 0) return;
+   459→    const btn = document.getElementById('importBtn');
+   460→    btn.disabled = true;
+   461→    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Importing...';
+   462→    const progressContainer = document.getElementById('progressContainer');
+   463→    const progressBar = document.getElementById('progressBar');
+   464→    const progressLabel = document.getElementById('progressLabel');
+   465→    const progressPercent = document.getElementById('progressPercent');
+   466→    progressContainer.classList.remove('d-none');
+   467→    progressBar.style.width = '0%';
+   468→    progressBar.classList.remove('bg-danger');
+   469→    progressBar.classList.add('bg-primary', 'progress-bar-animated');
+   470→    progressLabel.textContent = 'Uploading files...';
+   471→    progressPercent.textContent = '0%';
+   472→    const formData = new FormData();
+   473→    selectedFiles.forEach((f) => formData.append('csv_files[]', f));
+   474→    const xhr = new XMLHttpRequest();
+   475→    xhr.open('POST', 'index.php?page=employee/esic-import&ajax=1', true);
+   476→    xhr.upload.onprogress = function(e) {
+   477→        if (e.lengthComputable) {
+   478→            const pct = Math.round((e.loaded / e.total) * 100);
+   479→            progressBar.style.width = pct + '%';
+   480→            progressPercent.textContent = pct + '%';
+   481→            progressLabel.textContent = 'Uploading files...';
+   482→        }
+   483→    };
+   484→    xhr.onload = function() {
+   485→        btn.disabled = false;
+   486→        btn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Import';
+   487→        if (xhr.status === 200) {
+   488→            try {
+   489→                const res = JSON.parse(xhr.responseText);
+   490→                if (res.success) {
+   491→                    showSummary(res.data);
+   492→                    progressBar.style.width = '100%';
+   493→                    progressBar.classList.remove('progress-bar-animated');
+   494→                    progressLabel.textContent = 'Import complete!';
+   495→                    progressPercent.textContent = '100%';
+   496→                } else {
+   497→                    progressLabel.textContent = 'Error: ' + (res.error || 'Unknown error');
+   498→                    progressBar.style.width = '100%';
+   499→                    progressBar.classList.remove('progress-bar-animated', 'bg-primary');
+   500→                    progressBar.classList.add('bg-danger');
+   501→                    alert('Import failed: ' + (res.error || 'Unknown error'));
+   502→                }
+   503→            } catch(e) {
+   504→                alert('Invalid server response.');
+   505→                console.error(xhr.responseText);
+   506→            }
+   507→        } else {
+   508→            alert('Server error (HTTP ' + xhr.status + ')');
+   509→        }
+   510→    };
+   511→    xhr.onerror = function() {
+   512→        btn.disabled = false;
+   513→        btn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Import';
+   514→        progressLabel.textContent = 'Upload failed';
+   515→        progressBar.classList.remove('bg-primary');
+   516→        progressBar.classList.add('bg-danger');
+   517→    };
+   518→    xhr.send(formData);
+   519→}
+   520→function showSummary(d) {
+   521→    document.getElementById('sumFiles').textContent = nFmt(d.files_uploaded);
+   522→    document.getElementById('sumRead').textContent = nFmt(d.rows_read);
+   523→    document.getElementById('sumInserted').textContent = nFmt(d.rows_inserted);
+   524→    document.getElementById('sumUpdated').textContent = nFmt(d.rows_updated);
+   525→    document.getElementById('sumSkipped').textContent = nFmt(d.rows_skipped);
+   526→    document.getElementById('sumErrors').textContent = nFmt(d.error_count);
+   527→    document.getElementById('summaryCard').classList.remove('d-none');
+   528→    if (d.error_count > 0) {
+   529→        document.getElementById('downloadErrorBtn').classList.remove('d-none');
+   530→        lastImportId = d.import_id;
+   531→    } else {
+   532→        document.getElementById('downloadErrorBtn').classList.add('d-none');
+   533→    }
+   534→    document.getElementById('totalRecords').textContent = nFmt(d.total_records);
+   535→    document.getElementById('lastImportDate').textContent = d.import_date || 'Just now';
+   536→    document.getElementById('totalImports').textContent = nFmt(d.total_imports);
+   537→}
+   538→function nFmt(n) { return Number(n || 0).toLocaleString('en-IN'); }
+   539→function resetAll() {
+   540→    clearFiles();
+   541→    document.getElementById('summaryCard').classList.add('d-none');
+   542→    document.getElementById('downloadErrorBtn').classList.add('d-none');
+   543→    document.getElementById('progressContainer').classList.add('d-none');
+   544→    const bar = document.getElementById('progressBar');
+   545→    bar.style.width = '0%';
+   546→    bar.classList.remove('bg-danger');
+   547→    bar.classList.add('bg-primary', 'progress-bar-animated');
+   548→    lastImportId = null;
+   549→}
+   550→function downloadErrorLog() {
+   551→    if (!lastImportId) { alert('No import ID found.'); return; }
+   552→    window.open('index.php?page=employee/esic-import&ajax=1&action=download_errors&import_id=' + lastImportId, '_blank');
+   553→}
+   554→
+   555→// ── ESIC Match table controls ──
+   556→function toggleAllEsic(checked) {
+   557→    var boxes = document.querySelectorAll('.esic-check:not(:disabled)');
+   558→    for (var i = 0; i < boxes.length; i++) { boxes[i].checked = checked; }
+   559→    var checkAll = document.getElementById('checkAllEsic');
+   560→    if (checkAll) checkAll.checked = checked;
+   561→    updateEsicCount();
+   562→}
+   563→function updateEsicCount() {
+   564→    var visibleChecks = document.querySelectorAll('#esicTableBody tr:not([style*="display: none"]) .esic-check:not(:disabled)');
+   565→    var checked = document.querySelectorAll('.esic-check:checked').length;
+   566→    var total = visibleChecks.length;
+   567→    document.getElementById('esicSelectedCount').textContent = checked;
+   568→    document.getElementById('updateEsicBtn').disabled = (checked === 0);
+   569→    var checkAll = document.getElementById('checkAllEsic');
+   570→    if (checkAll) checkAll.checked = (checked === total && total > 0);
+   571→    var visibleRows = document.querySelectorAll('#esicTableBody tr:not([style*="display: none"])');
+   572→    document.getElementById('esicVisibleCount').textContent = visibleRows.length + ' records';
+   573→}
+   574→function filterEsicByStatus() {
+   575→    var val = document.getElementById('esicStatusFilter').value;
+   576→    var rows = document.querySelectorAll('#esicTableBody tr');
+   577→    for (var i = 0; i < rows.length; i++) {
+   578→        if (val === 'all') {
+   579→            rows[i].style.display = '';
+   580→        } else {
+   581→            rows[i].style.display = (rows[i].getAttribute('data-status') === val) ? '' : 'none';
+   582→        }
+   583→    }
+   584→    toggleAllEsic(false);
+   585→    updateEsicCount();
+   586→}
+   587→// Init count on page load
+   588→updateEsicCount();
+   589→</script>

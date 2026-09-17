@@ -1,0 +1,1478 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Payroll Class
+     4→ * Handles payroll processing and management
+     5→ * Updated for new database schema with proper statutory calculations
+     6→ * Version: 2.2.0 - Enhanced with selective processing, hold/release, freeze, and exceptions
+     7→ * 
+     8→ * IMPORTANT NOTES FOR DEVELOPERS:
+     9→ * =================================
+    10→ * 1. Always use client_id and unit_id for filtering (NOT client_name/unit_name)
+    11→ * 2. Use JOINs to get client/unit names from their respective tables
+    12→ * 3. clients table uses 'name' column (not 'client_name')
+    13→ * 4. units table uses 'name' column (not 'unit_name')
+    14→ * 5. employees table has client_id and unit_id as foreign keys
+    15→ * 6. AADHAAR NUMBER SHOULD NEVER BE HIDDEN IN EMPLOYEE VIEW
+    16→ *    - maskAadhaar() should only be used for external reports/payslips
+    17→ *    - Internal views must show full Aadhaar number
+    18→ * 7. Status Flow: Draft -> Processed -> Approved -> Paid/Frozen
+    19→ * 8. Frozen status prevents all modifications
+    20→ * 9. salary_hold prevents individual from being paid
+    21→ * 10. payroll_dirty flag indicates recalculation needed
+    22→ */
+    23→
+    24→class Payroll {
+    25→    private $db;
+    26→
+    27→    // PF Rates (current)
+    28→    private $pfRates = [
+    29→        'employee_share' => 12.00,
+    30→        'employer_pf' => 3.67,
+    31→        'employer_eps' => 8.33,
+    32→        'employer_edlis' => 0.50,
+    33→        'epf_admin' => 0.50,
+    34→        'wage_ceiling' => 15000
+    35→    ];
+    36→
+    37→    // ESI Rates (current)
+    38→    private $esiRates = [
+    39→        'employee_share' => 0.75,
+    40→        'employer_share' => 3.25,
+    41→        'wage_ceiling' => 21000
+    42→    ];
+    43→
+    44→    public function __construct() {
+    45→        $this->db = Database::getInstance();
+    46→        $this->loadStatutoryRates();
+    47→    }
+    48→
+    49→    // Load current statutory rates from database
+    50→    private function loadStatutoryRates() {
+    51→        try {
+    52→            // Load PF rates
+    53→            $pfRate = $this->db->fetch(
+    54→                "SELECT * FROM pf_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1"
+    55→            );
+    56→            if ($pfRate) {
+    57→                $this->pfRates = [
+    58→                    'employee_share' => (float)$pfRate['employee_share'],
+    59→                    'employer_pf' => (float)$pfRate['employer_share_pf'],
+    60→                    'employer_eps' => (float)$pfRate['employer_share_eps'],
+    61→                    'employer_edlis' => (float)$pfRate['employer_share_edlis'],
+    62→                    'epf_admin' => (float)$pfRate['epf_admin_charges'],
+    63→                    'wage_ceiling' => (float)$pfRate['wage_ceiling']
+    64→                ];
+    65→            }
+    66→
+    67→            // Load ESI rates
+    68→            $esiRate = $this->db->fetch(
+    69→                "SELECT * FROM esi_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1"
+    70→            );
+    71→            if ($esiRate) {
+    72→                $this->esiRates = [
+    73→                    'employee_share' => (float)$esiRate['employee_share'],
+    74→                    'employer_share' => (float)$esiRate['employer_share'],
+    75→                    'wage_ceiling' => (float)$esiRate['wage_ceiling']
+    76→                ];
+    77→            }
+    78→        } catch (Exception $e) {
+    79→            // Use default rates if tables don't exist
+    80→        }
+    81→    }
+    82→
+    83→    // Get payroll periods
+    84→    public function getPeriods($status = null) {
+    85→        $sql = "SELECT pp.*, 
+    86→                       COUNT(p.id) as employee_count,
+    87→                       SUM(CASE WHEN p.salary_hold = 1 THEN 1 ELSE 0 END) as hold_count
+    88→                FROM payroll_periods pp
+    89→                LEFT JOIN payroll p ON pp.id = p.payroll_period_id
+    90→                WHERE 1=1";
+    91→        $params = [];
+    92→
+    93→        if ($status) {
+    94→            $sql .= " AND pp.status = :status";
+    95→            $params['status'] = $status;
+    96→        }
+    97→
+    98→        $sql .= " GROUP BY pp.id ORDER BY pp.year DESC, pp.month DESC";
+    99→
+   100→        return $this->db->fetchAll($sql, $params);
+   101→    }
+   102→
+   103→    // Get current period
+   104→    public function getCurrentPeriod() {
+   105→        $month = date('n');
+   106→        $year = date('Y');
+   107→
+   108→        return $this->db->fetch(
+   109→            "SELECT * FROM payroll_periods WHERE month = :month AND year = :year",
+   110→            ['month' => $month, 'year' => $year]
+   111→        );
+   112→    }
+   113→
+   114→    // Get payroll totals for dashboard
+   115→    public function getPayrollTotals($periodId = null) {
+   116→        if (!$periodId) {
+   117→            $period = $this->getCurrentPeriod();
+   118→            if ($period) {
+   119→                $periodId = $period['id'];
+   120→            }
+   121→        }
+   122→
+   123→        if (!$periodId) {
+   124→            return [
+   125→                'total_employees' => 0,
+   126→                'total_gross' => 0,
+   127→                'total_deductions' => 0,
+   128→                'total_net' => 0,
+   129→                'total_employer_contribution' => 0
+   130→            ];
+   131→        }
+   132→
+   133→        return $this->db->fetch(
+   134→            "SELECT
+   135→                COUNT(*) as total_employees,
+   136→                SUM(gross_earnings) as total_gross,
+   137→                SUM(total_deductions) as total_deductions,
+   138→                SUM(net_pay) as total_net,
+   139→                SUM(total_employer_contribution) as total_employer_contribution,
+   140→                SUM(CASE WHEN salary_hold = 1 THEN 1 ELSE 0 END) as held_count,
+   141→                SUM(CASE WHEN payroll_dirty = 1 THEN 1 ELSE 0 END) as dirty_count
+   142→            FROM payroll
+   143→            WHERE payroll_period_id = :period_id",
+   144→            ['period_id' => $periodId]
+   145→        ) ?: [
+   146→            'total_employees' => 0,
+   147→            'total_gross' => 0,
+   148→            'total_deductions' => 0,
+   149→            'total_net' => 0,
+   150→            'total_employer_contribution' => 0,
+   151→            'held_count' => 0,
+   152→            'dirty_count' => 0
+   153→        ];
+   154→    }
+   155→
+   156→    // Get payroll for period with filters
+   157→    public function getPayrollReport($periodId, $filters = []) {
+   158→        $sql = "SELECT p.*,
+   159→                       e.employee_code, e.full_name, e.designation, e.department,
+   160→                       e.bank_name, e.account_number, e.ifsc_code,
+   161→                       c.name as client_name, u.name as unit_name
+   162→                FROM payroll p
+   163→                JOIN employees e ON p.employee_id = e.employee_code
+   164→                LEFT JOIN clients c ON e.client_id = c.id
+   165→                LEFT JOIN units u ON e.unit_id = u.id
+   166→                WHERE p.payroll_period_id = :period_id";
+   167→        $params = ['period_id' => $periodId];
+   168→
+   169→        // Apply filters (use p.unit_id — payroll record's unit, not employee's current unit)
+   170→        if (!empty($filters['unit_id'])) {
+   171→            $sql .= " AND p.unit_id = :unit_id";
+   172→            $params['unit_id'] = $filters['unit_id'];
+   173→        }
+   174→
+   175→        if (!empty($filters['client_id'])) {
+   176→            $sql .= " AND e.client_id = :client_id";
+   177→            $params['client_id'] = $filters['client_id'];
+   178→        }
+   179→
+   180→        if (!empty($filters['status'])) {
+   181→            $sql .= " AND p.status = :pstatus";
+   182→            $params['pstatus'] = $filters['status'];
+   183→        }
+   184→
+   185→        if (!empty($filters['salary_hold'])) {
+   186→            $sql .= " AND p.salary_hold = :salary_hold";
+   187→            $params['salary_hold'] = $filters['salary_hold'];
+   188→        }
+   189→
+   190→        if (!empty($filters['search'])) {
+   191→            $sql .= " AND (e.full_name LIKE :search1 OR e.employee_code LIKE :search2)";
+   192→            $params['search1'] = '%' . $filters['search'] . '%';
+   193→            $params['search2'] = '%' . $filters['search'] . '%';
+   194→        }
+   195→
+   196→        $sql .= " ORDER BY c.name, u.name, e.employee_code";
+   197→
+   198→        return $this->db->fetchAll($sql, $params);
+   199→    }
+   200→
+   201→    // Get employee payroll
+   202→    public function getEmployeePayroll($employeeCode, $periodId = null, $month = null, $year = null) {
+   203→        if ($month && $year) {
+   204→            return $this->db->fetch(
+   205→                "SELECT p.*, e.full_name, e.designation,
+   206→                        c.name as client_name, u.name as unit_name
+   207→                 FROM payroll p
+   208→                 JOIN employees e ON p.employee_id = e.employee_code
+   209→                 LEFT JOIN clients c ON e.client_id = c.id
+   210→                 LEFT JOIN units u ON e.unit_id = u.id
+   211→                 WHERE p.employee_id = :emp_code AND p.month = :month AND p.year = :year",
+   212→                ['emp_code' => $employeeCode, 'month' => $month, 'year' => $year]
+   213→            );
+   214→        }
+   215→
+   216→        return $this->db->fetchAll(
+   217→            "SELECT p.*, e.full_name, e.designation
+   218→             FROM payroll p
+   219→             JOIN employees e ON p.employee_id = e.employee_code
+   220→             WHERE p.employee_id = :emp_code
+   221→             ORDER BY p.year DESC, p.month DESC",
+   222→            ['emp_code' => $employeeCode]
+   223→        );
+   224→    }
+   225→
+   226→    /**
+   227→     * Process payroll for period with selective filters
+   228→     * 
+   229→     * @param int $periodId The payroll period ID
+   230→     * @param array $filters Optional filters for selective processing
+   231→     *                       - client_id: Process only this client's employees
+   232→     *                       - unit_id: Process only this unit's employees
+   233→     *                       - employee_codes: Array of specific employee codes
+   234→     *                       - recalculate_dirty: Only recalculate dirty records
+   235→     * @return array Result with success status and processed count
+   236→     */
+   237→    public function processPayroll($periodId, $filters = []) {
+   238→        // Get period info
+   239→        $period = $this->db->fetch(
+   240→            "SELECT * FROM payroll_periods WHERE id = :id",
+   241→            ['id' => $periodId]
+   242→        );
+   243→
+   244→        if (!$period) {
+   245→            return ['success' => false, 'message' => 'Payroll period not found.'];
+   246→        }
+   247→
+   248→        // Check if period is frozen
+   249→        if ($period['status'] === 'Frozen' || $period['status'] === 'Locked') {
+   250→            return ['success' => false, 'message' => 'Payroll period is frozen. Cannot process.'];
+   251→        }
+   252→
+   253→        // Ensure payroll table has extra_days_amount column
+   254→        try {
+   255→            $checkColumn = $this->db->fetch("SHOW COLUMNS FROM payroll LIKE 'extra_days_amount'");
+   256→            if (!$checkColumn) {
+   257→                $this->db->exec("ALTER TABLE payroll ADD COLUMN extra_days_amount DECIMAL(10,2) DEFAULT 0.00 AFTER overtime_amount");
+   258→            }
+   259→        } catch (Exception $e) {
+   260→            // Column might already exist or table might not have records
+   261→        }
+   262→
+   263→        // Build employee query with filters
+   264→        $sql = "SELECT e.id, e.employee_code, e.full_name, e.date_of_joining,
+   265→                       e.date_of_leaving, e.client_id, e.unit_id, e.worker_category,
+   266→                       e.bank_name, e.account_number, e.ifsc_code,
+   267→                       c.name as client_name, u.name as unit_name,
+   268→                       ess.basic_da, ess.hra, ess.leave_encashment, ess.bonus_encashment, ess.washing_allowance,
+   269→                       ess.gross_salary, ess.pf_applicable, ess.esi_applicable,
+   270→                       ess.pt_applicable, ess.lwf_applicable, ess.overtime_applicable,
+   271→                       ess.bonus_applicable, ess.gratuity_applicable,
+   272→                       usf.pay_days_type, usf.ot_calculation_type, usf.ot_calculation_on, usf.ot_hours_per_day,
+   273→                       u.state as unit_state
+   274→                FROM employees e
+   275→                INNER JOIN employee_salary_structures ess ON e.id = ess.employee_id
+   276→                    AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+   277→                LEFT JOIN clients c ON e.client_id = c.id
+   278→                LEFT JOIN units u ON e.unit_id = u.id
+   279→                LEFT JOIN unit_salary_formulas usf ON usf.unit_id = e.unit_id
+   280→                    AND usf.is_active = 1
+   281→                    AND (usf.effective_to IS NULL OR usf.effective_to >= CURDATE())
+   282→                WHERE e.status = 'approved'";
+   283→
+   284→        $params = [];
+   285→
+   286→        // Apply filters for selective processing
+   287→        if (!empty($filters['client_id'])) {
+   288→            $sql .= " AND e.client_id = :client_id";
+   289→            $params['client_id'] = $filters['client_id'];
+   290→        }
+   291→
+   292→        if (!empty($filters['unit_id'])) {
+   293→            $sql .= " AND e.unit_id = :unit_id";
+   294→            $params['unit_id'] = $filters['unit_id'];
+   295→        }
+   296→
+   297→        // Employee codes filter - use named params to avoid mixing with positional
+   298→        if (!empty($filters['employee_codes']) && is_array($filters['employee_codes'])) {
+   299→            $empPlaceholders = [];
+   300→            $idx = 1;
+   301→            foreach ($filters['employee_codes'] as $code) {
+   302→                $key = 'emp_code_' . $idx++;
+   303→                $empPlaceholders[] = ':' . $key;
+   304→                $params[$key] = $code;
+   305→            }
+   306→            $sql .= " AND e.employee_code IN (" . implode(',', $empPlaceholders) . ")";
+   307→        }
+   308→
+   309→        // Only recalculate dirty records if specified
+   310→        if (!empty($filters['recalculate_dirty'])) {
+   311→            $sql .= " AND EXISTS (
+   312→                SELECT 1 FROM payroll p 
+   313→                WHERE p.employee_id = e.employee_code 
+   314→                AND p.payroll_period_id = :period_id_check
+   315→                AND p.payroll_dirty = 1
+   316→            )";
+   317→            $params['period_id_check'] = $periodId;
+   318→        }
+   319→
+   320→        $employees = $this->db->fetchAll($sql, $params);
+   321→
+   322→        $processed = 0;
+   323→        $errors = [];
+   324→        $exceptions = [];
+   325→        $totalGross = 0;
+   326→        $totalNet = 0;
+   327→        $totalPF = 0;
+   328→        $totalESI = 0;
+   329→
+   330→        $this->db->beginTransaction();
+   331→
+   332→        try {
+   333→            foreach ($employees as $emp) {
+   334→                try {
+   335→                    // Check for exceptions
+   336→                    $exceptionType = null;
+   337→                    
+   338→                    // Check if employee joined after period end
+   339→                    $periodEndDate = $period['end_date'];
+   340→                    if ($emp['date_of_joining'] && strtotime($emp['date_of_joining']) > strtotime($periodEndDate)) {
+   341→                        continue;
+   342→                    }
+   343→
+   344→                    // Check for missing salary structure
+   345→                    if (empty($emp['basic_da']) && empty($emp['gross_salary'])) {
+   346→                        $exceptionType = 'Undefined Salary';
+   347→                        $exceptions[] = [
+   348→                            'employee_id' => $emp['employee_code'],
+   349→                            'employee_name' => $emp['full_name'],
+   350→                            'type' => 'Undefined Salary',
+   351→                            'message' => 'No salary structure defined'
+   352→                        ];
+   353→                    }
+   354→
+   355→                    // Check for missing bank details
+   356→                    if (empty($emp['bank_name']) || empty($emp['account_number']) || empty($emp['ifsc_code'])) {
+   357→                        if (!$exceptionType) {
+   358→                            $exceptionType = 'Missing Bank Details';
+   359→                        }
+   360→                        $exceptions[] = [
+   361→                            'employee_id' => $emp['employee_code'],
+   362→                            'employee_name' => $emp['full_name'],
+   363→                            'type' => 'Missing Bank Details',
+   364→                            'message' => 'Bank account details incomplete'
+   365→                        ];
+   366→                    }
+   367→
+   368→                    // Get attendance summary — prefer unit_id match, fallback to any unit (backward compatible)
+   369→                    $attendance = $this->db->fetch(
+   370→                        "SELECT
+   371→                            total_present as present_days,
+   372→                            total_extra,
+   373→                            overtime_hours,
+   374→                            total_wo as weekly_offs,
+   375→                            total_paid_days
+   376→                        FROM attendance_summary
+   377→                        WHERE employee_id = :emp_id
+   378→                        AND month = :month
+   379→                        AND year = :year
+   380→                        ORDER BY unit_id = :unit_id DESC
+   381→                        LIMIT 1",
+   382→                        ['emp_id' => $emp['id'], 'unit_id' => $emp['unit_id'], 'month' => $period['month'], 'year' => $period['year']]
+   383→                    );
+   384→
+   385→                    // Calculate total days based on unit's pay_days_type setting
+   386→                    $payDaysType = $emp['pay_days_type'] ?? 'actual';
+   387→                    switch ($payDaysType) {
+   388→                        case 'fixed_30':
+   389→                            $totalDays = 30;
+   390→                            break;
+   391→                        case 'previous_month':
+   392→                            // For 26-25 cycle: use previous month's days
+   393→                            $prevMonth = $period['month'] - 1;
+   394→                            $prevYear = $period['year'];
+   395→                            if ($prevMonth < 1) { $prevMonth = 12; $prevYear--; }
+   396→                            $totalDays = (int)date('t', strtotime("$prevYear-$prevMonth-01"));
+   397→                            break;
+   398→                        case 'calendar_minus_sundays':
+   399→                            // Month days minus all Sundays
+   400→                            $calDays = (int)cal_days_in_month(CAL_GREGORIAN, $period['month'], $period['year']);
+   401→                            $sundays = 0;
+   402→                            for ($d = 1; $d <= $calDays; $d++) {
+   403→                                $dow = (int)date('N', strtotime(sprintf('%04d-%02d-%02d', $period['year'], $period['month'], $d)));
+   404→                                if ($dow === 7) $sundays++;
+   405→                            }
+   406→                            $totalDays = $calDays - $sundays;
+   407→                            break;
+   408→                        default: // 'actual'
+   409→                            $totalDays = $period['pay_days'] ?? 30;
+   410→                            break;
+   411→                    }
+   412→                    
+   413→                    // Use total_paid_days from attendance_summary if available, otherwise calculate
+   414→                    $preCalcPaidDays = floatval($attendance['total_paid_days'] ?? 0);
+   415→                    if ($preCalcPaidDays > 0) {
+   416→                        $paidDays = $preCalcPaidDays;
+   417→                    } else {
+   418→                        // Fallback: calculate from individual components
+   419→                        $paidDays = floatval($attendance['total_present'] ?? 0);
+   420→                        $paidDays += floatval($attendance['weekly_offs'] ?? 0);
+   421→                        $paidDays += floatval($attendance['total_extra'] ?? 0);
+   422→                    }
+   423→                    
+   424→                    // Check if attendance record exists (must check is_array first to avoid warnings)
+   425→                    // NOTE: SQL aliases total_present → present_days, total_wo → weekly_offs
+   426→                    $hasAttendance = is_array($attendance) && array_key_exists('present_days', $attendance) && $attendance['present_days'] !== null;
+   427→
+   428→                    // Check for missing attendance — SKIP employee, do NOT assume full month
+   429→                    if (!$hasAttendance) {
+   430→                        $exceptions[] = [
+   431→                            'employee_id' => $emp['employee_code'],
+   432→                            'employee_name' => $emp['full_name'],
+   433→                            'type' => 'Missing Attendance',
+   434→                            'message' => 'No attendance data found — employee skipped. Upload attendance first.'
+   435→                        ];
+   436→                        continue; // Skip this employee entirely
+   437→                    }
+   438→
+   439→                    $unpaidDays = max(0, $totalDays - $paidDays);
+   440→                    $overtimeHours = floatval($attendance['overtime_hours'] ?? 0);
+   441→
+   442→                    // Calculate earnings (pro-rated) - using basic_da as combined column
+   443→                    $basicDa = round(($emp['basic_da'] ?? 0) * $paidDays / $totalDays, 2);
+   444→                    $hra = round(($emp['hra'] ?? 0) * $paidDays / $totalDays, 2);
+   445→                    $leaveEncashment = round(($emp['leave_encashment'] ?? 0) * $paidDays / $totalDays, 2);
+   446→                    $bonusEncashment = round(($emp['bonus_encashment'] ?? 0) * $paidDays / $totalDays, 2);
+   447→                    $washingAllowance = round(($emp['washing_allowance'] ?? 0) * $paidDays / $totalDays, 2);
+   448→
+   449→                    $grossEarnings = round($basicDa + $hra + $leaveEncashment + $bonusEncashment + $washingAllowance, 2);
+   450→
+   451→                    // Extra days are now included in paid_days, so no separate calculation needed
+   452→                    $extraDaysAmount = 0;
+   453→
+   454→                    // Calculate overtime amount based on unit salary formula settings
+   455→                    $overtimeAmount = 0;
+   456→                    if ($overtimeHours > 0 && ($emp['overtime_applicable'] ?? 0)) {
+   457→                        $otCalcType = $emp['ot_calculation_type'] ?? 'single_pay'; // single_pay or double_pay
+   458→                        $otCalcOn = $emp['ot_calculation_on'] ?? 'basic_da';      // basic, basic_da, basic_hra, gross
+   459→                        $otHoursPerDay = floatval($emp['ot_hours_per_day'] ?? 8);
+   460→
+   461→                        // Determine OT base amount
+   462→                        switch ($otCalcOn) {
+   463→                            case 'gross':
+   464→                                $otBase = $emp['gross_salary'] ?? 0;
+   465→                                break;
+   466→                            case 'basic_hra':
+   467→                                $otBase = ($emp['basic_da'] ?? 0) + ($emp['hra'] ?? 0);
+   468→                                break;
+   469→                            case 'basic':
+   470→                                // Basic only (without DA) — approximate from basic_da
+   471→                                $otBase = ($emp['basic_da'] ?? 0) * 0.5; // rough split
+   472→                                break;
+   473→                            default: // basic_da
+   474→                                $otBase = $emp['basic_da'] ?? 0;
+   475→                                break;
+   476→                        }
+   477→
+   478→                        $hourlyRate = $otBase / $totalDays / $otHoursPerDay;
+   479→                        $otMultiplier = ($otCalcType === 'double_pay') ? 2 : 1;
+   480→                        $overtimeAmount = round($hourlyRate * $overtimeHours * $otMultiplier, 2);
+   481→                    }
+   482→
+   483→                    $grossWithOT = round($grossEarnings + $overtimeAmount, 2);
+   484→
+   485→                    // Calculate PF
+   486→                    $pfEmployee = 0;
+   487→                    $pfEmployer = 0;
+   488→                    $epsEmployer = 0;
+   489→                    $edlisEmployer = 0;
+   490→                    $epfAdmin = 0;
+   491→
+   492→                    if ($emp['pf_applicable'] ?? 0) {
+   493→                        $pfBase = min($basicDa, $this->pfRates['wage_ceiling']);
+   494→                        $pfEmployee = round($pfBase * $this->pfRates['employee_share'] / 100, 2);
+   495→                        $pfEmployer = round($pfBase * $this->pfRates['employer_pf'] / 100, 2);
+   496→                        $epsEmployer = round($pfBase * $this->pfRates['employer_eps'] / 100, 2);
+   497→                        $edlisEmployer = round($pfBase * $this->pfRates['employer_edlis'] / 100, 2);
+   498→                        $epfAdmin = round($pfBase * $this->pfRates['epf_admin'] / 100, 2);
+   499→                    }
+   500→
+   501→                    // Calculate ESI - Check against actual gross salary (not pro-rated)
+   502→                    $esiEmployee = 0;
+   503→                    $esiEmployer = 0;
+   504→                    $actualGrossSalary = floatval($emp['gross_salary'] ?? 0);
+   505→
+   506→                    if (($emp['esi_applicable'] ?? 0) && $actualGrossSalary > 0 && $actualGrossSalary <= $this->esiRates['wage_ceiling']) {
+   507→                        $esiEmployee = round($grossWithOT * $this->esiRates['employee_share'] / 100, 2);
+   508→                        $esiEmployer = round($grossWithOT * $this->esiRates['employer_share'] / 100, 2);
+   509→                    }
+   510→
+   511→                    // Calculate Professional Tax
+   512→                    $pt = 0;
+   513→                    if ($emp['pt_applicable'] ?? 0) {
+   514→                        $pt = $this->calculatePT($grossWithOT, $emp['unit_state'] ?? '');
+   515→                    }
+   516→
+   517→                    // Calculate LWF (Labour Welfare Fund) — state-specific from lwf_rates table
+   518→                    $lwfEmployee = 0;
+   519→                    $lwfEmployer = 0;
+   520→                    if (($emp['lwf_applicable'] ?? 0) && !empty($emp['unit_state'])) {
+   521→                        $stateCode = $emp['unit_state'];
+   522→                        $lwfRate = $this->db->fetch(
+   523→                            "SELECT lr.employee_share, lr.employer_share, lr.contribution_months
+   524→                             FROM lwf_rates lr
+   525→                             JOIN states s ON lr.state_id = s.id
+   526→                             WHERE (s.state_code = :st OR s.state_name = :st)
+   527→                             AND lr.is_active = 1
+   528→                             AND lr.effective_from <= CURDATE()
+   529→                             ORDER BY lr.effective_from DESC LIMIT 1",
+   530→                            ['st' => $stateCode]
+   531→                        );
+   532→                        if (!$lwfRate) {
+   533→                            // Fallback: try lwf_state_rates by state_name
+   534→                            $lwfRate = $this->db->fetch(
+   535→                                "SELECT employee_share, employer_share, contribution_months
+   536→                                 FROM lwf_state_rates
+   537→                                 WHERE state_name = :st AND is_active = 1
+   538→                                 AND effective_from <= CURDATE()
+   539→                                 ORDER BY effective_from DESC LIMIT 1",
+   540→                                ['st' => $stateCode]
+   541→                            );
+   542→                        }
+   543→                        if ($lwfRate) {
+   544→                            // Check if current month is a contribution month
+   545→                            $contribMonths = array_filter(array_map('intval', explode(',', $lwfRate['contribution_months'] ?? '')));
+   546→                            if (in_array((int)$period['month'], $contribMonths)) {
+   547→                                $lwfEmployee = floatval($lwfRate['employee_share']);
+   548→                                $lwfEmployer = floatval($lwfRate['employer_share']);
+   549→                            }
+   550→                        }
+   551→                    }
+   552→
+   553→                    // Get advances for the period (single query for all advance types)
+   554→                    $advance = $this->db->fetch(
+   555→                        "SELECT COALESCE(SUM(adv1 + adv2 + dress_advance), 0) as total_advance,
+   556→                               COALESCE(office_advance, 0) as office_ded
+   557→                        FROM employee_advances
+   558→                        WHERE employee_id = :emp_id AND unit_id = :unit_id AND month = :month AND year = :year",
+   559→                        ['emp_id' => $emp['id'], 'unit_id' => $emp['unit_id'], 'month' => $period['month'], 'year' => $period['year']]
+   560→                    );
+   561→                    $salaryAdvance = $advance['total_advance'] ?? 0;
+   562→                    $officeDeduction = floatval($advance['office_ded'] ?? 0);
+   563→
+   564→                    // Get active loan EMI for this employee (Audit Issue #8 — include in total_deductions)
+   565→                    $loanEmi = 0;
+   566→                    $activeLoans = $this->db->fetchAll(
+   567→                        "SELECT el.emi_amount
+   568→                         FROM employee_loans el
+   569→                         WHERE el.employee_id = :emp_id AND el.status = 'Active'
+   570→                         AND el.balance_amount > 0
+   571→                         AND (el.start_year < :year OR (el.start_year = :year AND el.start_month <= :month))
+   572→                         AND el.id NOT IN (
+   573→                             SELECT lem.loan_id FROM loan_emi_log lem
+   574→                             WHERE lem.month = :month AND lem.year = :year
+   575→                         )",
+   576→                        ['emp_id' => $emp['id'], 'year' => $period['year'], 'month' => $period['month']]
+   577→                    );
+   578→                    foreach ($activeLoans as $aLoan) {
+   579→                        $loanEmi += floatval($aLoan['emi_amount']);
+   580→                    }
+   581→
+   582→                    // Total deductions (now includes loan_emi)
+   583→                    $totalDeductions = round($pfEmployee + $esiEmployee + $pt + $lwfEmployee + $salaryAdvance + $officeDeduction + $loanEmi, 2);
+   584→
+   585→                    // Net pay (always round off)
+   586→                    $netPay = round($grossWithOT - $totalDeductions); // Round to nearest ₹.00
+   587→
+   588→                    // Employer contributions
+   589→                    $employerContribution = round($pfEmployer + $epsEmployer + $edlisEmployer + $epfAdmin + $esiEmployer + $lwfEmployer, 2);
+   590→
+   591→                    // Bonus provision (8.33% of full-month basic_da, max ₹7000)
+   592→                    // Payment of Bonus Act: computed on monthly wages (full), not pro-rated
+   593→                    $bonusProvision = 0;
+   594→                    if ($emp['bonus_applicable'] ?? 0) {
+   595→                        $fullMonthBasicDa = floatval($emp['basic_da'] ?? 0);
+   596→                        $bonusBase = min($fullMonthBasicDa, 7000);
+   597→                        $bonusProvision = round($bonusBase * 8.33 / 100, 2);
+   598→                    }
+   599→
+   600→                    // Gratuity provision (4.81% of full-month basic_da)
+   601→                    $gratuityProvision = 0;
+   602→                    if ($emp['gratuity_applicable'] ?? 0) {
+   603→                        $fullMonthBasicDa = floatval($emp['basic_da'] ?? 0);
+   604→                        $gratuityProvision = round($fullMonthBasicDa * 4.81 / 100, 2);
+   605→                    }
+   606→
+   607→                    // CTC
+   608→                    $ctc = round($grossWithOT + $employerContribution + $bonusProvision + $gratuityProvision, 2);
+   609→
+   610→                    // Minimum wage check (Audit Issue #14)
+   611→                    // Schema: minimum_wages (state_id FK → states, worker_category,
+   612→                    // total_per_month / basic_per_month+vda_per_month)
+   613→                    $minWage = $this->db->fetch(
+   614→                        "SELECT COALESCE(NULLIF(mw.total_per_month, 0),
+   615→                                          COALESCE(mw.basic_per_month, 0) + COALESCE(mw.vda_per_month, 0), 0) AS minimum_wage
+   616→                         FROM minimum_wages mw
+   617→                         JOIN states s ON s.id = mw.state_id
+   618→                         WHERE (LOWER(s.state_name) = LOWER(:state) OR LOWER(s.state_code) = LOWER(:state))
+   619→                         AND LOWER(mw.worker_category) = LOWER(:cat)
+   620→                         AND mw.effective_from <= :dt
+   621→                         AND (mw.is_active = 1 OR mw.is_active IS NULL)
+   622→                         ORDER BY mw.effective_from DESC LIMIT 1",
+   623→                        ['state' => ($emp['unit_state'] ?? ''), 'cat' => ($emp['worker_category'] ?? ''), 'dt' => $period['end_date']]
+   624→                    );
+   625→                    if ($minWage && $grossEarnings < floatval($minWage['minimum_wage']) && $paidDays > 0) {
+   626→                        $exceptions[] = [
+   627→                            'employee_id' => $emp['employee_code'],
+   628→                            'employee_name' => $emp['full_name'],
+   629→                            'type' => 'Below Minimum Wage',
+   630→                            'message' => 'Gross ₹' . number_format($grossEarnings, 2) . ' < min wage ₹' . number_format($minWage['minimum_wage'], 2) . ' for ' . ($emp['worker_category'] ?? 'N/A')
+   631→                        ];
+   632→                    }
+   633→
+   634→                    // Insert or update payroll record - matching database schema with basic_da column
+   635→                    $this->db->query(
+   636→                        "INSERT INTO payroll (
+   637→                            payroll_period_id, employee_id, unit_id, month, year,
+   638→                            total_days, paid_days, unpaid_days, overtime_hours,
+   639→                            basic_da, hra, leave_encashment, bonus_encashment, washing_allowance,
+   640→                            overtime_amount, extra_days_amount, gross_earnings,
+   641→                            pf_employee, esi_employee, professional_tax, lwf_employee,
+   642→                            salary_advance, loan_emi, office_deduction, total_deductions,
+   643→                            pf_employer, eps_employer, edlis_employer, epf_admin_charges, esi_employer,
+   644→                            bonus_provision, gratuity_provision,
+   645→                            total_employer_contribution,
+   646→                            net_pay, gross_salary, ctc, status, 
+   647→                            salary_hold, payroll_dirty,
+   648→                            last_calculated_at, calculated_by, created_at
+   649→                        ) VALUES (
+   650→                            :period_id, :emp_code, :unit_id, :month, :year,
+   651→                            :total_days, :paid_days, :unpaid_days, :ot_hours,
+   652→                            :basic_da, :hra, :leave_encash, :bonus_encash, :washing,
+   653→                            :ot_amount, :extra_days_amount, :gross,
+   654→                            :pf_emp, :esi_emp, :pt, :lwf_emp,
+   655→                            :salary_adv, :loan_emi, :office_ded, :total_ded,
+   656→                            :pf_empr, :eps_empr, :edlis_empr, :epf_admin, :esi_empr,
+   657→                            :bonus, :gratuity,
+   658→                            :employer_contrib,
+   659→                            :net_pay, :gross_salary, :ctc, 'Processed',
+   660→                            0, 0,
+   661→                            NOW(), :user_id, NOW()
+   662→                        )
+   663→                        ON DUPLICATE KEY UPDATE
+   664→                            month = VALUES(month),
+   665→                            year = VALUES(year),
+   666→                            total_days = VALUES(total_days),
+   667→                            paid_days = VALUES(paid_days),
+   668→                            unpaid_days = VALUES(unpaid_days),
+   669→                            overtime_hours = VALUES(overtime_hours),
+   670→                            basic_da = VALUES(basic_da),
+   671→                            hra = VALUES(hra),
+   672→                            leave_encashment = VALUES(leave_encashment),
+   673→                            bonus_encashment = VALUES(bonus_encashment),
+   674→                            washing_allowance = VALUES(washing_allowance),
+   675→                            overtime_amount = VALUES(overtime_amount),
+   676→                            extra_days_amount = VALUES(extra_days_amount),
+   677→                            gross_earnings = VALUES(gross_earnings),
+   678→                            pf_employee = VALUES(pf_employee),
+   679→                            esi_employee = VALUES(esi_employee),
+   680→                            professional_tax = VALUES(professional_tax),
+   681→                            lwf_employee = VALUES(lwf_employee),
+   682→                            salary_advance = VALUES(salary_advance),
+   683→                            loan_emi = VALUES(loan_emi),
+   684→                            office_deduction = VALUES(office_deduction),
+   685→                            total_deductions = VALUES(total_deductions),
+   686→                            pf_employer = VALUES(pf_employer),
+   687→                            eps_employer = VALUES(eps_employer),
+   688→                            edlis_employer = VALUES(edlis_employer),
+   689→                            epf_admin_charges = VALUES(epf_admin_charges),
+   690→                            esi_employer = VALUES(esi_employer),
+   691→                            bonus_provision = VALUES(bonus_provision),
+   692→                            gratuity_provision = VALUES(gratuity_provision),
+   693→                            total_employer_contribution = VALUES(total_employer_contribution),
+   694→                            gross_salary = VALUES(gross_salary),
+   695→                            net_pay = VALUES(net_pay),
+   696→                            ctc = VALUES(ctc),
+   697→                            payroll_dirty = 0,
+   698→                            last_calculated_at = NOW(),
+   699→                            calculated_by = VALUES(calculated_by),
+   700→                            updated_at = NOW()",
+   701→                        [
+   702→                            'period_id' => $periodId,
+   703→                            'emp_code' => $emp['employee_code'],
+   704→                            'unit_id' => $emp['unit_id'],
+   705→                            'month' => $period['month'],
+   706→                            'year' => $period['year'],
+   707→                            'total_days' => $totalDays,
+   708→                            'paid_days' => $paidDays,
+   709→                            'unpaid_days' => $unpaidDays,
+   710→                            'ot_hours' => $overtimeHours,
+   711→                            'basic_da' => $basicDa,
+   712→                            'hra' => $hra,
+   713→                            'leave_encash' => $leaveEncashment,
+   714→                            'bonus_encash' => $bonusEncashment,
+   715→                            'washing' => $washingAllowance,
+   716→                            'ot_amount' => $overtimeAmount,
+   717→                            'extra_days_amount' => $extraDaysAmount,
+   718→                            'gross' => $grossWithOT,
+   719→                            'pf_emp' => $pfEmployee,
+   720→                            'esi_emp' => $esiEmployee,
+   721→                            'pt' => $pt,
+   722→                            'lwf_emp' => $lwfEmployee,
+   723→                            'salary_adv' => $salaryAdvance,
+   724→                            'loan_emi' => $loanEmi,
+   725→                            'office_ded' => $officeDeduction,
+   726→                            'total_ded' => $totalDeductions,
+   727→                            'pf_empr' => $pfEmployer,
+   728→                            'eps_empr' => $epsEmployer,
+   729→                            'edlis_empr' => $edlisEmployer,
+   730→                            'epf_admin' => $epfAdmin,
+   731→                            'esi_empr' => $esiEmployer,
+   732→                            'bonus' => $bonusProvision,
+   733→                            'gratuity' => $gratuityProvision,
+   734→                            'employer_contrib' => $employerContribution,
+   735→                            'net_pay' => $netPay,
+   736→                            'gross_salary' => $grossWithOT,
+   737→                            'ctc' => $ctc,
+   738→                            'user_id' => $_SESSION['user_id'] ?? null
+   739→                        ]
+   740→                    );
+   741→
+   742→                    $processed++;
+   743→                    $totalGross += $grossWithOT;
+   744→                    $totalNet += $netPay;
+   745→                    $totalPF += $pfEmployee + $pfEmployer;
+   746→                    $totalESI += $esiEmployee + $esiEmployer;
+   747→
+   748→                } catch (Exception $e) {
+   749→                    $errors[] = "Error processing employee {$emp['employee_code']}: " . $e->getMessage();
+   750→                }
+   751→            }
+   752→
+   753→            // Store exceptions
+   754→            foreach ($exceptions as $exception) {
+   755→                $this->logException($periodId, $exception['employee_id'], $exception['type'], $exception['message']);
+   756→            }
+   757→
+   758→            // Update period status
+   759→            $this->db->update('payroll_periods', [
+   760→                'status' => 'Processed',
+   761→                'processed_by' => $_SESSION['user_id'] ?? null,
+   762→                'processed_at' => date('Y-m-d H:i:s'),
+   763→                'exception_count' => count($exceptions)
+   764→            ], SQL_WHERE_ID, ['id' => $periodId]);
+   765→
+   766→            $this->db->commit();
+   767→
+   768→            return [
+   769→                'success' => true,
+   770→                'message' => "Payroll processed for $processed employees.",
+   771→                'processed' => $processed,
+   772→                'total_gross' => $totalGross,
+   773→                'total_net' => $totalNet,
+   774→                'total_pf' => $totalPF,
+   775→                'total_esi' => $totalESI,
+   776→                'exceptions' => $exceptions,
+   777→                'errors' => $errors
+   778→            ];
+   779→
+   780→        } catch (Exception $e) {
+   781→            $this->db->rollBack();
+   782→            return ['success' => false, 'message' => 'Payroll processing failed: ' . $e->getMessage()];
+   783→        }
+   784→    }
+   785→
+   786→    /**
+   787→     * Recalculate payroll for specific employees
+   788→     * 
+   789→     * @param int $periodId The payroll period ID
+   790→     * @param array $employeeCodes Array of employee codes to recalculate
+   791→     * @return array Result with success status
+   792→     */
+   793→    public function recalculatePayroll($periodId, $employeeCodes = []) {
+   794→        // If no specific employees, recalculate all dirty records
+   795→        if (empty($employeeCodes)) {
+   796→            $dirtyRecords = $this->db->fetchAll(
+   797→                "SELECT employee_id FROM payroll 
+   798→                WHERE payroll_period_id = :period_id AND payroll_dirty = 1",
+   799→                ['period_id' => $periodId]
+   800→            );
+   801→            $employeeCodes = array_column($dirtyRecords, 'employee_id');
+   802→        }
+   803→
+   804→        if (empty($employeeCodes)) {
+   805→            return ['success' => true, 'message' => 'No records to recalculate.', 'processed' => 0];
+   806→        }
+   807→
+   808→        return $this->processPayroll($periodId, ['employee_codes' => $employeeCodes]);
+   809→    }
+   810→
+   811→    /**
+   812→     * Hold salary for specific employees
+   813→     * 
+   814→     * @param int $periodId The payroll period ID
+   815→     * @param array $employeeCodes Array of employee codes
+   816→     * @param string $reason Reason for holding salary
+   817→     * @return array Result with success status
+   818→     */
+   819→    public function holdSalary($periodId, $employeeCodes, $reason = '') {
+   820→        // Check if period is frozen
+   821→        $period = $this->db->fetch(
+   822→            "SELECT status FROM payroll_periods WHERE id = :id",
+   823→            ['id' => $periodId]
+   824→        );
+   825→
+   826→        if (!$period || in_array($period['status'], ['Frozen', 'Locked', 'Paid'])) {
+   827→            return ['success' => false, 'message' => 'Cannot hold salary for this period.'];
+   828→        }
+   829→
+   830→        $placeholders = implode(',', array_fill(0, count($employeeCodes), '?'));
+   831→        $params = array_merge([$periodId], $employeeCodes);
+   832→
+   833→        $this->db->query(
+   834→            "UPDATE payroll SET 
+   835→                salary_hold = 1, 
+   836→                hold_reason = ?, 
+   837→                hold_date = CURDATE(),
+   838→                status = 'Hold'
+   839→            WHERE payroll_period_id = ? AND employee_id IN ($placeholders)",
+   840→            array_merge([$reason], $params)
+   841→        );
+   842→
+   843→        // Update hold count in period
+   844→        $holdCount = $this->db->fetch(
+   845→            "SELECT COUNT(*) as count FROM payroll WHERE payroll_period_id = ? AND salary_hold = 1",
+   846→            [$periodId]
+   847→        );
+   848→
+   849→        $this->db->update('payroll_periods', [
+   850→            'hold_count' => $holdCount['count']
+   851→        ], SQL_WHERE_ID, ['id' => $periodId]);
+   852→
+   853→        return ['success' => true, 'message' => 'Salary hold applied successfully.'];
+   854→    }
+   855→
+   856→    /**
+   857→     * Release held salary for specific employees
+   858→     * 
+   859→     * @param int $periodId The payroll period ID
+   860→     * @param array $employeeCodes Array of employee codes
+   861→     * @return array Result with success status
+   862→     */
+   863→    public function releaseSalary($periodId, $employeeCodes) {
+   864→        // Check if period is frozen
+   865→        $period = $this->db->fetch(
+   866→            "SELECT status FROM payroll_periods WHERE id = :id",
+   867→            ['id' => $periodId]
+   868→        );
+   869→
+   870→        if (!$period || in_array($period['status'], ['Frozen', 'Locked'])) {
+   871→            return ['success' => false, 'message' => 'Cannot release salary for this period.'];
+   872→        }
+   873→
+   874→        $placeholders = implode(',', array_fill(0, count($employeeCodes), '?'));
+   875→        $params = array_merge([$periodId], $employeeCodes);
+   876→
+   877→        $this->db->query(
+   878→            "UPDATE payroll SET 
+   879→                salary_hold = 0, 
+   880→                released_date = CURDATE(),
+   881→                status = 'Processed'
+   882→            WHERE payroll_period_id = ? AND employee_id IN ($placeholders)",
+   883→            $params
+   884→        );
+   885→
+   886→        // Update hold count in period
+   887→        $holdCount = $this->db->fetch(
+   888→            "SELECT COUNT(*) as count FROM payroll WHERE payroll_period_id = ? AND salary_hold = 1",
+   889→            [$periodId]
+   890→        );
+   891→
+   892→        $this->db->update('payroll_periods', [
+   893→            'hold_count' => $holdCount['count']
+   894→        ], SQL_WHERE_ID, ['id' => $periodId]);
+   895→
+   896→        return ['success' => true, 'message' => 'Salary released successfully.'];
+   897→    }
+   898→
+   899→    /**
+   900→     * Freeze payroll period - prevents all modifications
+   901→     * 
+   902→     * @param int $periodId The payroll period ID
+   903→     * @return array Result with success status
+   904→     */
+   905→    public function freezePeriod($periodId) {
+   906→        $period = $this->db->fetch(
+   907→            "SELECT status FROM payroll_periods WHERE id = :id",
+   908→            ['id' => $periodId]
+   909→        );
+   910→
+   911→        if (!$period) {
+   912→            return ['success' => false, 'message' => 'Payroll period not found.'];
+   913→        }
+   914→
+   915→        if (in_array($period['status'], ['Frozen', 'Locked'])) {
+   916→            return ['success' => false, 'message' => 'Payroll period is already frozen.'];
+   917→        }
+   918→
+   919→        // Update period status
+   920→        $this->db->update('payroll_periods', [
+   921→            'status' => 'Frozen',
+   922→            'frozen_at' => date('Y-m-d H:i:s'),
+   923→            'frozen_by' => $_SESSION['user_id'] ?? null
+   924→        ], SQL_WHERE_ID, ['id' => $periodId]);
+   925→
+   926→        // Update all payroll records
+   927→        $this->db->query(
+   928→            "UPDATE payroll SET status = 'Frozen' WHERE payroll_period_id = :period_id",
+   929→            ['period_id' => $periodId]
+   930→        );
+   931→
+   932→        return ['success' => true, 'message' => 'Payroll period frozen successfully.'];
+   933→    }
+   934→
+   935→    /**
+   936→     * Unfreeze payroll period
+   937→     * 
+   938→     * @param int $periodId The payroll period ID
+   939→     * @return array Result with success status
+   940→     */
+   941→    public function unfreezePeriod($periodId) {
+   942→        $period = $this->db->fetch(
+   943→            "SELECT status FROM payroll_periods WHERE id = :id",
+   944→            ['id' => $periodId]
+   945→        );
+   946→
+   947→        if (!$period) {
+   948→            return ['success' => false, 'message' => 'Payroll period not found.'];
+   949→        }
+   950→
+   951→        // Update period status back to Approved
+   952→        $this->db->update('payroll_periods', [
+   953→            'status' => 'Approved',
+   954→            'frozen_at' => null,
+   955→            'frozen_by' => null
+   956→        ], SQL_WHERE_ID, ['id' => $periodId]);
+   957→
+   958→        // Update all payroll records - restore correct status based on hold state
+   959→        $this->db->query(
+   960→            "UPDATE payroll SET status = CASE WHEN salary_hold = 1 THEN 'Hold' ELSE 'Processed' END 
+   961→             WHERE payroll_period_id = :period_id",
+   962→            ['period_id' => $periodId]
+   963→        );
+   964→
+   965→        return ['success' => true, 'message' => 'Payroll period unfrozen successfully.'];
+   966→    }
+   967→
+   968→    /**
+   969→     * Mark payroll as paid
+   970→     * 
+   971→     * @param int $periodId The payroll period ID
+   972→     * @param string $paymentDate The payment date
+   973→     * @param array $excludeHeld Whether to exclude held salaries
+   974→     * @return array Result with success status
+   975→     */
+   976→    public function markAsPaid($periodId, $paymentDate = null, $excludeHeld = true) {
+   977→        if (!$paymentDate) {
+   978→            $paymentDate = date('Y-m-d');
+   979→        }
+   980→
+   981→        // Check if period is frozen
+   982→        $period = $this->db->fetch(
+   983→            "SELECT status FROM payroll_periods WHERE id = :id",
+   984→            ['id' => $periodId]
+   985→        );
+   986→
+   987→        if (!$period) {
+   988→            return ['success' => false, 'message' => 'Payroll period not found.'];
+   989→        }
+   990→
+   991→        if ($period['status'] === 'Frozen' || $period['status'] === 'Locked') {
+   992→            return ['success' => false, 'message' => 'Cannot modify frozen payroll period.'];
+   993→        }
+   994→
+   995→        // Update period
+   996→        $this->db->update('payroll_periods', [
+   997→            'status' => 'Paid',
+   998→            'payment_date' => $paymentDate
+   999→        ], SQL_WHERE_ID, ['id' => $periodId]);
+  1000→
+  1001→        // Update payroll records (exclude held if requested)
+  1002→        $whereClause = $excludeHeld 
+  1003→            ? "payroll_period_id = :period_id AND salary_hold = 0"
+  1004→            : "payroll_period_id = :period_id";
+  1005→
+  1006→        $this->db->query(
+  1007→            "UPDATE payroll SET status = 'Paid', payment_status = 'Paid' WHERE $whereClause",
+  1008→            ['period_id' => $periodId]
+  1009→        );
+  1010→
+  1011→        return ['success' => true, 'message' => 'Payroll marked as paid.'];
+  1012→    }
+  1013→
+  1014→    /**
+  1015→     * Get payroll exceptions for a period
+  1016→     * 
+  1017→     * @param int $periodId The payroll period ID
+  1018→     * @return array List of exceptions
+  1019→     */
+  1020→    public function getExceptions($periodId) {
+  1021→        return $this->db->fetchAll(
+  1022→            "SELECT pe.*, e.full_name, e.employee_code, c.name as client_name, u.name as unit_name
+  1023→             FROM payroll_exceptions pe
+  1024→             JOIN employees e ON pe.employee_id = e.employee_code
+  1025→             LEFT JOIN clients c ON e.client_id = c.id
+  1026→             LEFT JOIN units u ON e.unit_id = u.id
+  1027→             WHERE pe.payroll_period_id = :period_id AND pe.is_resolved = 0
+  1028→             ORDER BY pe.exception_type, e.full_name",
+  1029→            ['period_id' => $periodId]
+  1030→        );
+  1031→    }
+  1032→
+  1033→    /**
+  1034→     * Log an exception
+  1035→     */
+  1036→    private function logException($periodId, $employeeId, $type, $message) {
+  1037→        try {
+  1038→            $this->db->insert('payroll_exceptions', [
+  1039→                'payroll_period_id' => $periodId,
+  1040→                'employee_id' => $employeeId,
+  1041→                'exception_type' => $type,
+  1042→                'exception_message' => $message,
+  1043→                'is_resolved' => 0,
+  1044→                'created_at' => date('Y-m-d H:i:s')
+  1045→            ]);
+  1046→        } catch (Exception $e) {
+  1047→            // Ignore duplicate exceptions
+  1048→        }
+  1049→    }
+  1050→
+  1051→    /**
+  1052→     * Resolve an exception
+  1053→     */
+  1054→    public function resolveException($exceptionId) {
+  1055→        return $this->db->update('payroll_exceptions', [
+  1056→            'is_resolved' => 1,
+  1057→            'resolved_at' => date('Y-m-d H:i:s'),
+  1058→            'resolved_by' => $_SESSION['user_id'] ?? null
+  1059→        ], SQL_WHERE_ID, ['id' => $exceptionId]);
+  1060→    }
+  1061→
+  1062→    /**
+  1063→     * Mark payroll as dirty (needs recalculation)
+  1064→     */
+  1065→    public function markDirty($employeeCode, $periodId, $reason = '') {
+  1066→        return $this->db->query(
+  1067→            "UPDATE payroll SET payroll_dirty = 1, dirty_reason = ? 
+  1068→            WHERE employee_id = ? AND payroll_period_id = ?",
+  1069→            [$reason, $employeeCode, $periodId]
+  1070→        );
+  1071→    }
+  1072→
+  1073→    /**
+  1074→     * Get client-wise payroll summary
+  1075→     */
+  1076→    public function getClientWiseSummary($periodId) {
+  1077→        return $this->db->fetchAll(
+  1078→            "SELECT c.id, c.name as client_name,
+  1079→                    COUNT(p.id) as employee_count,
+  1080→                    SUM(p.gross_earnings) as total_gross,
+  1081→                    SUM(p.total_deductions) as total_deductions,
+  1082→                    SUM(p.net_pay) as total_net,
+  1083→                    SUM(p.total_employer_contribution) as total_employer_contribution,
+  1084→                    SUM(CASE WHEN p.salary_hold = 1 THEN 1 ELSE 0 END) as hold_count
+  1085→             FROM payroll p
+  1086→             JOIN employees e ON p.employee_id = e.employee_code
+  1087→             JOIN clients c ON e.client_id = c.id
+  1088→             WHERE p.payroll_period_id = :period_id
+  1089→             GROUP BY c.id, c.name
+  1090→             ORDER BY total_net DESC",
+  1091→            ['period_id' => $periodId]
+  1092→        );
+  1093→    }
+  1094→
+  1095→    /**
+  1096→     * Get unit-wise payroll summary
+  1097→     */
+  1098→    public function getUnitWiseSummary($periodId) {
+  1099→        return $this->db->fetchAll(
+  1100→            "SELECT u.id, u.name as unit_name, c.name as client_name,
+  1101→                    COUNT(p.id) as employee_count,
+  1102→                    SUM(p.gross_earnings) as total_gross,
+  1103→                    SUM(p.total_deductions) as total_deductions,
+  1104→                    SUM(p.net_pay) as total_net,
+  1105→                    SUM(p.total_employer_contribution) as total_employer_contribution,
+  1106→                    SUM(CASE WHEN p.salary_hold = 1 THEN 1 ELSE 0 END) as hold_count
+  1107→             FROM payroll p
+  1108→             JOIN employees e ON p.employee_id = e.employee_code
+  1109→             JOIN units u ON e.unit_id = u.id
+  1110→             LEFT JOIN clients c ON e.client_id = c.id
+  1111→             WHERE p.payroll_period_id = :period_id
+  1112→             GROUP BY u.id, u.name, c.name
+  1113→             ORDER BY c.name, total_net DESC",
+  1114→            ['period_id' => $periodId]
+  1115→        );
+  1116→    }
+  1117→
+  1118→    /**
+  1119→     * Get bank advice data
+  1120→     */
+  1121→    public function getBankAdvice($periodId) {
+  1122→        return $this->db->fetchAll(
+  1123→            "SELECT p.employee_id, p.net_pay, e.full_name, e.bank_name, e.account_number, e.ifsc_code, e.account_holder_name
+  1124→             FROM payroll p
+  1125→             JOIN employees e ON p.employee_id = e.employee_code
+  1126→             WHERE p.payroll_period_id = :period_id
+  1127→             AND p.payment_mode = 'Bank Transfer'
+  1128→             AND p.net_pay > 0
+  1129→             AND p.salary_hold = 0
+  1130→             ORDER BY e.bank_name, e.full_name",
+  1131→            ['period_id' => $periodId]
+  1132→        );
+  1133→    }
+  1134→
+  1135→    /**
+  1136→     * Get NEFT format data for bank transfer
+  1137→     */
+  1138→    public function getNEFTData($periodId) {
+  1139→        return $this->db->fetchAll(
+  1140→            "SELECT 
+  1141→                e.account_number as 'Beneficiary Account No',
+  1142→                e.ifsc_code as 'IFSC Code',
+  1143→                e.full_name as 'Beneficiary Name',
+  1144→                p.net_pay as 'Amount',
+  1145→                'NEFT' as 'Payment Mode',
+  1146→                CONCAT('SAL-', DATE_FORMAT(CURDATE(), '%m%Y'), '-', p.employee_id) as 'Reference No',
+  1147→                '' as 'Remarks'
+  1148→             FROM payroll p
+  1149→             JOIN employees e ON p.employee_id = e.employee_code
+  1150→             WHERE p.payroll_period_id = :period_id
+  1151→             AND p.payment_mode = 'Bank Transfer'
+  1152→             AND p.net_pay > 0
+  1153→             AND p.salary_hold = 0
+  1154→             AND e.account_number IS NOT NULL
+  1155→             AND e.ifsc_code IS NOT NULL
+  1156→             ORDER BY e.ifsc_code, e.full_name",
+  1157→            ['period_id' => $periodId]
+  1158→        );
+  1159→    }
+  1160→
+  1161→    /**
+  1162→     * Get payslip data by period and employee code
+  1163→     */
+  1164→    public function getPayslip($month, $year, $employeeCode) {
+  1165→        return $this->db->fetch(
+  1166→            "SELECT p.*,
+  1167→                    e.full_name, e.employee_code, e.designation, e.department,
+  1168→                    c.name as client_name, u.name as unit_name, e.date_of_joining,
+  1169→                    e.uan_number, e.esic_number, e.mobile_number,
+  1170→                    e.bank_name, e.account_number, e.ifsc_code
+  1171→             FROM payroll p
+  1172→             JOIN employees e ON p.employee_id = e.employee_code
+  1173→             LEFT JOIN clients c ON e.client_id = c.id
+  1174→             LEFT JOIN units u ON e.unit_id = u.id
+  1175→             WHERE p.employee_id = :emp_code AND p.month = :month AND p.year = :year",
+  1176→            ['emp_code' => $employeeCode, 'month' => $month, 'year' => $year]
+  1177→        );
+  1178→    }
+  1179→
+  1180→    /**
+  1181→     * Get payslip data by payroll ID (primary key)
+  1182→     */
+  1183→    public function getPayslipById($payrollId) {
+  1184→        return $this->db->fetch(
+  1185→            "SELECT p.*,
+  1186→                    e.full_name, e.employee_code, e.designation, e.department,
+  1187→                    c.name as client_name, u.name as unit_name, e.date_of_joining,
+  1188→                    e.uan_number, e.esic_number, e.mobile_number,
+  1189→                    e.bank_name, e.account_number, e.ifsc_code
+  1190→             FROM payroll p
+  1191→             JOIN employees e ON p.employee_id = e.employee_code
+  1192→             LEFT JOIN clients c ON e.client_id = c.id
+  1193→             LEFT JOIN units u ON e.unit_id = u.id
+  1194→             WHERE p.id = :payroll_id",
+  1195→            ['payroll_id' => $payrollId]
+  1196→        );
+  1197→    }
+  1198→
+  1199→    /**
+  1200→     * Get payroll summary for period
+  1201→     */
+  1202→    public function getPeriodSummary($periodId) {
+  1203→        return $this->db->fetch(
+  1204→            "SELECT
+  1205→                COUNT(*) as employee_count,
+  1206→                SUM(total_days) as total_days,
+  1207→                SUM(paid_days) as total_paid_days,
+  1208→                SUM(gross_earnings) as total_gross,
+  1209→                SUM(overtime_amount) as total_overtime,
+  1210→                SUM(pf_employee) as total_pf_employee,
+  1211→                SUM(esi_employee) as total_esi_employee,
+  1212→                SUM(professional_tax) as total_pt,
+  1213→                SUM(salary_advance) as total_advance,
+  1214→                SUM(total_deductions) as total_deductions,
+  1215→                SUM(pf_employer) as total_pf_employer,
+  1216→                SUM(eps_employer) as total_eps_employer,
+  1217→                SUM(esi_employer) as total_esi_employer,
+  1218→                SUM(edlis_employer) as edli_contribution,
+  1219→                SUM(epf_admin_charges) as epf_admin_charges,
+  1220→                SUM(total_employer_contribution) as total_employer_contribution,
+  1221→                SUM(net_pay) as total_net_pay,
+  1222→                SUM(ctc) as total_ctc,
+  1223→                SUM(CASE WHEN salary_hold = 1 THEN 1 ELSE 0 END) as held_count,
+  1224→                SUM(CASE WHEN payroll_dirty = 1 THEN 1 ELSE 0 END) as dirty_count
+  1225→             FROM payroll
+  1226→             WHERE payroll_period_id = :period_id",
+  1227→            ['period_id' => $periodId]
+  1228→        );
+  1229→    }
+  1230→
+  1231→    /**
+  1232→     * Get salary register data
+  1233→     */
+  1234→    public function getSalaryRegister($periodId, $filters = []) {
+  1235→        $sql = "SELECT p.*, e.full_name, e.designation, e.worker_category,
+  1236→                       c.name as client_name, u.name as unit_name
+  1237→                FROM payroll p
+  1238→                JOIN employees e ON p.employee_id = e.employee_code
+  1239→                LEFT JOIN clients c ON e.client_id = c.id
+  1240→                LEFT JOIN units u ON e.unit_id = u.id
+  1241→                WHERE p.payroll_period_id = :period_id";
+  1242→        $params = ['period_id' => $periodId];
+  1243→
+  1244→        if (!empty($filters['unit_id'])) {
+  1245→            $sql .= " AND e.unit_id = :unit_id";
+  1246→            $params['unit_id'] = $filters['unit_id'];
+  1247→        }
+  1248→
+  1249→        if (!empty($filters['client_id'])) {
+  1250→            $sql .= " AND e.client_id = :client_id";
+  1251→            $params['client_id'] = $filters['client_id'];
+  1252→        }
+  1253→
+  1254→        $sql .= " ORDER BY c.name, u.name, e.employee_code";
+  1255→
+  1256→        return $this->db->fetchAll($sql, $params);
+  1257→    }
+  1258→
+  1259→    /**
+  1260→     * Calculate Professional Tax (State-wise slabs)
+  1261→     * Default slabs - can be overridden based on employee's work state
+  1262→     * Common PT slabs across India (monthly)
+  1263→     */
+  1264→    private function calculatePT($gross, $state = 'GJ') {
+  1265→        // Read from professional_tax_rates DB table instead of hardcoded slabs
+  1266→        try {
+  1267→            $rate = $this->db->fetch(
+  1268→                "SELECT ptr.pt_amount
+  1269→                 FROM professional_tax_rates ptr
+  1270→                 JOIN states s ON ptr.state_id = s.id
+  1271→                 WHERE (s.state_code = :state OR s.state_name = :state)
+  1272→                   AND ptr.salary_from <= :gross
+  1273→                   AND (ptr.salary_to IS NULL OR ptr.salary_to >= :gross)
+  1274→                   AND ptr.is_active = 1
+  1275→                 ORDER BY ptr.salary_from DESC
+  1276→                 LIMIT 1",
+  1277→                ['state' => $state, 'gross' => $gross]
+  1278→            );
+  1279→            return $rate ? (float)$rate['pt_amount'] : 0;
+  1280→        } catch (Exception $e) {
+  1281→            // Fallback to simple default if DB query fails
+  1282→            if ($gross > 12000) return 200;
+  1283→            return 0;
+  1284→        }
+  1285→    }
+  1286→
+  1287→    // Create payroll period
+  1288→    public function createPeriod($month, $year) {
+  1289→        $exists = $this->db->fetch(
+  1290→            "SELECT id FROM payroll_periods WHERE month = :month AND year = :year",
+  1291→            ['month' => $month, 'year' => $year]
+  1292→        );
+  1293→
+  1294→        if ($exists) {
+  1295→            return ['success' => false, 'message' => 'Payroll period already exists.'];
+  1296→        }
+  1297→
+  1298→        $startDate = date('Y-m-01', strtotime("$year-$month-01"));
+  1299→        $endDate = date('Y-m-t', strtotime("$year-$month-01"));
+  1300→        $periodName = date('F Y', strtotime("$year-$month-01"));
+  1301→
+  1302→        $id = $this->db->insert('payroll_periods', [
+  1303→            'period_name' => $periodName,
+  1304→            'month' => $month,
+  1305→            'year' => $year,
+  1306→            'start_date' => $startDate,
+  1307→            'end_date' => $endDate,
+  1308→            'pay_days' => date('t', strtotime("$year-$month-01")),
+  1309→            'status' => 'Draft'
+  1310→        ]);
+  1311→
+  1312→        return ['success' => true, 'message' => 'Payroll period created.', 'period_id' => $id];
+  1313→    }
+  1314→
+  1315→    // Approve payroll period
+  1316→    public function approvePayroll($periodId, $approvedBy) {
+  1317→        // Check if frozen
+  1318→        $period = $this->db->fetch(
+  1319→            "SELECT status FROM payroll_periods WHERE id = :id",
+  1320→            ['id' => $periodId]
+  1321→        );
+  1322→
+  1323→        if (!$period || in_array($period['status'], ['Frozen', 'Locked', 'Approved', 'Paid'])) {
+  1324→            return ['success' => false, 'message' => 'Cannot approve this payroll period.'];
+  1325→        }
+  1326→
+  1327→        $this->db->update('payroll_periods', [
+  1328→            'status' => 'Approved',
+  1329→            'approved_by' => $approvedBy,
+  1330→            'approved_at' => date('Y-m-d H:i:s')
+  1331→        ], SQL_WHERE_ID, ['id' => $periodId]);
+  1332→
+  1333→        // Update all payroll records status (except held ones)
+  1334→        $this->db->query(
+  1335→            "UPDATE payroll SET status = 'Approved' 
+  1336→            WHERE payroll_period_id = :period_id AND salary_hold = 0",
+  1337→            ['period_id' => $periodId]
+  1338→        );
+  1339→
+  1340→        return ['success' => true, 'message' => 'Payroll approved.'];
+  1341→    }
+  1342→
+  1343→    // Get PF return data (ECR format)
+  1344→    public function getPFReturnData($periodId) {
+  1345→        return $this->db->fetchAll(
+  1346→            "SELECT e.employee_code as member_id, e.full_name,
+  1347→                    e.aadhaar_number, e.date_of_joining,
+  1348→                    p.basic_da as epf_wages,
+  1349→                    p.basic_da as eps_wages,
+  1350→                    p.pf_employee as epf_contribution_remitted,
+  1351→                    p.eps_employer as eps_contribution_remitted,
+  1352→                    p.pf_employer + p.eps_employer as epf_eps_diff_remitted,
+  1353→                    p.edlis_employer as edli_contribution,
+  1354→                    p.epf_admin_charges as epf_admin_charges
+  1355→             FROM payroll p
+  1356→             JOIN employees e ON p.employee_id = e.employee_code
+  1357→             JOIN employee_salary_structures ess ON e.id = ess.employee_id
+  1358→             WHERE p.payroll_period_id = :period_id
+  1359→             AND ess.pf_applicable = 1
+  1360→             ORDER BY e.employee_code",
+  1361→            ['period_id' => $periodId]
+  1362→        );
+  1363→    }
+  1364→
+  1365→    // Get ESI return data
+  1366→    public function getESIReturnData($periodId) {
+  1367→        return $this->db->fetchAll(
+  1368→            "SELECT e.employee_code as ip_number, e.full_name,
+  1369→                    e.aadhaar_number, e.date_of_joining,
+  1370→                    p.gross_earnings as total_wages,
+  1371→                    p.esi_employee as employee_contribution,
+  1372→                    p.esi_employer as employer_contribution,
+  1373→                    e.esic_number
+  1374→             FROM payroll p
+  1375→             JOIN employees e ON p.employee_id = e.employee_code
+  1376→             JOIN employee_salary_structures ess ON e.id = ess.employee_id
+  1377→             WHERE p.payroll_period_id = :period_id
+  1378→             AND ess.esi_applicable = 1
+  1379→             AND p.gross_earnings <= 21000
+  1380→             ORDER BY e.employee_code",
+  1381→            ['period_id' => $periodId]
+  1382→        );
+  1383→    }
+  1384→
+  1385→    // Delete payroll for period
+  1386→    public function deletePayroll($periodId) {
+  1387→        // Check if frozen
+  1388→        $period = $this->db->fetch(
+  1389→            "SELECT status FROM payroll_periods WHERE id = :id",
+  1390→            ['id' => $periodId]
+  1391→        );
+  1392→
+  1393→        if (!$period) {
+  1394→            return ['success' => false, 'message' => 'Payroll period not found.'];
+  1395→        }
+  1396→
+  1397→        if (in_array($period['status'], ['Frozen', 'Locked', 'Paid'])) {
+  1398→            return ['success' => false, 'message' => 'Cannot delete frozen or paid payroll.'];
+  1399→        }
+  1400→
+  1401→        // Delete payroll records
+  1402→        $this->db->query("DELETE FROM payroll WHERE payroll_period_id = :period_id", ['period_id' => $periodId]);
+  1403→
+  1404→        // Reset period status
+  1405→        $this->db->update('payroll_periods', [
+  1406→            'status' => 'Draft',
+  1407→            'processed_by' => null,
+  1408→            'processed_at' => null,
+  1409→            'hold_count' => 0,
+  1410→            'exception_count' => 0
+  1411→        ], SQL_WHERE_ID, ['id' => $periodId]);
+  1412→
+  1413→        return ['success' => true, 'message' => 'Payroll deleted.'];
+  1414→    }
+  1415→
+  1416→    /**
+  1417→     * Get payroll detail for single employee (drill-down)
+  1418→     */
+  1419→    public function getPayrollDetail($periodId, $employeeCode) {
+  1420→        $payroll = $this->db->fetch(
+  1421→            "SELECT p.*, 
+  1422→                    e.employee_code, e.full_name, e.designation, e.department,
+  1423→                    e.date_of_joining, e.date_of_leaving, e.worker_category,
+  1424→                    e.bank_name, e.account_number, e.ifsc_code, e.account_holder_name,
+  1425→                    e.uan_number, e.esic_number, e.aadhaar_number,
+  1426→                    c.name as client_name, u.name as unit_name,
+  1427→                    pp.period_name, pp.month, pp.year, pp.start_date, pp.end_date
+  1428→             FROM payroll p
+  1429→             JOIN payroll_periods pp ON p.payroll_period_id = pp.id
+  1430→             JOIN employees e ON p.employee_id = e.employee_code
+  1431→             LEFT JOIN clients c ON e.client_id = c.id
+  1432→             LEFT JOIN units u ON e.unit_id = u.id
+  1433→             WHERE p.payroll_period_id = :period_id AND p.employee_id = :emp_code",
+  1434→            ['period_id' => $periodId, 'emp_code' => $employeeCode]
+  1435→        );
+  1436→
+  1437→        if (!$payroll) {
+  1438→            return null;
+  1439→        }
+  1440→
+  1441→        // Get attendance summary (from attendance_summary table)
+  1442→        $payroll['attendance'] = $this->db->fetch(
+  1443→            "SELECT
+  1444→                total_present as present_days,
+  1445→                total_extra,
+  1446→                overtime_hours,
+  1447→                total_wo as weekly_offs,
+  1448→                total_paid_days
+  1449→            FROM attendance_summary
+  1450→            WHERE employee_id = (SELECT id FROM employees WHERE employee_code = :emp_code)
+  1451→            AND month = :month AND year = :year",
+  1452→            ['emp_code' => $employeeCode, 'month' => $payroll['month'], 'year' => $payroll['year']]
+  1453→        );
+  1454→
+  1455→        // Get advances (scoped to unit_id)
+  1456→        $payroll['advances'] = $this->db->fetch(
+  1457→            "SELECT adv1, adv2, office_advance, dress_advance, remarks
+  1458→            FROM employee_advances
+  1459→            WHERE employee_id = (SELECT id FROM employees WHERE employee_code = :emp_code)
+  1460→            AND unit_id = :unit_id
+  1461→            AND month = :month AND year = :year",
+  1462→            ['emp_code' => $employeeCode, 'unit_id' => $payroll['unit_id'], 'month' => $payroll['month'], 'year' => $payroll['year']]
+  1463→        );
+  1464→
+  1465→        // Get salary structure
+  1466→        $payroll['salary_structure'] = $this->db->fetch(
+  1467→            "SELECT * FROM employee_salary_structures
+  1468→            WHERE employee_id = (SELECT id FROM employees WHERE employee_code = :emp_code)
+  1469→            AND effective_from <= :end_date
+  1470→            AND (effective_to IS NULL OR effective_to >= :start_date)
+  1471→            ORDER BY effective_from DESC LIMIT 1",
+  1472→            ['emp_code' => $employeeCode, 'start_date' => $payroll['start_date'], 'end_date' => $payroll['end_date']]
+  1473→        );
+  1474→
+  1475→        return $payroll;
+  1476→    }
+  1477→}
+  1478→

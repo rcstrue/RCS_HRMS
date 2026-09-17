@@ -1,0 +1,637 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Employee Class
+     4→ * Handles all employee-related operations
+     5→ * Note: Class has 23 methods (exceeds 20 limit). This is intentional for the Employee
+     6→ * model to centralize all employee operations. Future refactoring could split into
+     7→ * EmployeeRepository and EmployeeService classes.
+     8→ *
+     9→ * Database Schema (Updated):
+    10→ * - employees.id: INT(10) UNSIGNED AUTO_INCREMENT
+    11→ * - employees.employee_code: INT(10) UNSIGNED UNIQUE
+    12→ * - employees.full_name: VARCHAR(255) - direct column
+    13→ * - employees.father_name: VARCHAR(255) - father's name
+    14→ * - employees.client_id: INT(11) FK to clients.id
+    15→ * - employees.unit_id: INT(11) FK to units.id
+    16→ * - employee_salary_structures.employee_id: INT matches employees.id
+    17→ */
+    18→
+    19→// Include constants file
+    20→require_once dirname(__FILE__) . '/constants.php';
+    21→
+    22→class Employee {
+    23→    private $db;
+    24→
+    25→    public function __construct() {
+    26→        $this->db = Database::getInstance();
+    27→    }
+    28→
+    29→    // Get employee counts for dashboard
+    30→    public function getCounts() {
+    31→        $counts = [
+    32→            'total' => 0,
+    33→            'active' => 0,
+    34→            'inactive' => 0,
+    35→            'left' => 0,
+    36→            'pending' => 0
+    37→        ];
+    38→        
+    39→        try {
+    40→            // Total employees
+    41→            $result = $this->db->fetch("SELECT COUNT(*) as count FROM employees");
+    42→            $counts['total'] = (int)($result['count'] ?? 0);
+    43→            
+    44→            // Active employees (approved)
+    45→            $result = $this->db->fetch(
+    46→                "SELECT COUNT(*) as count FROM employees WHERE status = :status",
+    47→                ['status' => STATUS_APPROVED]
+    48→            );
+    49→            $counts['active'] = (int)($result['count'] ?? 0);
+    50→            
+    51→            // Pending employees
+    52→            $result = $this->db->fetch(
+    53→                "SELECT COUNT(*) as count FROM employees WHERE status LIKE :status",
+    54→                ['status' => STATUS_PENDING . '%']
+    55→            );
+    56→            $counts['pending'] = (int)($result['count'] ?? 0);
+    57→            
+    58→            // Inactive employees
+    59→            $result = $this->db->fetch(
+    60→                "SELECT COUNT(*) as count FROM employees WHERE status = :status",
+    61→                ['status' => STATUS_INACTIVE]
+    62→            );
+    63→            $counts['inactive'] = (int)($result['count'] ?? 0);
+    64→            
+    65→            // Left employees
+    66→            $result = $this->db->fetch(
+    67→                "SELECT COUNT(*) as count FROM employees WHERE date_of_leaving IS NOT NULL"
+    68→            );
+    69→            $counts['left'] = (int)($result['count'] ?? 0);
+    70→        } catch (Exception $e) {
+    71→            // Table might not exist yet
+    72→            error_log('Employee getCounts error: ' . $e->getMessage());
+    73→        }
+    74→        
+    75→        return $counts;
+    76→    }
+    77→
+    78→    // Get all employees with filters
+    79→    public function getAll($filters = [], $page = 1, $perPage = DEFAULT_PAGE_SIZE) {
+    80→        $baseColumns = $this->getBaseColumns();
+    81→        
+    82→        $sql = "SELECT $baseColumns,
+    83→                       ess.basic_da, ess.hra, ess.leave_encashment, ess.bonus_encashment,
+    84→                       ess.washing_allowance, ess.gross_salary,
+    85→                       ess.pf_applicable, ess.esi_applicable, ess.pt_applicable,
+    86→                       c.name as client_name_display,
+    87→                       u.name as unit_name_display
+    88→                FROM employees e
+    89→                LEFT JOIN (
+    90→                    SELECT employee_id, basic_da, hra, leave_encashment, bonus_encashment,
+    91→                           washing_allowance, gross_salary, pf_applicable, esi_applicable, pt_applicable
+    92→                    FROM employee_salary_structures
+    93→                    WHERE effective_to IS NULL OR effective_to >= CURDATE()
+    94→                    GROUP BY employee_id
+    95→                ) ess ON e.id = ess.employee_id
+    96→                LEFT JOIN clients c ON e.client_id = c.id
+    97→                LEFT JOIN units u ON e.unit_id = u.id
+    98→                WHERE 1=1";
+    99→        $params = [];
+   100→
+   101→        // Status filter - use strtolower for case-insensitive comparison
+   102→        if (!empty($filters['status'])) {
+   103→            $statusLower = strtolower($filters['status']);
+   104→            if ($statusLower === 'active' || $statusLower === 'approved') {
+   105→                $sql .= " AND e.status = :status";
+   106→                $params['status'] = STATUS_APPROVED;
+   107→            } elseif ($statusLower === 'pending') {
+   108→                $sql .= " AND e.status LIKE :status";
+   109→                $params['status'] = STATUS_PENDING . '%';
+   110→            } else {
+   111→                $sql .= " AND e.status = :status";
+   112→                $params['status'] = $filters['status'];
+   113→            }
+   114→        }
+   115→
+   116→        // Client filter
+   117→        if (!empty($filters['client_id'])) {
+   118→            $sql .= " AND e.client_id = :client_id";
+   119→            $params['client_id'] = $filters['client_id'];
+   120→        }
+   121→
+   122→        // Unit filter
+   123→        if (!empty($filters['unit_id'])) {
+   124→            $sql .= " AND e.unit_id = :unit_id";
+   125→            $params['unit_id'] = $filters['unit_id'];
+   126→        }
+   127→
+   128→        // Worker category filter
+   129→        if (!empty($filters['worker_category'])) {
+   130→            $sql .= " AND e.worker_category = :worker_category";
+   131→            $params['worker_category'] = $filters['worker_category'];
+   132→        }
+   133→
+   134→        // Search filter - use unique parameter names for PDO with emulated prepares disabled
+   135→        if (!empty($filters['search'])) {
+   136→            $sql .= " AND (e.employee_code LIKE :search1
+   137→                      OR e.full_name LIKE :search2
+   138→                      OR e.mobile_number LIKE :search3
+   139→                      OR e.aadhaar_number LIKE :search4)";
+   140→            $searchTerm = '%' . $filters['search'] . '%';
+   141→            $params['search1'] = $searchTerm;
+   142→            $params['search2'] = $searchTerm;
+   143→            $params['search3'] = $searchTerm;
+   144→            $params['search4'] = $searchTerm;
+   145→        }
+   146→
+   147→        // Count total
+   148→        $countSql = "SELECT COUNT(*) as total FROM ($sql) as t";
+   149→        $total = $this->db->fetchColumn($countSql, $params);
+   150→
+   151→        // Pagination
+   152→        $offset = ($page - 1) * $perPage;
+   153→        $sql .= " ORDER BY e.created_at DESC LIMIT $perPage OFFSET $offset";
+   154→
+   155→        $employees = $this->db->fetchAll($sql, $params);
+   156→
+   157→        return [
+   158→            'data' => $employees,
+   159→            'total' => $total ?: 0,
+   160→            'page' => $page,
+   161→            'per_page' => $perPage,
+   162→            'total_pages' => ceil(($total ?: 0) / $perPage)
+   163→        ];
+   164→    }
+   165→
+   166→    // Get base columns for SELECT (only columns that exist in employees table)
+   167→    private function getBaseColumns() {
+   168→        return "e.id, e.mobile_number, e.alternate_mobile, e.full_name, e.father_name,
+   169→                e.date_of_birth, e.gender, e.aadhaar_number, e.email,
+   170→                e.uan_number, e.esic_number, e.marital_status, e.blood_group,
+   171→                e.address, e.pin_code, e.state, e.district,
+   172→                e.bank_name, e.account_number, e.ifsc_code, e.account_holder_name,
+   173→                e.client_id, e.unit_id,
+   174→                e.date_of_joining, e.confirmation_date,
+   175→                e.probation_period, e.date_of_leaving, e.status, e.profile_completion,
+   176→                e.employee_role, e.app_role, e.designation, e.department, e.employment_type,
+   177→                e.worker_category, e.employee_code, e.created_at, e.updated_at,
+   178→                e.nominee_name, e.nominee_relationship, e.nominee_dob, e.nominee_contact,
+   179→                e.emergency_contact_name, e.emergency_contact_relation,
+   180→                e.profile_pic_url, e.profile_pic_cropped_url, e.aadhaar_front_url, 
+   181→                e.aadhaar_back_url, e.bank_document_url";
+   182→    }
+   183→
+   184→    // Get single employee by ID (UUID)
+   185→    public function getById($id) {
+   186→        $baseColumns = $this->getBaseColumns();
+   187→        
+   188→        $employee = $this->db->fetch(
+   189→            "SELECT $baseColumns,
+   190→                    ess.basic_da, ess.hra, ess.leave_encashment, ess.bonus_encashment,
+   191→                    ess.washing_allowance, ess.gross_salary,
+   192→                    ess.pf_applicable, ess.esi_applicable,
+   193→                    ess.pt_applicable, ess.lwf_applicable,
+   194→                    ess.bonus_applicable, ess.gratuity_applicable,
+   195→                    ess.overtime_applicable,
+   196→                    c.name as client_name_display,
+   197→                    u.name as unit_name_display
+   198→             FROM employees e
+   199→             LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
+   200→                AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+   201→             LEFT JOIN clients c ON e.client_id = c.id
+   202→             LEFT JOIN units u ON e.unit_id = u.id
+   203→             WHERE e.id = :id",
+   204→            ['id' => $id]
+   205→        );
+   206→
+   207→        if ($employee) {
+   208→            // Get documents
+   209→            try {
+   210→                $employee['documents'] = $this->db->fetchAll(
+   211→                    "SELECT * FROM employee_documents WHERE employee_id = :id",
+   212→                    ['id' => $id]
+   213→                );
+   214→            } catch (Exception $e) {
+   215→                $employee['documents'] = [];
+   216→            }
+   217→        }
+   218→
+   219→        return $employee;
+   220→    }
+   221→
+   222→    // Get employee by employee_code
+   223→    public function getByCode($code) {
+   224→        return $this->db->fetch(
+   225→            "SELECT e.*, ess.basic_da, ess.hra, ess.leave_encashment, ess.bonus_encashment, ess.washing_allowance, ess.gross_salary, e.id as employee_id
+   226→             FROM employees e
+   227→             LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
+   228→                AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+   229→             WHERE e.employee_code = :code",
+   230→            ['code' => $code]
+   231→        );
+   232→    }
+   233→
+   234→    // Build salary data array from form data
+   235→    private function buildSalaryData($data, $employeeId) {
+   236→        return [
+   237→            'employee_id' => $employeeId,
+   238→            'effective_from' => $data['date_of_joining'] ?? date(DATE_FORMAT_DB),
+   239→            'basic_da' => floatval($data['basic_da'] ?? $data['basic_salary'] ?? 0),
+   240→            'hra' => floatval($data['hra'] ?? 0),
+   241→            'leave_encashment' => floatval($data['leave_encashment'] ?? 0),
+   242→            'bonus_encashment' => floatval($data['bonus_encashment'] ?? 0),
+   243→            'washing_allowance' => floatval($data['washing_allowance'] ?? 0),
+   244→            'gross_salary' => floatval($data['gross_salary'] ?? 0),
+   245→            'pf_applicable' => !empty($data['pf_applicable']) ? 1 : 0,
+   246→            'esi_applicable' => !empty($data['esi_applicable']) ? 1 : 0,
+   247→            'pt_applicable' => !empty($data['pt_applicable']) ? 1 : 0,
+   248→            'lwf_applicable' => !empty($data['lwf_applicable']) ? 1 : 0,
+   249→            'bonus_applicable' => !empty($data['bonus_applicable']) ? 1 : 0,
+   250→            'gratuity_applicable' => !empty($data['gratuity_applicable']) ? 1 : 0,
+   251→            'overtime_applicable' => !empty($data['overtime_applicable']) ? 1 : 0,
+   252→        ];
+   253→    }
+   254→
+   255→    // Create new employee
+   256→    public function create($data) {
+   257→        // Generate employee code if not provided
+   258→        if (empty($data['employee_code'])) {
+   259→            $data['employee_code'] = $this->generateEmployeeCode();
+   260→        }
+   261→        
+   262→        // Set default status
+   263→        $data['status'] = $data['status'] ?? STATUS_PENDING_HR;
+   264→        // Set default app_role to 'employee' if not provided
+   265→        $data['app_role'] = $data['app_role'] ?? 'employee';
+   266→        $data['created_at'] = date(DATETIME_FORMAT_DB);
+   267→
+   268→        // Map form fields to database columns
+   269→        $dbData = $this->mapFormDataToDb($data);
+   270→
+   271→        try {
+   272→            $this->db->beginTransaction();
+   273→            
+   274→            // Insert employee
+   275→            $this->db->insert('employees', $dbData);
+   276→            
+   277→            // Get the newly created employee ID
+   278→            $employeeId = $this->db->lastInsertId();
+   279→            
+   280→            // Insert salary structure if any salary/statutory data provided
+   281→            $hasSalaryData = !empty($data['basic_da']) || !empty($data['basic_salary']) ||
+   282→                isset($data['pf_applicable']) || isset($data['esi_applicable']) ||
+   283→                isset($data['pt_applicable']) || isset($data['lwf_applicable']) ||
+   284→                isset($data['bonus_applicable']) || isset($data['gratuity_applicable']) ||
+   285→                isset($data['overtime_applicable']);
+   286→            
+   287→            if ($hasSalaryData && $employeeId) {
+   288→                $salaryData = $this->buildSalaryData($data, $employeeId);
+   289→                $this->db->insert('employee_salary_structures', $salaryData);
+   290→            }
+   291→            
+   292→            $this->db->commit();
+   293→            
+   294→            // Send notification for pending employee registration
+   295→            if (strpos($data['status'], 'pending') !== false) {
+   296→                $notification = new Notification();
+   297→                $notification->notifyNewEmployeeRegistration([
+   298→                    'id' => $employeeId,
+   299→                    'full_name' => $data['full_name'] ?? '',
+   300→                    'employee_code' => $data['employee_code']
+   301→                ]);
+   302→            }
+   303→            
+   304→            return ['success' => true, 'message' => MSG_RECORD_CREATED, 'employee_id' => $employeeId];
+   305→        } catch (Exception $e) {
+   306→            $this->db->rollBack();
+   307→            return ['success' => false, 'message' => 'Failed to create employee: ' . $e->getMessage()];
+   308→        }
+   309→    }
+   310→
+   311→    // Map form data to database columns
+   312→    private function mapFormDataToDb($data) {
+   313→        $mapped = [];
+   314→        
+   315→        // Direct mapping - form fields match database columns (removed client_name/unit_name as they don't exist)
+   316→        $directFields = [
+   317→            'full_name', 'father_name', 'employee_code', 'mobile_number', 'alternate_mobile',
+   318→            'email', 'gender', 'date_of_birth', 'marital_status', 'blood_group',
+   319→            'aadhaar_number', 'uan_number', 'esic_number',
+   320→            'address', 'pin_code', 'state', 'district',
+   321→            'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
+   322→            'client_id', 'unit_id', 'app_role',
+   323→            'designation', 'department',
+   324→            'worker_category', 'employment_type', 'date_of_joining', 'probation_period',
+   325→            'nominee_name', 'nominee_relationship', 'nominee_dob', 'nominee_contact',
+   326→            'emergency_contact_name', 'emergency_contact_relation',
+   327→            'status', 'profile_pic_url', 'profile_pic_cropped_url',
+   328→            'aadhaar_front_url', 'aadhaar_back_url', 'bank_document_url'
+   329→        ];
+   330→        
+   331→        foreach ($directFields as $field) {
+   332→            if (isset($data[$field])) {
+   333→                $mapped[$field] = $data[$field];
+   334→            }
+   335→        }
+   336→        
+   337→        // Handle middle_name -> father_name mapping (for backward compatibility)
+   338→        if (isset($data['middle_name']) && !isset($data['father_name'])) {
+   339→            $mapped['father_name'] = $data['middle_name'];
+   340→        }
+   341→        
+   342→        // Look up client_id from client_name if not provided (for import compatibility)
+   343→        if (!empty($data['client_name']) && empty($data['client_id'])) {
+   344→            $client = $this->db->fetch(
+   345→                "SELECT id FROM clients WHERE name = :name LIMIT 1",
+   346→                ['name' => $data['client_name']]
+   347→            );
+   348→            if ($client) {
+   349→                $mapped['client_id'] = $client['id'];
+   350→            }
+   351→        }
+   352→        
+   353→        // Look up unit_id from unit_name if not provided (for import compatibility)
+   354→        if (!empty($data['unit_name']) && empty($data['unit_id'])) {
+   355→            $unit = $this->db->fetch(
+   356→                "SELECT id FROM units WHERE name = :name LIMIT 1",
+   357→                ['name' => $data['unit_name']]
+   358→            );
+   359→            if ($unit) {
+   360→                $mapped['unit_id'] = $unit['id'];
+   361→            }
+   362→        }
+   363→        
+   364→        return $mapped;
+   365→    }
+   366→
+   367→    // Update employee
+   368→    public function update($id, $data) {
+   369→        $employee = $this->getById($id);
+   370→
+   371→        if (!$employee) {
+   372→            return ['success' => false, 'message' => MSG_RECORD_NOT_FOUND];
+   373→        }
+   374→
+   375→        // Map form fields to database columns
+   376→        $dbData = $this->mapFormDataToDb($data);
+   377→        unset($dbData['id'], $dbData['employee_code'], $dbData['created_at']);
+   378→        $dbData['updated_at'] = date(DATETIME_FORMAT_DB);
+   379→
+   380→        // Extract salary data - include all statutory fields even if salary is not set
+   381→        $salaryData = [];
+   382→        // Check if any salary or statutory field is present
+   383→        $hasSalaryData = isset($data['basic_da']) || isset($data['basic_salary']) ||
+   384→            isset($data['pf_applicable']) || isset($data['esi_applicable']) ||
+   385→            isset($data['pt_applicable']) || isset($data['lwf_applicable']) ||
+   386→            isset($data['bonus_applicable']) || isset($data['gratuity_applicable']);
+   387→
+   388→        if ($hasSalaryData) {
+   389→            $salaryData = [
+   390→                'basic_da' => floatval($data['basic_da'] ?? $data['basic_salary'] ?? 0),
+   391→                'hra' => floatval($data['hra'] ?? 0),
+   392→                'leave_encashment' => floatval($data['leave_encashment'] ?? 0),
+   393→                'bonus_encashment' => floatval($data['bonus_encashment'] ?? 0),
+   394→                'washing_allowance' => floatval($data['washing_allowance'] ?? 0),
+   395→                'gross_salary' => floatval($data['gross_salary'] ?? 0),
+   396→                'pf_applicable' => !empty($data['pf_applicable']) ? 1 : 0,
+   397→                'esi_applicable' => !empty($data['esi_applicable']) ? 1 : 0,
+   398→                'pt_applicable' => !empty($data['pt_applicable']) ? 1 : 0,
+   399→                'lwf_applicable' => !empty($data['lwf_applicable']) ? 1 : 0,
+   400→                'bonus_applicable' => !empty($data['bonus_applicable']) ? 1 : 0,
+   401→                'gratuity_applicable' => !empty($data['gratuity_applicable']) ? 1 : 0,
+   402→                'overtime_applicable' => !empty($data['overtime_applicable']) ? 1 : 0,
+   403→            ];
+   404→        }
+   405→
+   406→        try {
+   407→            $this->db->beginTransaction();
+   408→            
+   409→            // Update employee
+   410→            $this->db->update('employees', $dbData, SQL_WHERE_ID, ['id' => $id]);
+   411→            
+   412→            // Update salary structure if provided and table exists
+   413→            if (!empty($salaryData)) {
+   414→                // Check if salary structure exists
+   415→                $existing = $this->db->fetch(
+   416→                    "SELECT id FROM employee_salary_structures WHERE employee_id = :id AND (effective_to IS NULL OR effective_to >= CURDATE())",
+   417→                    ['id' => $id]
+   418→                );
+   419→                
+   420→                if ($existing) {
+   421→                    $this->db->update('employee_salary_structures', $salaryData, 'id = :id', ['id' => $existing['id']]);
+   422→                } else {
+   423→                    $salaryData['employee_id'] = $id;
+   424→                    $salaryData['effective_from'] = date(DATE_FORMAT_DB);
+   425→                    $this->db->insert('employee_salary_structures', $salaryData);
+   426→                }
+   427→            }
+   428→            
+   429→            $this->db->commit();
+   430→            return ['success' => true, 'message' => MSG_RECORD_UPDATED];
+   431→        } catch (Exception $e) {
+   432→            $this->db->rollBack();
+   433→            return ['success' => false, 'message' => 'Failed to update employee: ' . $e->getMessage()];
+   434→        }
+   435→    }
+   436→
+   437→    // Delete employee (soft delete by setting status)
+   438→    public function delete($id) {
+   439→        $this->db->update('employees', [
+   440→            'status' => STATUS_REMOVED,
+   441→            'date_of_leaving' => date(DATE_FORMAT_DB),
+   442→            'updated_at' => date(DATETIME_FORMAT_DB)
+   443→        ], SQL_WHERE_ID, ['id' => $id]);
+   444→
+   445→        return ['success' => true, 'message' => MSG_RECORD_DELETED];
+   446→    }
+   447→
+   448→    // Approve employee
+   449→    public function approve($id, $approvedBy) {
+   450→        return $this->db->update('employees', [
+   451→            'status' => STATUS_APPROVED,
+   452→            'approved_at' => date(DATETIME_FORMAT_DB),
+   453→            'approved_by' => $approvedBy,
+   454→            'updated_at' => date(DATETIME_FORMAT_DB)
+   455→        ], SQL_WHERE_ID, ['id' => $id]);
+   456→    }
+   457→
+   458→    // Generate random token for secure operations
+   459→    private function generateSecureToken() {
+   460→        return bin2hex(random_bytes(32));
+   461→    }
+   462→
+   463→    // Generate employee code
+   464→    public function generateEmployeeCode() {
+   465→        // Get the max employee code
+   466→        $lastCode = $this->db->fetchColumn(
+   467→            "SELECT MAX(employee_code) FROM employees"
+   468→        );
+   469→
+   470→        if ($lastCode) {
+   471→            return (int)$lastCode + 1;
+   472→        }
+   473→        
+   474→        return DEFAULT_EMPLOYEE_CODE_START;
+   475→    }
+   476→
+   477→    // Get employee statistics
+   478→    public function getStatistics($filters = []) {
+   479→        $where = "WHERE 1=1";
+   480→        $params = [];
+   481→
+   482→        if (!empty($filters['client_id'])) {
+   483→            $where .= " AND client_id = :client_id";
+   484→            $params['client_id'] = $filters['client_id'];
+   485→        }
+   486→
+   487→        return [
+   488→            'total' => $this->db->fetchColumn("SELECT COUNT(*) FROM employees $where", $params) ?: 0,
+   489→            'active' => $this->db->fetchColumn("SELECT COUNT(*) FROM employees $where AND status = :status", array_merge($params, ['status' => STATUS_APPROVED])) ?: 0,
+   490→            'pending' => $this->db->fetchColumn("SELECT COUNT(*) FROM employees $where AND status LIKE :status", array_merge($params, ['status' => STATUS_PENDING . '%'])) ?: 0,
+   491→        ];
+   492→    }
+   493→
+   494→    // Get employees for payroll processing
+   495→    public function getActiveForPayroll($clientId = null, $unitId = null) {
+   496→        $sql = "SELECT e.id, e.employee_code, e.full_name, e.father_name, e.date_of_joining, 
+   497→                       c.name as client_name_display, 
+   498→                       u.name as unit_name_display, e.worker_category,
+   499→                       ess.basic_da, ess.hra, ess.leave_encashment, ess.bonus_encashment,
+   500→                       ess.washing_allowance, ess.gross_salary, ess.pf_applicable, ess.esi_applicable, 
+   501→                       ess.pt_applicable, ess.lwf_applicable, ess.overtime_applicable
+   502→                FROM employees e
+   503→                INNER JOIN employee_salary_structures ess ON e.id = ess.employee_id 
+   504→                    AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+   505→                LEFT JOIN clients c ON e.client_id = c.id
+   506→                LEFT JOIN units u ON e.unit_id = u.id
+   507→                WHERE e.status = :status";
+   508→        $params = ['status' => STATUS_APPROVED];
+   509→
+   510→        if ($clientId) {
+   511→            $sql .= " AND e.client_id = :client_id";
+   512→            $params['client_id'] = $clientId;
+   513→        }
+   514→
+   515→        if ($unitId) {
+   516→            $sql .= " AND e.unit_id = :unit_id";
+   517→            $params['unit_id'] = $unitId;
+   518→        }
+   519→
+   520→        return $this->db->fetchAll($sql, $params);
+   521→    }
+   522→
+   523→    // Get employees for attendance
+   524→    public function getForAttendance($unitId) {
+   525→        return $this->db->fetchAll(
+   526→            "SELECT e.id, e.employee_code, e.full_name 
+   527→             FROM employees e
+   528→             WHERE e.unit_id = :unit_id AND e.status = :status
+   529→             ORDER BY e.employee_code",
+   530→            ['unit_id' => $unitId, 'status' => STATUS_APPROVED]
+   531→        );
+   532→    }
+   533→
+   534→    // Search employees
+   535→    public function search($query, $limit = 10) {
+   536→        return $this->db->fetchAll(
+   537→            "SELECT e.id, e.employee_code, e.full_name, e.designation, 
+   538→                    c.name as client_name_display, 
+   539→                    u.name as unit_name_display 
+   540→             FROM employees e
+   541→             LEFT JOIN clients c ON e.client_id = c.id
+   542→             LEFT JOIN units u ON e.unit_id = u.id
+   543→             WHERE (e.employee_code LIKE :query OR e.full_name LIKE :query OR e.mobile_number LIKE :query)
+   544→             AND e.status = :status
+   545→             ORDER BY e.full_name
+   546→             LIMIT :limit",
+   547→            ['query' => "%$query%", 'limit' => $limit, 'status' => STATUS_APPROVED]
+   548→        );
+   549→    }
+   550→
+   551→    // Get employees by client
+   552→    public function getByClient($clientId) {
+   553→        $baseColumns = $this->getBaseColumns();
+   554→        return $this->db->fetchAll(
+   555→            "SELECT $baseColumns, c.name as client_name_display 
+   556→             FROM employees e
+   557→             LEFT JOIN clients c ON e.client_id = c.id
+   558→             WHERE e.client_id = :client_id AND e.status = :status",
+   559→            ['client_id' => $clientId, 'status' => STATUS_APPROVED]
+   560→        );
+   561→    }
+   562→
+   563→    // Get employees by unit
+   564→    public function getByUnit($unitId) {
+   565→        $baseColumns = $this->getBaseColumns();
+   566→        return $this->db->fetchAll(
+   567→            "SELECT $baseColumns, u.name as unit_name_display 
+   568→             FROM employees e
+   569→             LEFT JOIN units u ON e.unit_id = u.id
+   570→             WHERE e.unit_id = :unit_id AND e.status = :status",
+   571→            ['unit_id' => $unitId, 'status' => STATUS_APPROVED]
+   572→        );
+   573→    }
+   574→
+   575→    // Import employees from array
+   576→    public function importFromData($data, $skipDuplicates = true) {
+   577→        $imported = 0;
+   578→        $errors = [];
+   579→        $duplicates = [];
+   580→
+   581→        foreach ($data as $row) {
+   582→            try {
+   583→                // Check for existing employee by mobile or aadhaar
+   584→                if (!empty($row['mobile_number'])) {
+   585→                    $exists = $this->db->fetch(
+   586→                        "SELECT id FROM employees WHERE mobile_number = :mobile",
+   587→                        ['mobile' => $row['mobile_number']]
+   588→                    );
+   589→                    if ($exists && $skipDuplicates) {
+   590→                        $duplicates[] = $row['mobile_number'];
+   591→                        continue;
+   592→                    }
+   593→                }
+   594→
+   595→                $result = $this->create($row);
+   596→                if ($result['success']) {
+   597→                    $imported++;
+   598→                } else {
+   599→                    $errors[] = $result['message'];
+   600→                }
+   601→            } catch (Exception $e) {
+   602→                $errors[] = "Error importing row: " . $e->getMessage();
+   603→            }
+   604→        }
+   605→
+   606→        return [
+   607→            'success' => true,
+   608→            'imported' => $imported,
+   609→            'duplicates' => count($duplicates),
+   610→            'errors' => $errors
+   611→        ];
+   612→    }
+   613→
+   614→    // Get all clients for dropdowns
+   615→    public function getAllClients() {
+   616→        return $this->db->fetchAll(
+   617→            "SELECT id, client_code, name, city FROM clients WHERE is_active = :active ORDER BY name",
+   618→            ['active' => BOOL_YES]
+   619→        );
+   620→    }
+   621→
+   622→    // Get all units for dropdowns
+   623→    public function getAllUnits($clientId = null) {
+   624→        $sql = "SELECT id, unit_code, name, city FROM units WHERE is_active = :active";
+   625→        $params = ['active' => BOOL_YES];
+   626→        
+   627→        if ($clientId) {
+   628→            $sql .= " AND client_id = :client_id";
+   629→            $params['client_id'] = $clientId;
+   630→        }
+   631→        
+   632→        $sql .= " ORDER BY name";
+   633→        
+   634→        return $this->db->fetchAll($sql, $params);
+   635→    }
+   636→}
+   637→

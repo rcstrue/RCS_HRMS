@@ -1,0 +1,766 @@
+ true means column is visible by default
+$availableColumns = [
+    'employee_code' => ['label' => 'Employee Code', 'default' => true],
+    'full_name' => ['label' => 'Name', 'default' => true],
+    'father_name' => ['label' => 'Father Name', 'default' => false],
+    'designation' => ['label' => 'Designation', 'default' => true],
+    'department' => ['label' => 'Department', 'default' => false],
+    'client_unit' => ['label' => 'Client / Unit', 'default' => true],
+    'doj_dob' => ['label' => 'DOJ / DOB', 'default' => true],
+    'worker_category' => ['label' => 'Category', 'default' => true],
+    'employment_type' => ['label' => 'Employment Type', 'default' => false],
+    'date_of_leaving' => ['label' => 'DOL', 'default' => false],
+    'pf_esi' => ['label' => 'PF/ESI', 'default' => true],
+    'uan_number' => ['label' => 'UAN', 'default' => false],
+    'esic_number' => ['label' => 'ESIC No', 'default' => false],
+    'mobile_number' => ['label' => 'Mobile', 'default' => true],
+    'alternate_mobile' => ['label' => 'Alt Mobile', 'default' => false],
+    'email' => ['label' => 'Email', 'default' => false],
+    'aadhaar_number' => ['label' => 'Aadhaar', 'default' => false],
+    'gender' => ['label' => 'Gender', 'default' => false],
+    'date_of_birth' => ['label' => 'DOB', 'default' => false],
+    // 'doj_dob' is a virtual column - not in DB, merged DOJ+DOB display
+    'address' => ['label' => 'Address', 'default' => false],
+    'state' => ['label' => 'State', 'default' => false],
+    'district' => ['label' => 'District', 'default' => false],
+    'pin_code' => ['label' => 'Pin Code', 'default' => false],
+    'bank_name' => ['label' => 'Bank Name', 'default' => false],
+    'account_number' => ['label' => 'Account No', 'default' => false],
+    'ifsc_code' => ['label' => 'IFSC', 'default' => false],
+    'nominee_name' => ['label' => 'Nominee', 'default' => false],
+    'nominee_relation' => ['label' => 'Nominee Relation', 'default' => false],
+    'emergency_contact' => ['label' => 'Emergency Contact', 'default' => false],
+    'status' => ['label' => 'Status', 'default' => true],
+    'actions' => ['label' => 'Actions', 'default' => true]
+];
+
+// Get filters - default to 'approved' (active) employees
+// Sanitize all user inputs to prevent XSS
+$filters = [
+    'status' => sanitize($_GET['status'] ?? 'approved'), // Default to approved/active
+    'client_id' => getSessionFilter('client_id', null),
+    'unit_id' => getSessionFilter('unit_id', null),
+    'worker_category' => sanitize($_GET['worker_category'] ?? ''),
+    'search' => sanitize($_GET['search'] ?? '')
+];
+
+// Handle export - check if we can set headers (export should be handled before header.php)
+if ((isset($isExportRequest) || isset($_GET['export'])) && !headers_sent()) {
+    // Get all employees for export (no pagination)
+    $result = $employee->getAll($filters, 1, 10000);
+    $exportData = $result['data'];
+    
+    // Set headers for Excel download
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="employees_export_' . date('Y-m-d_His') . '.csv"');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    
+    // Output CSV with BOM for Excel
+    echo "\xEF\xBB\xBF";
+    
+    // CSV headers
+    $headers = [
+        'Employee Code',
+        'Full Name',
+        'Father Name',
+        'Date of Birth',
+        'Gender',
+        'Mobile Number',
+        'Alternate Mobile',
+        'Email',
+        'Aadhaar Number',
+        'UAN Number',
+        'ESIC Number',
+        'Address',
+        'Pin Code',
+        'State',
+        'District',
+        'Bank Name',
+        'Account Number',
+        'IFSC Code',
+        'Client Name',
+        'Unit Name',
+        'Designation',
+        'Department',
+        'Worker Category',
+        'Employment Type',
+        'Date of Joining',
+        'Date of Leaving',
+        'Status',
+        'PF Applicable',
+        'ESI Applicable',
+        'Basic + DA',
+        'Gross Salary',
+        'Nominee Name',
+        'Nominee Relationship',
+        'Emergency Contact Name',
+        'Emergency Contact Relation'
+    ];
+    
+    $output = fopen('php://output', 'w');
+    fputcsv($output, $headers, ',', '"', '\\');
+    
+    foreach ($exportData as $emp) {
+        $row = [
+            $emp['employee_code'] ?? '',
+            $emp['full_name'] ?? '',
+            $emp['father_name'] ?? '',
+            $emp['date_of_birth'] ?? '',
+            $emp['gender'] ?? '',
+            $emp['mobile_number'] ?? '',
+            $emp['alternate_mobile'] ?? '',
+            $emp['email'] ?? '',
+            $emp['aadhaar_number'] ?? '',
+            $emp['uan_number'] ?? '',
+            $emp['esic_number'] ?? '',
+            $emp['address'] ?? '',
+            $emp['pin_code'] ?? '',
+            $emp['state'] ?? '',
+            $emp['district'] ?? '',
+            $emp['bank_name'] ?? '',
+            $emp['account_number'] ?? '',
+            $emp['ifsc_code'] ?? '',
+            $emp['client_name_display'] ?? $emp['client_name'] ?? '',
+            $emp['unit_name_display'] ?? $emp['unit_name'] ?? '',
+            $emp['designation'] ?? '',
+            $emp['department'] ?? '',
+            $emp['worker_category'] ?? '',
+            $emp['employment_type'] ?? '',
+            $emp['date_of_joining'] ?? '',
+            $emp['date_of_leaving'] ?? '',
+            $emp['status'] ?? '',
+            !empty($emp['pf_applicable']) ? 'Yes' : 'No',
+            !empty($emp['esi_applicable']) ? 'Yes' : 'No',
+            $emp['basic_da'] ?? '',
+            $emp['gross_salary'] ?? '',
+            $emp['nominee_name'] ?? '',
+            $emp['nominee_relationship'] ?? '',
+            $emp['emergency_contact_name'] ?? '',
+            $emp['emergency_contact_relation'] ?? ''
+        ];
+        fputcsv($output, $row, ',', '"', '\\');
+    }
+    
+    fclose($output);
+    exit;
+}
+
+// Get employees
+$page = isset($_GET['pg']) ? (int)$_GET['pg'] : 1;
+$result = $employee->getAll($filters, $page, 50);
+$employees = $result['data'];
+$totalPages = $result['total_pages'];
+$total = $result['total'];
+
+// Get clients for filter (with error handling)
+$clients = [];
+try {
+    $stmt = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
+    $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    // Table doesn't exist
+}
+
+// Get units for filter based on selected client
+$units = [];
+$filterClientId = $filters['client_id'];
+try {
+    if ($filterClientId) {
+        $stmt = $db->prepare("SELECT id, name, client_id FROM units WHERE client_id = ? AND is_active = 1 ORDER BY name");
+        $stmt->execute([$filterClientId]);
+    } else {
+        $stmt = $db->query("SELECT id, name, client_id FROM units WHERE is_active = 1 ORDER BY name");
+    }
+    $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    // Table doesn't exist
+}
+?>
+
+
+    
+        
+            
+                Employee List
+                
+                    
+                        Export All
+                    
+                    
+                        Add Employee
+                    
+                    
+                        Import
+                    
+                    
+                    
+                        
+                            Columns
+                        
+                        
+                            Toggle column visibility:
+                             $colInfo): ?>
+                            
+                                
+                                    " 
+                                           data-column="" >
+                                    ">
+                                
+                            
+                            
+                            
+                            
+                                
+                                    Reset to Default
+                                
+                            
+                        
+                    
+                
+            
+            
+            
+            
+                
+                    
+                    
+                    
+                        ">
+                    
+                    
+                    
+                        
+                            >Active
+                            >All Status
+                            >Pending
+                            >Removed
+                        
+                    
+                    
+                    
+                        
+                            All Clients
+                            
+                            " >
+                                
+                            
+                            
+                        
+                    
+                    
+                    
+                        
+                            All Units
+                            
+                            " >
+                                
+                            
+                            
+                        
+                    
+                    
+                    
+                        
+                            All Categories
+                            >Skilled
+                            >Semi-Skilled
+                            >Unskilled
+                            >Supervisor
+                            >Manager
+                        
+                    
+                    
+                    
+                        
+                            Search
+                        
+                        Reset
+                    
+                
+            
+            
+            
+            
+                
+                    
+                        
+                            
+                                 $colInfo): ?>
+                                
+                                >PF/ESI
+                                
+                                >Status
+                                
+                                >Actions
+                                
+                                " >
+                                
+                                
+                            
+                        
+                        
+                            
+                            
+                                " class="text-center py-4 text-muted">
+                                    No employees found. Add first employee
+                                
+                            
+                            
+                            
+                            
+                                
+                                >
+                                    " class="text-decoration-none">
+                                        
+                                    
+                                
+                                
+                                >
+                                    
+                                        
+                                        " alt="" class="me-2 rounded-circle" style="width:32px;height:32px;object-fit:cover;flex-shrink:0;cursor:pointer;transition:transform .2s;" loading="lazy" onclick="openProfileSlider('', '')" onerror="this.style.display='none';">
+                                        
+                                        
+                                            
+                                            
+                                        
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                    
+                                
+                                
+                                >
+                                    
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    PF
+                                    ESI
+                                    -
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    ">
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    ">
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                
+                                
+                                >
+                                    
+                                        
+                                        
+                                    
+                                        -
+                                    
+                                
+                                
+                                >
+                                    
+                                    -soft">
+                                
+                                
+                                >
+                                    
+                                        
+                                        ')" title="Approve">
+                                            
+                                        
+                                        
+                                        " 
+                                           class="btn btn-outline-primary" title="View">
+                                            
+                                        
+                                        " 
+                                           class="btn btn-outline-secondary" title="Edit">
+                                            
+                                        
+                                        
+                                        ', '')" title="Remove">
+                                            
+                                        
+                                        
+                                    
+                                
+                            
+                            
+                            
+                        
+                    
+                
+            
+            
+            
+             1): ?>
+            
+                
+                    
+                        Showing  to 
+                         of 
+                         employees
+                    
+                    
+                        
+                             1): ?>
+                            
+                                &">Previous
+                            
+                            
+                            
+                            
+                            ">
+                                &">
+                            
+                            
+                            
+                            
+                            
+                                &">Next
+                            
+                            
+                        
+                    
+                
+            
+            
+        
+    
+
+
+
+
+    
+        
+            
+                
+                
+                
+                    Remove Employee
+                    
+                
+                
+                    
+                        
+                        You are about to remove . This action will mark the employee as removed.
+                    
+                    
+                        Date of Leaving *
+                        
+                    
+                    
+                        Reason for Removal *
+                        
+                    
+                
+                
+                    Cancel
+                    
+                        Remove Employee
+                    
+                
+            
+        
+    
+
+
+
+// Global functions for employee list page
+window.removeEmployee = function(id, name) {
+    document.getElementById('removeEmployeeId').value = id;
+    document.getElementById('removeEmployeeName').textContent = name;
+    document.getElementById('removeDol').value = new Date().toISOString().split('T')[0];
+    document.getElementById('removeReason').value = '';
+    var modal = new bootstrap.Modal(document.getElementById('removeEmployeeModal'));
+    modal.show();
+};
+
+window.confirmRemoveEmployee = function() {
+    var id = document.getElementById('removeEmployeeId').value;
+    var dol = document.getElementById('removeDol').value;
+    var reason = document.getElementById('removeReason').value.trim();
+    if (!dol) {
+        alert('Please select the Date of Leaving.');
+        return;
+    }
+    if (!reason) {
+        alert('Please provide a reason for removal.');
+        return;
+    }
+    var form = document.getElementById('removeEmployeeForm');
+    form.action = 'index.php?page=employee/delete&id=' + id;
+    form.submit();
+};
+
+window.approveEmployee = function(id) {
+    if (confirm('Approve this employee?\n\nThe employee will become active and available for payroll processing.')) {
+        fetch('index.php?page=api/employees&action=approve&id=' + id, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error: ' + (data.message || 'Failed to approve employee'));
+            }
+        })
+        .catch(err => {
+            alert('Error approving employee. Please try again.');
+        });
+    }
+};
+
+function exportEmployees() {
+    // Get current filter values
+    const form = document.getElementById('filterForm');
+    const params = new URLSearchParams();
+    
+    params.append('page', 'employee/list');
+    params.append('export', '1');
+    
+    // Add filter values
+    const search = form.querySelector('[name="search"]').value;
+    const status = form.querySelector('[name="status"]').value;
+    const clientId = form.querySelector('[name="client_id"]').value;
+    const unitId = form.querySelector('[name="unit_id"]').value;
+    const workerCategory = form.querySelector('[name="worker_category"]').value;
+    
+    if (search) params.append('search', search);
+    if (status) params.append('status', status);
+    if (clientId) params.append('client_id', clientId);
+    if (unitId) params.append('unit_id', unitId);
+    if (workerCategory) params.append('worker_category', workerCategory);
+    
+    window.location.href = 'index.php?' + params.toString();
+}
+
+// Remove Employee Modal - submit on Enter key in reason field
+document.addEventListener('DOMContentLoaded', function() {
+    var reasonField = document.getElementById('removeReason');
+    if (reasonField) {
+        reasonField.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                confirmRemoveEmployee();
+            }
+        });
+    }
+});
+
+// Profile Picture Lightbox Slider
+function openProfileSlider(src, name) {
+    // Remove existing slider if any
+    const old = document.getElementById('profilePicSlider');
+    if (old) old.remove();
+    
+    const slider = document.createElement('div');
+    slider.id = 'profilePicSlider';
+    slider.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .25s;cursor:zoom-out;backdrop-filter:blur(4px);';
+    slider.innerHTML = '' +
+        '' +
+        '' + name + '' +
+        '×' +
+        '';
+    document.body.appendChild(slider);
+    requestAnimationFrame(() => slider.style.opacity = '1');
+    
+    slider.addEventListener('click', function(e) {
+        if (e.target === slider) closeProfileSlider();
+    });
+    document.addEventListener('keydown', handleSliderEsc);
+}
+
+function closeProfileSlider() {
+    const slider = document.getElementById('profilePicSlider');
+    if (slider) {
+        slider.style.opacity = '0';
+        setTimeout(() => slider.remove(), 250);
+    }
+    document.removeEventListener('keydown', handleSliderEsc);
+}
+
+function handleSliderEsc(e) {
+    if (e.key === 'Escape') closeProfileSlider();
+}
+
+function filterUnits() {
+    const clientId = document.getElementById('clientFilter').value;
+    const unitSelect = document.getElementById('unitFilter');
+    
+    // Clear current options
+    unitSelect.innerHTML = 'Loading...';
+    
+    // Fetch units based on client
+    fetch('index.php?page=api/units&client_id=' + clientId)
+        .then(response => response.json())
+        .then(data => {
+            unitSelect.innerHTML = 'All Units';
+            if (data.units) {
+                data.units.forEach(unit => {
+                    const option = document.createElement('option');
+                    option.value = unit.id;
+                    option.textContent = unit.name;
+                    unitSelect.appendChild(option);
+                });
+            }
+        })
+        .catch(() => {
+            unitSelect.innerHTML = 'All Units';
+        });
+}
+
+// Column visibility functions - save preferences to localStorage
+function toggleColumn(columnKey, isVisible) {
+    const table = document.getElementById('employees-table');
+    
+    // Toggle header
+    const header = table.querySelector('th[data-column="' + columnKey + '"]');
+    if (header) {
+        header.style.display = isVisible ? '' : 'none';
+    }
+    
+    // Toggle all body cells
+    const cells = table.querySelectorAll('td[data-column="' + columnKey + '"]');
+    cells.forEach(cell => {
+        cell.style.display = isVisible ? '' : 'none';
+    });
+    
+    // Save preference
+    saveColumnPreferences();
+}
+
+function saveColumnPreferences() {
+    const preferences = {};
+    document.querySelectorAll('.column-toggle').forEach(checkbox => {
+        preferences[checkbox.dataset.column] = checkbox.checked;
+    });
+    localStorage.setItem('employeeListColumnPrefs', JSON.stringify(preferences));
+}
+
+function loadColumnPreferences() {
+    const saved = localStorage.getItem('employeeListColumnPrefs');
+    if (saved) {
+        try {
+            const preferences = JSON.parse(saved);
+            Object.keys(preferences).forEach(columnKey => {
+                const checkbox = document.querySelector('.column-toggle[data-column="' + columnKey + '"]');
+                if (checkbox) {
+                    checkbox.checked = preferences[columnKey];
+                    toggleColumn(columnKey, preferences[columnKey]);
+                }
+            });
+        } catch (e) {
+            console.error('Error loading column preferences:', e);
+        }
+    }
+}
+
+function resetColumnVisibility() {
+    localStorage.removeItem('employeeListColumnPrefs');
+    location.reload();
+}
+
+// Initialize column toggle handlers on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Add change handlers to all column toggles
+    document.querySelectorAll('.column-toggle').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            toggleColumn(this.dataset.column, this.checked);
+        });
+    });
+    
+    // Load saved preferences
+    loadColumnPreferences();
+});
+
+JS;
+?>

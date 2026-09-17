@@ -1,0 +1,1066 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Authentication Class
+     4→ * Handles user authentication, authorization, and session management
+     5→ */
+     6→
+     7→// Constant to avoid string duplication
+     8→define('SQL_WHERE_USER_ID', 'id = :id');
+     9→
+    10→class Auth {
+    11→    private $db;
+    12→    private $user = null;
+    13→    
+    14→    // Role hierarchy for access control
+    15→    private $roleHierarchy = [
+    16→        'admin' => 100,
+    17→        'hr_executive' => 80,
+    18→        'manager' => 60,
+    19→        'supervisor' => 40,
+    20→        'worker' => 20
+    21→    ];
+    22→    
+    23→    public function __construct() {
+    24→        $this->db = Database::getInstance();
+    25→        $this->checkSession();
+    26→    }
+    27→    
+    28→    // Check existing session
+    29→    private function checkSession() {
+    30→        if (isset($_SESSION['user_id'])) {
+    31→            $user = $this->db->fetch(
+    32→                "SELECT u.id, u.username, u.email, u.role_id, u.first_name, u.last_name, u.is_active,
+    33→                        r.role_name, r.role_code
+    34→                 FROM users u 
+    35→                 LEFT JOIN roles r ON u.role_id = r.id
+    36→                 WHERE u.id = :id AND u.is_active = 1",
+    37→                ['id' => $_SESSION['user_id']]
+    38→            );
+    39→            
+    40→            if ($user) {
+    41→                $this->user = $user;
+    42→            }
+    43→        }
+    44→    }
+    45→    
+    46→    // Login user
+    47→    public function login($username, $password, $remember = false) {
+    48→        // ── Rate limiting / lockout check ──
+    49→        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    50→        $lockout = $this->_checkLoginLockout($username, $ip);
+    51→        if ($lockout) {
+    52→            return ['success' => false, 'error' => $lockout];
+    53→        }
+    54→
+    55→        // Get user with role info
+    56→        $user = $this->db->fetch(
+    57→            "SELECT u.id, u.username, u.email, u.password, u.role_id, u.first_name, u.last_name, u.is_active,
+    58→                    r.role_name, r.role_code
+    59→             FROM users u 
+    60→             LEFT JOIN roles r ON u.role_id = r.id 
+    61→             WHERE (u.username = :username OR u.email = :email)",
+    62→            ['username' => $username, 'email' => $username]
+    63→        );
+    64→        
+    65→        // Check if user exists
+    66→        if (!$user) {
+    67→            $this->_recordFailedLogin($username, $ip);
+    68→            return ['success' => false, 'error' => 'Invalid username or password.'];
+    69→        }
+    70→        
+    71→        // Check if active
+    72→        if (empty($user['is_active'])) {
+    73→            return ['success' => false, 'error' => 'Account is inactive.'];
+    74→        }
+    75→        
+    76→        // Verify password
+    77→        if (!password_verify($password, $user['password'])) {
+    78→            $this->_recordFailedLogin($username, $ip);
+    79→            return ['success' => false, 'error' => 'Invalid username or password.'];
+    80→        }
+    81→
+    82→        // Clear failed attempts on successful login
+    83→        $this->_clearFailedLogins($username, $ip);
+    84→        
+    85→        // Set session variables
+    86→        $_SESSION['user_id'] = $user['id'];
+    87→        $_SESSION['username'] = $user['username'];
+    88→        $_SESSION['email'] = $user['email'];
+    89→        $_SESSION['role_id'] = $user['role_id'];
+    90→        $_SESSION['role_code'] = $user['role_code'] ?? 'worker';
+    91→        $_SESSION['role_name'] = $user['role_name'] ?? 'User';
+    92→        $_SESSION['first_name'] = $user['first_name'] ?? '';
+    93→        $_SESSION['last_name'] = $user['last_name'] ?? '';
+    94→        
+    95→        // Update last login
+    96→        try {
+    97→            $this->db->update('users', [
+    98→                'last_login' => date('Y-m-d H:i:s')
+    99→            ], SQL_WHERE_USER_ID, ['id' => $user['id']]);
+   100→        } catch (Exception $e) {
+   101→            // Ignore if last_login column doesn't exist
+   102→        }
+   103→
+   104→        // Audit log — login
+   105→        if (function_exists('audit_log')) {
+   106→            audit_log('login', 'auth', $user['id'], "User '{$user['username']}' logged in");
+   107→        }
+   108→
+   109→        $this->user = $user;
+   110→        
+   111→        return [
+   112→            'success' => true,
+   113→            'message' => 'Login successful.',
+   114→            'user' => $user
+   115→        ];
+   116→    }
+   117→    
+   118→    // Logout user
+   119→    public function logout() {
+   120→        // Audit log — logout (session still active at this point)
+   121→        if (function_exists('audit_log') && isset($_SESSION['user_id'])) {
+   122→            $uid = $_SESSION['user_id'];
+   123→            $uname = $_SESSION['username'] ?? 'unknown';
+   124→            audit_log('logout', 'auth', $uid, "User '{$uname}' logged out");
+   125→        }
+   126→        $_SESSION = [];
+   127→        session_destroy();
+   128→        $this->user = null;
+   129→    }
+   130→    
+   131→    // Check if user is logged in
+   132→    public function isLoggedIn() {
+   133→        return $this->user !== null || isset($_SESSION['user_id']);
+   134→    }
+   135→    
+   136→    // Get current user
+   137→    public function getUser() {
+   138→        return $this->user;
+   139→    }
+   140→    
+   141→    // Get user ID
+   142→    public function getUserId() {
+   143→        return $_SESSION['user_id'] ?? null;
+   144→    }
+   145→    
+   146→    // Get user role
+   147→    public function getRole() {
+   148→        return $_SESSION['role_code'] ?? null;
+   149→    }
+   150→    
+   151→    // Check if user has specific role
+   152→    public function hasRole($role) {
+   153→        return isset($_SESSION['role_code']) && $_SESSION['role_code'] === $role;
+   154→    }
+   155→    
+   156→    // Check if user has role level or higher
+   157→    public function hasRoleLevel($role) {
+   158→        if (!isset($_SESSION['role_code'])) {
+   159→            return false;
+   160→        }
+   161→        
+   162→        $userLevel = $this->roleHierarchy[$_SESSION['role_code']] ?? 0;
+   163→        $requiredLevel = $this->roleHierarchy[$role] ?? 0;
+   164→        
+   165→        return $userLevel >= $requiredLevel;
+   166→    }
+   167→    
+   168→    // Change password
+   169→    public function changePassword($userId, $currentPassword, $newPassword) {
+   170→        $user = $this->db->fetch(
+   171→            "SELECT password FROM users WHERE id = :id",
+   172→            ['id' => $userId]
+   173→        );
+   174→        
+   175→        if (!$user || !password_verify($currentPassword, $user['password'])) {
+   176→            return ['success' => false, 'message' => 'Current password is incorrect.'];
+   177→        }
+   178→        
+   179→        $hashedPassword = password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 12]);
+   180→        
+   181→        $this->db->update('users', [
+   182→            'password' => $hashedPassword
+   183→        ], SQL_WHERE_USER_ID, ['id' => $userId]);
+   184→        
+   185→        return ['success' => true, 'message' => 'Password changed successfully.'];
+   186→    }
+   187→    
+   188→    // Create new user
+   189→    public function createUser($data) {
+   190→        $exists = $this->db->fetch(
+   191→            "SELECT id FROM users WHERE username = :username OR email = :email",
+   192→            ['username' => $data['username'], 'email' => $data['email']]
+   193→        );
+   194→        
+   195→        if ($exists) {
+   196→            return ['success' => false, 'message' => 'Username or email already exists.'];
+   197→        }
+   198→        
+   199→        $hashedPassword = password_hash($data['password'], PASSWORD_BCRYPT, ['cost' => 12]);
+   200→        
+   201→        $userId = $this->db->insert('users', [
+   202→            'username' => $data['username'],
+   203→            'email' => $data['email'],
+   204→            'password' => $hashedPassword,
+   205→            'role_id' => $data['role_id'] ?? 5,
+   206→            'first_name' => $data['first_name'] ?? '',
+   207→            'last_name' => $data['last_name'] ?? '',
+   208→            'is_active' => 1
+   209→        ]);
+   210→        
+   211→        if ($userId) {
+   212→            return ['success' => true, 'message' => 'User created successfully.', 'user_id' => $userId];
+   213→        }
+   214→        
+   215→        return ['success' => false, 'message' => 'Failed to create user.'];
+   216→    }
+   217→    
+   218→    // Reset password (admin only)
+   219→    public function resetPassword($userId, $newPassword) {
+   220→        $hashedPassword = password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 12]);
+   221→        
+   222→        $result = $this->db->update('users', [
+   223→            'password' => $hashedPassword
+   224→        ], SQL_WHERE_USER_ID, ['id' => $userId]);
+   225→        
+   226→        if ($result !== false) {
+   227→            return ['success' => true, 'message' => 'Password reset successfully.'];
+   228→        }
+   229→        
+   230→        return ['success' => false, 'message' => 'Failed to reset password.'];
+   231→    }
+   232→    
+   233→    // Get all users (admin/hr)
+   234→    public function getUsers($filters = []) {
+   235→        $sql = "SELECT u.id, u.username, u.email, u.role_id, u.is_active, u.last_login, 
+   236→                       u.created_at, u.first_name, u.last_name, r.role_name, r.role_code
+   237→                FROM users u
+   238→                LEFT JOIN roles r ON u.role_id = r.id
+   239→                WHERE 1=1";
+   240→        $params = [];
+   241→        
+   242→        if (!empty($filters['role_id'])) {
+   243→            $sql .= " AND u.role_id = :role_id";
+   244→            $params['role_id'] = $filters['role_id'];
+   245→        }
+   246→        
+   247→        if (isset($filters['is_active'])) {
+   248→            $sql .= " AND u.is_active = :is_active";
+   249→            $params['is_active'] = $filters['is_active'];
+   250→        }
+   251→        
+   252→        $sql .= " ORDER BY u.created_at DESC";
+   253→        
+   254→        return $this->db->fetchAll($sql, $params);
+   255→    }
+   256→    
+   257→    // Get all users - alias for getUsers (backward compatibility)
+   258→    public function getAllUsers($activeOnly = true) {
+   259→        $filters = [];
+   260→        if ($activeOnly) {
+   261→            $filters['is_active'] = 1;
+   262→        }
+   263→        return $this->getUsers($filters);
+   264→    }
+   265→    
+   266→    // Get user by ID
+   267→    public function getUserById($userId) {
+   268→        return $this->db->fetch(
+   269→            "SELECT u.id, u.username, u.email, u.role_id, u.is_active, u.last_login, 
+   270→                    u.created_at, u.first_name, u.last_name, u.phone, r.role_name, r.role_code
+   271→             FROM users u
+   272→             LEFT JOIN roles r ON u.role_id = r.id
+   273→             WHERE u.id = :id",
+   274→            ['id' => $userId]
+   275→        );
+   276→    }
+   277→    
+   278→    // Update user
+   279→    public function updateUser($userId, $data) {
+   280→        $allowedFields = ['email', 'role_id', 'first_name', 'last_name', 'phone', 'is_active'];
+   281→        $updateData = [];
+   282→        
+   283→        foreach ($allowedFields as $field) {
+   284→            if (isset($data[$field])) {
+   285→                $updateData[$field] = $data[$field];
+   286→            }
+   287→        }
+   288→        
+   289→        if (empty($updateData)) {
+   290→            return ['success' => false, 'message' => 'No data to update.'];
+   291→        }
+   292→        
+   293→        $result = $this->db->update('users', $updateData, SQL_WHERE_USER_ID, ['id' => $userId]);
+   294→        
+   295→        return ['success' => true, 'message' => 'User updated successfully.'];
+   296→    }
+   297→    
+   298→    // Delete user
+   299→    public function deleteUser($userId) {
+   300→        // Prevent deleting self
+   301→        if (isset($_SESSION['user_id']) && $userId == $_SESSION['user_id']) {
+   302→            return ['success' => false, 'message' => 'Cannot delete your own account.'];
+   303→        }
+   304→        
+   305→        $result = $this->db->delete('users', SQL_WHERE_USER_ID, ['id' => $userId]);
+   306→        
+   307→        return ['success' => true, 'message' => 'User deleted successfully.'];
+   308→    }
+   309→    
+   310→    // ============================================
+   311→    // MENU PERMISSION FUNCTIONS
+   312→    // ============================================
+   313→    
+   314→    /**
+   315→     * Get all available menu items with submenus
+   316→     */
+   317→
+   318→    /**
+   319→     * Get all menus with submenus - COMPLETE LIST
+   320→     * Matches sidebar in header.php exactly
+   321→     */
+   322→    public function getAllMenus() {
+   323→        return [
+   324→            'dashboard' => ['label' => 'Dashboard', 'icon' => 'bi-grid-1x2', 'parent' => null, 'order' => 1, 'submenus' => []],
+   325→            
+   326→            'employee' => ['label' => 'Employees', 'icon' => 'bi-people', 'parent' => null, 'order' => 2, 'submenus' => [
+   327→                'employee_list' => ['label' => 'All Employees', 'url' => 'employee/list'],
+   328→                'employee_add' => ['label' => 'Add Employee', 'url' => 'employee/add'],
+   329→                'employee_import' => ['label' => 'Import Employees', 'url' => 'employee/import'],
+   330→                'employee_documents' => ['label' => 'Documents', 'url' => 'employee/documents'],
+   331→                'employee_id_card' => ['label' => 'ID Card', 'url' => 'employee/id-card'],
+   332→            ]],
+   333→            
+   334→            'client' => ['label' => 'Clients & Units', 'icon' => 'bi-building', 'parent' => null, 'order' => 3, 'submenus' => [
+   335→                'client_list' => ['label' => 'Clients', 'url' => 'client/list'],
+   336→                'unit_list' => ['label' => 'Units', 'url' => 'unit/list'],
+   337→                'contract_list' => ['label' => 'Contracts', 'url' => 'contract/list'],
+   338→            ]],
+   339→            
+   340→            'attendance' => ['label' => 'Attendance', 'icon' => 'bi-calendar-check', 'parent' => null, 'order' => 4, 'submenus' => [
+   341→                'attendance_add' => ['label' => 'Add Attendance', 'url' => 'attendance/add'],
+   342→                'attendance_upload' => ['label' => 'Upload Attendance', 'url' => 'attendance/upload'],
+   343→                'attendance_view' => ['label' => 'View Attendance', 'url' => 'attendance/view'],
+   344→                'attendance_report' => ['label' => 'Attendance Report', 'url' => 'attendance/report'],
+   345→            ]],
+   346→            
+   347→            'advance' => ['label' => 'Advance', 'icon' => 'bi-wallet2', 'parent' => null, 'order' => 5, 'submenus' => [
+   348→                'advance_add' => ['label' => 'Add Attendance', 'url' => 'attendance/add'],
+   349→            ]],
+   350→            
+   351→            'payroll' => ['label' => 'Payroll', 'icon' => 'bi-cash-stack', 'parent' => null, 'order' => 6, 'submenus' => [
+   352→                'payroll_view' => ['label' => 'View Payroll', 'url' => 'payroll/view'],
+   353→                'payroll_salary_revision' => ['label' => 'Salary Revision', 'url' => 'payroll/salary-revision'],
+   354→                'payroll_payslips' => ['label' => 'Payslips', 'url' => 'payroll/payslips'],
+   355→                'payroll_bank_advice' => ['label' => 'Bank Advice', 'url' => 'payroll/bank-advice'],
+   356→            ]],
+   357→            
+   358→            'compliance' => ['label' => 'Compliance', 'icon' => 'bi-shield-check', 'parent' => null, 'order' => 7, 'submenus' => [
+   359→                'compliance_dashboard' => ['label' => 'Compliance Dashboard', 'url' => 'compliance/dashboard'],
+   360→                'compliance_pf' => ['label' => 'PF ECR Generator', 'url' => 'compliance/pf'],
+   361→                'compliance_esi' => ['label' => 'ESI Returns', 'url' => 'compliance/esi'],
+   362→                'compliance_pt' => ['label' => 'PT Returns', 'url' => 'compliance/pt'],
+   363→                'compliance_minimum_wages' => ['label' => 'Minimum Wages', 'url' => 'compliance/minimum-wages'],
+   364→                'compliance_mw_validation' => ['label' => 'MW Validation', 'url' => 'compliance/minimum-wage-check'],
+   365→            ]],
+   366→            
+   367→            'forms' => ['label' => 'Forms', 'icon' => 'bi-file-earmark-text', 'parent' => null, 'order' => 8, 'submenus' => [
+   368→                'forms_appointment' => ['label' => 'Appointment Letter', 'url' => 'forms/appointment'],
+   369→                'forms_form_v' => ['label' => 'Form V', 'url' => 'forms/form-v'],
+   370→                'forms_form_xvi' => ['label' => 'Form XVI', 'url' => 'forms/form-xvi'],
+   371→                'forms_form_xvii' => ['label' => 'Form XVII', 'url' => 'forms/form-xvii'],
+   372→                'forms_form_f2' => ['label' => 'Form F2', 'url' => 'forms/form-f2'],
+   373→                'forms_nomination' => ['label' => 'Nomination Forms', 'url' => 'forms/nomination'],
+   374→            ]],
+   375→            
+   376→            'deployment' => ['label' => 'Deployments', 'icon' => 'bi-geo-alt', 'parent' => null, 'order' => 9, 'submenus' => [
+   377→                'deployment_list' => ['label' => 'All Deployments', 'url' => 'deployment/list'],
+   378→                'deployment_add' => ['label' => 'New Deployment', 'url' => 'deployment/add'],
+   379→            ]],
+   380→            
+   381→            'requisition' => ['label' => 'Requisitions', 'icon' => 'bi-person-plus', 'parent' => null, 'order' => 10, 'submenus' => [
+   382→                'requisition_list' => ['label' => 'All Requisitions', 'url' => 'requisition/list'],
+   383→                'requisition_add' => ['label' => 'New Requisition', 'url' => 'requisition/add'],
+   384→            ]],
+   385→            
+   386→            'recruitment' => ['label' => 'Recruitment', 'icon' => 'bi-person-lines-fill', 'parent' => null, 'order' => 11, 'submenus' => [
+   387→                'recruitment_list' => ['label' => 'All Candidates', 'url' => 'recruitment/list'],
+   388→                'recruitment_add' => ['label' => 'Add Candidate', 'url' => 'recruitment/add'],
+   389→            ]],
+   390→            
+   391→            'billing' => ['label' => 'Billing', 'icon' => 'bi-receipt', 'parent' => null, 'order' => 12, 'submenus' => [
+   392→                'billing_list' => ['label' => 'Invoices', 'url' => 'billing/list'],
+   393→                'billing_gst_invoice' => ['label' => 'GST Invoice', 'url' => 'billing/gst-invoice'],
+   394→            ]],
+   395→            
+   396→            'timesheet' => ['label' => 'Timesheets', 'icon' => 'bi-table', 'parent' => null, 'order' => 13, 'submenus' => [
+   397→                'timesheet_list' => ['label' => 'All Timesheets', 'url' => 'timesheet/list'],
+   398→                'timesheet_create' => ['label' => 'Create Timesheet', 'url' => 'timesheet/create'],
+   399→            ]],
+   400→            
+   401→            'feedback' => ['label' => 'Client Feedback', 'icon' => 'bi-star', 'parent' => null, 'order' => 14, 'submenus' => []],
+   402→            
+   403→            'assets' => ['label' => 'Assets', 'icon' => 'bi-box-seam', 'parent' => null, 'order' => 15, 'submenus' => [
+   404→                'assets_list' => ['label' => 'All Assets', 'url' => 'assets/list'],
+   405→                'assets_issue' => ['label' => 'Issue Asset', 'url' => 'assets/issue'],
+   406→            ]],
+   407→            
+   408→            'helpdesk' => ['label' => 'Helpdesk', 'icon' => 'bi-headset', 'parent' => null, 'order' => 16, 'submenus' => []],
+   409→            
+   410→            'leave' => ['label' => 'Leave Management', 'icon' => 'bi-calendar-x', 'parent' => null, 'order' => 17, 'submenus' => []],
+   411→            
+   412→            'report' => ['label' => 'Reports', 'icon' => 'bi-bar-chart-line', 'parent' => null, 'order' => 18, 'submenus' => [
+   413→                'report_employee' => ['label' => 'Employee Reports', 'url' => 'report/employee'],
+   414→                'report_attendance' => ['label' => 'Attendance Reports', 'url' => 'report/attendance'],
+   415→                'report_payroll' => ['label' => 'Payroll Reports', 'url' => 'report/payroll'],
+   416→                'report_compliance' => ['label' => 'Compliance Reports', 'url' => 'report/compliance'],
+   417→                'report_custom' => ['label' => 'Custom Report Builder', 'url' => 'report/custom'],
+   418→            ]],
+   419→            
+   420→            'settlement' => ['label' => 'F&F Settlement', 'icon' => 'bi-cash-coin', 'parent' => null, 'order' => 19, 'submenus' => []],
+   421→            
+   422→            'notifications' => ['label' => 'Notifications', 'icon' => 'bi-bell', 'parent' => null, 'order' => 20, 'submenus' => [
+   423→                'notifications_view' => ['label' => 'View Notifications', 'url' => 'notifications'],
+   424→                'notifications_center' => ['label' => 'Notification Center', 'url' => 'notifications/center'],
+   425→            ]],
+   426→            
+   427→            'settings' => ['label' => 'Settings', 'icon' => 'bi-gear', 'parent' => null, 'order' => 21, 'submenus' => [
+   428→                'settings_company' => ['label' => 'Company', 'url' => 'settings/company'],
+   429→                'settings_users' => ['label' => 'Users', 'url' => 'settings/users'],
+   430→                'settings_roles' => ['label' => 'Roles', 'url' => 'settings/roles'],
+   431→                'settings_payslip_templates' => ['label' => 'Payslip Templates', 'url' => 'settings/payslip-templates'],
+   432→                'settings_statutory' => ['label' => 'Statutory Rates', 'url' => 'settings/statutory'],
+   433→                'settings_image_tool' => ['label' => 'Image Tool', 'url' => 'settings/image-tool'],
+   434→            ]],
+   435→        ];
+   436→    }
+   437→
+   438→    public function getActionTypes() {
+   439→        return [
+   440→            'can_view' => ['label' => 'View', 'icon' => 'bi-eye', 'description' => 'Can view records'],
+   441→            'can_add' => ['label' => 'Add', 'icon' => 'bi-plus-circle', 'description' => 'Can add/create new records'],
+   442→            'can_edit' => ['label' => 'Edit', 'icon' => 'bi-pencil', 'description' => 'Can edit existing records'],
+   443→            'can_delete' => ['label' => 'Delete', 'icon' => 'bi-trash', 'description' => 'Can delete records'],
+   444→            'can_export' => ['label' => 'Export', 'icon' => 'bi-download', 'description' => 'Can export data'],
+   445→            'can_import' => ['label' => 'Import', 'icon' => 'bi-upload', 'description' => 'Can import data'],
+   446→            'can_print' => ['label' => 'Print', 'icon' => 'bi-printer', 'description' => 'Can print data'],
+   447→        ];
+   448→    }
+   449→    
+   450→    /**
+   451→     * Create menu permissions table if not exists (enhanced version with submenus and actions)
+   452→     */
+   453→    public function ensureMenuPermissionsTable() {
+   454→        try {
+   455→            // Check if table exists with new structure
+   456→            $checkColumn = $this->db->fetch("SHOW COLUMNS FROM role_menu_permissions LIKE 'submenu_key'");
+   457→            
+   458→            if (!$checkColumn) {
+   459→                // Table exists but needs migration - add new columns
+   460→                try {
+   461→                    $this->db->query("ALTER TABLE role_menu_permissions 
+   462→                        ADD COLUMN submenu_key VARCHAR(100) DEFAULT NULL AFTER menu_key,
+   463→                        ADD COLUMN can_view TINYINT(1) DEFAULT 1 AFTER is_visible,
+   464→                        ADD COLUMN can_add TINYINT(1) DEFAULT 0 AFTER can_view,
+   465→                        ADD COLUMN can_edit TINYINT(1) DEFAULT 0 AFTER can_add,
+   466→                        ADD COLUMN can_delete TINYINT(1) DEFAULT 0 AFTER can_edit,
+   467→                        ADD COLUMN can_export TINYINT(1) DEFAULT 0 AFTER can_delete,
+   468→                        ADD COLUMN can_import TINYINT(1) DEFAULT 0 AFTER can_export,
+   469→                        ADD COLUMN can_print TINYINT(1) DEFAULT 0 AFTER can_import,
+   470→                        DROP INDEX uniq_role_menu,
+   471→                        ADD UNIQUE KEY uniq_role_menu_submenu (role_id, menu_key, submenu_key),
+   472→                        ADD INDEX idx_role_menu (role_id, menu_key),
+   473→                        ADD INDEX idx_role_submenu (role_id, submenu_key)");
+   474→                } catch (Exception $e) {
+   475→                    // Columns might already exist
+   476→                }
+   477→            }
+   478→        } catch (Exception $e) {
+   479→            // Table doesn't exist, create it
+   480→            try {
+   481→                $this->db->query("CREATE TABLE IF NOT EXISTS role_menu_permissions (
+   482→                    id INT AUTO_INCREMENT PRIMARY KEY,
+   483→                    role_id INT NOT NULL,
+   484→                    menu_key VARCHAR(50) NOT NULL COMMENT 'Main menu key',
+   485→                    submenu_key VARCHAR(100) DEFAULT NULL COMMENT 'Submenu key',
+   486→                    is_visible TINYINT(1) DEFAULT 1 COMMENT 'Visibility toggle',
+   487→                    can_view TINYINT(1) DEFAULT 1 COMMENT 'Can view records',
+   488→                    can_add TINYINT(1) DEFAULT 0 COMMENT 'Can add/create records',
+   489→                    can_edit TINYINT(1) DEFAULT 0 COMMENT 'Can edit records',
+   490→                    can_delete TINYINT(1) DEFAULT 0 COMMENT 'Can delete records',
+   491→                    can_export TINYINT(1) DEFAULT 0 COMMENT 'Can export data',
+   492→                    can_import TINYINT(1) DEFAULT 0 COMMENT 'Can import data',
+   493→                    can_print TINYINT(1) DEFAULT 0 COMMENT 'Can print data',
+   494→                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+   495→                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   496→                    UNIQUE KEY uniq_role_menu_submenu (role_id, menu_key, submenu_key),
+   497→                    INDEX idx_role_menu (role_id, menu_key),
+   498→                    INDEX idx_role_submenu (role_id, submenu_key),
+   499→                    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+   500→                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+   501→            } catch (Exception $e2) {
+   502→                // Table might have been created by another process
+   503→            }
+   504→        }
+   505→    }
+   506→    
+   507→    /**
+   508→     * Get menu permissions for a role (includes submenus and actions)
+   509→     */
+   510→    public function getRoleMenuPermissions($roleId) {
+   511→        $this->ensureMenuPermissionsTable();
+   512→        
+   513→        $permissions = $this->db->fetchAll(
+   514→            "SELECT menu_key, submenu_key, is_visible, can_view, can_add, can_edit, can_delete, can_export, can_import, can_print 
+   515→             FROM role_menu_permissions WHERE role_id = :role_id",
+   516→            ['role_id' => $roleId]
+   517→        );
+   518→        
+   519→        $result = [];
+   520→        foreach ($permissions as $perm) {
+   521→            $key = $perm['submenu_key'] ?: $perm['menu_key'];
+   522→            $result[$key] = [
+   523→                'menu_key' => $perm['menu_key'],
+   524→                'submenu_key' => $perm['submenu_key'],
+   525→                'is_visible' => (bool)$perm['is_visible'],
+   526→                'can_view' => (bool)$perm['can_view'],
+   527→                'can_add' => (bool)$perm['can_add'],
+   528→                'can_edit' => (bool)$perm['can_edit'],
+   529→                'can_delete' => (bool)$perm['can_delete'],
+   530→                'can_export' => (bool)$perm['can_export'],
+   531→                'can_import' => (bool)$perm['can_import'],
+   532→                'can_print' => (bool)$perm['can_print'],
+   533→            ];
+   534→        }
+   535→        
+   536→        return $result;
+   537→    }
+   538→    
+   539→    /**
+   540→     * Get all role menu permissions (for admin view) with submenus and actions
+   541→     */
+   542→    public function getAllRoleMenuPermissions() {
+   543→        $this->ensureMenuPermissionsTable();
+   544→        
+   545→        $roles = $this->db->fetchAll("SELECT id, role_name, role_code FROM roles WHERE is_active = 1 ORDER BY level DESC");
+   546→        $menus = $this->getAllMenus();
+   547→        
+   548→        $result = [];
+   549→        foreach ($roles as $role) {
+   550→            $result[$role['role_code']] = [
+   551→                'role_id' => $role['id'],
+   552→                'role_name' => $role['role_name'],
+   553→                'menus' => [],
+   554→                'submenus' => [],
+   555→                'actions' => []
+   556→            ];
+   557→            
+   558→            $permissions = $this->getRoleMenuPermissions($role['id']);
+   559→            
+   560→            // Process main menus
+   561→            foreach ($menus as $menuKey => $menuInfo) {
+   562→                // Default: admin sees all, others see based on hierarchy
+   563→                $defaultVisible = ($role['role_code'] === 'admin') ? true : false;
+   564→                $defaultActions = ($role['role_code'] === 'admin');
+   565→                
+   566→                if (isset($permissions[$menuKey])) {
+   567→                    $result[$role['role_code']]['menus'][$menuKey] = $permissions[$menuKey]['is_visible'];
+   568→                    $result[$role['role_code']]['actions'][$menuKey] = [
+   569→                        'can_view' => $permissions[$menuKey]['can_view'],
+   570→                        'can_add' => $permissions[$menuKey]['can_add'],
+   571→                        'can_edit' => $permissions[$menuKey]['can_edit'],
+   572→                        'can_delete' => $permissions[$menuKey]['can_delete'],
+   573→                        'can_export' => $permissions[$menuKey]['can_export'],
+   574→                        'can_import' => $permissions[$menuKey]['can_import'],
+   575→                        'can_print' => $permissions[$menuKey]['can_print'],
+   576→                    ];
+   577→                } else {
+   578→                    $result[$role['role_code']]['menus'][$menuKey] = $defaultVisible;
+   579→                    $result[$role['role_code']]['actions'][$menuKey] = [
+   580→                        'can_view' => $defaultActions,
+   581→                        'can_add' => $defaultActions,
+   582→                        'can_edit' => $defaultActions,
+   583→                        'can_delete' => $defaultActions,
+   584→                        'can_export' => $defaultActions,
+   585→                        'can_import' => $defaultActions,
+   586→                        'can_print' => $defaultActions,
+   587→                    ];
+   588→                }
+   589→                
+   590→                // Process submenus
+   591→                if (!empty($menuInfo['submenus'])) {
+   592→                    foreach ($menuInfo['submenus'] as $submenuKey => $submenuInfo) {
+   593→                        if (isset($permissions[$submenuKey])) {
+   594→                            $result[$role['role_code']]['submenus'][$submenuKey] = [
+   595→                                'is_visible' => $permissions[$submenuKey]['is_visible'],
+   596→                                'can_view' => $permissions[$submenuKey]['can_view'],
+   597→                                'can_add' => $permissions[$submenuKey]['can_add'],
+   598→                                'can_edit' => $permissions[$submenuKey]['can_edit'],
+   599→                                'can_delete' => $permissions[$submenuKey]['can_delete'],
+   600→                                'can_export' => $permissions[$submenuKey]['can_export'],
+   601→                                'can_import' => $permissions[$submenuKey]['can_import'],
+   602→                                'can_print' => $permissions[$submenuKey]['can_print'],
+   603→                            ];
+   604→                        } else {
+   605→                            $result[$role['role_code']]['submenus'][$submenuKey] = [
+   606→                                'is_visible' => $defaultVisible,
+   607→                                'can_view' => $defaultActions,
+   608→                                'can_add' => $defaultActions,
+   609→                                'can_edit' => $defaultActions,
+   610→                                'can_delete' => $defaultActions,
+   611→                                'can_export' => $defaultActions,
+   612→                                'can_import' => $defaultActions,
+   613→                                'can_print' => $defaultActions,
+   614→                            ];
+   615→                        }
+   616→                    }
+   617→                }
+   618→            }
+   619→        }
+   620→        
+   621→        return $result;
+   622→    }
+   623→    
+   624→    /**
+   625→     * Save menu permissions for a role (supports submenus and actions)
+   626→     */
+   627→    public function saveRoleMenuPermissions($roleId, $permissions, $menuKey = null, $submenuKey = null) {
+   628→        $this->ensureMenuPermissionsTable();
+   629→        
+   630→        // If single permission update (from AJAX)
+   631→        if ($menuKey !== null) {
+   632→            $isVisible = isset($permissions['is_visible']) ? (int)$permissions['is_visible'] : 1;
+   633→            $canView = isset($permissions['can_view']) ? (int)$permissions['can_view'] : 1;
+   634→            $canAdd = isset($permissions['can_add']) ? (int)$permissions['can_add'] : 0;
+   635→            $canEdit = isset($permissions['can_edit']) ? (int)$permissions['can_edit'] : 0;
+   636→            $canDelete = isset($permissions['can_delete']) ? (int)$permissions['can_delete'] : 0;
+   637→            $canExport = isset($permissions['can_export']) ? (int)$permissions['can_export'] : 0;
+   638→            $canImport = isset($permissions['can_import']) ? (int)$permissions['can_import'] : 0;
+   639→            $canPrint = isset($permissions['can_print']) ? (int)$permissions['can_print'] : 0;
+   640→            
+   641→            $this->db->query(
+   642→                "INSERT INTO role_menu_permissions (role_id, menu_key, submenu_key, is_visible, can_view, can_add, can_edit, can_delete, can_export, can_import, can_print) 
+   643→                 VALUES (:role_id, :menu_key, :submenu_key, :is_visible, :can_view, :can_add, :can_edit, :can_delete, :can_export, :can_import, :can_print)
+   644→                 ON DUPLICATE KEY UPDATE 
+   645→                    is_visible = :is_visible2, 
+   646→                    can_view = :can_view2, 
+   647→                    can_add = :can_add2, 
+   648→                    can_edit = :can_edit2, 
+   649→                    can_delete = :can_delete2,
+   650→                    can_export = :can_export2,
+   651→                    can_import = :can_import2,
+   652→                    can_print = :can_print2",
+   653→                [
+   654→                    'role_id' => $roleId,
+   655→                    'menu_key' => $menuKey,
+   656→                    'submenu_key' => $submenuKey ?: $menuKey,
+   657→                    'is_visible' => $isVisible,
+   658→                    'can_view' => $canView,
+   659→                    'can_add' => $canAdd,
+   660→                    'can_edit' => $canEdit,
+   661→                    'can_delete' => $canDelete,
+   662→                    'can_export' => $canExport,
+   663→                    'can_import' => $canImport,
+   664→                    'can_print' => $canPrint,
+   665→                    'is_visible2' => $isVisible,
+   666→                    'can_view2' => $canView,
+   667→                    'can_add2' => $canAdd,
+   668→                    'can_edit2' => $canEdit,
+   669→                    'can_delete2' => $canDelete,
+   670→                    'can_export2' => $canExport,
+   671→                    'can_import2' => $canImport,
+   672→                    'can_print2' => $canPrint,
+   673→                ]
+   674→            );
+   675→            
+   676→            return ['success' => true, 'message' => 'Permission updated successfully.'];
+   677→        }
+   678→        
+   679→        // Bulk update from form submission
+   680→        foreach ($permissions as $key => $value) {
+   681→            // Determine if this is a menu or submenu permission
+   682→            $parts = explode('_', $key);
+   683→            $isSubmenu = count($parts) > 1;
+   684→            
+   685→            if ($isSubmenu) {
+   686→                // Find the parent menu key
+   687→                $menus = $this->getAllMenus();
+   688→                $parentMenu = null;
+   689→                foreach ($menus as $mKey => $mInfo) {
+   690→                    if (isset($mInfo['submenus'][$key])) {
+   691→                        $parentMenu = $mKey;
+   692→                        break;
+   693→                    }
+   694→                }
+   695→                
+   696→                if ($parentMenu) {
+   697→                    $this->db->query(
+   698→                        "INSERT INTO role_menu_permissions (role_id, menu_key, submenu_key, is_visible, can_view, can_add, can_edit, can_delete, can_export, can_import, can_print) 
+   699→                         VALUES (:role_id, :menu_key, :submenu_key, 1, 1, 0, 0, 0, 0, 0, 0)
+   700→                         ON DUPLICATE KEY UPDATE is_visible = :is_visible",
+   701→                        [
+   702→                            'role_id' => $roleId,
+   703→                            'menu_key' => $parentMenu,
+   704→                            'submenu_key' => $key,
+   705→                            'is_visible' => $value ? 1 : 0,
+   706→                        ]
+   707→                    );
+   708→                }
+   709→            } else {
+   710→                // Main menu permission
+   711→                $this->db->query(
+   712→                    "INSERT INTO role_menu_permissions (role_id, menu_key, submenu_key, is_visible, can_view, can_add, can_edit, can_delete, can_export, can_import, can_print) 
+   713→                     VALUES (:role_id, :menu_key, :submenu_key, :is_visible, 1, 0, 0, 0, 0, 0, 0)
+   714→                     ON DUPLICATE KEY UPDATE is_visible = :is_visible2",
+   715→                    [
+   716→                        'role_id' => $roleId,
+   717→                        'menu_key' => $key,
+   718→                        'submenu_key' => $key,
+   719→                        'is_visible' => $value ? 1 : 0,
+   720→                        'is_visible2' => $value ? 1 : 0,
+   721→                    ]
+   722→                );
+   723→            }
+   724→        }
+   725→        
+   726→        return ['success' => true, 'message' => 'Menu permissions saved successfully.'];
+   727→    }
+   728→    
+   729→    /**
+   730→     * Save detailed permissions (submenu with actions)
+   731→     */
+   732→    public function saveDetailedPermissions($roleId, $menuKey, $submenuKey, $data) {
+   733→        $this->ensureMenuPermissionsTable();
+   734→        
+   735→        $isVisible = isset($data['is_visible']) ? (int)$data['is_visible'] : 1;
+   736→        $canView = isset($data['can_view']) ? (int)$data['can_view'] : 1;
+   737→        $canAdd = isset($data['can_add']) ? (int)$data['can_add'] : 0;
+   738→        $canEdit = isset($data['can_edit']) ? (int)$data['can_edit'] : 0;
+   739→        $canDelete = isset($data['can_delete']) ? (int)$data['can_delete'] : 0;
+   740→        $canExport = isset($data['can_export']) ? (int)$data['can_export'] : 0;
+   741→        $canImport = isset($data['can_import']) ? (int)$data['can_import'] : 0;
+   742→        $canPrint = isset($data['can_print']) ? (int)$data['can_print'] : 0;
+   743→        
+   744→        $this->db->query(
+   745→            "INSERT INTO role_menu_permissions (role_id, menu_key, submenu_key, is_visible, can_view, can_add, can_edit, can_delete, can_export, can_import, can_print) 
+   746→             VALUES (:role_id, :menu_key, :submenu_key, :is_visible, :can_view, :can_add, :can_edit, :can_delete, :can_export, :can_import, :can_print)
+   747→             ON DUPLICATE KEY UPDATE 
+   748→                is_visible = :is_visible2, 
+   749→                can_view = :can_view2, 
+   750→                can_add = :can_add2, 
+   751→                can_edit = :can_edit2, 
+   752→                can_delete = :can_delete2,
+   753→                can_export = :can_export2,
+   754→                can_import = :can_import2,
+   755→                can_print = :can_print2",
+   756→            [
+   757→                'role_id' => $roleId,
+   758→                'menu_key' => $menuKey,
+   759→                'submenu_key' => $submenuKey ?: $menuKey,
+   760→                'is_visible' => $isVisible,
+   761→                'can_view' => $canView,
+   762→                'can_add' => $canAdd,
+   763→                'can_edit' => $canEdit,
+   764→                'can_delete' => $canDelete,
+   765→                'can_export' => $canExport,
+   766→                'can_import' => $canImport,
+   767→                'can_print' => $canPrint,
+   768→                'is_visible2' => $isVisible,
+   769→                'can_view2' => $canView,
+   770→                'can_add2' => $canAdd,
+   771→                'can_edit2' => $canEdit,
+   772→                'can_delete2' => $canDelete,
+   773→                'can_export2' => $canExport,
+   774→                'can_import2' => $canImport,
+   775→                'can_print2' => $canPrint,
+   776→            ]
+   777→        );
+   778→        
+   779→        return ['success' => true, 'message' => 'Permissions saved successfully.'];
+   780→    }
+   781→    
+   782→    /**
+   783→     * Check if current user can see a menu
+   784→     */
+   785→    public function canSeeMenu($menuKey) {
+   786→        // Admin sees everything
+   787→        if (isset($_SESSION['role_code']) && $_SESSION['role_code'] === 'admin') {
+   788→            return true;
+   789→        }
+   790→        
+   791→        $this->ensureMenuPermissionsTable();
+   792→        
+   793→        $roleId = $_SESSION['role_id'] ?? null;
+   794→        if (!$roleId) {
+   795→            return false;
+   796→        }
+   797→        
+   798→        $permission = $this->db->fetch(
+   799→            "SELECT is_visible FROM role_menu_permissions WHERE role_id = :role_id AND menu_key = :menu_key AND (submenu_key IS NULL OR submenu_key = menu_key)",
+   800→            ['role_id' => $roleId, 'menu_key' => $menuKey]
+   801→        );
+   802→        
+   803→        // If no permission set, default to false (hide)
+   804→        if (!$permission) {
+   805→            return false;
+   806→        }
+   807→        
+   808→        return (bool)$permission['is_visible'];
+   809→    }
+   810→    
+   811→    /**
+   812→     * Check if current user can see a submenu
+   813→     */
+   814→    public function canSeeSubmenu($submenuKey) {
+   815→        // Admin sees everything
+   816→        if (isset($_SESSION['role_code']) && $_SESSION['role_code'] === 'admin') {
+   817→            return true;
+   818→        }
+   819→        
+   820→        $this->ensureMenuPermissionsTable();
+   821→        
+   822→        $roleId = $_SESSION['role_id'] ?? null;
+   823→        if (!$roleId) {
+   824→            return false;
+   825→        }
+   826→        
+   827→        $permission = $this->db->fetch(
+   828→            "SELECT is_visible FROM role_menu_permissions WHERE role_id = :role_id AND submenu_key = :submenu_key",
+   829→            ['role_id' => $roleId, 'submenu_key' => $submenuKey]
+   830→        );
+   831→        
+   832→        // If no permission set, default to false (hide)
+   833→        if (!$permission) {
+   834→            return false;
+   835→        }
+   836→        
+   837→        return (bool)$permission['is_visible'];
+   838→    }
+   839→    
+   840→    /**
+   841→     * Check if current user can perform an action on a menu/submenu
+   842→     * @param string $action Action to check: 'view', 'add', 'edit', 'delete', 'export', 'import', 'print'
+   843→     * @param string $menuKey The menu key
+   844→     * @param string|null $submenuKey The submenu key (optional)
+   845→     * @return bool
+   846→     */
+   847→    public function canPerformAction($action, $menuKey, $submenuKey = null) {
+   848→        // Admin can do everything
+   849→        if (isset($_SESSION['role_code']) && $_SESSION['role_code'] === 'admin') {
+   850→            return true;
+   851→        }
+   852→        
+   853→        $this->ensureMenuPermissionsTable();
+   854→        
+   855→        $roleId = $_SESSION['role_id'] ?? null;
+   856→        if (!$roleId) {
+   857→            return false;
+   858→        }
+   859→        
+   860→        $column = 'can_' . $action;
+   861→        $key = $submenuKey ?: $menuKey;
+   862→        
+   863→        $permission = $this->db->fetch(
+   864→            "SELECT $column FROM role_menu_permissions WHERE role_id = :role_id AND (submenu_key = :key OR (submenu_key IS NULL AND menu_key = :key2))",
+   865→            ['role_id' => $roleId, 'key' => $key, 'key2' => $key]
+   866→        );
+   867→        
+   868→        // If no permission set, default to false
+   869→        if (!$permission) {
+   870→            return false;
+   871→        }
+   872→        
+   873→        return (bool)$permission[$column];
+   874→    }
+   875→    
+   876→    /**
+   877→     * Check if user can view
+   878→     */
+   879→    public function canView($menuKey, $submenuKey = null) {
+   880→        return $this->canPerformAction('view', $menuKey, $submenuKey);
+   881→    }
+   882→    
+   883→    /**
+   884→     * Check if user can add
+   885→     */
+   886→    public function canAdd($menuKey, $submenuKey = null) {
+   887→        return $this->canPerformAction('add', $menuKey, $submenuKey);
+   888→    }
+   889→    
+   890→    /**
+   891→     * Check if user can edit
+   892→     */
+   893→    public function canEdit($menuKey, $submenuKey = null) {
+   894→        return $this->canPerformAction('edit', $menuKey, $submenuKey);
+   895→    }
+   896→    
+   897→    /**
+   898→     * Check if user can delete
+   899→     */
+   900→    public function canDelete($menuKey, $submenuKey = null) {
+   901→        return $this->canPerformAction('delete', $menuKey, $submenuKey);
+   902→    }
+   903→    
+   904→    /**
+   905→     * Check if user can export
+   906→     */
+   907→    public function canExport($menuKey, $submenuKey = null) {
+   908→        return $this->canPerformAction('export', $menuKey, $submenuKey);
+   909→    }
+   910→    
+   911→    /**
+   912→     * Check if user can import
+   913→     */
+   914→    public function canImport($menuKey, $submenuKey = null) {
+   915→        return $this->canPerformAction('import', $menuKey, $submenuKey);
+   916→    }
+   917→    
+   918→    /**
+   919→     * Check if user can print
+   920→     */
+   921→    public function canPrint($menuKey, $submenuKey = null) {
+   922→        return $this->canPerformAction('print', $menuKey, $submenuKey);
+   923→    }
+   924→    
+   925→    /**
+   926→     * Get all visible menus for current user
+   927→     */
+   928→    public function getVisibleMenus() {
+   929→        $menus = $this->getAllMenus();
+   930→        $visible = [];
+   931→        
+   932→        foreach ($menus as $key => $info) {
+   933→            if ($this->canSeeMenu($key)) {
+   934→                $visible[$key] = $info;
+   935→            }
+   936→        }
+   937→        
+   938→        return $visible;
+   939→    }
+   940→
+   941→    // ── Login Lockout / Rate-Limiting (DB-backed) ──────────────────────────
+   942→
+   943→    private function _ensureLoginAttemptsTable(): void
+   944→    {
+   945→        static $created = false;
+   946→        if ($created) return;
+   947→        $this->db->query("
+   948→            CREATE TABLE IF NOT EXISTS login_attempts (
+   949→                id          INT AUTO_INCREMENT PRIMARY KEY,
+   950→                username    VARCHAR(255) NOT NULL,
+   951→                ip          VARCHAR(45)  NOT NULL,
+   952→                attempts    INT          NOT NULL DEFAULT 0,
+   953→                last_attempt DATETIME    NOT NULL,
+   954→                locked_until DATETIME    NULL,
+   955→                created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   956→                UNIQUE KEY uk_user_ip (username, ip)
+   957→            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+   958→        ");
+   959→        $created = true;
+   960→    }
+   961→
+   962→    /**
+   963→     * Check if the username+IP is currently locked out.
+   964→     * Returns an error message string if locked, or null if allowed.
+   965→     */
+   966→    private function _checkLoginLockout($username, $ip): ?string
+   967→    {
+   968→        $this->_ensureLoginAttemptsTable();
+   969→
+   970→        $row = $this->db->fetch(
+   971→            "SELECT attempts, locked_until FROM login_attempts WHERE username = :u AND ip = :i",
+   972→            ['u' => $username, 'i' => $ip]
+   973→        );
+   974→
+   975→        if (!$row) {
+   976→            return null;
+   977→        }
+   978→
+   979→        // If there is a lockout window, check if it has expired
+   980→        if ($row['locked_until'] !== null) {
+   981→            $now  = new \DateTime('now');
+   982→            $lock = new \DateTime($row['locked_until']);
+   983→            if ($now < $lock) {
+   984→                $diff  = $now->diff($lock);
+   985→                $mins  = $diff->i + ($diff->h * 60) + ($diff->d * 1440);
+   986→                $hours = (int)floor($mins / 60);
+   987→                if ($hours >= 1) {
+   988→                    return "Account temporarily locked due to too many failed login attempts. Try again in {$hours} hour" . ($hours > 1 ? 's' : '') . ".";
+   989→                }
+   990→                return "Account temporarily locked due to too many failed login attempts. Try again in {$mins} minute" . ($mins !== 1 ? 's' : '') . ".";
+   991→            }
+   992→            // Lockout expired — reset
+   993→            $this->_clearFailedLogins($username, $ip);
+   994→        }
+   995→
+   996→        return null;
+   997→    }
+   998→
+   999→    /**
+  1000→     * Record a failed login attempt. Increments counter and applies lockout.
+  1001→     */
+  1002→    private function _recordFailedLogin($username, $ip): void
+  1003→    {
+  1004→        $this->_ensureLoginAttemptsTable();
+  1005→
+  1006→        $row = $this->db->fetch(
+  1007→            "SELECT attempts FROM login_attempts WHERE username = :u AND ip = :i",
+  1008→            ['u' => $username, 'i' => $ip]
+  1009→        );
+  1010→
+  1011→        $now = date('Y-m-d H:i:s');
+  1012→
+  1013→        if ($row) {
+  1014→            $attempts = (int)$row['attempts'] + 1;
+  1015→            $lockedUntil = $this->_calcLockout($attempts);
+  1016→
+  1017→            $this->db->query(
+  1018→                "UPDATE login_attempts SET attempts = :a, last_attempt = :t, locked_until = :l WHERE username = :u AND ip = :i",
+  1019→                [
+  1020→                    'a' => $attempts,
+  1021→                    't' => $now,
+  1022→                    'l' => $lockedUntil,
+  1023→                    'u' => $username,
+  1024→                    'i' => $ip,
+  1025→                ]
+  1026→            );
+  1027→        } else {
+  1028→            $this->db->query(
+  1029→                "INSERT INTO login_attempts (username, ip, attempts, last_attempt, locked_until) VALUES (:u, :i, 1, :t, NULL)",
+  1030→                ['u' => $username, 'i' => $ip, 't' => $now]
+  1031→            );
+  1032→        }
+  1033→    }
+  1034→
+  1035→    /**
+  1036→     * Clear failed login counter on successful login.
+  1037→     */
+  1038→    private function _clearFailedLogins($username, $ip): void
+  1039→    {
+  1040→        $this->_ensureLoginAttemptsTable();
+  1041→        $this->db->query(
+  1042→            "DELETE FROM login_attempts WHERE username = :u AND ip = :i",
+  1043→            ['u' => $username, 'i' => $ip]
+  1044→        );
+  1045→    }
+  1046→
+  1047→    /**
+  1048→     * Calculate the lockout datetime based on attempt count.
+  1049→     * Returns NULL if no lockout, or a DATETIME string.
+  1050→     */
+  1051→    private function _calcLockout(int $attempts): ?string
+  1052→    {
+  1053→        if ($attempts >= 20) {
+  1054→            return date('Y-m-d H:i:s', strtotime('+24 hours'));
+  1055→        }
+  1056→        if ($attempts >= 10) {
+  1057→            return date('Y-m-d H:i:s', strtotime('+1 hour'));
+  1058→        }
+  1059→        if ($attempts >= 5) {
+  1060→            return date('Y-m-d H:i:s', strtotime('+15 minutes'));
+  1061→        }
+  1062→        return null;
+  1063→    }
+  1064→}
+  1065→?>
+  1066→

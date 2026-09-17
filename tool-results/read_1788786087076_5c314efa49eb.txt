@@ -1,0 +1,830 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Notification Center
+     4→ * Send SMS, Email, WhatsApp notifications
+     5→ * 
+     6→ * This page is accessed via the main router (index.php?page=notifications/center)
+     7→ * Config, database, and auth are already initialized by index.php
+     8→ */
+     9→
+    10→$pageTitle = 'Notification Center';
+    11→
+    12→// Check access - only admin and hr_executive can access this page
+    13→if (!in_array($_SESSION['role_code'], ['admin', 'hr_executive'])) {
+    14→    setFlash('error', 'Access denied. You do not have permission to access this page.');
+    15→    redirect('index.php?page=dashboard');
+    16→}
+    17→
+    18→$notification = new Notification();
+    19→
+    20→// Handle actions
+    21→if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    22→    // CSRF check (Round 9)
+    23→    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+    24→        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+    25→        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    26→    }
+    27→    $action = $_POST['action'] ?? '';
+    28→    
+    29→    if ($action === 'send_sms') {
+    30→        $mobile = sanitize($_POST['mobile']);
+    31→        $message = sanitize($_POST['message']);
+    32→        $result = $notification->sendSMS($mobile, $message);
+    33→        
+    34→        setFlash($result['success'] ? 'success' : 'error', $result['message']);
+    35→        redirect('index.php?page=notifications/center&tab=sms');
+    36→    }
+    37→    
+    38→    if ($action === 'send_email') {
+    39→        $to = sanitize($_POST['email']);
+    40→        $subject = sanitize($_POST['subject']);
+    41→        $body = $_POST['body']; // Don't sanitize HTML
+    42→        
+    43→        $result = $notification->sendEmail($to, $subject, $body);
+    44→        setFlash($result['success'] ? 'success' : 'error', $result['message']);
+    45→        redirect('index.php?page=notifications/center&tab=email');
+    46→    }
+    47→    
+    48→    if ($action === 'send_whatsapp') {
+    49→        $mobile = sanitize($_POST['mobile']);
+    50→        $message = sanitize($_POST['message']);
+    51→        $result = $notification->sendWhatsApp($mobile, $message);
+    52→        
+    53→        if ($result['manual']) {
+    54→            // Store link for display
+    55→            $_SESSION['whatsapp_link'] = $result['link'];
+    56→            $_SESSION['whatsapp_qr'] = $result['qr_code'];
+    57→            setFlash('info', 'WhatsApp link generated. Click the link or scan QR code below.');
+    58→        } else {
+    59→            setFlash($result['success'] ? 'success' : 'error', $result['message']);
+    60→        }
+    61→        redirect('index.php?page=notifications/center&tab=whatsapp');
+    62→    }
+    63→    
+    64→    if ($action === 'bulk_sms') {
+    65→        $month = (int)$_POST['month'];
+    66→        $year = (int)$_POST['year'];
+    67→        $type = sanitize($_POST['sms_type']);
+    68→        
+    69→        // Get employees - use prepare/execute for PDO
+    70→        $empStmt = $db->prepare("SELECT e.full_name, e.mobile_number, p.net_salary
+    71→             FROM employees e
+    72→             LEFT JOIN payroll p ON e.employee_code = p.employee_id
+    73→             WHERE e.status = 'approved' AND p.month = ? AND p.year = ?");
+    74→        $empStmt->execute([$month, $year]);
+    75→        $employees = $empStmt->fetchAll(PDO::FETCH_ASSOC);
+    76→        
+    77→        $sent = 0;
+    78→        $failed = 0;
+    79→        
+    80→        foreach ($employees as $emp) {
+    81→            if (!empty($emp['mobile_number'])) {
+    82→                $message = $notification->getSMSTemplate($type, [
+    83→                    'name' => $emp['full_name'],
+    84→                    'amount' => number_format($emp['net_salary'], 0),
+    85→                    'month' => date('F Y', mktime(0, 0, 0, $month, 1, $year))
+    86→                ]);
+    87→                
+    88→                $result = $notification->sendSMS($emp['mobile_number'], $message);
+    89→                if ($result['success']) {
+    90→                    $sent++;
+    91→                } else {
+    92→                    $failed++;
+    93→                }
+    94→                
+    95→                // Delay to avoid rate limiting
+    96→                usleep(500000); // 0.5 seconds
+    97→            }
+    98→        }
+    99→        
+   100→        setFlash('success', "Bulk SMS sent: $sent successful, $failed failed");
+   101→        redirect('index.php?page=notifications/center&tab=bulk');
+   102→    }
+   103→    
+   104→    if ($action === 'send_payslips') {
+   105→        $month = (int)$_POST['payslip_month'];
+   106→        $year = (int)$_POST['payslip_year'];
+   107→        
+   108→        // Get payroll records - use prepare/execute for PDO
+   109→        $payrollStmt = $db->prepare("SELECT p.id, e.id as employee_id, e.full_name, e.personal_email
+   110→             FROM payroll p
+   111→             JOIN employees e ON p.employee_id = e.employee_code
+   112→             WHERE p.month = ? AND p.year = ?");
+   113→        $payrollStmt->execute([$month, $year]);
+   114→        $payrolls = $payrollStmt->fetchAll(PDO::FETCH_ASSOC);
+   115→        
+   116→        $sent = 0;
+   117→        $failed = 0;
+   118→        
+   119→        foreach ($payrolls as $p) {
+   120→            if (!empty($p['personal_email'])) {
+   121→                $result = $notification->sendPayslipEmail($p['employee_id'], $p['id']);
+   122→                if ($result['success']) {
+   123→                    $sent++;
+   124→                } else {
+   125→                    $failed++;
+   126→                }
+   127→            }
+   128→        }
+   129→        
+   130→        setFlash('success', "Payslips sent: $sent emails sent, $failed failed");
+   131→        redirect('index.php?page=notifications/center&tab=bulk');
+   132→    }
+   133→}
+   134→
+   135→// Get current tab
+   136→$tab = $_GET['tab'] ?? 'sms';
+   137→
+   138→// Lazy-load notification logs only when viewing the logs tab
+   139→$logs = [];
+   140→if ($tab === 'logs') {
+   141→    try {
+   142→        $logsStmt = $db->query("SELECT * FROM notification_logs ORDER BY created_at DESC LIMIT 100");
+   143→        $logs = $logsStmt ? $logsStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+   144→    } catch (PDOException $e) {
+   145→        $logs = [];
+   146→    }
+   147→}
+   148→
+   149→// Load WhatsApp bot status once (cached for 60s in session to avoid slow cURL on every load)
+   150→$waBot = $_SESSION['wa_bot_cache'] ?? null;
+   151→if (!$waBot || (time() - ($_SESSION['wa_bot_cache_time'] ?? 0)) > 60) {
+   152→    $waBot = $notification->getWhatsAppBotStatus();
+   153→    $_SESSION['wa_bot_cache'] = $waBot;
+   154→    $_SESSION['wa_bot_cache_time'] = time();
+   155→}
+   156→?>
+   157→
+   158→<div class="page-header">
+   159→    <div class="row align-items-center">
+   160→        <div class="col">
+   161→            <h1 class="page-title">
+   162→                <i class="bi bi-bell me-2"></i>Notification Center
+   163→            </h1>
+   164→            <p class="text-muted">Send SMS, Email, and WhatsApp notifications</p>
+   165→        </div>
+   166→    </div>
+   167→</div>
+   168→
+   169→<!-- Tab Navigation -->
+   170→<ul class="nav nav-tabs mb-4" id="notifTabs">
+   171→    <li class="nav-item">
+   172→        <a class="nav-link <?php echo $tab == 'sms' ? 'active' : ''; ?>" href="?page=notifications/center&tab=sms">
+   173→            <i class="bi bi-phone me-1"></i>Send SMS
+   174→        </a>
+   175→    </li>
+   176→    <li class="nav-item">
+   177→        <a class="nav-link <?php echo $tab == 'email' ? 'active' : ''; ?>" href="?page=notifications/center&tab=email">
+   178→            <i class="bi bi-envelope me-1"></i>Send Email
+   179→        </a>
+   180→    </li>
+   181→    <li class="nav-item">
+   182→        <a class="nav-link <?php echo $tab == 'whatsapp' ? 'active' : ''; ?>" href="?page=notifications/center&tab=whatsapp">
+   183→            <i class="bi bi-whatsapp me-1"></i>WhatsApp
+   184→        </a>
+   185→    </li>
+   186→    <li class="nav-item">
+   187→        <a class="nav-link <?php echo $tab == 'bulk' ? 'active' : ''; ?>" href="?page=notifications/center&tab=bulk">
+   188→            <i class="bi bi-people me-1"></i>Bulk Actions
+   189→        </a>
+   190→    </li>
+   191→    <li class="nav-item">
+   192→        <a class="nav-link <?php echo $tab == 'push' ? 'active' : ''; ?>" href="?page=notifications/center&tab=push">
+   193→            <i class="bi bi-bell me-1"></i>Push Notifications
+   194→        </a>
+   195→    </li>
+   196→    <li class="nav-item">
+   197→        <a class="nav-link <?php echo $tab == 'logs' ? 'active' : ''; ?>" href="?page=notifications/center&tab=logs">
+   198→            <i class="bi bi-clock-history me-1"></i>Logs
+   199→        </a>
+   200→    </li>
+   201→</ul>
+   202→
+   203→<div class="row">
+   204→    <div class="col-lg-8">
+   205→        
+   206→        <!-- SMS Tab -->
+   207→        <?php if ($tab == 'sms'): ?>
+   208→        <div class="card">
+   209→            <div class="card-header">
+   210→                <h5 class="card-title mb-0"><i class="bi bi-phone me-2"></i>Send SMS</h5>
+   211→            </div>
+   212→            <div class="card-body">
+   213→                <div class="alert alert-info">
+   214→                    <i class="bi bi-info-circle me-2"></i>
+   215→                    <strong>Free SMS:</strong> Using Fast2SMS API (Free tier available). 
+   216→                    Get your API key from <a href="https://docs.fast2sms.com" target="_blank">Fast2SMS</a>
+   217→                </div>
+   218→                
+   219→                <form method="POST">
+   220→            <?php echo getCSRFTokenField(); ?>
+   221→                    <input type="hidden" name="action" value="send_sms">
+   222→                    
+   223→                    <div class="mb-3">
+   224→                        <label class="form-label required">Mobile Number</label>
+   225→                        <input type="text" class="form-control" name="mobile" 
+   226→                               placeholder="Enter 10-digit mobile number" required
+   227→                               pattern="[0-9]{10}" maxlength="10">
+   228→                    </div>
+   229→                    
+   230→                    <div class="mb-3">
+   231→                        <label class="form-label required">Message</label>
+   232→                        <textarea class="form-control" name="message" rows="3" required
+   233→                                  maxlength="160" placeholder="Enter message (max 160 characters)"></textarea>
+   234→                        <small class="text-muted">Character count: <span id="smsCharCount">0</span>/160</small>
+   235→                    </div>
+   236→                    
+   237→                    <button type="submit" class="btn btn-primary">
+   238→                        <i class="bi bi-send me-1"></i>Send SMS
+   239→                    </button>
+   240→                </form>
+   241→            </div>
+   242→        </div>
+   243→        <?php endif; ?>
+   244→        
+   245→        <!-- Email Tab -->
+   246→        <?php if ($tab == 'email'): ?>
+   247→        <div class="card">
+   248→            <div class="card-header">
+   249→                <h5 class="card-title mb-0"><i class="bi bi-envelope me-2"></i>Send Email</h5>
+   250→            </div>
+   251→            <div class="card-body">
+   252→                <form method="POST">
+   253→            <?php echo getCSRFTokenField(); ?>
+   254→                    <input type="hidden" name="action" value="send_email">
+   255→                    
+   256→                    <div class="mb-3">
+   257→                        <label class="form-label required">To Email</label>
+   258→                        <input type="email" class="form-control" name="email" required>
+   259→                    </div>
+   260→                    
+   261→                    <div class="mb-3">
+   262→                        <label class="form-label required">Subject</label>
+   263→                        <input type="text" class="form-control" name="subject" required>
+   264→                    </div>
+   265→                    
+   266→                    <div class="mb-3">
+   267→                        <label class="form-label required">Message</label>
+   268→                        <textarea class="form-control" name="body" rows="8" required></textarea>
+   269→                    </div>
+   270→                    
+   271→                    <button type="submit" class="btn btn-primary">
+   272→                        <i class="bi bi-send me-1"></i>Send Email
+   273→                    </button>
+   274→                </form>
+   275→            </div>
+   276→        </div>
+   277→        <?php endif; ?>
+   278→        
+   279→        <!-- WhatsApp Tab -->
+   280→        <?php if ($tab == 'whatsapp'): ?>
+   281→        <div class="card">
+   282→            <div class="card-header d-flex justify-content-between align-items-center">
+   283→                <h5 class="card-title mb-0"><i class="bi bi-whatsapp me-2"></i>WhatsApp Message</h5>
+   284→                <span class="badge bg-<?php echo $waBot['connected'] ? 'success' : 'secondary'; ?>">
+   285→                    <?php echo $waBot['connected'] ? '<i class="bi bi-check-circle me-1"></i>Bot Connected — Auto Send ON' : '<i class="bi bi-exclamation-circle me-1"></i>Bot Offline — Link Mode'; ?>
+   286→                </span>
+   287→            </div>
+   288→            <div class="card-body">
+   289→                <?php if ($waBot['connected']): ?>
+   290→                <div class="alert alert-success">
+   291→                    <i class="bi bi-check-circle me-2"></i>
+   292→                    <strong>WhatsApp Bot Connected!</strong> Messages will be sent automatically from your WhatsApp.
+   293→                    <?php if (!empty($waBot['name'])): ?>
+   294→                    <br>Phone: <strong><?php echo sanitize($waBot['name']); ?></strong> (<?php echo sanitize($waBot['phone']); ?>)
+   295→                    <?php endif; ?>
+   296→                </div>
+   297→                <?php else: ?>
+   298→                <div class="alert alert-warning">
+   299→                    <i class="bi bi-exclamation-triangle me-2"></i>
+   300→                    <strong>WhatsApp Bot is not connected.</strong> 
+   301→                    <?php echo sanitize($waBot['message']); ?>
+   302→                    <br><small>Go to <a href="index.php?page=settings/notifications">Settings → Notifications</a> to configure the bot URL & API key, then open the bot dashboard to scan QR.</small>
+   303→                </div>
+   304→                <?php endif; ?>
+   305→                
+   306→                <form method="POST">
+   307→            <?php echo getCSRFTokenField(); ?>
+   308→                    <input type="hidden" name="action" value="send_whatsapp">
+   309→                    
+   310→                    <div class="mb-3">
+   311→                        <label class="form-label required">Mobile Number</label>
+   312→                        <input type="text" class="form-control" name="mobile" 
+   313→                               placeholder="Enter 10-digit mobile number" required
+   314→                               pattern="[0-9]{10}" maxlength="10">
+   315→                    </div>
+   316→                    
+   317→                    <div class="mb-3">
+   318→                        <label class="form-label required">Message</label>
+   319→                        <textarea class="form-control" name="message" rows="3" required
+   320→                                  placeholder="Enter your message"></textarea>
+   321→                    </div>
+   322→                    
+   323→                    <button type="submit" class="btn btn-success">
+   324→                        <i class="bi bi-whatsapp me-1"></i><?php echo $waBot['connected'] ? 'Send WhatsApp Message' : 'Generate WhatsApp Link'; ?>
+   325→                    </button>
+   326→                </form>
+   327→                
+   328→                <?php if (isset($_SESSION['whatsapp_link'])): ?>
+   329→                <div class="mt-4 p-3 border rounded bg-light">
+   330→                    <h5>WhatsApp Link Generated!</h5>
+   331→                    <div class="row">
+   332→                        <div class="col-md-8">
+   333→                            <p class="text-break">
+   334→                                <a href="<?php echo $_SESSION['whatsapp_link']; ?>" target="_blank" class="btn btn-success">
+   335→                                    <i class="bi bi-whatsapp me-1"></i>Open WhatsApp
+   336→                                </a>
+   337→                            </p>
+   338→                            <p class="small text-muted">Click the button to open WhatsApp with the message pre-filled</p>
+   339→                        </div>
+   340→                        <div class="col-md-4 text-center">
+   341→                            <img src="<?php echo $_SESSION['whatsapp_qr']; ?>" alt="WhatsApp QR Code" class="img-fluid">
+   342→                            <p class="small text-muted">Scan to send</p>
+   343→                        </div>
+   344→                    </div>
+   345→                </div>
+   346→                <?php 
+   347→                unset($_SESSION['whatsapp_link'], $_SESSION['whatsapp_qr']);
+   348→                endif; 
+   349→                ?>
+   350→            </div>
+   351→        </div>
+   352→        <?php endif; ?>
+   353→        
+   354→        <!-- Bulk Actions Tab -->
+   355→        <?php if ($tab == 'bulk'): ?>
+   356→        <div class="card mb-3">
+   357→            <div class="card-header bg-primary text-white">
+   358→                <h5 class="card-title mb-0"><i class="bi bi-phone me-2"></i>Bulk SMS</h5>
+   359→            </div>
+   360→            <div class="card-body">
+   361→                <form method="POST">
+   362→            <?php echo getCSRFTokenField(); ?>
+   363→                    <input type="hidden" name="action" value="bulk_sms">
+   364→                    
+   365→                    <div class="mb-3">
+   366→                        <label class="form-label">SMS Type</label>
+   367→                        <select class="form-select" name="sms_type">
+   368→                            <option value="salary_credit">Salary Credit Notification</option>
+   369→                            <option value="attendance_alert">Attendance Alert</option>
+   370→                            <option value="pf_update">PF Update</option>
+   371→                        </select>
+   372→                    </div>
+   373→                    
+   374→                    <div class="row mb-3">
+   375→                        <div class="col-md-6">
+   376→                            <label class="form-label">Month</label>
+   377→                            <select class="form-select" name="month">
+   378→                                <?php for ($m = 1; $m <= 12; $m++): ?>
+   379→                                <option value="<?php echo $m; ?>" <?php echo $m == prev_month_num() ? 'selected' : ''; ?>>
+   380→                                    <?php echo date('F', mktime(0, 0, 0, $m, 1)); ?>
+   381→                                </option>
+   382→                                <?php endfor; ?>
+   383→                            </select>
+   384→                        </div>
+   385→                        <div class="col-md-6">
+   386→                            <label class="form-label">Year</label>
+   387→                            <select class="form-select" name="year">
+   388→                                <?php for ($y = date('Y'); $y >= date('Y') - 1; $y--): ?>
+   389→                                <option value="<?php echo $y; ?>"><?php echo $y; ?></option>
+   390→                                <?php endfor; ?>
+   391→                            </select>
+   392→                        </div>
+   393→                    </div>
+   394→                    
+   395→                    <button type="submit" class="btn btn-primary" onclick="return confirm('Send bulk SMS to all employees?')">
+   396→                        <i class="bi bi-send me-1"></i>Send Bulk SMS
+   397→                    </button>
+   398→                </form>
+   399→            </div>
+   400→        </div>
+   401→        
+   402→        <div class="card">
+   403→            <div class="card-header bg-success text-white">
+   404→                <h5 class="card-title mb-0"><i class="bi bi-envelope me-2"></i>Send Payslips by Email</h5>
+   405→            </div>
+   406→            <div class="card-body">
+   407→                <form method="POST">
+   408→            <?php echo getCSRFTokenField(); ?>
+   409→                    <input type="hidden" name="action" value="send_payslips">
+   410→                    
+   411→                    <div class="row mb-3">
+   412→                        <div class="col-md-6">
+   413→                            <label class="form-label">Month</label>
+   414→                            <select class="form-select" name="payslip_month">
+   415→                                <?php for ($m = 1; $m <= 12; $m++): ?>
+   416→                                <option value="<?php echo $m; ?>" <?php echo $m == prev_month_num() ? 'selected' : ''; ?>>
+   417→                                    <?php echo date('F', mktime(0, 0, 0, $m, 1)); ?>
+   418→                                </option>
+   419→                                <?php endfor; ?>
+   420→                            </select>
+   421→                        </div>
+   422→                        <div class="col-md-6">
+   423→                            <label class="form-label">Year</label>
+   424→                            <select class="form-select" name="payslip_year">
+   425→                                <?php for ($y = date('Y'); $y >= date('Y') - 1; $y--): ?>
+   426→                                <option value="<?php echo $y; ?>"><?php echo $y; ?></option>
+   427→                                <?php endfor; ?>
+   428→                            </select>
+   429→                        </div>
+   430→                    </div>
+   431→                    
+   432→                    <button type="submit" class="btn btn-success" onclick="return confirm('Send payslips to all employees via email?')">
+   433→                        <i class="bi bi-envelope me-1"></i>Send Payslips
+   434→                    </button>
+   435→                </form>
+   436→            </div>
+   437→        </div>
+   438→        <?php endif; ?>
+   439→        
+   440→        <!-- Push Notifications Tab -->
+   441→        <?php if ($tab == 'push'): ?>
+   442→        <?php
+   443→        // (push_subscriptions, push_notification_queue schema managed in migrations)
+   444→
+   445→        // Handle push actions
+   446→        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+   447→            $pushAction = $_POST['action'];
+   448→
+   449→            if ($pushAction === 'send_push') {
+   450→                $title = $_POST['push_title'] ?? '';
+   451→                $body  = $_POST['push_body'] ?? '';
+   452→                $url   = $_POST['push_url'] ?? '/';
+   453→                $target = $_POST['push_target'] ?? 'all';
+   454→                $employeeIds = $_POST['push_employee_ids'] ?? '';
+   455→                $schedule = $_POST['push_schedule'] ?? '';
+   456→
+   457→                if (empty($title) || empty($body)) {
+   458→                    setFlash('error', 'Title and body are required.');
+   459→                    redirect('index.php?page=notifications/center&tab=push');
+   460→                }
+   461→
+   462→                $db->insert('push_notification_queue', [
+   463→                    'title'        => $title,
+   464→                    'body'         => $body,
+   465→                    'url'          => $url,
+   466→                    'target'       => $target,
+   467→                    'employee_ids' => $target === 'selected' ? $employeeIds : null,
+   468→                    'status'       => empty($schedule) ? 'pending' : 'pending',
+   469→                    'scheduled_at' => empty($schedule) ? null : $schedule . ':00',
+   470→                    'created_by'   => $_SESSION['first_name'] ?? $_SESSION['user_id'] ?? 'admin',
+   471→                ]);
+   472→
+   473→                setFlash('success', 'Push notification queued' . (empty($schedule) ? ' — will be sent within 5 minutes' : ' for ' . sanitize($schedule)) . '.');
+   474→                redirect('index.php?page=notifications/center&tab=push');
+   475→            }
+   476→        }
+   477→
+   478→        // All sending is handled by the cron worker (scripts/cron-push-notifications.php)
+   479→        // This page only queues notifications and displays history.
+   480→
+   481→        // Get stats
+   482→        $subscriberCount = (int)($db->fetchColumn("SELECT COUNT(*) FROM (SELECT COUNT(*) c FROM push_subscriptions GROUP BY employee_id) t") ?: 0);
+   483→        $subscriptionCount = (int)($db->fetchColumn("SELECT COUNT(*) FROM push_subscriptions") ?: 0);
+   484→        $pendingCount = (int)($db->fetchColumn("SELECT COUNT(*) FROM push_notification_queue WHERE status = 'pending'") ?: 0);
+   485→        $vapidPubKey = getSetting('push_vapid_public_key');
+   486→        $vapidConfigured = !empty($vapidPubKey);
+   487→
+   488→        // Get recent push history
+   489→        $pushHistory = $db->fetchAll("SELECT * FROM push_notification_queue ORDER BY created_at DESC LIMIT 20") ?: [];
+   490→        ?>
+   491→
+   492→        <div class="card mb-3">
+   493→            <div class="card-header d-flex justify-content-between align-items-center">
+   494→                <h5 class="card-title mb-0"><i class="bi bi-bell me-2"></i>Push Notification Setup</h5>
+   495→                <?php if (!$vapidConfigured): ?>
+   496→                <a href="index.php?page=notifications/push-generate-keys" class="btn btn-warning btn-sm"
+   497→                   onclick="if(!confirm('Generate new VAPID keys? This only needs to be done once.')) return false;">
+   498→                    <i class="bi bi-key me-1"></i>Generate VAPID Keys
+   499→                </a>
+   500→                <?php else: ?>
+   501→                <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>VAPID Configured</span>
+   502→                <?php endif; ?>
+   503→            </div>
+   504→            <div class="card-body">
+   505→                <div class="row g-3 text-center">
+   506→                    <div class="col-md-4">
+   507→                        <div class="p-3 bg-light rounded">
+   508→                            <i class="bi bi-people-fill text-primary" style="font-size:1.5rem;"></i>
+   509→                            <h4 class="mb-0"><?php echo $subscriberCount; ?></h4>
+   510→                            <small class="text-muted">Subscribed Employees</small>
+   511→                        </div>
+   512→                    </div>
+   513→                    <div class="col-md-4">
+   514→                        <div class="p-3 bg-light rounded">
+   515→                            <i class="bi bi-phone text-success" style="font-size:1.5rem;"></i>
+   516→                            <h4 class="mb-0"><?php echo $subscriptionCount; ?></h4>
+   517→                            <small class="text-muted">Active Devices</small>
+   518→                        </div>
+   519→                    </div>
+   520→                    <div class="col-md-4">
+   521→                        <div class="p-3 bg-light rounded">
+   522→                            <i class="bi bi-clock text-warning" style="font-size:1.5rem;"></i>
+   523→                            <h4 class="mb-0"><?php echo $pendingCount; ?></h4>
+   524→                            <small class="text-muted">Pending in Queue</small>
+   525→                        </div>
+   526→                    </div>
+   527→                </div>
+   528→            </div>
+   529→        </div>
+   530→
+   531→        <div class="card mb-3">
+   532→            <div class="card-header">
+   533→                <h5 class="card-title mb-0"><i class="bi bi-send me-2"></i>Send Push Notification</h5>
+   534→            </div>
+   535→            <div class="card-body">
+   536→                <?php if (!$vapidConfigured): ?>
+   537→                <div class="alert alert-warning">
+   538→                    <i class="bi bi-exclamation-triangle me-2"></i>
+   539→                    <strong>VAPID keys not configured.</strong> Push notifications require VAPID keys to work.
+   540→                    Employees must also subscribe from the ESS app.
+   541→                    <br><a href="index.php?page=notifications/push-generate-keys" class="btn btn-warning btn-sm mt-2"
+   542→                       onclick="if(!confirm('Generate VAPID keys now?')) return false;">
+   543→                        <i class="bi bi-key me-1"></i>Generate Keys Now
+   544→                    </a>
+   545→                </div>
+   546→                <?php endif; ?>
+   547→                <form method="POST">
+   548→                    <?php echo getCSRFTokenField(); ?>
+   549→                    <input type="hidden" name="action" value="send_push">
+   550→
+   551→                    <div class="row g-3">
+   552→                        <div class="col-md-8">
+   553→                            <div class="mb-3">
+   554→                                <label class="form-label">Title <span class="text-danger">*</span></label>
+   555→                                <input type="text" class="form-control" name="push_title" required
+   556→                                       placeholder="e.g., Salary Credited" maxlength="100">
+   557→                            </div>
+   558→                            <div class="mb-3">
+   559→                                <label class="form-label">Message <span class="text-danger">*</span></label>
+   560→                                <textarea class="form-control" name="push_body" rows="3" required
+   561→                                          placeholder="e.g., Your salary for June 2025 has been credited." maxlength="500"></textarea>
+   562→                            </div>
+   563→                        </div>
+   564→                        <div class="col-md-4">
+   565→                            <div class="mb-3">
+   566→                                <label class="form-label">Target</label>
+   567→                                <select class="form-select" name="push_target" id="pushTarget">
+   568→                                    <option value="all">All Subscribers</option>
+   569→                                    <option value="selected">Specific Employees</option>
+   570→                                </select>
+   571→                            </div>
+   572→                            <div class="mb-3 d-none" id="employeeIdsGroup">
+   573→                                <label class="form-label">Employee IDs</label>
+   574→                                <input type="text" class="form-control" name="push_employee_ids"
+   575→                                       placeholder="Comma-separated: 4,12,25">
+   576→                                <small class="text-muted">Enter employee IDs from HRMS</small>
+   577→                            </div>
+   578→                            <div class="mb-3">
+   579→                                <label class="form-label">Deep Link URL</label>
+   580→                                <input type="text" class="form-control" name="push_url" value="/#ess"
+   581→                                       placeholder="/#ess">
+   582→                            </div>
+   583→                            <div class="mb-3">
+   584→                                <label class="form-label">Schedule (optional)</label>
+   585→                                <input type="datetime-local" class="form-control" name="push_schedule">
+   586→                                <small class="text-muted">Leave empty to send immediately</small>
+   587→                            </div>
+   588→                        </div>
+   589→                    </div>
+   590→
+   591→                    <div class="d-flex gap-2">
+   592→                        <button type="submit" class="btn btn-primary" <?php echo !$vapidConfigured ? 'disabled' : ''; ?>>
+   593→                            <i class="bi bi-send me-1"></i>Queue Push Notification
+   594→                        </button>
+   595→                    </div>
+   596→                </form>
+   597→            </div>
+   598→        </div>
+   599→
+   600→        <!-- Push History -->
+   601→        <div class="card">
+   602→            <div class="card-header">
+   603→                <h5 class="card-title mb-0"><i class="bi bi-clock-history me-2"></i>Push History</h5>
+   604→            </div>
+   605→            <div class="card-body p-0">
+   606→                <div class="table-responsive">
+   607→                    <table class="table table-sm table-hover mb-0">
+   608→                        <thead class="table-light">
+   609→                            <tr>
+   610→                                <th>ID</th>
+   611→                                <th>Title</th>
+   612→                                <th>Target</th>
+   613→                                <th>Sent</th>
+   614→                                <th>Failed</th>
+   615→                                <th>Status</th>
+   616→                                <th>Scheduled</th>
+   617→                                <th>Attempts</th>
+   618→                            </tr>
+   619→                        </thead>
+   620→                        <tbody>
+   621→                            <?php if (empty($pushHistory)): ?>
+   622→                            <tr><td colspan="8" class="text-center py-3 text-muted">No push notifications yet</td></tr>
+   623→                            <?php else: foreach ($pushHistory as $ph): ?>
+   624→                            <tr>
+   625→                                <td>#<?php echo $ph['id']; ?></td>
+   626→                                <td><strong><?php echo sanitize($ph['title']); ?></strong><br><small class="text-muted"><?php echo sanitize(substr($ph['body'], 0, 60)); ?>...</small></td>
+   627→                                <td><span class="badge bg-secondary"><?php echo sanitize($ph['target']); ?></span></td>
+   628→                                <td><?php echo (int)$ph['sent_count']; ?></td>
+   629→                                <td><?php echo (int)$ph['failed_count']; ?></td>
+   630→                                <td>
+   631→                                    <?php
+   632→                                    $statusColors = ['pending' => 'warning', 'sending' => 'info', 'completed' => 'success', 'failed' => 'danger'];
+   633→                                    ?>
+   634→                                    <span class="badge bg-<?php echo $statusColors[$ph['status']] ?? 'secondary'; ?>">
+   635→                                        <?php echo ucfirst($ph['status']); ?>
+   636→                                    </span>
+   637→                                    <?php if ($ph['status'] === 'failed' && !empty($ph['last_error'])): ?>
+   638→                                        <br><small class="text-danger" title="<?php echo sanitize($ph['last_error']); ?>"><i class="bi bi-exclamation-circle"></i> <?php echo sanitize(substr($ph['last_error'], 0, 40)); ?>...</small>
+   639→                                    <?php endif; ?>
+   640→                                </td>
+   641→                                <td><small><?php echo $ph['scheduled_at'] ? formatDateTime($ph['scheduled_at']) : 'Immediate'; ?></small></td>
+   642→                                <td>
+   643→                                    <?php $attempts = (int)($ph['attempt_count'] ?? 0); $maxAttempts = (int)($ph['max_attempts'] ?? 5); ?>
+   644→                                    <small class="<?php echo $attempts > 0 ? 'text-warning' : 'text-muted'; ?>">
+   645→                                        <?php echo $attempts; ?>/<?php echo $maxAttempts; ?>
+   646→                                    </small>
+   647→                                </td>
+   648→                            </tr>
+   649→                            <?php endforeach; endif; ?>
+   650→                        </tbody>
+   651→                    </table>
+   652→                </div>
+   653→            </div>
+   654→        </div>
+   655→
+   656→        <!-- Cron Setup Instructions -->
+   657→        <div class="card mt-3">
+   658→            <div class="card-header">
+   659→                <h5 class="card-title mb-0"><i class="bi bi-terminal me-2"></i>Delivery Worker</h5>
+   660→            </div>
+   661→            <div class="card-body">
+   662→                <p>All push notifications are delivered by a <strong>cron worker</strong> — never by the browser. Add this cron job:</p>
+   663→                <pre class="bg-dark text-light p-3 rounded"><code>*/2 * * * * cd /home/user/public_html/hrms && php scripts/cron-push-notifications.php >> /var/log/push-cron.log 2>&1</code></pre>
+   664→                <small class="text-muted">
+   665→                    Runs every 2 minutes. Picks up pending (and scheduled) notifications, sends them, retries on failure (up to 5 attempts with exponential backoff), and cleans expired subscriptions automatically.
+   666→                </small>
+   667→                <?php if ($pendingCount > 0): ?>
+   668→                <div class="alert alert-info mt-2 mb-0">
+   669→                    <i class="bi bi-info-circle me-1"></i>
+   670→                    <strong><?php echo $pendingCount; ?></strong> notification(s) pending. They will be sent automatically by the cron worker within 2 minutes.
+   671→                </div>
+   672→                <?php endif; ?>
+   673→            </div>
+   674→        </div>
+   675→        <?php endif; ?>
+   676→
+   677→        <!-- Logs Tab -->
+   678→        <?php if ($tab == 'logs'): ?>
+   679→        <div class="card">
+   680→            <div class="card-header">
+   681→                <h5 class="card-title mb-0"><i class="bi bi-clock-history me-2"></i>Notification Logs</h5>
+   682→            </div>
+   683→            <div class="card-body p-0">
+   684→                <div class="table-responsive">
+   685→                    <table class="table table-hover mb-0">
+   686→                        <thead class="table-light">
+   687→                            <tr>
+   688→                                <th>Type</th>
+   689→                                <th>Recipient</th>
+   690→                                <th>Message</th>
+   691→                                <th>Status</th>
+   692→                                <th>Date</th>
+   693→                            </tr>
+   694→                        </thead>
+   695→                        <tbody>
+   696→                            <?php if (empty($logs)): ?>
+   697→                            <tr>
+   698→                                <td colspan="5" class="text-center py-4 text-muted">No notifications sent yet</td>
+   699→                            </tr>
+   700→                            <?php else: ?>
+   701→                            <?php foreach ($logs as $log): ?>
+   702→                            <tr>
+   703→                                <td>
+   704→                                    <?php
+   705→                                    $icons = ['sms' => 'phone text-primary', 'email' => 'envelope text-success', 'whatsapp' => 'whatsapp text-success'];
+   706→                                    ?>
+   707→                                    <i class="bi bi-<?php echo $icons[$log['type']] ?? 'bell'; ?>"></i>
+   708→                                    <?php echo ucfirst($log['type']); ?>
+   709→                                </td>
+   710→                                <td><?php echo sanitize($log['recipient']); ?></td>
+   711→                                <td><small><?php echo sanitize(substr($log['message'], 0, 50)); ?>...</small></td>
+   712→                                <td>
+   713→                                    <?php
+   714→                                    $statusColors = ['sent' => 'success', 'failed' => 'danger', 'link_generated' => 'info'];
+   715→                                    ?>
+   716→                                    <span class="badge bg-<?php echo $statusColors[$log['status']] ?? 'secondary'; ?>">
+   717→                                        <?php echo ucfirst($log['status']); ?>
+   718→                                    </span>
+   719→                                </td>
+   720→                                <td><small><?php echo formatDate($log['created_at'], 'd-m-Y H:i'); ?></small></td>
+   721→                            </tr>
+   722→                            <?php endforeach; ?>
+   723→                            <?php endif; ?>
+   724→                        </tbody>
+   725→                    </table>
+   726→                </div>
+   727→            </div>
+   728→        </div>
+   729→        <?php endif; ?>
+   730→    </div>
+   731→    
+   732→    <!-- Sidebar -->
+   733→    <div class="col-lg-4">
+   734→        <!-- WhatsApp Bot Status -->
+   735→        <div class="card">
+   736→            <div class="card-header bg-success text-white">
+   737→                <h5 class="card-title mb-0"><i class="bi bi-whatsapp me-2"></i>WhatsApp Bot</h5>
+   738→            </div>
+   739→            <div class="card-body">
+   740→                <?php if ($waBot['connected']): ?>
+   741→                <div class="text-center mb-3">
+   742→                    <i class="bi bi-check-circle-fill text-success" style="font-size:2rem;"></i>
+   743→                    <h6 class="mt-2 mb-0 text-success">Connected</h6>
+   744→                    <small class="text-muted"><?php echo sanitize($waBot['name'] ?? ''); ?> (<?php echo sanitize($waBot['phone'] ?? ''); ?>)</small>
+   745→                </div>
+   746→                <ul class="list-group list-group-flush">
+   747→                    <li class="list-group-item d-flex justify-content-between">
+   748→                        <small>Messages Sent</small>
+   749→                        <strong><?php echo $waBot['messagesSent'] ?? 0; ?></strong>
+   750→                    </li>
+   751→                    <li class="list-group-item d-flex justify-content-between">
+   752→                        <small>Queue</small>
+   753→                        <strong><?php echo $waBot['queueLength'] ?? 0; ?></strong>
+   754→                    </li>
+   755→                </ul>
+   756→                <?php else: ?>
+   757→                <div class="text-center mb-3">
+   758→                    <i class="bi bi-qr-code text-muted" style="font-size:2rem;"></i>
+   759→                    <h6 class="mt-2 mb-0">Not Connected</h6>
+   760→                    <small class="text-muted"><?php echo sanitize($waBot['message']); ?></small>
+   761→                </div>
+   762→                <?php endif; ?>
+   763→                
+   764→                <a href="index.php?page=settings/notifications" class="btn btn-outline-primary w-100 mt-2">
+   765→                    <i class="bi bi-gear me-1"></i>Configure Bot Settings
+   766→                </a>
+   767→            </div>
+   768→        </div>
+   769→        
+   770→        <div class="card">
+   771→            <div class="card-header">
+   772→                <h5 class="card-title mb-0"><i class="bi bi-gear me-2"></i>Quick Settings</h5>
+   773→            </div>
+   774→            <div class="card-body">
+   775→                <a href="index.php?page=notifications/bulk-email" class="btn btn-outline-success w-100 mb-2">
+   776→                    <i class="bi bi-envelope-paper me-1"></i>Bulk Email Campaign
+   777→                </a>
+   778→                <a href="index.php?page=settings/notifications" class="btn btn-outline-primary w-100 mb-2">
+   779→                    <i class="bi bi-gear me-1"></i>Configure All API Keys
+   780→                </a>
+   781→                
+   782→                <hr>
+   783→                
+   784→                <h6>SMS Provider Setup</h6>
+   785→                <ol class="small text-muted">
+   786→                    <li>Sign up at <a href="https://www.fast2sms.com" target="_blank">Fast2SMS</a></li>
+   787→                    <li>Get your API key from Dashboard</li>
+   788→                    <li>Add API key in Settings</li>
+   789→                </ol>
+   790→                
+   791→                <h6 class="mt-3">WhatsApp (Free)</h6>
+   792→                <p class="small text-muted">No setup required! Uses WhatsApp Web links.</p>
+   793→            </div>
+   794→        </div>
+   795→        
+   796→        <div class="card mt-3">
+   797→            <div class="card-header">
+   798→                <h5 class="card-title mb-0"><i class="bi bi-info-circle me-2"></i>Usage Tips</h5>
+   799→            </div>
+   800→            <div class="card-body">
+   801→                <ul class="small">
+   802→                    <li>SMS: Limited free credits on Fast2SMS</li>
+   803→                    <li>Email: Unlimited via Gmail/SMTP</li>
+   804→                    <li>WhatsApp: 100% free via links</li>
+   805→                </ul>
+   806→            </div>
+   807→        </div>
+   808→    </div>
+   809→</div>
+   810→
+   811→<?php
+   812→// Use $inlineJS so jQuery code runs inside footer's $(document).ready()
+   813→$inlineJS = "
+   814→    // SMS character counter
+   815→    var smsArea = document.querySelector('textarea[name=\"message\"]');
+   816→    var smsCount = document.getElementById('smsCharCount');
+   817→    if (smsArea && smsCount) {
+   818→        smsArea.addEventListener('input', function() { smsCount.textContent = this.value.length; });
+   819→    }
+   820→    // Push target toggle
+   821→    var pushSel = document.getElementById('pushTarget');
+   822→    var empGroup = document.getElementById('employeeIdsGroup');
+   823→    if (pushSel && empGroup) {
+   824→        pushSel.addEventListener('change', function() {
+   825→            empGroup.classList.toggle('d-none', this.value !== 'selected');
+   826→        });
+   827→    }
+   828→";
+   829→?>
+   830→

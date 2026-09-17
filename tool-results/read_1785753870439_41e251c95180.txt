@@ -1,0 +1,607 @@
+     1→     1→# RCS HRMS — Production Readiness Audit Report
+     2→     2→**Date:** 2026-08-03
+     3→     3→**Scope:** Full codebase — PHP Admin, Vite/React ESS, PHP API, Database, Security, Deployment
+     4→     4→**Method:** Static analysis of full repo clone + SQL dump cross-reference
+     5→     5→
+     6→     6→---
+     7→     7→
+     8→     8→## 1. Executive Summary
+     9→     9→
+    10→    10→The application is functional in production and represents a significant amount of well-structured work. Core payroll calculation, ESS login, attendance, and document flows operate correctly. Security fundamentals are solid — prepared statements throughout, bcrypt passwords, CSRF on most forms, parameterised queries everywhere inspected.
+    11→    11→
+    12→    12→However, **4 critical issues** must be addressed before the system can be considered production-safe at scale:
+    13→    13→1. CORS blocks the `X-API-KEY` header — all ESS API calls will fail in strict browsers
+    14→    14→2. `payroll` table INSERT does not write `month`/`year` — all reports return zero rows for new payroll runs
+    15→    15→3. WhatsApp server has a hardcoded API key committed to the public repo
+    16→    16→4. Bonus and gratuity provisions use pro-rated basic_da — legally incorrect under the Payment of Bonus Act
+    17→    17→
+    18→    18→**Overall Production Readiness Score: 71 / 100**
+    19→    19→
+    20→    20→---
+    21→    21→
+    22→    22→## 2. Critical Issues
+    23→    23→
+    24→    24→### C1 — CORS missing `X-API-KEY` in `Access-Control-Allow-Headers`
+    25→    25→- **Severity:** Critical
+    26→    26→- **File:** `api/ess/cors.php`
+    27→    27→- **Current:** `Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Cache-Control`
+    28→    28→- **Expected:** Must include `X-API-KEY`
+    29→    29→- **Risk:** Every cross-origin ESS API call sends `X-API-KEY` as a custom header. When browsers send a CORS preflight (OPTIONS), the server must declare this header allowed. Without it, Chrome/Firefox block the actual request. Works in development (same-origin) but breaks in production cross-origin scenarios.
+    30→    30→- **Fix:**
+    31→    31→```php
+    32→    32→// cors.php — both header() calls
+    33→    33→header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Cache-Control, X-API-KEY');
+    34→    34→```
+    35→    35→- **DB Migration Required:** No
+    36→    36→
+    37→    37→---
+    38→    38→
+    39→    39→### C2 — `payroll` INSERT missing `month` and `year` columns
+    40→    40→- **Severity:** Critical
+    41→    41→- **File:** `php_payroll/includes/class.payroll.php` line 636
+    42→    42→- **Table:** `payroll`
+    43→    43→- **Current:** INSERT into `payroll` does not include `month` or `year` in column list or VALUES
+    44→    44→- **Expected:** All reports (`view.php:191`, `bank-advice.php:23`, `salary-register.php:23`) filter with `WHERE p.month = :month AND p.year = :year`
+    45→    45→- **Risk:** Every new payroll run creates rows with NULL month/year. Every report returns zero rows. The bank advice page uses `SELECT DISTINCT month, year FROM payroll` to populate the dropdown — it will be empty for new runs.
+    46→    46→- **Fix — `class.payroll.php` line 636:**
+    47→    47→```php
+    48→    48→// ADD to INSERT column list:
+    49→    49→payroll_period_id, employee_id, unit_id, month, year,
+    50→    50→// ADD to VALUES:
+    51→    51→:period_id, :emp_code, :unit_id, :month, :year,
+    52→    52→// ADD to ON DUPLICATE KEY UPDATE:
+    53→    53→month = VALUES(month), year = VALUES(year),
+    54→    54→// ADD to params array:
+    55→    55→'month' => $period['month'],
+    56→    56→'year'  => $period['year'],
+    57→    57→```
+    58→    58→- **DB Migration Required:** Verify `payroll` table has `month INT` and `year INT` columns. If not:
+    59→    59→```sql
+    60→    60→ALTER TABLE payroll
+    61→    61→  ADD COLUMN month TINYINT(2) NOT NULL DEFAULT 0 AFTER unit_id,
+    62→    62→  ADD COLUMN year  SMALLINT(4) NOT NULL DEFAULT 0 AFTER month,
+    63→    63→  ADD INDEX idx_month_year (month, year);
+    64→    64→```
+    65→    65→
+    66→    66→---
+    67→    67→
+    68→    68→### C3 — WhatsApp server hardcoded API key committed to public repo
+    69→    69→- **Severity:** Critical
+    70→    70→- **File:** `whatsapp-server/server.js` line 37
+    71→    71→- **Current:** `const API_KEY = process.env.API_KEY || 'rcs-hrms-secret-key-2026';`
+    72→    72→- **Risk:** The fallback `'rcs-hrms-secret-key-2026'` is now public. Anyone who finds the WhatsApp server endpoint can send bulk WhatsApp messages to all employees (payslip notifications, salary figures, OTP codes) with zero authentication effort.
+    73→    73→- **Fix:**
+    74→    74→  1. Remove the hardcoded fallback — throw if `process.env.API_KEY` is not set
+    75→    75→  2. Rotate the key on the live server immediately
+    76→    76→  3. Add to `.gitignore`: `whatsapp-server/.env`
+    77→    77→```js
+    78→    78→const API_KEY = process.env.API_KEY;
+    79→    79→if (!API_KEY) { console.error('FATAL: API_KEY env var required'); process.exit(1); }
+    80→    80→```
+    81→    81→- **DB Migration Required:** No
+    82→    82→
+    83→    83→---
+    84→    84→
+    85→    85→### C4 — Bonus and gratuity provisions use pro-rated `basicDa` (legally incorrect)
+    86→    86→- **Severity:** Critical (financial compliance)
+    87→    87→- **File:** `php_payroll/includes/class.payroll.php` lines 602–609
+    88→    88→- **Current:**
+    89→    89→```php
+    90→    90→$bonusBase = min($basicDa, 7000);  // $basicDa is pro-rated by paid_days
+    91→    91→$bonusProvision = round($bonusBase * 8.33 / 100, 2);
+    92→    92→$gratuityProvision = round($basicDa * 4.81 / 100, 2);
+    93→    93→```
+    94→    94→- **Expected:** Payment of Bonus Act requires 8.33% of **monthly wages** (full month), not days-attended. An employee present 15/30 days gets half the statutory bonus provision — under-provisioned.
+    95→    95→- **Risk:** Understated bonus liability in P&L, potential Bonus Act non-compliance during audit.
+    96→    96→- **Fix:**
+    97→    97→```php
+    98→    98→$fullMonthBasicDa  = floatval($emp['basic_da'] ?? 0);
+    99→    99→$bonusBase         = min($fullMonthBasicDa, 7000);
+   100→   100→$bonusProvision    = $emp['bonus_applicable'] ? round($bonusBase * 8.33 / 100, 2) : 0;
+   101→   101→$gratuityProvision = $emp['gratuity_applicable'] ? round($fullMonthBasicDa * 4.81 / 100, 2) : 0;
+   102→   102→```
+   103→   103→- **DB Migration Required:** No (code fix only; past payroll will need recalculation if required)
+   104→   104→
+   105→   105→---
+   106→   106→
+   107→   107→## 3. High Priority Issues
+   108→   108→
+   109→   109→### H1 — `status IN ('approved', 'active')` still in payroll engine
+   110→   110→- **Severity:** High
+   111→   111→- **File:** `php_payroll/includes/class.payroll.php` line 282
+   112→   112→- **Current:** `WHERE e.status IN ('approved', 'active')`
+   113→   113→- **Risk:** `'active'` does not exist as a valid status. Non-breaking today but misleading, and breaks if `EMP_STATUS_ACTIVE` constant is ever relied on.
+   114→   114→- **Fix:** `WHERE e.status = 'approved'`
+   115→   115→
+   116→   116→---
+   117→   117→
+   118→   118→### H2 — `status = 'active'` used in 8+ report files returns wrong data
+   119→   119→- **Severity:** High
+   120→   120→- **Files:** `report/pf/cover-exempt.php` (5 instances), `forms/labour/form-13.php`, `portal/profile.php`, `report/mis-reports.php`
+   121→   121→- **Current:** Comparisons like `if ($emp['status'] === 'active')` evaluate to false for all employees (status is `'approved'`)
+   122→   122→- **Risk:** PF Cover/Exempt reports show all employees as "Inactive". Form-13 marks all employees with a status override note. Portal shows wrong badge color.
+   123→   123→- **Fix:** Global replace `status === 'active'` → `status === 'approved'` in these files; `status == 'active'` → `status == 'approved'`
+   124→   124→
+   125→   125→---
+   126→   126→
+   127→   127→### H3 — Two separate DB queries for same `employee_advances` row per employee
+   128→   128→- **Severity:** High (performance)
+   129→   129→- **File:** `php_payroll/includes/class.payroll.php` lines 555–570
+   130→   130→- **Current:** Two identical `WHERE employee_id + unit_id + month + year` queries — one for `adv1+adv2+dress_advance`, one for `office_advance`
+   131→   131→- **Risk:** For 500 employees, this is 1,000 advance queries per payroll run instead of 500. Under concurrent payroll runs this causes DB lock contention.
+   132→   132→- **Fix:** Merge into one query:
+   133→   133→```php
+   134→   134→$advRow = $this->db->fetch(
+   135→   135→    "SELECT COALESCE(SUM(adv1+adv2+dress_advance),0) as total_advance,
+   136→   136→            COALESCE(SUM(office_advance),0) as office_ded
+   137→   137→     FROM employee_advances
+   138→   138→     WHERE employee_id=:e AND unit_id=:u AND month=:m AND year=:y",
+   139→   139→    ['e'=>$emp['id'],'u'=>$emp['unit_id'],'m'=>$period['month'],'y'=>$period['year']]
+   140→   140→);
+   141→   141→```
+   142→   142→
+   143→   143→---
+   144→   144→
+   145→   145→### H4 — `payroll` stores `employee_code` (string) not `employees.id` (INT) in `employee_id` column
+   146→   146→- **Severity:** High (data integrity)
+   147→   147→- **File:** `class.payroll.php` line 348; all payroll JOINs
+   148→   148→- **Current:** `payroll.employee_id` stores employee_code (string). All JOINs use `p.employee_id = e.employee_code`
+   149→   149→- **Risk:** If an employee_code is ever corrected, all historical payroll records become orphaned. No FK constraint can be enforced. String comparison on numeric JOIN is slower.
+   150→   150→- **Recommended:** Document this as known technical debt. Long-term: add `employee_db_id INT UNSIGNED` column, populate it, migrate JOINs.
+   151→   151→
+   152→   152→---
+   153→   153→
+   154→   154→### H5 — ESS token in `localStorage` (XSS risk)
+   155→   155→- **Severity:** High (security)
+   156→   156→- **File:** `RCS_ESS/src/lib/ess-auth.ts` line 39
+   157→   157→- **Current:** `localStorage.setItem('ess_token', token)` — token stored in JS-accessible storage
+   158→   158→- **Comment in code says:** "dual-path" — both localStorage AND HttpOnly cookie. But `storeEssToken()` only sets localStorage. If cookie is not set by server, token is only in localStorage.
+   159→   159→- **Risk:** Any XSS vulnerability can steal the JWT and impersonate any employee
+   160→   160→- **Fix:** Verify that `refresh.php` and `login.php` actually SET the `ess_jwt` HttpOnly cookie in response. If so, remove the localStorage path from `storeEssToken()`.
+   161→   161→
+   162→   162→---
+   163→   163→
+   164→   164→### H6 — `employee/delete.php` reads `$_GET['id']` before POST check
+   165→   165→- **Severity:** High (CSRF)
+   166→   166→- **File:** `php_payroll/modules/employee/delete.php` line 12
+   167→   167→- **Current:** `$employeeId = isset($_GET['id']) ? (int)$_GET['id'] : 0;` — reads from GET before the POST method check
+   168→   168→- **Risk:** Even though the actual delete requires POST, the GET parameter read before method validation is a pattern vulnerability. More importantly, a crafted link can be used to probe whether an employee_id exists.
+   169→   169→- **Fix:** Read `$employeeId` only after confirming `$_SERVER['REQUEST_METHOD'] === 'POST'`; read from `$_POST['id']`
+   170→   170→
+   171→   171→---
+   172→   172→
+   173→   173→### H7 — Ad-hoc `ALTER TABLE` / `CREATE TABLE` in process.php runs on every page load
+   174→   174→- **Severity:** High (performance/reliability)
+   175→   175→- **File:** `php_payroll/modules/payroll/process.php` lines 16–75
+   176→   176→- **Current:** On every load of the payroll process page, runs `SELECT loan_emi FROM payroll LIMIT 1` — if it fails, runs `ALTER TABLE payroll ADD COLUMN loan_emi`. Same for `loan_emi_log`.
+   177→   177→- **Risk:** On a busy server, `ALTER TABLE` on a large payroll table can cause a full table lock, blocking all other queries. The `try/catch` approach means the column may or may not exist — unreliable.
+   178→   178→- **Fix:** Move to `database/migrations/` and run once. Remove the self-heal block from `process.php`.
+   179→   179→
+   180→   180→---
+   181→   181→
+   182→   182→### H8 — `getPayrollReport()` filters by `e.unit_id` not `p.unit_id`
+   183→   183→- **Severity:** High (data correctness)
+   184→   184→- **File:** `php_payroll/includes/class.payroll.php` line 166
+   185→   185→- **Current:** `AND e.unit_id = :unit_id` — uses current employee unit
+   186→   186→- **Risk:** If an employee transfers units after payroll was processed, `e.unit_id` differs from `p.unit_id`. Salary register shows wrong unit's data or excludes the employee.
+   187→   187→- **Fix:** `AND p.unit_id = :unit_id`
+   188→   188→
+   189→   189→---
+   190→   190→
+   191→   191→### H9 — `professional_tax_slabs` table exists alongside `professional_tax_rates` — two PT sources
+   192→   192→- **Severity:** High (data consistency)
+   193→   193→- **File:** `class.payroll.php` uses `professional_tax_rates`; compliance reports use `professional_tax_slabs`
+   194→   194→- **Risk:** PT changes updated in one table aren't reflected in the other. PT deducted in payroll differs from PT shown in compliance reports.
+   195→   195→- **Fix:** Drop `professional_tax_slabs` after migrating data to `professional_tax_rates`. Update all queries to use one table.
+   196→   196→
+   197→   197→---
+   198→   198→
+   199→   199→### H10 — `refresh.php` calls `refresh.php` directly with `.php` extension
+   200→   200→- **Severity:** High
+   201→   201→- **File:** `RCS_ESS/src/lib/api/config.ts` line 42, `ess-auth.ts` line 222
+   202→   202→- **Current:** `fetch(\`${API_BASE_URL}/api/ess/refresh.php\`, ...)`
+   203→   203→- **Expected:** All other endpoints use extensionless URL (e.g., `/api/ess/login`) routed via `.htaccess`. `refresh.php` is called directly.
+   204→   204→- **Risk:** If `.htaccess` is ever changed to block `.php` direct access (common hardening step), refresh breaks. Inconsistency causes confusion.
+   205→   205→- **Fix:** Change to `/api/ess/refresh` (extensionless) and ensure `.htaccess` RewriteRule handles it.
+   206→   206→
+   207→   207→---
+   208→   208→
+   209→   209→## 4. Medium Priority Issues
+   210→   210→
+   211→   211→### M1 — `lwf_rates` and `lwf_state_rates` — two LWF tables
+   212→   212→- **Severity:** Medium
+   213→   213→- **Risk:** Payroll reads `lwf_rates`, compliance may read `lwf_state_rates`. Updates to one don't propagate to the other.
+   214→   214→
+   215→   215→### M2 — Salary register subquery for `pf_applicable`/`esi_applicable` has no effective date filter
+   216→   216→- **Severity:** Medium
+   217→   217→- **File:** `php_payroll/modules/report/salary-register.php` line ~56
+   218→   218→- **Current:** `GROUP BY employee_id` without date ordering — returns arbitrary historical salary structure
+   219→   219→- **Fix:** Add `WHERE effective_from <= LAST_DAY(:target_date)` and `ORDER BY effective_from DESC`
+   220→   220→
+   221→   221→### M3 — `employee_salary_structures.updated_at` stored as `VARCHAR(100)`
+   222→   222→- **Severity:** Medium
+   223→   223→- **Risk:** Cannot sort by date, date arithmetic fails, backups show wrong column type
+   224→   224→- **Fix:** `ALTER TABLE employee_salary_structures MODIFY updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP;`
+   225→   225→
+   226→   226→### M4 — `payroll_unit_status.status` ENUM has lowercase values but code writes mixed case
+   227→   227→- **Severity:** Medium
+   228→   228→- **File:** `php_payroll/includes/class.payroll.php` writes `'Processed'`, `'Approved'`; ENUM may store `'processed'`
+   229→   229→- **Fix:** Standardise to `'Processed'`, `'Approved'`, `'Finalized'`; run UPDATE to fix existing rows
+   230→   230→
+   231→   231→### M5 — Portal (`modules/portal/`) still deployed but ESS app replaces it
+   232→   232→- **Severity:** Medium
+   233→   233→- **Risk:** Portal has weaker auth than ESS (no bcrypt PIN on the portal path that was recently fixed). If employees discover the portal URL, they can bypass ESS auth.
+   234→   234→- **Fix:** Confirm portal is no longer used; redirect all portal URLs to ESS app; or add same PIN auth
+   235→   235→
+   236→   236→### M6 — ESS `ess-employees.php` and `employees.php` — two employee listing endpoints
+   237→   237→- **Severity:** Medium
+   238→   238→- **Risk:** Unclear which is the canonical source; both may have different filters, different response formats
+   239→   239→
+   240→   240→### M7 — `minimum_wages` lookup uses `LIKE CONCAT('%', :cat, '%')` — too broad
+   241→   241→- **Severity:** Medium
+   242→   242→- **File:** `class.payroll.php` minimum wage check
+   243→   243→- **Current:** `LIKE '%Unskilled%'` matches both `'Unskilled'` and `'Semi-Unskilled'`
+   244→   244→- **Fix:** Exact match: `designation = :cat`
+   245→   245→
+   246→   246→### M8 — Leave balance not deducted when leave is approved for ESS employees
+   247→   247→- **Severity:** Medium
+   248→   248→- **Current:** `api/ess/leaves.php` applies leave but check if `ess_leave_balances` is updated on approval; and if `leave_balances` (HRMS table) is synced
+   249→   249→- **Risk:** Employee sees wrong leave balance in ESS; HRMS shows different balance
+   250→   250→
+   251→   251→### M9 — `deductLoansForPeriodUnit()` filters by current `e.unit_id` not `p.unit_id`
+   252→   252→- **Severity:** Medium (see also H8)
+   253→   253→- **File:** `php_payroll/modules/payroll/process.php` line 88
+   254→   254→- **Fix:** Use `p.unit_id = ?` instead of `e.unit_id = ?`
+   255→   255→
+   256→   256→### M10 — `id-card-fixed.php` deployed alongside `id-card.php`
+   257→   257→- **Severity:** Medium
+   258→   258→- **Risk:** Unintended URL (`?page=employee/id-card-fixed`) accessible if module routing allows. Contains duplicate logic.
+   259→   259→- **Fix:** Delete `id-card-fixed.php`
+   260→   260→
+   261→   261→### M11 — `image-tool-lite.php` in settings — unused duplicate
+   262→   262→- **Severity:** Medium
+   263→   263→- **Fix:** Delete `modules/settings/image-tool-lite.php`
+   264→   264→
+   265→   265→### M12 — ESS `src/hooks/use-mobile.ts` and `use-mobile.tsx` — both exist
+   266→   266→- **Severity:** Medium
+   267→   267→- **Risk:** Build may import either; inconsistency
+   268→   268→- **Fix:** Delete one, standardise to `.tsx`
+   269→   269→
+   270→   270→### M13 — `notifications.php` at root of modules (not in subfolder) — routing ambiguity
+   271→   271→- **Severity:** Medium
+   272→   272→- **File:** `php_payroll/modules/notifications.php`
+   273→   273→- **Risk:** `?page=notifications` routes to this stub instead of `notifications/index`. Behaviour unclear.
+   274→   274→- **Fix:** Delete `modules/notifications.php`; ensure `?page=notifications` redirects to `notifications/index`
+   275→   275→
+   276→   276→### M14 — `.env` committed to repo (contains SQLite path)
+   277→   277→- **Severity:** Medium (low risk on current content, high risk pattern)
+   278→   278→- **File:** `.env`
+   279→   279→- **Current content:** `DATABASE_URL=file:/home/z/my-project/db/custom.db` — a leftover from a local dev environment
+   280→   280→- **Risk:** The pattern of committing `.env` is dangerous. Despite current content being benign, a future developer adding real credentials to `.env` may commit them.
+   281→   281→- **Fix:** Delete `.env` from repo. It's already in `.gitignore` but was committed before the ignore rule.
+   282→   282→```bash
+   283→   283→git rm --cached .env && git commit -m "chore: remove .env from tracking"
+   284→   284→```
+   285→   285→
+   286→   286→---
+   287→   287→
+   288→   288→## 5. Low Priority Improvements
+   289→   289→
+   290→   290→### L1 — `scripts/` folder has one-off local scripts committed
+   291→   291→Includes `commit_session_timeout.sh`, `remove_csp.py`, `restore_csp.py` — one-off workaround scripts. Delete or move to `docs/scripts/`.
+   292→   292→
+   293→   293→### L2 — `run-designation-migration.php` left in employee module
+   294→   294→**File:** `modules/employee/run-designation-migration.php` — one-time migration script still accessible via URL.
+   295→   295→**Fix:** Delete after confirming migration ran.
+   296→   296→
+   297→   297→### L3 — No database backup strategy documented
+   298→   298→No backup cron, no restore procedure, no migration rollback. Recommend documenting in `DEPLOYMENT.md`.
+   299→   299→
+   300→   300→### L4 — `process.php` has no concurrency lock
+   301→   301→If two HR users run payroll for the same unit simultaneously, both can succeed — creating duplicate payroll records mitigated only by `ON DUPLICATE KEY UPDATE`. Add a `payroll_locks` table or `GET_LOCK()` MySQL advisory lock.
+   302→   302→
+   303→   303→### L5 — `whatsapp-server/` committed to HRMS repo
+   304→   304→The WhatsApp Node.js server is a separate service. It should have its own repo with its own CI/CD, not be bundled with the HRMS PHP monorepo.
+   305→   305→
+   306→   306→### L6 — `.ai/` folder tracked despite being in `.gitignore`
+   307→   307→`.gitignore` lists `.ai/` but the folder is tracked (was committed before the rule was added).
+   308→   308→```bash
+   309→   309→git rm -r --cached .ai/ && git commit -m "chore: stop tracking .ai folder"
+   310→   310→```
+   311→   311→
+   312→   312→### L7 — Payslip template stored as HTML in DB — no version history
+   313→   313→If template is changed, old payslips re-printed look different from what was sent.
+   314→   314→
+   315→   315→### L8 — `RCS_ESS/src/lib/api/config.ts` comment says "token is in HttpOnly cookie — don't store in body"
+   316→   316→But `refresh.php` also accepts token from request body as backward compat. Document the transition plan.
+   317→   317→
+   318→   318→### L9 — `professional_tax_rates` PT lookup in `SalaryCalculator.php` first iteration uses net salary as gross estimate
+   319→   319→Works correctly due to iteration, but add a comment so future devs don't "fix" it.
+   320→   320→
+   321→   321→### L10 — `unit_salary_templates` not linked to `unit_salary_formulas`
+   322→   322→OT/pay_days settings live in `unit_salary_formulas`; salary amounts in `unit_salary_templates`. Payroll reads from `unit_salary_formulas`. Sync between them is manual.
+   323→   323→
+   324→   324→---
+   325→   325→
+   326→   326→## 6. Database Problems
+   327→   327→
+   328→   328→| Issue | Table | Severity | Fix |
+   329→   329→|---|---|---|---|
+   330→   330→| `payroll` missing `month`/`year` in INSERT | `payroll` | Critical | See C2 |
+   331→   331→| `professional_tax_slabs` duplicates `professional_tax_rates` | Both | High | Drop `professional_tax_slabs`, migrate data |
+   332→   332→| `lwf_rates` duplicates `lwf_state_rates` | Both | Medium | Drop `lwf_state_rates`, migrate data |
+   333→   333→| `employee_salary_structures.updated_at` is VARCHAR | `employee_salary_structures` | Medium | ALTER to TIMESTAMP |
+   334→   334→| `attendance` table identical to `attendance_summary` | Both | Medium | Drop `attendance`, migrate data |
+   335→   335→| `employees1`, `employees2` duplicates of `employees` | Both | Medium | Drop if empty |
+   336→   336→| `employee_advances` missing UNIQUE key on (employee_id, unit_id, month, year) | `employee_advances` | High | ADD UNIQUE KEY |
+   337→   337→| All critical tables missing indexes | 12 tables | Critical (performance) | See index migration in MASTER_REFERENCE |
+   338→   338→| `payroll.employee_id` stores employee_code (string) not employees.id (INT) | `payroll` | High | Long-term: add `employee_db_id` column |
+   339→   339→| `employees` charset is `latin1` | `employees` | High | CONVERT TO utf8mb4 |
+   340→   340→| `payroll_unit_status.status` ENUM case mismatch | `payroll_unit_status` | Medium | UPDATE + MODIFY ENUM |
+   341→   341→| `employee_documents` missing PRIMARY KEY | `employee_documents` | High | ADD PRIMARY KEY |
+   342→   342→| `user_access.user_id` is VARCHAR but `users.id` is INT | `user_access` | Medium | Type mismatch, no FK possible |
+   343→   343→| `payroll_exceptions.employee_id` is VARCHAR(36) | `payroll_exceptions` | Medium | Should be employee_code type |
+   344→   344→| Three leave balance tables never synced | `leave_balances`, `employee_leave_balance`, `ess_leave_balances` | High | Consolidate to one |
+   345→   345→
+   346→   346→---
+   347→   347→
+   348→   348→## 7. PHP Problems
+   349→   349→
+   350→   350→| Issue | File | Severity |
+   351→   351→|---|---|---|
+   352→   352→| `status = 'active'` in payroll engine | `class.payroll.php:282` | High |
+   353→   353→| `status = 'active'` in 8 report files | Multiple | High |
+   354→   354→| Bonus/gratuity on pro-rated basic_da | `class.payroll.php:602-609` | Critical |
+   355→   355→| payroll INSERT missing month/year | `class.payroll.php:636` | Critical |
+   356→   356→| Two advance DB queries per employee | `class.payroll.php:555-570` | High |
+   357→   357→| `getPayrollReport()` filters by e.unit_id | `class.payroll.php:166` | High |
+   358→   358→| ALTER TABLE on page load | `modules/payroll/process.php:16-75` | High |
+   359→   359→| PT/LWF dual tables | Multiple compliance files | High |
+   360→   360→| `employee/delete.php` reads GET before POST check | `modules/employee/delete.php:12` | High |
+   361→   361→| `notifications.php` stub at modules root | `modules/notifications.php` | Medium |
+   362→   362→| Portal login still no password (if still deployed) | `modules/portal/login.php` | High |
+   363→   363→| `approved_by = 'admin'` in expense approvals | `modules/expense/approvals.php` | High |
+   364→   364→
+   365→   365→---
+   366→   366→
+   367→   367→## 8. Vite/React ESS Problems
+   368→   368→
+   369→   369→| Issue | File | Severity |
+   370→   370→|---|---|---|
+   371→   371→| JWT in localStorage (XSS risk) | `ess-auth.ts:39` | High |
+   372→   372→| `refresh.php` called with `.php` extension | `config.ts:42`, `ess-auth.ts:222` | High |
+   373→   373→| Duplicate hook files `use-mobile.ts` + `use-mobile.tsx` | `src/hooks/` | Medium |
+   374→   374→| `beforeinstallprompt.prompt()` never called | `InstallBanner.tsx` | Low |
+   375→   375→| `aria-hidden` on focused element (a11y) | Various modals | Low |
+   376→   376→
+   377→   377→---
+   378→   378→
+   379→   379→## 9. API Problems
+   380→   380→
+   381→   381→| Issue | Endpoint | Severity |
+   382→   382→|---|---|---|
+   383→   383→| CORS missing `X-API-KEY` in allowed headers | All ESS endpoints | Critical |
+   384→   384→| Refresh called at `/api/ess/refresh.php` (not extensionless) | `/refresh` | High |
+   385→   385→| `cors.php` headers missing `X-API-KEY` | `cors.php` | Critical |
+   386→   386→| `auth-guard.php` purpose unclear — check if used | `api/ess/auth-guard.php` | Medium |
+   387→   387→| `auto-role.php` may conflict with `determineEssRole()` | `api/ess/auto-role.php` | Medium |
+   388→   388→| `certificates.php` backend — verify against `CertificatesPage.tsx` | Both | Medium |
+   389→   389→| `employee-actions.php` — confirm all actions used by frontend | Backend | Low |
+   390→   390→
+   391→   391→---
+   392→   392→
+   393→   393→## 10. Payroll Problems
+   394→   394→
+   395→   395→| Issue | Status |
+   396→   396→|---|---|
+   397→   397→| payroll INSERT missing month/year | ❌ Critical — fix required |
+   398→   398→| Bonus provision uses pro-rated salary | ❌ Critical — fix required |
+   399→   399→| Gratuity provision uses pro-rated salary | ❌ Critical — fix required |
+   400→   400→| Two advance DB queries per employee | ❌ High — fix required |
+   401→   401→| `payroll.employee_id` stores employee_code | ⚠️ Known debt — document |
+   402→   402→| OT base 'basic' uses hardcoded 50% split | ❌ High — needs `basic` column |
+   403→   403→| Report filters by e.unit_id not p.unit_id | ❌ High — fix required |
+   404→   404→| PT dual table sources | ❌ High — consolidate |
+   405→   405→| Loan EMI in class.payroll.php only (not double-counted with process.php) | ✅ Confirmed OK |
+   406→   406→| PF calculation (12% on min(basic_da,15000)) | ✅ Correct |
+   407→   407→| ESI calculation (0.75% employee, ceiling ₹21,000) | ✅ Correct |
+   408→   408→| Payroll locked after finalization | ✅ Implemented |
+   409→   409→| `ON DUPLICATE KEY UPDATE` prevents duplicate processing | ✅ Correct |
+   410→   410→| Attendance skip when no data | ✅ Correct |
+   411→   411→| Transaction handling in processPayroll | ✅ Implemented |
+   412→   412→
+   413→   413→---
+   414→   414→
+   415→   415→## 11. Security Problems
+   416→   416→
+   417→   417→| Issue | Severity | Status |
+   418→   418→|---|---|---|
+   419→   419→| CORS missing `X-API-KEY` | Critical | Fix required |
+   420→   420→| WhatsApp server hardcoded API key | Critical | Fix required |
+   421→   421→| JWT in localStorage | High | Partially mitigated by cookie dual-path |
+   422→   422→| Portal login no PIN check (if deployed) | High | Fix or decommission portal |
+   423→   423→| `expense/approvals.php` hardcoded `approved_by = 'admin'` | High | Fix required |
+   424→   424→| `employee/delete.php` CSRF (reads GET param) | High | Low risk — POST required |
+   425→   425→| `.env` committed to repo | Medium | Delete from tracking |
+   426→   426→| SQL injection: none found in PHP code | ✅ All queries parameterised |
+   427→   427→| CSRF: all forms checked | ✅ `validateCSRFToken()` present |
+   428→   428→| Password hashing: bcrypt everywhere | ✅ `password_hash()` / `password_verify()` |
+   429→   429→| File upload: MIME validation via `finfo` | ✅ Fixed in earlier work |
+   430→   430→| Session regeneration on login | ✅ `session_regenerate_id(true)` |
+   431→   431→
+   432→   432→---
+   433→   433→
+   434→   434→## 12. Deployment Problems
+   435→   435→
+   436→   436→| Issue | Severity |
+   437→   437→|---|---|
+   438→   438→| Deploy via FTP (no atomic deployment) | Medium — partial deploys possible |
+   439→   439→| No database migration step in CI/CD | High — schema changes must be run manually |
+   440→   440→| No rollback procedure documented | High |
+   441→   441→| `api/ess/config.php` and `php_payroll/config/config.local.php` not in repo — must be maintained manually on server | Medium (by design but undocumented) |
+   442→   442→| `VITE_API_KEY` set in GitHub Secrets — good | ✅ |
+   443→   443→| `FTP_USER`, `FTP_PASS`, `FTP_HOST` in GitHub Secrets — good | ✅ |
+   444→   444→| No health check after deploy | Medium |
+   445→   445→| PHP lint workflow exists | ✅ |
+   446→   446→| Security audit workflow (npm audit) exists | ✅ |
+   447→   447→| FTP deploy only changed files (diff-based) | ✅ Efficient |
+   448→   448→| WhatsApp server not in deploy pipeline | Medium — must be deployed separately |
+   449→   449→
+   450→   450→---
+   451→   451→
+   452→   452→## 13. Recommended Fix Order
+   453→   453→
+   454→   454→**Week 1 — Stop the bleeding:**
+   455→   455→1. Fix `cors.php` — add `X-API-KEY` to allowed headers (5 min)
+   456→   456→2. Fix `class.payroll.php` — add `month`/`year` to payroll INSERT (30 min)
+   457→   457→3. Rotate WhatsApp server API key on live server + remove hardcoded fallback from code (30 min)
+   458→   458→4. Fix bonus/gratuity to use full monthly `basic_da` (15 min)
+   459→   459→5. Fix `expense/approvals.php` — `approved_by = $_SESSION['user_id']` (5 min)
+   460→   460→
+   461→   461→**Week 2 — Data correctness:**
+   462→   462→6. Fix all `status = 'active'` references in report files (sed command)
+   463→   463→7. Add DB indexes (phpMyAdmin — run during off-peak)
+   464→   464→8. Fix `getPayrollReport()` to filter by `p.unit_id`
+   465→   465→9. Merge two advance DB queries into one
+   466→   466→10. Consolidate PT tables (`professional_tax_slabs` → drop)
+   467→   467→
+   468→   468→**Week 3 — Cleanup:**
+   469→   469→11. Remove `.env` from git tracking
+   470→   470→12. Delete unused files: `id-card-fixed.php`, `image-tool-lite.php`, `notifications.php` (root), `use-mobile.ts`
+   471→   471→13. Move ALTER TABLE from `process.php` to migrations
+   472→   472→14. Document deployment + rollback in `DEPLOYMENT.md`
+   473→   473→15. Decommission or secure the portal
+   474→   474→
+   475→   475→---
+   476→   476→
+   477→   477→## 14. Files Needing Modification
+   478→   478→
+   479→   479→| File | Changes Needed |
+   480→   480→|---|---|
+   481→   481→| `api/ess/cors.php` | Add `X-API-KEY` to Allow-Headers |
+   482→   482→| `php_payroll/includes/class.payroll.php` | payroll INSERT month/year; bonus/gratuity base; advance merge; filter fix |
+   483→   483→| `whatsapp-server/server.js` | Remove hardcoded API key fallback |
+   484→   484→| `php_payroll/modules/expense/approvals.php` | Fix `approved_by` |
+   485→   485→| `php_payroll/modules/payroll/process.php` | Move ALTER TABLE to migrations |
+   486→   486→| `RCS_ESS/src/lib/api/config.ts` | Change `refresh.php` → `refresh` |
+   487→   487→| `RCS_ESS/src/lib/ess-auth.ts` | Change `refresh.php` → `refresh` |
+   488→   488→| `php_payroll/modules/report/pf/cover-exempt.php` | Fix `status = 'active'` |
+   489→   489→| `php_payroll/modules/forms/labour/form-13.php` | Fix `status = 'active'` |
+   490→   490→| `php_payroll/modules/portal/profile.php` | Fix `status = 'active'` |
+   491→   491→
+   492→   492→---
+   493→   493→
+   494→   494→## 15. Database Tables Needing Modification
+   495→   495→
+   496→   496→| Table | Change |
+   497→   497→|---|---|
+   498→   498→| `payroll` | Add `month`, `year` columns + index |
+   499→   499→| `employees` | Convert charset to utf8mb4 |
+   500→   500→| `employee_salary_structures` | Fix `updated_at` to TIMESTAMP; add `template_id`, `applied_month` |
+   501→   501→| `employee_advances` | Add UNIQUE key on (employee_id, unit_id, month, year) |
+   502→   502→| `employee_documents` | Add PRIMARY KEY |
+   503→   503→| `payroll_unit_status` | Fix ENUM case values |
+   504→   504→| `attendance` | Drop (duplicate of `attendance_summary`) |
+   505→   505→| `employees1`, `employees2` | Drop if empty |
+   506→   506→| `professional_tax_slabs` | Drop after migrating to `professional_tax_rates` |
+   507→   507→| `lwf_state_rates` | Drop after migrating to `lwf_rates` |
+   508→   508→
+   509→   509→---
+   510→   510→
+   511→   511→## 16. Exact SQL Required
+   512→   512→
+   513→   513→```sql
+   514→   514→-- 1. payroll table: add month and year
+   515→   515→ALTER TABLE payroll
+   516→   516→  ADD COLUMN IF NOT EXISTS month TINYINT(2) NOT NULL DEFAULT 0 AFTER unit_id,
+   517→   517→  ADD COLUMN IF NOT EXISTS year  SMALLINT(4) NOT NULL DEFAULT 0 AFTER month,
+   518→   518→  ADD INDEX IF NOT EXISTS idx_month_year (month, year);
+   519→   519→
+   520→   520→-- 2. Fix employee_documents missing PK
+   521→   521→ALTER TABLE employee_documents
+   522→   522→  ADD PRIMARY KEY (id),
+   523→   523→  MODIFY id INT(11) NOT NULL AUTO_INCREMENT;
+   524→   524→
+   525→   525→-- 3. Fix employee_salary_structures.updated_at type
+   526→   526→ALTER TABLE employee_salary_structures
+   527→   527→  MODIFY COLUMN updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP;
+   528→   528→
+   529→   529→-- 4. Add UNIQUE key to employee_advances
+   530→   530→ALTER TABLE employee_advances
+   531→   531→  ADD UNIQUE KEY IF NOT EXISTS uniq_emp_unit_mo_yr (employee_id, unit_id, month, year);
+   532→   532→
+   533→   533→-- 5. Fix payroll_unit_status status values
+   534→   534→UPDATE payroll_unit_status SET status='Processed'  WHERE status='processed';
+   535→   535→UPDATE payroll_unit_status SET status='Approved'   WHERE status='approved';
+   536→   536→UPDATE payroll_unit_status SET status='Finalized'  WHERE status='finalized';
+   537→   537→
+   538→   538→-- 6. Essential indexes
+   539→   539→ALTER TABLE employees ADD INDEX idx_status(status), ADD INDEX idx_unit(unit_id), ADD INDEX idx_client(client_id);
+   540→   540→ALTER TABLE payroll ADD INDEX idx_emp(employee_id), ADD INDEX idx_status(status);
+   541→   541→ALTER TABLE payroll_periods ADD UNIQUE INDEX idx_mo_yr(month,year), ADD INDEX idx_status(status);
+   542→   542→ALTER TABLE attendance_summary ADD UNIQUE INDEX idx_emp_unit_mo_yr(employee_id,unit_id,month,year);
+   543→   543→ALTER TABLE leave_balances ADD UNIQUE INDEX idx_emp_type_yr(employee_id,leave_type,year);
+   544→   544→ALTER TABLE employee_loans ADD INDEX idx_emp(employee_id), ADD INDEX idx_status(status);
+   545→   545→
+   546→   546→-- 7. Convert employees charset
+   547→   547→ALTER TABLE employees CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   548→   548→ALTER TABLE leave_applications CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   549→   549→
+   550→   550→-- 8. Verify then drop duplicates (run SELECT COUNT(*) first)
+   551→   551→-- DROP TABLE IF EXISTS attendance;
+   552→   552→-- DROP TABLE IF EXISTS employees1;
+   553→   553→-- DROP TABLE IF EXISTS employees2;
+   554→   554→-- DROP TABLE IF EXISTS professional_tax_slabs;
+   555→   555→-- DROP TABLE IF EXISTS lwf_state_rates;
+   556→   556→```
+   557→   557→
+   558→   558→---
+   559→   559→
+   560→   560→## 17. Tests to Perform After Fixes
+   561→   561→
+   562→   562→```
+   563→   563→Payroll:
+   564→   564→□ Run payroll for a unit → verify salary-register.php shows data
+   565→   565→□ Check payroll rows have month/year populated
+   566→   566→□ Verify bonus provision = 8.33% × full_month_basic_da (not pro-rated)
+   567→   567→□ Employee present 15/30 days → bonus provision should be same as full attendance
+   568→   568→
+   569→   569→ESS:
+   570→   570→□ Login → DevTools Network tab → check OPTIONS preflight returns X-API-KEY in Allow-Headers
+   571→   571→□ Login → check refresh endpoint called without .php extension
+   572→   572→□ Let session expire → verify auto-refresh works without re-login
+   573→   573→□ Check console has zero errors on dashboard load
+   574→   574→
+   575→   575→Reports:
+   576→   576→□ PF Cover/Exempt report → all active employees should show "Active" not "Inactive"
+   577→   577→□ Salary register for current month → should show processed payroll rows
+   578→   578→
+   579→   579→Security:
+   580→   580→□ WhatsApp server endpoint with old hardcoded key → should return 401
+   581→   581→□ Try accessing portal URL while ESS session active → should redirect to ESS
+   582→   582→
+   583→   583→Database:
+   584→   584→□ Run SHOW INDEX FROM payroll → verify month, year index exists
+   585→   585→□ Run SHOW INDEX FROM employees → verify status, unit_id indexes exist
+   586→   586→□ INSERT duplicate advance (same employee_id, unit_id, month, year) → should fail with UNIQUE error
+   587→   587→```
+   588→   588→
+   589→   589→---
+   590→   590→
+   591→   591→## 18. Final Production Readiness Score
+   592→   592→
+   593→   593→| Area | Score | Notes |
+   594→   594→|---|---|---|
+   595→   595→| Security fundamentals | 78/100 | Good: parameterised SQL, bcrypt, CSRF. Loses: CORS header, localStorage JWT, hardcoded WA key |
+   596→   596→| Payroll accuracy | 65/100 | Good: PF/ESI correct, duplicate prevention. Loses: bonus/gratuity base, month/year INSERT |
+   597→   597→| Data integrity | 62/100 | Good: most queries safe. Loses: PT dual tables, leave sync, employee_code vs id |
+   598→   598→| Performance | 55/100 | No indexes on critical tables, N+1 advance query, ALTER TABLE on page load |
+   599→   599→| Code quality | 75/100 | Good structure, consistent patterns. Loses: status='active' scattered, duplicate files |
+   600→   600→| Deployment | 68/100 | Automated FTP deploy, no rollback, no migration pipeline, hardcoded secret |
+   601→   601→| ESS/React | 80/100 | Solid. Minor: localStorage JWT, refresh URL |
+   602→   602→| Documentation | 40/100 | No API docs, no deployment guide, no architecture doc |
+   603→   603→
+   604→   604→**Overall: 71 / 100**
+   605→   605→
+   606→   606→The application is production-worthy for its current scale. The 4 Critical items must be fixed immediately. With those resolved and the High items addressed within 2 weeks, the score rises to ~85/100 — suitable for production at the current employee count.
+   607→   607→

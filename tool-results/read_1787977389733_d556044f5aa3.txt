@@ -1,0 +1,948 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro — Unit Salary Templates
+     4→ * Manage multiple salary templates per unit with New Wage Code reverse calculation.
+     5→ */
+     6→$pageTitle = 'Unit Salary Templates';
+     7→
+     8→// ── Role gate ──
+     9→$roleCode = $_SESSION['role_code'] ?? '';
+    10→if (!in_array($roleCode, ['admin', 'hr', 'hr_executive'])) {
+    11→    setFlash('error', 'Access denied.');
+    12→    redirect('index.php?page=unit/list');
+    13→    exit;
+    14→}
+    15→
+    16→// ── Self-heal: ensure table exists ──
+    17→try { $db->exec("CREATE TABLE IF NOT EXISTS `unit_salary_templates` (
+    18→    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    19→    `unit_id` INT UNSIGNED NOT NULL,
+    20→    `template_name` VARCHAR(100) NOT NULL,
+    21→    `worker_categories` VARCHAR(500) DEFAULT NULL,
+    22→    `is_default` TINYINT(1) NOT NULL DEFAULT 0,
+    23→    `net_salary` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    24→    `basic_da` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    25→    `hra` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    26→    `leave_encashment` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    27→    `bonus_encashment` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    28→    `washing_allowance` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    29→    `gross_salary` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    30→    `pf_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+    31→    `esi_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+    32→    `pt_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+    33→    `lwf_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+    34→    `overtime_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+    35→    `bonus_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+    36→    `gratuity_applicable` TINYINT(1) NOT NULL DEFAULT 1,
+    37→    `bonus_percent` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+    38→    `leave_percent` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+    39→    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    40→    `created_by` VARCHAR(50) DEFAULT NULL,
+    41→    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    42→    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    43→    INDEX `idx_unit_active` (`unit_id`, `is_active`),
+    44→    INDEX `idx_unit_default` (`unit_id`, `is_default`)
+    45→) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"); } catch (\Throwable $e) {}
+    46→
+    47→// ── Check if employee_salary_structures has template_id/applied_month (read-only, no ALTER) ──
+    48→$hasTemplateColumns = true;
+    49→try {
+    50→    $cols = $db->fetchAll("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'employee_salary_structures' AND COLUMN_NAME IN ('template_id','applied_month')");
+    51→    $colNames = array_column($cols, 'COLUMN_NAME');
+    52→    $hasTemplateColumns = (in_array('template_id', $colNames) && in_array('applied_month', $colNames));
+    53→} catch (\Throwable $e) { $hasTemplateColumns = false; }
+    54→
+    55→// ── Get unit details ──
+    56→$unitId = (int)($_GET['unit_id'] ?? 0);
+    57→if (!$unitId) { redirect('index.php?page=unit/list'); exit; }
+    58→
+    59→try {
+    60→    $unit = $db->fetch("SELECT u.*, c.name as client_name FROM units u LEFT JOIN clients c ON c.id = u.client_id WHERE u.id = ?", [$unitId]);
+    61→} catch (\Throwable $e) { error_log('[salary-templates] Unit query failed: ' . $e->getMessage()); $unit = null; }
+    62→if (!$unit) { setFlash('error', 'Unit not found.'); redirect('index.php?page=unit/list'); exit; }
+    63→
+    64→$unitState = $unit['state'] ?? '';
+    65→$unitZone  = $unit['zone']  ?? '';
+    66→
+    67→// Per Q1=A: defaults from unit, override allowed per template/employee
+    68→$unitPfApplicable  = isset($unit['pf_applicable'])  ? (intval($unit['pf_applicable'])  === 1) : true;
+    69→$unitEsiApplicable = isset($unit['esi_applicable']) ? (intval($unit['esi_applicable']) === 1) : true;
+    70→$unitPtApplicable  = isset($unit['pt_applicable'])  ? (intval($unit['pt_applicable'])  === 1) : true;
+    71→$unitLwfApplicable = isset($unit['lwf_applicable']) ? (intval($unit['lwf_applicable']) === 1) : true;
+    72→
+    73→// ── Fetch templates ──
+    74→$templates = [];
+    75→try {
+    76→    $templates = $db->fetchAll(
+    77→        "SELECT * FROM unit_salary_templates WHERE unit_id = ? ORDER BY is_default DESC, id ASC",
+    78→        [$unitId]
+    79→    );
+    80→} catch (\Throwable $e) {}
+    81→
+    82→// ── Employee count ──
+    83→$totalEmployees = 0;
+    84→try {
+    85→    $totalEmployees = (int)$db->fetchColumn("SELECT COUNT(*) FROM employees WHERE unit_id = ? AND status = 'approved'", [$unitId]) ?: 0;
+    86→} catch (\Throwable $e) { error_log('[salary-templates] Employee count failed: ' . $e->getMessage()); }
+    87→
+    88→$blankEmployees = 0;
+    89→try {
+    90→    $blankEmployees = (int)$db->fetchColumn(
+    91→        "SELECT COUNT(*) FROM employees WHERE unit_id = ? AND status = 'approved'"
+    92→        . ($hasTemplateColumns
+    93→            ? " AND id NOT IN (SELECT employee_id FROM employee_salary_structures WHERE effective_to IS NULL OR effective_to >= CURDATE())"
+    94→            : " AND id NOT IN (SELECT employee_id FROM employee_salary_structures WHERE effective_to IS NULL OR effective_to >= CURDATE())"),
+    95→        [$unitId]
+    96→    ) ?: 0;
+    97→} catch (\Throwable $e) { error_log('[salary-templates] Blank employee count failed: ' . $e->getMessage()); }
+    98→
+    99→// ── All units for copy dropdown ──
+   100→$allUnits = [];
+   101→try {
+   102→    $allUnits = $db->fetchAll("SELECT id, name FROM units WHERE id != ? ORDER BY name", [$unitId]);
+   103→} catch (\Throwable $e) { error_log('[salary-templates] All units query failed: ' . $e->getMessage()); }
+   104→
+   105→// ── Worker categories ──
+   106→$workerCategories = ['Unskilled', 'Semi-skilled', 'Skilled', 'Highly Skilled', 'Supervisor', 'Manager'];
+   107→
+   108→// ── CSRF token ──
+   109→$csrfToken = generateCSRFToken();
+   110→?>
+   111→
+   112→<!-- Page Header -->
+   113→<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+   114→    <div>
+   115→        <h5 class="mb-1"><i class="bi bi-file-earmark-spreadsheet me-2"></i>Salary Templates</h5>
+   116→        <small class="text-muted">
+   117→            <a href="index.php?page=unit/list" class="text-decoration-none">Units</a>
+   118→            <i class="bi bi-chevron-right mx-1"></i>
+   119→            <?= sanitize($unit['name']) ?>
+   120→            <?php if ($unit['client_name']): ?> (<?= sanitize($unit['client_name']) ?>)<?php endif; ?>
+   121→            <?php if ($unitState): ?> — <?= sanitize($unitState) ?><?php endif; ?>
+   122→            <?php if ($unitZone): ?> / <?= sanitize($unitZone) ?><?php endif; ?>
+   123→        </small>
+   124→        <div class="mt-1">
+   125→            <?php
+   126→                $statBadges = [];
+   127→                $statBadges[] = '<span class="badge bg-' . ($unitPfApplicable  ? 'primary-soft' : 'light text-muted') . '">PF ' . ($unitPfApplicable  ? 'ON' : 'OFF') . '</span>';
+   128→                $statBadges[] = '<span class="badge bg-' . ($unitEsiApplicable ? 'success-soft' : 'light text-muted') . '">ESI ' . ($unitEsiApplicable ? 'ON' : 'OFF') . '</span>';
+   129→                $statBadges[] = '<span class="badge bg-' . ($unitPtApplicable  ? 'info-soft' : 'light text-muted') . '">PT ' . ($unitPtApplicable  ? 'ON' : 'OFF') . '</span>';
+   130→                $statBadges[] = '<span class="badge bg-' . ($unitLwfApplicable ? 'warning-soft' : 'light text-muted') . '">LWF ' . ($unitLwfApplicable ? 'ON' : 'OFF') . '</span>';
+   131→                echo '<small class="text-muted me-1">Unit defaults:</small> ' . implode(' ', $statBadges);
+   132→            ?>
+   133→            <a href="index.php?page=unit/list" class="btn btn-sm btn-link py-0 px-1"><i class="bi bi-pencil"></i> edit</a>
+   134→        </div>
+   135→    </div>
+   136→    <div class="d-flex gap-2">
+   137→        <button class="btn btn-outline-primary btn-sm" onclick="openApplyModal()">
+   138→            <i class="bi bi-check2-all me-1"></i>Apply Templates
+   139→        </button>
+   140→        <button class="btn btn-outline-secondary btn-sm" onclick="openCopyModal()">
+   141→            <i class="bi bi-copy me-1"></i>Copy from Unit
+   142→        </button>
+   143→        <button class="btn btn-primary btn-sm" onclick="openAddModal()">
+   144→            <i class="bi bi-plus-lg me-1"></i>Add Template
+   145→        </button>
+   146→        <a href="index.php?page=unit/list" class="btn btn-outline-secondary btn-sm">
+   147→            <i class="bi bi-arrow-left me-1"></i>Back
+   148→        </a>
+   149→    </div>
+   150→</div>
+   151→
+   152→<!-- Stats -->
+   153→<div class="row g-3 mb-3">
+   154→    <div class="col-md-4">
+   155→        <div class="card"><div class="card-body py-3 text-center">
+   156→            <div class="text-muted small">Total Employees</div>
+   157→            <div class="fs-4 fw-bold"><?= number_format($totalEmployees) ?></div>
+   158→        </div></div>
+   159→    </div>
+   160→    <div class="col-md-4">
+   161→        <div class="card"><div class="card-body py-3 text-center">
+   162→            <div class="text-muted small">Without Salary Structure</div>
+   163→            <div class="fs-4 fw-bold text-warning"><?= number_format($blankEmployees) ?></div>
+   164→        </div></div>
+   165→    </div>
+   166→    <div class="col-md-4">
+   167→        <div class="card"><div class="card-body py-3 text-center">
+   168→            <div class="text-muted small">Active Templates</div>
+   169→            <div class="fs-4 fw-bold text-primary"><?= count($templates) ?></div>
+   170→        </div></div>
+   171→    </div>
+   172→</div>
+   173→
+   174→<!-- Templates Table -->
+   175→<div class="card">
+   176→    <div class="card-body p-0">
+   177→        <?php if (empty($templates)): ?>
+   178→        <div class="text-center py-5">
+   179→            <i class="bi bi-inbox fs-1 text-muted d-block mb-2"></i>
+   180→            <h6 class="text-muted">No salary templates yet</h6>
+   181→            <button class="btn btn-primary btn-sm mt-2" onclick="openAddModal()">
+   182→                <i class="bi bi-plus-lg me-1"></i>Create First Template
+   183→            </button>
+   184→        </div>
+   185→        <?php else: ?>
+   186→        <div class="table-responsive">
+   187→            <table class="table table-sm table-hover align-middle mb-0">
+   188→                <thead class="table-light">
+   189→                    <tr>
+   190→                        <th>Template Name</th>
+   191→                        <th>Worker Categories</th>
+   192→                        <th class="text-end">Net Salary</th>
+   193→                        <th class="text-end">Gross Salary</th>
+   194→                        <th class="text-end">Basic+DA</th>
+   195→                        <th class="text-end">HRA</th>
+   196→                        <th>PF</th>
+   197→                        <th>ESI</th>
+   198→                        <th>Default</th>
+   199→                        <th>Actions</th>
+   200→                    </tr>
+   201→                </thead>
+   202→                <tbody>
+   203→                    <?php foreach ($templates as $t): ?>
+   204→                    <tr>
+   205→                        <td><strong><?= sanitize($t['template_name']) ?></strong></td>
+   206→                        <td>
+   207→                            <?php if ($t['worker_categories']): ?>
+   208→                                <?php foreach (array_map('trim', explode(',', $t['worker_categories'])) as $cat): ?>
+   209→                                <span class="badge bg-secondary me-1 mb-1"><?= sanitize($cat) ?></span>
+   210→                                <?php endforeach; ?>
+   211→                            <?php else: ?>
+   212→                                <span class="badge bg-info">All (catch-all)</span>
+   213→                            <?php endif; ?>
+   214→                        </td>
+   215→                        <td class="text-end">₹<?= number_format((float)$t['net_salary'], 2) ?></td>
+   216→                        <td class="text-end">₹<?= number_format((float)$t['gross_salary'], 2) ?></td>
+   217→                        <td class="text-end">₹<?= number_format((float)$t['basic_da'], 2) ?></td>
+   218→                        <td class="text-end">₹<?= number_format((float)$t['hra'], 2) ?></td>
+   219→                        <td class="text-center"><?= $t['pf_applicable'] ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>' ?></td>
+   220→                        <td class="text-center"><?= $t['esi_applicable'] ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>' ?></td>
+   221→                        <td class="text-center"><?= $t['is_default'] ? '<i class="bi bi-star-fill text-warning"></i>' : '' ?></td>
+   222→                        <td>
+   223→                            <button class="btn btn-sm btn-outline-primary me-1" onclick='openEditModal(<?= json_encode($t) ?>)'>
+   224→                                <i class="bi bi-pencil"></i>
+   225→                            </button>
+   226→                            <button class="btn btn-sm btn-outline-danger" onclick="deleteTemplate(<?= $t['id'] ?>)">
+   227→                                <i class="bi bi-trash"></i>
+   228→                            </button>
+   229→                        </td>
+   230→                    </tr>
+   231→                    <?php endforeach; ?>
+   232→                </tbody>
+   233→            </table>
+   234→        </div>
+   235→        <?php endif; ?>
+   236→    </div>
+   237→</div>
+   238→
+   239→<!-- Add/Edit Template Modal -->
+   240→<div class="modal fade" id="templateModal" tabindex="-1">
+   241→    <div class="modal-dialog modal-lg">
+   242→        <div class="modal-content">
+   243→            <div class="modal-header bg-primary text-white">
+   244→                <h5 class="modal-title" id="templateModalLabel">
+   245→                    <i class="bi bi-plus-circle me-2"></i><span id="modalTitle">Add Salary Template</span>
+   246→                </h5>
+   247→                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+   248→            </div>
+   249→            <div class="modal-body">
+   250→                <form id="templateForm">
+   251→                    <input type="hidden" name="id" id="tplId" value="0">
+   252→                    <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+   253→                    <input type="hidden" name="unit_id" value="<?= $unitId ?>">
+   254→
+   255→                    <!-- Row 1: Name + Categories -->
+   256→                    <div class="row g-3 mb-3">
+   257→                        <div class="col-md-4">
+   258→                            <label class="form-label small fw-semibold">Template Name</label>
+   259→                            <input type="text" class="form-control form-control-sm" name="template_name" id="tplName" required placeholder="e.g. Unskilled">
+   260→                        </div>
+   261→                        <div class="col-md-8">
+   262→                            <label class="form-label small fw-semibold">Worker Category <small class="text-muted">(select one — used for minimum wage lookup)</small></label>
+   263→                            <div class="d-flex flex-wrap gap-2 mt-1">
+   264→                                <?php foreach ($workerCategories as $cat): ?>
+   265→                                <div class="form-check">
+   266→                                    <input class="form-check-input" type="radio" name="worker_cat" value="<?= htmlspecialchars($cat) ?>" id="wc_<?= strtolower(str_replace(' ', '_', $cat)) ?>" onchange="recalcTemplate()">
+   267→                                    <label class="form-check-label small" for="wc_<?= strtolower(str_replace(' ', '_', $cat)) ?>"><?= htmlspecialchars($cat) ?></label>
+   268→                                </div>
+   269→                                <?php endforeach; ?>
+   270→                            </div>
+   271→                        </div>
+   272→                    </div>
+   273→
+   274→                    <!-- Row 2: Net Salary only (bonus/leave auto-calculated) -->
+   275→                    <div class="row g-3 mb-3">
+   276→                        <div class="col-md-6">
+   277→                            <label class="form-label small fw-semibold">Net Salary (Take Home) <span class="text-danger">*</span></label>
+   278→                            <div class="input-group input-group-sm">
+   279→                                <span class="input-group-text">₹</span>
+   280→                                <input type="number" class="form-control" name="net_salary" id="tplNetSalary" step="100" min="0" placeholder="12500" required>
+   281→                            </div>
+   282→                            <small class="text-muted">Enter net salary and select worker category — system auto-calculates the salary breakup.</small>
+   283→                        </div>
+   284→                        <div class="col-md-6">
+   285→                            <div class="card bg-light"><div class="card-body py-2">
+   286→                                <div class="small text-muted mb-1">Auto-calculation order (stops when target reached):</div>
+   287→                                <ol class="small mb-0 ps-3">
+   288→                                    <li><strong>Basic+DA</strong> = MAX(Minimum Wage, 50% of Gross)</li>
+   289→                                    <li><strong>Bonus</strong> = 8.33% of Basic+DA <span class="text-muted">(skipped if overshoots)</span></li>
+   290→                                    <li><strong>Leave</strong> = 5% to 11.23% of Basic+DA <span class="text-muted">(progressive)</span></li>
+   291→                                    <li><strong>HRA</strong> = remaining balance <span class="text-muted">(max 80.44% of Basic+DA)</span></li>
+   292→                                </ol>
+   293→                            </div></div>
+   294→                        </div>
+   295→                    </div>
+   296→
+   297→                    <!-- Row 3: Statutory Settings (loaded from Unit, override allowed) -->
+   298→                    <div class="row g-3 mb-3">
+   299→                        <div class="col-12">
+   300→                            <div class="d-flex align-items-center justify-content-between">
+   301→                                <label class="form-label small fw-semibold mb-0">Statutory Settings</label>
+   302→                                <small class="text-muted">
+   303→                                    <i class="bi bi-info-circle"></i> Defaults loaded from Unit configuration — override here if needed for this template.
+   304→                                </small>
+   305→                            </div>
+   306→                            <div class="d-flex flex-wrap gap-3 mt-2">
+   307→                                <?php foreach (['pf' => 'PF Applicable', 'esi' => 'ESI Applicable', 'pt' => 'PT Applicable', 'lwf' => 'LWF Applicable', 'ot' => 'OT Applicable', 'gratuity' => 'Gratuity Applicable'] as $key => $label): ?>
+   308→                                <div class="form-check">
+   309→                                    <input class="form-check-input" type="checkbox" name="stat_<?= $key ?>" id="stat_<?= $key ?>" checked>
+   310→                                    <label class="form-check-label small" for="stat_<?= $key ?>"><?= $label ?></label>
+   311→                                </div>
+   312→                                <?php endforeach; ?>
+   313→                            </div>
+   314→                            <small class="text-muted d-block mt-1"><i class="bi bi-lightning-fill text-warning"></i> <strong>Bonus</strong> is always auto-calculated (8.33% of Basic+DA when applicable) — no manual toggle needed.</small>
+   315→                        </div>
+   316→                    </div>
+   317→
+   318→                    <hr>
+   319→
+   320→                    <!-- Auto-calculated Results -->
+   321→                    <div class="mb-3">
+   322→                        <label class="form-label small fw-semibold text-primary">
+   323→                            <i class="bi bi-calculator me-1"></i>Auto-calculated (updates as you type)
+   324→                        </label>
+   325→                        <div class="row g-2 mb-2">
+   326→                            <div class="col-md-12">
+   327→                                <div class="card bg-light border-info"><div class="card-body py-2">
+   328→                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 small">
+   329→                                        <div>
+   330→                                            <span class="text-muted">Unit:</span>
+   331→                                            <strong><?= sanitize($unit['name']) ?></strong>
+   332→                                            <span class="text-muted ms-2">State:</span>
+   333→                                            <strong><?= sanitize($unitState ?: '—') ?></strong>
+   334→                                            <span class="text-muted ms-2">Zone:</span>
+   335→                                            <strong><?= sanitize($unitZone ?: '— (state-wide)') ?></strong>
+   336→                                        </div>
+   337→                                        <div>
+   338→                                            <span class="text-muted">Min Wage:</span>
+   339→                                            <strong id="calcMinWage">—</strong>
+   340→                                            <span class="badge bg-info ms-1" id="calcLevel">—</span>
+   341→                                            <div id="calcMinWageDebug" class="small text-danger mt-1" style="display:none;"></div>
+   342→                                        </div>
+   343→                                    </div>
+   344→                                </div></div>
+   345→                            </div>
+   346→                        </div>
+   347→                        <div class="row g-3">
+   348→                            <div class="col-md-3">
+   349→                                <div class="card bg-light"><div class="card-body py-2 text-center">
+   350→                                    <div class="text-muted small">Basic + DA</div>
+   351→                                    <div class="fw-bold" id="calcBasicDa">₹ 0</div>
+   352→                                    <small class="text-muted" id="calcBasicPct">0% of Gross</small>
+   353→                                </div></div>
+   354→                            </div>
+   355→                            <div class="col-md-2">
+   356→                                <div class="card bg-light"><div class="card-body py-2 text-center">
+   357→                                    <div class="text-muted small">Leave Enc. <span class="badge bg-secondary" id="calcLeavePct">0%</span></div>
+   358→                                    <div class="fw-bold" id="calcLeave">₹ 0</div>
+   359→                                </div></div>
+   360→                            </div>
+   361→                            <div class="col-md-2">
+   362→                                <div class="card bg-light"><div class="card-body py-2 text-center">
+   363→                                    <div class="text-muted small">Bonus Enc. <span class="badge bg-secondary" id="calcBonusPct">0%</span></div>
+   364→                                    <div class="fw-bold" id="calcBonus">₹ 0</div>
+   365→                                </div></div>
+   366→                            </div>
+   367→                            <div class="col-md-2">
+   368→                                <div class="card bg-light"><div class="card-body py-2 text-center">
+   369→                                    <div class="text-muted small">HRA <span class="badge bg-secondary d-none" id="calcHraCapped">Capped</span></div>
+   370→                                    <div class="fw-bold" id="calcHra">₹ 0</div>
+   371→                                </div></div>
+   372→                            </div>
+   373→                            <div class="col-md-3">
+   374→                                <div class="card bg-primary text-white"><div class="card-body py-2 text-center">
+   375→                                    <div class="small opacity-75">Gross Salary</div>
+   376→                                    <div class="fw-bold" id="calcGross">₹ 0</div>
+   377→                                    <small id="calcFiftyFifty"></small>
+   378→                                </div></div>
+   379→                            </div>
+   380→                        </div>
+   381→                    </div>
+   382→
+   383→                    <!-- Deductions -->
+   384→                    <div class="mb-3">
+   385→                        <div class="row g-3">
+   386→                            <div class="col-md-3"><small class="text-muted">PF (12% of Basic):</small> <div class="fw-semibold" id="calcPf">₹ 0</div></div>
+   387→                            <div class="col-md-3"><small class="text-muted">ESI (0.75%):</small> <div class="fw-semibold" id="calcEsi">₹ 0</div></div>
+   388→                            <div class="col-md-3"><small class="text-muted">PT (<?= $unitState ?>):</small> <div class="fw-semibold" id="calcPt">₹ 0</div></div>
+   389→                            <div class="col-md-3"><small class="text-muted">LWF:</small> <div class="fw-semibold" id="calcLwf">₹ 0</div></div>
+   390→                        </div>
+   391→                        <hr class="my-2">
+   392→                        <div class="d-flex justify-content-between">
+   393→                            <div><small class="text-muted">Total Deductions:</small> <span class="fw-semibold" id="calcTotalDed">₹ 0</span></div>
+   394→                            <div class="text-end"><small class="text-muted">Net Salary:</small> <span class="fw-bold fs-5" id="calcNet">₹ 0</span> <span id="calcNetStatus"></span></div>
+   395→                        </div>
+   396→                    </div>
+   397→
+   398→                    <!-- Warnings -->
+   399→                    <div id="calcWarnings" class="d-none"></div>
+   400→                </form>
+   401→            </div>
+   402→            <div class="modal-footer">
+   403→                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   404→                <button type="button" class="btn btn-primary" onclick="saveTemplate()">
+   405→                    <i class="bi bi-check-lg me-1"></i>Save Template
+   406→                </button>
+   407→            </div>
+   408→        </div>
+   409→    </div>
+   410→</div>
+   411→
+   412→<!-- Apply Templates Modal -->
+   413→<div class="modal fade" id="applyModal" tabindex="-1">
+   414→    <div class="modal-dialog">
+   415→        <div class="modal-content">
+   416→            <div class="modal-header bg-success text-white">
+   417→                <h5 class="modal-title"><i class="bi bi-check2-all me-2"></i>Apply Templates to Employees</h5>
+   418→                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+   419→            </div>
+   420→            <div class="modal-body">
+   421→                <div class="row g-3 mb-3">
+   422→                    <div class="col-6">
+   423→                        <label class="form-label small fw-semibold">Month</label>
+   424→                        <select class="form-select form-select-sm" id="applyMonth">
+   425→                            <?php for ($m = 1; $m <= 12; $m++): ?>
+   426→                            <option value="<?= $m ?>" <?= $m == intval(date('n')) ? 'selected' : '' ?>><?= date('F', mktime(0,0,0,$m,1)) ?></option>
+   427→                            <?php endfor; ?>
+   428→                        </select>
+   429→                    </div>
+   430→                    <div class="col-6">
+   431→                        <label class="form-label small fw-semibold">Year</label>
+   432→                        <select class="form-select form-select-sm" id="applyYear">
+   433→                            <?php for ($y = intval(date('Y')) - 1; $y <= intval(date('Y')) + 1; $y++): ?>
+   434→                            <option value="<?= $y ?>" <?= $y == intval(date('Y')) ? 'selected' : '' ?>><?= $y ?></option>
+   435→                            <?php endfor; ?>
+   436→                        </select>
+   437→                    </div>
+   438→                </div>
+   439→                <div class="mb-3">
+   440→                    <label class="form-label small fw-semibold">Apply To</label>
+   441→                    <div class="form-check">
+   442→                        <input class="form-check-input" type="radio" name="applyType" id="atBlank" value="blank_only" checked>
+   443→                        <label class="form-check-label" for="atBlank">Employees without salary structure only (<?= $blankEmployees ?> employees)</label>
+   444→                    </div>
+   445→                    <div class="form-check">
+   446→                        <input class="form-check-input" type="radio" name="applyType" id="atAll" value="all">
+   447→                        <label class="form-check-label" for="atAll">All employees (<?= $totalEmployees ?> employees)</label>
+   448→                    </div>
+   449→                </div>
+   450→                <div id="applyResult" class="d-none"></div>
+   451→            </div>
+   452→            <div class="modal-footer">
+   453→                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   454→                <button type="button" class="btn btn-success" id="applyBtn" onclick="applyTemplates()">
+   455→                    <i class="bi bi-check-lg me-1"></i>Apply
+   456→                </button>
+   457→            </div>
+   458→        </div>
+   459→    </div>
+   460→</div>
+   461→
+   462→<!-- Copy from Unit Modal -->
+   463→<div class="modal fade" id="copyModal" tabindex="-1">
+   464→    <div class="modal-dialog">
+   465→        <div class="modal-content">
+   466→            <div class="modal-header bg-info text-white">
+   467→                <h5 class="modal-title"><i class="bi bi-copy me-2"></i>Copy Templates from Unit</h5>
+   468→                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+   469→            </div>
+   470→            <div class="modal-body">
+   471→                <div class="row g-3 mb-3">
+   472→                    <div class="col-12">
+   473→                        <label class="form-label small fw-semibold">Source Unit</label>
+   474→                        <select class="form-select form-select-sm" id="copyFromUnit">
+   475→                            <option value="">-- Select Unit --</option>
+   476→                            <?php foreach ($allUnits as $u): ?>
+   477→                            <option value="<?= $u['id'] ?>"><?= sanitize($u['name']) ?></option>
+   478→                            <?php endforeach; ?>
+   479→                        </select>
+   480→                    </div>
+   481→                </div>
+   482→                <div class="row g-3 mb-3">
+   483→                    <div class="col-6">
+   484→                        <label class="form-label small fw-semibold">Copy</label>
+   485→                        <div class="form-check">
+   486→                            <input class="form-check-input" type="radio" name="copyWhat" id="cwTemplates" value="templates" checked>
+   487→                            <label class="form-check-label small" for="cwTemplates">Templates only</label>
+   488→                        </div>
+   489→                        <div class="form-check">
+   490→                            <input class="form-check-input" type="radio" name="copyWhat" id="cwBoth" value="both">
+   491→                            <label class="form-check-label small" for="cwBoth">Templates + Apply to Employees</label>
+   492→                        </div>
+   493→                    </div>
+   494→                    <div class="col-6">
+   495→                        <label class="form-label small fw-semibold">Apply to</label>
+   496→                        <div class="form-check">
+   497→                            <input class="form-check-input" type="radio" name="copyApply" id="caBlank" value="blank_only" checked>
+   498→                            <label class="form-check-label small" for="caBlank">Blank only</label>
+   499→                        </div>
+   500→                        <div class="form-check">
+   501→                            <input class="form-check-input" type="radio" name="copyApply" id="caAll" value="all">
+   502→                            <label class="form-check-label small" for="caAll">All</label>
+   503→                        </div>
+   504→                    </div>
+   505→                </div>
+   506→                <div class="row g-3 mb-3">
+   507→                    <div class="col-6">
+   508→                        <label class="form-label small fw-semibold">Effective From</label>
+   509→                        <select class="form-select form-select-sm" id="copyMonth">
+   510→                            <?php for ($m = 1; $m <= 12; $m++): ?>
+   511→                            <option value="<?= $m ?>" <?= $m == intval(date('n')) ? 'selected' : '' ?>><?= date('F', mktime(0,0,0,$m,1)) ?></option>
+   512→                            <?php endfor; ?>
+   513→                        </select>
+   514→                    </div>
+   515→                    <div class="col-6">
+   516→                        <label class="form-label small fw-semibold">Year</label>
+   517→                        <select class="form-select form-select-sm" id="copyYear">
+   518→                            <?php for ($y = intval(date('Y')) - 1; $y <= intval(date('Y')) + 1; $y++): ?>
+   519→                            <option value="<?= $y ?>" <?= $y == intval(date('Y')) ? 'selected' : '' ?>><?= $y ?></option>
+   520→                            <?php endfor; ?>
+   521→                        </select>
+   522→                    </div>
+   523→                </div>
+   524→                <div id="copyResult" class="d-none"></div>
+   525→            </div>
+   526→            <div class="modal-footer">
+   527→                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   528→                <button type="button" class="btn btn-info" id="copyBtn" onclick="copyFromUnit()">
+   529→                    <i class="bi bi-copy me-1"></i>Copy
+   530→                </button>
+   531→            </div>
+   532→        </div>
+   533→    </div>
+   534→</div>
+   535→
+   536→<?php
+   537→$unitPfJs  = $unitPfApplicable  ? 'true' : 'false';
+   538→$unitEsiJs = $unitEsiApplicable ? 'true' : 'false';
+   539→$unitPtJs  = $unitPtApplicable  ? 'true' : 'false';
+   540→$unitLwfJs = $unitLwfApplicable ? 'true' : 'false';
+   541→$unitStateJs = addslashes($unitState);
+   542→$unitZoneJs = addslashes($unitZone);
+   543→
+   544→$extraJS = <<<JSEOF
+   545→<script>
+   546→var CSRF_TOKEN = '{$csrfToken}';
+   547→var UNIT_ID = {$unitId};
+   548→var UNIT_STATE = '{$unitStateJs}';
+   549→var UNIT_ZONE = '{$unitZoneJs}';
+   550→// Unit-level statutory defaults (loaded once at page render)
+   551→var UNIT_DEFAULTS = {
+   552→    pf:  {$unitPfJs},
+   553→    esi: {$unitEsiJs},
+   554→    pt:  {$unitPtJs},
+   555→    lwf: {$unitLwfJs}
+   556→};
+   557→var editTemplate = null;
+   558→var recalcTimer = null;
+   559→
+   560→// ── Open modals ──
+   561→function openAddModal() {
+   562→    editTemplate = null;
+   563→    document.getElementById('modalTitle').textContent = 'Add Salary Template';
+   564→    document.getElementById('tplId').value = '0';
+   565→    document.getElementById('tplName').value = '';
+   566→    document.getElementById('tplNetSalary').value = '';
+   567→    document.querySelectorAll('[name="worker_cat"]').forEach(function(rb) { rb.checked = false; });
+   568→
+   569→    // Pre-fill statutory checkboxes with Unit defaults (Q1=A: defaults from unit)
+   570→    document.getElementById('stat_pf').checked  = UNIT_DEFAULTS.pf;
+   571→    document.getElementById('stat_esi').checked = UNIT_DEFAULTS.esi;
+   572→    document.getElementById('stat_pt').checked  = UNIT_DEFAULTS.pt;
+   573→    document.getElementById('stat_lwf').checked = UNIT_DEFAULTS.lwf;
+   574→    document.getElementById('stat_ot').checked = true;
+   575→    document.getElementById('stat_gratuity').checked = true;
+   576→    // Bonus is always auto — no manual toggle (removed from UI)
+   577→
+   578→    clearCalcResults();
+   579→    new bootstrap.Modal(document.getElementById('templateModal')).show();
+   580→}
+   581→
+   582→function openEditModal(t) {
+   583→    editTemplate = t;
+   584→    document.getElementById('modalTitle').textContent = 'Edit Salary Template';
+   585→    document.getElementById('tplId').value = t.id;
+   586→    document.getElementById('tplName').value = t.template_name;
+   587→    document.getElementById('tplNetSalary').value = t.net_salary;
+   588→
+   589→    // Worker category (single radio)
+   590→    var cat = (t.worker_categories || '').split(',')[0].trim();
+   591→    document.querySelectorAll('[name="worker_cat"]').forEach(function(rb) {
+   592→        rb.checked = (rb.value === cat);
+   593→    });
+   594→
+   595→    // Statutory — use template values if set, otherwise fall back to unit defaults
+   596→    document.getElementById('stat_pf').checked  = (t.pf_applicable  != null) ? (t.pf_applicable  == 1) : UNIT_DEFAULTS.pf;
+   597→    document.getElementById('stat_esi').checked = (t.esi_applicable != null) ? (t.esi_applicable == 1) : UNIT_DEFAULTS.esi;
+   598→    document.getElementById('stat_pt').checked  = (t.pt_applicable  != null) ? (t.pt_applicable  == 1) : UNIT_DEFAULTS.pt;
+   599→    document.getElementById('stat_lwf').checked = (t.lwf_applicable != null) ? (t.lwf_applicable == 1) : UNIT_DEFAULTS.lwf;
+   600→    document.getElementById('stat_ot').checked = (t.overtime_applicable != null) ? (t.overtime_applicable == 1) : true;
+   601→    document.getElementById('stat_gratuity').checked = (t.gratuity_applicable != null) ? (t.gratuity_applicable == 1) : true;
+   602→
+   603→    new bootstrap.Modal(document.getElementById('templateModal')).show();
+   604→    recalcTemplate();
+   605→}
+   606→
+   607→function openApplyModal() {
+   608→    new bootstrap.Modal(document.getElementById('applyModal')).show();
+   609→}
+   610→
+   611→function openCopyModal() {
+   612→    new bootstrap.Modal(document.getElementById('copyModal')).show();
+   613→}
+   614→
+   615→// ── Live reverse calculator ──
+   616→function clearCalcResults() {
+   617→    ['calcBasicDa','calcLeave','calcBonus','calcHra','calcGross','calcPf','calcEsi','calcPt','calcLwf','calcTotalDed','calcNet','calcBasicPct'].forEach(function(id) {
+   618→        var el = document.getElementById(id);
+   619→        if (el) el.textContent = '₹ 0';
+   620→    });
+   621→    var bp = document.getElementById('calcBonusPct'); if (bp) bp.textContent = '0%';
+   622→    var lp = document.getElementById('calcLeavePct'); if (lp) lp.textContent = '0%';
+   623→    var mw = document.getElementById('calcMinWage'); if (mw) mw.textContent = '—';
+   624→    var lvl = document.getElementById('calcLevel'); if (lvl) lvl.textContent = '—';
+   625→    var hc = document.getElementById('calcHraCapped'); if (hc) hc.classList.add('d-none');
+   626→    var ff = document.getElementById('calcFiftyFifty'); if (ff) ff.innerHTML = '';
+   627→    var w = document.getElementById('calcWarnings');
+   628→    if (w) { w.classList.add('d-none'); w.innerHTML = ''; }
+   629→}
+   630→
+   631→function fmt(n) { return '₹ ' + Number(n || 0).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+   632→
+   633→function recalcTemplate() {
+   634→    var net = parseFloat(document.getElementById('tplNetSalary').value) || 0;
+   635→    if (net <= 0) { clearCalcResults(); return; }
+   636→
+   637→    // Get selected worker category (single radio)
+   638→    var catEl = document.querySelector('[name="worker_cat"]:checked');
+   639→    var workerCategory = catEl ? catEl.value : '';
+   640→    if (!workerCategory) {
+   641→        clearCalcResults();
+   642→        var w = document.getElementById('calcWarnings');
+   643→        w.classList.remove('d-none');
+   644→        w.innerHTML = '<div class="alert alert-info py-2 small mb-0"><i class="bi bi-info-circle me-1"></i>Please select a Worker Category to look up minimum wage.</div>';
+   645→        return;
+   646→    }
+   647→
+   648→    var params = {
+   649→        action: 'reverse_calc',
+   650→        net_salary: net,
+   651→        unit_id: UNIT_ID,
+   652→        worker_category: workerCategory,
+   653→        // Send explicit overrides for the 4 statutory flags (Q1=A: defaults from unit, override allowed)
+   654→        pf:  document.getElementById('stat_pf').checked  ? '1' : '0',
+   655→        esi: document.getElementById('stat_esi').checked ? '1' : '0',
+   656→        pt:  document.getElementById('stat_pt').checked  ? '1' : '0',
+   657→        lwf: document.getElementById('stat_lwf').checked ? '1' : '0'
+   658→        // No bonus_applicable — bonus is always auto (skipped only if it would overshoot)
+   659→    };
+   660→
+   661→    fetch('index.php?page=api/salary-calc', {
+   662→        method: 'POST',
+   663→        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
+   664→        body: JSON.stringify(params)
+   665→    })
+   666→    .then(function(r) { return r.json(); })
+   667→    .then(function(data) {
+   668→        // Handle hard error (e.g. target below min wage, target not achievable)
+   669→        if (!data.success) {
+   670→            clearCalcResults();
+   671→            var w = document.getElementById('calcWarnings');
+   672→            w.classList.remove('d-none');
+   673→            var errType = (data.data && data.data.error) ? data.data.error : 'ERROR';
+   674→            var alertClass = 'alert-danger';
+   675→            if (errType === 'TARGET_BELOW_MIN_WAGE') alertClass = 'alert-warning';
+   676→            w.innerHTML = '<div class="alert ' + alertClass + ' py-2 small mb-0"><i class="bi bi-exclamation-octagon me-1"></i><strong>Cannot calculate:</strong> ' + (data.error || 'Unknown error') + '</div>';
+   677→            return;
+   678→        }
+   679→        var d = data.data;
+   680→        document.getElementById('calcBasicDa').textContent = fmt(d.basic_da);
+   681→        document.getElementById('calcLeave').textContent   = fmt(d.leave_encashment);
+   682→        document.getElementById('calcBonus').textContent   = fmt(d.bonus_encashment);
+   683→        document.getElementById('calcHra').textContent     = fmt(d.hra);
+   684→        document.getElementById('calcGross').textContent   = fmt(d.gross_salary);
+   685→        document.getElementById('calcPf').textContent      = fmt(d.deductions.pf);
+   686→        document.getElementById('calcEsi').textContent     = fmt(d.deductions.esi);
+   687→        document.getElementById('calcPt').textContent      = fmt(d.deductions.pt);
+   688→        document.getElementById('calcLwf').textContent     = fmt(d.deductions.lwf);
+   689→        document.getElementById('calcTotalDed').textContent = fmt(d.total_deductions);
+   690→        document.getElementById('calcNet').textContent     = fmt(d.calculated_net);
+   691→        document.getElementById('calcBasicPct').textContent = d.basic_percent + '% of Gross';
+   692→
+   693→        // Min wage + escalation level
+   694→        document.getElementById('calcMinWage').textContent = d.min_wage > 0 ? fmt(d.min_wage) : 'Not found';
+   695→
+   696→        // Min wage diagnostic (explains why it's 0 / Not found)
+   697→        var dbgEl = document.getElementById('calcMinWageDebug');
+   698→        if (dbgEl) {
+   699→            var dbg = d.min_wage_debug;
+   700→            if (d.min_wage > 0 || !dbg) {
+   701→                dbgEl.style.display = 'none';
+   702→                dbgEl.textContent = '';
+   703→            } else {
+   704→                var msg = dbg.reason || 'Min wage not found.';
+   705→                var extra = '';
+   706→                if (dbg.categories_for_state && dbg.categories_for_state.length) {
+   707→                    extra += ' | Categories in DB: ' + dbg.categories_for_state.join(', ');
+   708→                }
+   709→                if (dbg.zones_for_state && dbg.zones_for_state.length) {
+   710→                    extra += ' | Zones: ' + dbg.zones_for_state.join(', ');
+   711→                }
+   712→                dbgEl.textContent = msg + extra;
+   713→                dbgEl.style.display = 'block';
+   714→            }
+   715→        }
+   716→        var levelLabel = d.level_label || '—';
+   717→        var levelClass = 'bg-info';
+   718→        if (d.level_reached === 0) levelClass = 'bg-success';
+   719→        else if (d.level_reached === 3) levelClass = 'bg-warning text-dark';
+   720→        var lvlEl = document.getElementById('calcLevel');
+   721→        lvlEl.textContent = levelLabel;
+   722→        lvlEl.className = 'badge ms-1 ' + levelClass;
+   723→
+   724→        // Auto-calculated bonus and leave percentages
+   725→        document.getElementById('calcBonusPct').textContent = d.bonus_percent + '%';
+   726→        document.getElementById('calcLeavePct').textContent = d.leave_percent + '%';
+   727→
+   728→        // HRA capped indicator
+   729→        var hc = document.getElementById('calcHraCapped');
+   730→        if (d.hra_capped) { hc.classList.remove('d-none'); }
+   731→        else { hc.classList.add('d-none'); }
+   732→
+   733→        // 50-50 indicator
+   734→        var ff = document.getElementById('calcFiftyFifty');
+   735→        if (d.fifty_fifty_ok) {
+   736→            ff.innerHTML = ' <i class="bi bi-check-circle-fill text-success"></i> 50-50 OK';
+   737→        } else {
+   738→            ff.innerHTML = ' <i class="bi bi-exclamation-triangle-fill text-danger"></i> Below 50%';
+   739→        }
+   740→
+   741→        // Net match indicator
+   742→        var ns = document.getElementById('calcNetStatus');
+   743→        var diff = Math.abs(parseFloat(d.calculated_net) - net);
+   744→        if (diff < 0.01) {
+   745→            ns.innerHTML = ' <span class="badge bg-success">EXACT MATCH</span>';
+   746→        } else {
+   747→            ns.innerHTML = ' <span class="badge bg-warning text-dark">Off by ₹' + diff.toFixed(2) + '</span>';
+   748→        }
+   749→
+   750→        // Warnings (escalation notes + min wage + non-convergence)
+   751→        var w = document.getElementById('calcWarnings');
+   752→        var html = '';
+   753→        if (d.min_wage_warning) {
+   754→            html += '<div class="alert alert-warning py-2 small mb-1"><i class="bi bi-exclamation-triangle me-1"></i>' + d.min_wage_warning + '</div>';
+   755→        }
+   756→        if (d.warnings && d.warnings.length) {
+   757→            d.warnings.forEach(function(msg) {
+   758→                var cls = msg.indexOf('✓') === 0 ? 'alert-success' : (msg.indexOf('⚠') === 0 ? 'alert-warning' : 'alert-info');
+   759→                html += '<div class="alert ' + cls + ' py-1 small mb-1">' + msg + '</div>';
+   760→            });
+   761→        }
+   762→        if (html) {
+   763→            w.classList.remove('d-none');
+   764→            w.innerHTML = html;
+   765→        } else {
+   766→            w.classList.add('d-none');
+   767→            w.innerHTML = '';
+   768→        }
+   769→    })
+   770→    .catch(function(err) {
+   771→        var w = document.getElementById('calcWarnings');
+   772→        w.classList.remove('d-none');
+   773→        w.innerHTML = '<div class="alert alert-danger py-2 small mb-0"><i class="bi bi-x-circle me-1"></i>Request failed: ' + err.message + '</div>';
+   774→    });
+   775→}
+   776→
+   777→// Debounced recalc on input
+   778→function scheduleRecalc() {
+   779→    clearTimeout(recalcTimer);
+   780→    recalcTimer = setTimeout(recalcTemplate, 400);
+   781→}
+   782→
+   783→// Bind events
+   784→document.addEventListener('DOMContentLoaded', function() {
+   785→    document.getElementById('tplNetSalary').addEventListener('input', scheduleRecalc);
+   786→    // Note: stat_bonus checkbox no longer exists (bonus always auto)
+   787→    ['stat_pf','stat_esi','stat_pt','stat_lwf','stat_ot','stat_gratuity'].forEach(function(id) {
+   788→        var el = document.getElementById(id);
+   789→        if (el) el.addEventListener('change', scheduleRecalc);
+   790→    });
+   791→});
+   792→
+   793→// ── Save template ──
+   794→function saveTemplate() {
+   795→    var name = document.getElementById('tplName').value.trim();
+   796→    var net = document.getElementById('tplNetSalary').value;
+   797→    if (!name) { alert('Template name is required'); return; }
+   798→    if (!net || parseFloat(net) <= 0) { alert('Net salary must be greater than 0'); return; }
+   799→
+   800→    // Worker category (single radio)
+   801→    var catEl = document.querySelector('[name="worker_cat"]:checked');
+   802→    var workerCategory = catEl ? catEl.value : '';
+   803→    if (!workerCategory) { alert('Please select a Worker Category'); return; }
+   804→
+   805→    // Get calc values from the displayed results
+   806→    var basicText = document.getElementById('calcBasicDa').textContent.replace(/[^\d.]/g, '');
+   807→    var hraText = document.getElementById('calcHra').textContent.replace(/[^\d.]/g, '');
+   808→    var leaveText = document.getElementById('calcLeave').textContent.replace(/[^\d.]/g, '');
+   809→    var bonusText = document.getElementById('calcBonus').textContent.replace(/[^\d.]/g, '');
+   810→    var grossText = document.getElementById('calcGross').textContent.replace(/[^\d.]/g, '');
+   811→    var bonusPctText = document.getElementById('calcBonusPct').textContent.replace('%','').trim();
+   812→    var leavePctText = document.getElementById('calcLeavePct').textContent.replace('%','').trim();
+   813→
+   814→    // Validate that calculation has been done (gross must be > 0)
+   815→    if (!parseFloat(grossText) || parseFloat(grossText) <= 0) {
+   816→        alert('Please wait for the auto-calculation to complete (enter net salary and select worker category).');
+   817→        return;
+   818→    }
+   819→
+   820→    var data = {
+   821→        action: 'save_template',
+   822→        id: document.getElementById('tplId').value,
+   823→        unit_id: UNIT_ID,
+   824→        template_name: name,
+   825→        worker_categories: workerCategory,
+   826→        net_salary: parseFloat(net),
+   827→        bonus_percent: parseFloat(bonusPctText) || 0,
+   828→        leave_percent: parseFloat(leavePctText) || 0,
+   829→        basic_da: parseFloat(basicText) || 0,
+   830→        hra: parseFloat(hraText) || 0,
+   831→        leave_encashment: parseFloat(leaveText) || 0,
+   832→        bonus_encashment: parseFloat(bonusText) || 0,
+   833→        gross_salary: parseFloat(grossText) || 0,
+   834→        pf_applicable: document.getElementById('stat_pf').checked ? '1' : '0',
+   835→        esi_applicable: document.getElementById('stat_esi').checked ? '1' : '0',
+   836→        pt_applicable: document.getElementById('stat_pt').checked ? '1' : '0',
+   837→        lwf_applicable: document.getElementById('stat_lwf').checked ? '1' : '0',
+   838→        overtime_applicable: document.getElementById('stat_ot').checked ? '1' : '0',
+   839→        // Bonus is always auto — saved as applicable=1 so it gets applied to employees
+   840→        bonus_applicable: '1',
+   841→        gratuity_applicable: document.getElementById('stat_gratuity').checked ? '1' : '0',
+   842→        csrf_token: CSRF_TOKEN
+   843→    };
+   844→
+   845→    fetch('index.php?page=api/salary-calc', {
+   846→        method: 'POST',
+   847→        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
+   848→        body: JSON.stringify(data)
+   849→    })
+   850→    .then(function(r) { return r.json(); })
+   851→    .then(function(res) {
+   852→        if (res.success) {
+   853→            bootstrap.Modal.getInstance(document.getElementById('templateModal')).hide();
+   854→            location.reload();
+   855→        } else {
+   856→            alert('Error: ' + (res.error || 'Save failed'));
+   857→        }
+   858→    });
+   859→}
+   860→
+   861→// ── Delete template ──
+   862→function deleteTemplate(id) {
+   863→    if (!confirm('Delete this template? This cannot be undone.')) return;
+   864→
+   865→    fetch('index.php?page=api/salary-calc', {
+   866→        method: 'POST',
+   867→        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
+   868→        body: JSON.stringify({ action: 'delete_template', id: id, unit_id: UNIT_ID, csrf_token: CSRF_TOKEN })
+   869→    })
+   870→    .then(function(r) { return r.json(); })
+   871→    .then(function(res) {
+   872→        if (res.success) { location.reload(); }
+   873→        else { alert('Error: ' + (res.error || 'Delete failed')); }
+   874→    });
+   875→}
+   876→
+   877→// ── Apply templates ──
+   878→function applyTemplates() {
+   879→    var month = document.getElementById('applyMonth').value;
+   880→    var year = document.getElementById('applyYear').value;
+   881→    var applyTo = document.querySelector('[name="applyType"]:checked').value;
+   882→    var btn = document.getElementById('applyBtn');
+   883→    var resultDiv = document.getElementById('applyResult');
+   884→
+   885→    btn.disabled = true;
+   886→    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Applying...';
+   887→
+   888→    fetch('index.php?page=api/salary-calc', {
+   889→        method: 'POST',
+   890→        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
+   891→        body: JSON.stringify({
+   892→            action: 'apply_templates', unit_id: UNIT_ID, month: month, year: year,
+   893→            apply_to: applyTo, csrf_token: CSRF_TOKEN
+   894→        })
+   895→    })
+   896→    .then(function(r) { return r.json(); })
+   897→    .then(function(res) {
+   898→        btn.disabled = false;
+   899→        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Apply';
+   900→        resultDiv.classList.remove('d-none');
+   901→        if (res.success) {
+   902→            resultDiv.innerHTML = '<div class="alert alert-success py-2 small mb-0"><i class="bi bi-check-circle me-1"></i>' + res.message + '</div>';
+   903→        } else {
+   904→            resultDiv.innerHTML = '<div class="alert alert-danger py-2 small mb-0"><i class="bi bi-x-circle me-1"></i>' + (res.error || 'Failed') + '</div>';
+   905→        }
+   906→    });
+   907→}
+   908→
+   909→// ── Copy from unit ──
+   910→function copyFromUnit() {
+   911→    var fromUnitId = document.getElementById('copyFromUnit').value;
+   912→    if (!fromUnitId) { alert('Select a source unit'); return; }
+   913→
+   914→    var month = document.getElementById('copyMonth').value;
+   915→    var year = document.getElementById('copyYear').value;
+   916→    var copyWhat = document.querySelector('[name="copyWhat"]:checked').value;
+   917→    var applyTo = document.querySelector('[name="copyApply"]:checked').value;
+   918→    var btn = document.getElementById('copyBtn');
+   919→    var resultDiv = document.getElementById('copyResult');
+   920→
+   921→    btn.disabled = true;
+   922→    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Copying...';
+   923→
+   924→    fetch('index.php?page=api/salary-calc', {
+   925→        method: 'POST',
+   926→        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
+   927→        body: JSON.stringify({
+   928→            action: 'copy_unit_templates', from_unit_id: fromUnitId, to_unit_id: UNIT_ID,
+   929→            month: month, year: year, apply_to: applyTo, copy_what: copyWhat,
+   930→            csrf_token: CSRF_TOKEN
+   931→        })
+   932→    })
+   933→    .then(function(r) { return r.json(); })
+   934→    .then(function(res) {
+   935→        btn.disabled = false;
+   936→        btn.innerHTML = '<i class="bi bi-copy me-1"></i>Copy';
+   937→        resultDiv.classList.remove('d-none');
+   938→        if (res.success) {
+   939→            resultDiv.innerHTML = '<div class="alert alert-success py-2 small mb-0"><i class="bi bi-check-circle me-1"></i>' + res.message + '</div>';
+   940→        } else {
+   941→            resultDiv.innerHTML = '<div class="alert alert-danger py-2 small mb-0"><i class="bi bi-x-circle me-1"></i>' + (res.error || 'Failed') + '</div>';
+   942→        }
+   943→    });
+   944→}
+   945→</script>
+   946→JSEOF;
+   947→?>
+   948→

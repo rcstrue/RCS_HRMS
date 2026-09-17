@@ -1,0 +1,20 @@
+{
+  "code": 200,
+  "data": {
+    "description": "",
+    "html": "<html><head><meta name=\"color-scheme\" content=\"light dark\"></head><body><pre style=\"word-wrap: break-word; white-space: pre-wrap;\">import { Toaster } from \"@/components/ui/toaster\";\nimport { Toaster as Sonner } from \"@/components/ui/sonner\";\nimport { TooltipProvider } from \"@/components/ui/tooltip\";\nimport { HashRouter, Routes, Route } from \"react-router-dom\";\nimport Index from \"./pages/Index\";\nimport NotFound from \"./pages/NotFound\";\nimport AdminLogin from \"./pages/AdminLogin\";\nimport AdminDashboard from \"./pages/AdminDashboard\";\nimport VerifyPage from \"./pages/VerifyPage\";\nimport ESSApp from \"./components/ess/ESSApp\";\nimport { RequireAuth } from \"./components/RequireAuth\";\n\nconst App = () => (\n  <TooltipProvider>\n    <Toaster />\n    <Sonner />\n    <HashRouter>\n      <Routes>\n        {/* Public routes — no auth required */}\n        <Route path=\"/\" element={<Index />} />\n        <Route path=\"/verify\" element={<VerifyPage />} />\n        <Route path=\"/admin/login\" element={<AdminLogin />} />\n\n        {/* Protected routes — RequireAuth prevents flash of protected content */}\n        {/* NOTE: /ess is NOT wrapped — ESSApp handles its own auth (shows LoginScreen\n            when no session). Wrapping it would cause a redirect loop → white screen. */}\n        <Route path=\"/ess\" element={\n          <ESSApp onBackToRegistration={() => window.location.hash = '/'} />\n        } />\n        <Route path=\"/admin\" element={\n          <RequireAuth type=\"admin\">\n            <AdminDashboard />\n          </RequireAuth>\n        } />\n        <Route path=\"/admin/dashboard\" element={\n          <RequireAuth type=\"admin\">\n            <AdminDashboard />\n          </RequireAuth>\n        } />\n\n        {/* 404 */}\n        <Route path=\"*\" element={<NotFound />} />\n      </Routes>\n    </HashRouter>\n  </TooltipProvider>\n);\n\nexport default App;\n</pre></body></html>",
+    "httpStatus": 200,
+    "httpStatusText": "",
+    "title": "",
+    "url": "https://raw.githubusercontent.com/rcstrue/RCS_HRMS/main/RCS_ESS/src/App.tsx",
+    "usage": {
+      "tokens": 419
+    }
+  },
+  "meta": {
+    "usage": {
+      "tokens": 419
+    }
+  },
+  "status": 20000
+}

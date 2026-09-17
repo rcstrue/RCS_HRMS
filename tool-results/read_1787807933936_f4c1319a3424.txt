@@ -1,0 +1,499 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Leave Application Module
+     4→ * Apply, Approve, Reject leave with balance tracking
+     5→ */
+     6→
+     7→$pageTitle = 'Leave Management';
+     8→
+     9→// Create leave_applications table if not exists
+    10→try {
+    11→    $db->exec("CREATE TABLE IF NOT EXISTS leave_applications (
+    12→        id INT AUTO_INCREMENT PRIMARY KEY,
+    13→        employee_id INT(10) UNSIGNED NOT NULL,
+    14→        leave_type ENUM('CL','PL','SL','EL','CO','ML','LWP') NOT NULL,
+    15→        from_date DATE NOT NULL,
+    16→        to_date DATE NOT NULL,
+    17→        total_days DECIMAL(5,1) DEFAULT 0.5,
+    18→        reason TEXT,
+    19→        status ENUM('pending','approved','rejected','cancelled') DEFAULT 'pending',
+    20→        approved_by INT DEFAULT NULL,
+    21→        approved_at DATETIME DEFAULT NULL,
+    22→        rejection_reason TEXT,
+    23→        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    24→        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    25→        KEY idx_employee (employee_id),
+    26→        KEY idx_status (status)
+    27→    )");
+    28→} catch (Exception $e) {}
+    29→
+    30→// Ensure leave_balances exists
+    31→try {
+    32→    $db->exec("CREATE TABLE IF NOT EXISTS leave_balances (
+    33→        id INT AUTO_INCREMENT PRIMARY KEY,
+    34→        employee_id INT(10) UNSIGNED NOT NULL,
+    35→        leave_type ENUM('CL','PL','SL','EL','CO','ML') NOT NULL,
+    36→        year INT NOT NULL,
+    37→        opening_balance DECIMAL(5,2) DEFAULT 0,
+    38→        accrued DECIMAL(5,2) DEFAULT 0,
+    39→        used DECIMAL(5,2) DEFAULT 0,
+    40→        closing_balance DECIMAL(5,2) DEFAULT 0,
+    41→        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    42→        UNIQUE KEY uniq_emp_leave_year (employee_id, leave_type, year)
+    43→    )");
+    44→} catch (Exception $e) {}
+    45→
+    46→$activeTab = $_GET['tab'] ?? 'applications';
+    47→$leaveTypes = ['CL'=>'Casual Leave','PL'=>'Privilege Leave','SL'=>'Sick Leave','EL'=>'Earned Leave','CO'=>'Compensatory Off','ML'=>'Medical Leave','LWP'=>'Leave Without Pay'];
+    48→$statusColors = ['pending'=>'warning','approved'=>'success','rejected'=>'danger','cancelled'=>'secondary'];
+    49→$currentYear = date('Y');
+    50→
+    51→// Handle Apply
+    52→if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'apply') {
+    53→    $empId = (int)$_POST['employee_id'];
+    54→    $leaveType = sanitize($_POST['leave_type']);
+    55→    $fromDate = sanitize($_POST['from_date']);
+    56→    $toDate = sanitize($_POST['to_date']);
+    57→    $totalDays = floatval($_POST['total_days']);
+    58→    $reason = sanitize($_POST['reason'] ?? '');
+    59→
+    60→    if (!$empId || !$fromDate || !$toDate) {
+    61→        setFlash('error', 'Please fill all required fields.');
+    62→    } else {
+    63→        try {
+    64→            $stmt = $db->prepare("INSERT INTO leave_applications (employee_id, leave_type, from_date, to_date, total_days, reason, status) VALUES (?,?,?,?,?,?,'pending')");
+    65→            $stmt->execute([$empId, $leaveType, $fromDate, $toDate, $totalDays, $reason]);
+    66→            setFlash('success', 'Leave application submitted successfully!');
+    67→        } catch (Exception $e) {
+    68→            setFlash('error', 'Error: ' . $e->getMessage());
+    69→        }
+    70→    }
+    71→    redirect('index.php?page=leave/apply&tab=applications');
+    72→}
+    73→
+    74→// Handle Approve/Reject
+    75→if (isset($_POST['action']) && in_array($_POST['action'], ['approve', 'reject'])) {
+    76→    // CSRF validation for approve/reject
+    77→    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+    78→        setFlash('error', 'Invalid request.');
+    79→        redirect('index.php?page=leave/apply&tab=' . $activeTab);
+    80→        exit;
+    81→    }
+    82→
+    83→    $appId = (int)$_POST['application_id'];
+    84→    $action = $_POST['action'];
+    85→
+    86→    try {
+    87→        $app = $db->fetch("SELECT la.*, e.employee_code, e.full_name FROM leave_applications la JOIN employees e ON la.employee_id = e.id WHERE la.id = ?", [$appId]);
+    88→        if ($app) {
+    89→            $newStatus = $action === 'approve' ? 'approved' : 'rejected';
+    90→            $rejectionReason = $action === 'reject' ? sanitize($_POST['rejection_reason'] ?? '') : null;
+    91→
+    92→            $db->query(
+    93→                "UPDATE leave_applications SET status = ?, approved_by = ?, approved_at = NOW(), rejection_reason = ? WHERE id = ?",
+    94→                [$newStatus, $_SESSION['user_id'], $rejectionReason, $appId]
+    95→            );
+    96→
+    97→            // If approved, update leave balance
+    98→            if ($action === 'approve' && $app['leave_type'] !== 'LWP') {
+    99→                $year = date('Y', strtotime($app['from_date']));
+   100→                $bal = $db->fetch("SELECT id, used, closing_balance FROM leave_balances WHERE employee_id = ? AND leave_type = ? AND year = ?", [$app['employee_id'], $app['leave_type'], $year]);
+   101→
+   102→                if ($bal) {
+   103→                    $newUsed = floatval($bal['used']) + floatval($app['total_days']);
+   104→                    $newClosing = floatval($bal['closing_balance']) - floatval($app['total_days']);
+   105→                    // Warn if going negative (don't block — LWP is allowed to go negative)
+   106→                    if ($newClosing < 0 && $app['leave_type'] !== 'LWP') {
+   107→                        error_log("[Leave] Employee {$app['employee_id']} leave balance going negative: {$newClosing} for {$app['leave_type']}");
+   108→                    }
+   109→                    $db->query("UPDATE leave_balances SET used = ?, closing_balance = ? WHERE id = ?", [$newUsed, $newClosing, $bal['id']]);
+   110→                }
+   111→            }
+   112→
+   113→            // If rejected and was previously approved, restore balance
+   114→            if ($action === 'reject' && $app['status'] === 'approved' && $app['leave_type'] !== 'LWP') {
+   115→                $year = date('Y', strtotime($app['from_date']));
+   116→                $bal = $db->fetch("SELECT id, used, closing_balance FROM leave_balances WHERE employee_id = ? AND leave_type = ? AND year = ?", [$app['employee_id'], $app['leave_type'], $year]);
+   117→                if ($bal) {
+   118→                    $newUsed = max(0, floatval($bal['used']) - floatval($app['total_days']));
+   119→                    $newClosing = floatval($bal['closing_balance']) + floatval($app['total_days']);
+   120→                    $db->query("UPDATE leave_balances SET used = ?, closing_balance = ? WHERE id = ?", [$newUsed, $newClosing, $bal['id']]);
+   121→                }
+   122→            }
+   123→
+   124→            setFlash('success', 'Leave ' . $newStatus . '!');
+   125→        }
+   126→    } catch (Exception $e) {
+   127→        setFlash('error', 'Error: ' . $e->getMessage());
+   128→    }
+   129→    redirect('index.php?page=leave/apply&tab=' . $activeTab);
+   130→}
+   131→
+   132→// Handle Cancel
+   133→if (isset($_POST['action']) && $_POST['action'] === 'cancel') {
+   134→    $appId = (int)$_POST['application_id'];
+   135→    try {
+   136→        $app = $db->fetch("SELECT * FROM leave_applications WHERE id = ?", [$appId]);
+   137→        if ($app && $app['status'] === 'pending') {
+   138→            $db->query("UPDATE leave_applications SET status = 'cancelled' WHERE id = ?", [$appId]);
+   139→            setFlash('success', 'Leave application cancelled.');
+   140→        }
+   141→    } catch (Exception $e) {
+   142→        setFlash('error', 'Error: ' . $e->getMessage());
+   143→    }
+   144→    redirect('index.php?page=leave/apply&tab=' . $activeTab);
+   145→}
+   146→
+   147→// Get employees for apply form
+   148→$clients = $db->query("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+   149→
+   150→// Fetch applications with filters
+   151→$filterStatus = sanitize($_GET['status'] ?? '');
+   152→$filterClient = getSessionFilter('client_id', 0);
+   153→$filterMonth = (int)($_GET['month'] ?? 0);
+   154→$filterYear = (int)($_GET['year'] ?? date('Y'));
+   155→
+   156→$where = "1=1";
+   157→$params = [];
+   158→if ($filterStatus) { $where .= " AND la.status = :status"; $params[':status'] = $filterStatus; }
+   159→if ($filterClient) { $where .= " AND e.client_id = :cid"; $params[':cid'] = $filterClient; }
+   160→if ($filterMonth) { $where .= " AND MONTH(la.from_date) = :month"; $params[':month'] = $filterMonth; }
+   161→if ($filterYear) { $where .= " AND YEAR(la.from_date) = :year"; $params[':year'] = $filterYear; }
+   162→
+   163→$applications = $db->fetchAll(
+   164→    "SELECT la.*, e.employee_code, e.full_name, c.name as client_name, u.name as unit_name,
+   165→            COALESCE(CONCAT(u2.first_name, ' ', u2.last_name), u2.username) AS approver_name
+   166→     FROM leave_applications la
+   167→     JOIN employees e ON la.employee_id = e.id
+   168→     LEFT JOIN clients c ON e.client_id = c.id
+   169→     LEFT JOIN units u ON e.unit_id = u.id
+   170→     LEFT JOIN users u2 ON la.approved_by = u2.id
+   171→     WHERE $where
+   172→     ORDER BY la.created_at DESC
+   173→     LIMIT 200",
+   174→    $params
+   175→);
+   176→
+   177→$pendingCount = $db->fetchColumn("SELECT COUNT(*) FROM leave_applications WHERE status = 'pending'") ?: 0;
+   178→?>
+   179→
+   180→<div class="row">
+   181→    <div class="col-12">
+   182→        <div class="d-flex justify-content-between align-items-center mb-3">
+   183→            <h4 class="mb-0"><i class="bi bi-calendar-x me-2"></i>Leave Management</h4>
+   184→            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#applyModal">
+   185→                <i class="bi bi-plus-lg me-1"></i>Apply Leave
+   186→            </button>
+   187→        </div>
+   188→
+   189→        <!-- Tabs -->
+   190→        <ul class="nav nav-tabs mb-3">
+   191→            <li class="nav-item">
+   192→                <a class="nav-link <?php echo $activeTab === 'applications' ? 'active' : ''; ?>" href="?page=leave/apply&tab=applications">
+   193→                    Applications <?php if ($pendingCount > 0): ?><span class="badge bg-danger ms-1"><?php echo $pendingCount; ?></span><?php endif; ?>
+   194→                </a>
+   195→            </li>
+   196→            <li class="nav-item">
+   197→                <a class="nav-link <?php echo $activeTab === 'balance' ? 'active' : ''; ?>" href="?page=leave/apply&tab=balance">Leave Balance</a>
+   198→            </li>
+   199→        </ul>
+   200→
+   201→        <?php if ($activeTab === 'balance'): ?>
+   202→        <!-- Leave Balance Tab -->
+   203→        <div class="card">
+   204→            <div class="card-header">
+   205→                <form method="GET" class="row g-2 align-items-end">
+   206→                    <input type="hidden" name="page" value="leave/apply">
+   207→                    <input type="hidden" name="tab" value="balance">
+   208→                    <div class="col-md-2">
+   209→                        <label class="form-label small">Year</label>
+   210→                        <select name="year" class="form-select form-select-sm">
+   211→                            <?php for ($y = date('Y'); $y >= 2020; $y--): ?>
+   212→                            <option value="<?php echo $y; ?>" <?php echo $y == date('Y') ? 'selected' : ''; ?>><?php echo $y; ?></option>
+   213→                            <?php endfor; ?>
+   214→                        </select>
+   215→                    </div>
+   216→                    <div class="col-md-3">
+   217→                        <label class="form-label small">Client</label>
+   218→                        <select name="client_id" class="form-select form-select-sm">
+   219→                            <option value="">All</option>
+   220→                            <?php foreach ($clients as $c): ?>
+   221→                            <option value="<?php echo $c['id']; ?>"><?php echo sanitize($c['name']); ?></option>
+   222→                            <?php endforeach; ?>
+   223→                        </select>
+   224→                    </div>
+   225→                    <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">Filter</button></div>
+   226→                </form>
+   227→            </div>
+   228→            <div class="card-body p-0">
+   229→                <div class="table-responsive">
+   230→                    <table class="table table-sm table-hover mb-0" id="balanceTable">
+   231→                        <thead class="table-light">
+   232→                            <tr>
+   233→                                <th>Code</th>
+   234→                                <th>Employee</th>
+   235→                                <th>Unit</th>
+   236→                                <?php foreach (['CL','PL','SL','EL'] as $lt): ?>
+   237→                                <th class="text-center"><?php echo $lt; ?></th>
+   238→                                <?php endforeach; ?>
+   239→                                <th class="text-center">Total Used</th>
+   240→                            </tr>
+   241→                        </thead>
+   242→                        <tbody>
+   243→                            <?php
+   244→                            $balYear = (int)($_GET['year'] ?? date('Y'));
+   245→                            $balClient = (int)($_GET['client_id'] ?? 0);
+   246→                            $balWhere = "e.status = 'approved'";
+   247→                            $balParams = [];
+   248→                            if ($balClient) { $balWhere .= " AND e.client_id = ?"; $balParams[] = $balClient; }
+   249→                            $emps = $db->fetchAll("SELECT e.id, e.employee_code, e.full_name, u.name as unit_name FROM employees e LEFT JOIN units u ON e.unit_id = u.id WHERE $balWhere ORDER BY e.employee_code LIMIT 200", $balParams);
+   250→                            foreach ($emps as $emp):
+   251→                                $bals = $db->fetchAll("SELECT leave_type, opening_balance, accrued, used, closing_balance FROM leave_balances WHERE employee_id = ? AND year = ?", [$emp['id'], $balYear]);
+   252→                                $balMap = [];
+   253→                                $totalUsed = 0;
+   254→                                foreach ($bals as $b) { $balMap[$b['leave_type']] = $b; $totalUsed += floatval($b['used']); }
+   255→                            ?>
+   256→                            <tr>
+   257→                                <td><code><?php echo sanitize($emp['employee_code']); ?></code></td>
+   258→                                <td><?php echo sanitize($emp['full_name']); ?></td>
+   259→                                <td class="text-muted"><?php echo sanitize($emp['unit_name']); ?></td>
+   260→                                <?php foreach (['CL','PL','SL','EL'] as $lt):
+   261→                                    $b = $balMap[$lt] ?? null;
+   262→                                    $closing = $b ? floatval($b['closing_balance']) : 0;
+   263→                                    $used = $b ? floatval($b['used']) : 0;
+   264→                                ?>
+   265→                                <td class="text-center">
+   266→                                    <span class="badge bg-<?php echo $closing > 0 ? 'success' : 'secondary'; ?>" title="Opening: <?php echo $b ? $b['opening_balance'] : 0; ?> | Used: <?php echo $used; ?>">
+   267→                                        <?php echo $closing; ?>
+   268→                                    </span>
+   269→                                </td>
+   270→                                <?php endforeach; ?>
+   271→                                <td class="text-center"><strong><?php echo $totalUsed; ?></strong></td>
+   272→                            </tr>
+   273→                            <?php endforeach; ?>
+   274→                        </tbody>
+   275→                    </table>
+   276→                </div>
+   277→            </div>
+   278→        </div>
+   279→
+   280→        <?php else: ?>
+   281→        <!-- Applications Tab -->
+   282→        <div class="card">
+   283→            <div class="card-header py-2">
+   284→                <form method="GET" class="row g-2 align-items-end">
+   285→                    <input type="hidden" name="page" value="leave/apply">
+   286→                    <input type="hidden" name="tab" value="applications">
+   287→                    <div class="col-auto">
+   288→                        <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+   289→                            <option value="">All Status</option>
+   290→                            <option value="pending" <?php echo $filterStatus==='pending'?'selected':''; ?>>Pending</option>
+   291→                            <option value="approved" <?php echo $filterStatus==='approved'?'selected':''; ?>>Approved</option>
+   292→                            <option value="rejected" <?php echo $filterStatus==='rejected'?'selected':''; ?>>Rejected</option>
+   293→                        </select>
+   294→                    </div>
+   295→                    <div class="col-auto">
+   296→                        <select name="client_id" class="form-select form-select-sm" onchange="this.form.submit()">
+   297→                            <option value="">All Clients</option>
+   298→                            <?php foreach ($clients as $c): ?>
+   299→                            <option value="<?php echo $c['id']; ?>" <?php echo $filterClient==$c['id']?'selected':''; ?>><?php echo sanitize($c['name']); ?></option>
+   300→                            <?php endforeach; ?>
+   301→                        </select>
+   302→                    </div>
+   303→                    <div class="col-auto">
+   304→                        <select name="month" class="form-select form-select-sm" onchange="this.form.submit()">
+   305→                            <option value="">All Months</option>
+   306→                            <?php for ($m = 1; $m <= 12; $m++): ?>
+   307→                            <option value="<?php echo $m; ?>" <?php echo $filterMonth==$m?'selected':''; ?>><?php echo date('M', mktime(0,0,0,$m,1)); ?></option>
+   308→                            <?php endfor; ?>
+   309→                        </select>
+   310→                    </div>
+   311→                    <div class="col-auto">
+   312→                        <select name="year" class="form-select form-select-sm" onchange="this.form.submit()">
+   313→                            <?php for ($y = date('Y'); $y >= date('Y')-2; $y--): ?>
+   314→                            <option value="<?php echo $y; ?>" <?php echo $filterYear==$y?'selected':''; ?>><?php echo $y; ?></option>
+   315→                            <?php endfor; ?>
+   316→                        </select>
+   317→                    </div>
+   318→                </form>
+   319→            </div>
+   320→            <div class="card-body p-0">
+   321→                <div class="table-responsive">
+   322→                    <table class="table table-sm table-hover mb-0" id="leaveAppTable">
+   323→                        <thead class="table-light">
+   324→                            <tr>
+   325→                                <th>#</th>
+   326→                                <th>Emp Code</th>
+   327→                                <th>Employee</th>
+   328→                                <th>Type</th>
+   329→                                <th>From</th>
+   330→                                <th>To</th>
+   331→                                <th class="text-center">Days</th>
+   332→                                <th>Reason</th>
+   333→                                <th>Status</th>
+   334→                                <th>Action</th>
+   335→                            </tr>
+   336→                        </thead>
+   337→                        <tbody>
+   338→                            <?php if (empty($applications)): ?>
+   339→                            <tr><td colspan="10" class="text-center py-4 text-muted">No leave applications found</td></tr>
+   340→                            <?php else: foreach ($applications as $i => $app): ?>
+   341→                            <tr>
+   342→                                <td><?php echo $i + 1; ?></td>
+   343→                                <td><code><?php echo sanitize($app['employee_code']); ?></code></td>
+   344→                                <td><?php echo sanitize($app['full_name']); ?></td>
+   345→                                <td><span class="badge bg-info"><?php echo $app['leave_type']; ?></span></td>
+   346→                                <td><?php echo date('d-M-Y', strtotime($app['from_date'])); ?></td>
+   347→                                <td><?php echo date('d-M-Y', strtotime($app['to_date'])); ?></td>
+   348→                                <td class="text-center"><strong><?php echo $app['total_days']; ?></strong></td>
+   349→                                <td class="text-truncate" style="max-width:150px;" title="<?php echo htmlspecialchars($app['reason'] ?? ''); ?>"><?php echo htmlspecialchars(substr($app['reason'] ?? '', 0, 40)); ?></td>
+   350→                                <td>
+   351→                                    <span class="badge bg-<?php echo $statusColors[$app['status']]; ?>">
+   352→                                        <?php echo ucfirst($app['status']); ?>
+   353→                                    </span>
+   354→                                    <?php if ($app['approved_at']): ?>
+   355→                                    <br><small class="text-muted"><?php echo date('d-M h:i A', strtotime($app['approved_at'])); ?></small>
+   356→                                    <?php endif; ?>
+   357→                                </td>
+   358→                                <td>
+   359→                                    <?php if ($app['status'] === 'pending'): ?>
+   360→                                    <div class="btn-group btn-group-sm">
+   361→                                        <form method="POST" class="d-inline" onsubmit="return confirm('Approve this leave?')">
+   362→                                            <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+   363→                                            <input type="hidden" name="action" value="approve">
+   364→                                            <input type="hidden" name="application_id" value="<?php echo $app['id']; ?>">
+   365→                                            <button class="btn btn-success" title="Approve"><i class="bi bi-check-lg"></i></button>
+   366→                                            <?php echo getCSRFTokenField(); ?>
+   367→                                        </form>
+   368→                                        <button class="btn btn-danger" title="Reject" data-bs-toggle="modal" data-bs-target="#rejectModal" onclick="setRejectId(<?php echo $app['id']; ?>)"><i class="bi bi-x-lg"></i></button>
+   369→                                    </div>
+   370→                                    <?php endif; ?>
+   371→                                </td>
+   372→                            </tr>
+   373→                            <?php endforeach; endif; ?>
+   374→                        </tbody>
+   375→                    </table>
+   376→                </div>
+   377→            </div>
+   378→        </div>
+   379→        <?php endif; ?>
+   380→    </div>
+   381→</div>
+   382→
+   383→<!-- Apply Leave Modal -->
+   384→<div class="modal fade" id="applyModal" tabindex="-1">
+   385→    <div class="modal-dialog"><div class="modal-content">
+   386→        <div class="modal-header bg-primary text-white">
+   387→            <h5 class="modal-title"><i class="bi bi-calendar-plus me-2"></i>Apply Leave</h5>
+   388→            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+   389→        </div>
+   390→        <form method="POST">
+   391→            <input type="hidden" name="action" value="apply">
+   392→            <div class="modal-body">
+   393→                <div class="row g-3">
+   394→                    <div class="col-12">
+   395→                        <label class="form-label">Employee <span class="text-danger">*</span></label>
+   396→                        <select name="employee_id" class="form-select" required id="empSelect">
+   397→                            <option value="">Select Employee</option>
+   398→                            <?php
+   399→                            $allEmps = $db->query("SELECT e.id, e.employee_code, e.full_name, c.name as client_name
+   400→                                FROM employees e LEFT JOIN clients c ON e.client_id = c.id WHERE e.status = 'approved' ORDER BY c.name, e.full_name")->fetchAll(PDO::FETCH_ASSOC);
+   401→                            $lastClient = '';
+   402→                            foreach ($allEmps as $ae):
+   403→                                if ($ae['client_name'] !== $lastClient) {
+   404→                                    if ($lastClient) echo '</optgroup>';
+   405→                                    echo '<optgroup label="' . sanitize($ae['client_name']) . '">';
+   406→                                    $lastClient = $ae['client_name'];
+   407→                                }
+   408→                            ?>
+   409→                            <option value="<?php echo $ae['id']; ?>"><?php echo sanitize($ae['employee_code'] . ' - ' . $ae['full_name']); ?></option>
+   410→                            <?php endforeach; ?>
+   411→                            </optgroup>
+   412→                        </select>
+   413→                    </div>
+   414→                    <div class="col-6">
+   415→                        <label class="form-label">Leave Type <span class="text-danger">*</span></label>
+   416→                        <select name="leave_type" class="form-select" required>
+   417→                            <?php foreach ($leaveTypes as $lt => $ln): ?>
+   418→                            <option value="<?php echo $lt; ?>"><?php echo $ln; ?></option>
+   419→                            <?php endforeach; ?>
+   420→                        </select>
+   421→                    </div>
+   422→                    <div class="col-6">
+   423→                        <label class="form-label">Total Days</label>
+   424→                        <input type="number" name="total_days" class="form-control" step="0.5" min="0.5" value="1" id="totalDays">
+   425→                    </div>
+   426→                    <div class="col-6">
+   427→                        <label class="form-label">From Date <span class="text-danger">*</span></label>
+   428→                        <input type="date" name="from_date" class="form-control" required id="fromDate">
+   429→                    </div>
+   430→                    <div class="col-6">
+   431→                        <label class="form-label">To Date <span class="text-danger">*</span></label>
+   432→                        <input type="date" name="to_date" class="form-control" required id="toDate">
+   433→                    </div>
+   434→                    <div class="col-12">
+   435→                        <label class="form-label">Reason</label>
+   436→                        <textarea name="reason" class="form-control" rows="2" placeholder="Reason for leave"></textarea>
+   437→                    </div>
+   438→                </div>
+   439→            </div>
+   440→            <div class="modal-footer">
+   441→                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   442→                <button type="submit" class="btn btn-primary"><i class="bi bi-send me-1"></i>Submit</button>
+   443→            </div>
+   444→            <?php echo getCSRFTokenField(); ?>
+   445→        </form>
+   446→    </div></div>
+   447→</div>
+   448→
+   449→<!-- Reject Modal -->
+   450→<div class="modal fade" id="rejectModal" tabindex="-1">
+   451→    <div class="modal-dialog modal-sm"><div class="modal-content">
+   452→        <form method="POST">
+   453→            <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+   454→            <input type="hidden" name="action" value="reject">
+   455→            <input type="hidden" name="application_id" id="rejectAppId">
+   456→            <div class="modal-header bg-danger text-white">
+   457→                <h5 class="modal-title">Reject Leave</h5>
+   458→                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+   459→            </div>
+   460→            <div class="modal-body">
+   461→                <div class="mb-3">
+   462→                    <label class="form-label">Rejection Reason</label>
+   463→                    <textarea name="rejection_reason" class="form-control" rows="3" placeholder="Enter reason for rejection"></textarea>
+   464→                </div>
+   465→            </div>
+   466→            <div class="modal-footer">
+   467→                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   468→                <button type="submit" class="btn btn-danger"><i class="bi bi-x-lg me-1"></i>Reject</button>
+   469→            </div>
+   470→            <?php echo getCSRFTokenField(); ?>
+   471→        </form>
+   472→    </div></div>
+   473→</div>
+   474→
+   475→<script>
+   476→function setRejectId(id) {
+   477→    document.getElementById('rejectAppId').value = id;
+   478→}
+   479→
+   480→// Auto-calculate days
+   481→document.getElementById('fromDate')?.addEventListener('change', calcDays);
+   482→document.getElementById('toDate')?.addEventListener('change', calcDays);
+   483→
+   484→function calcDays() {
+   485→    const from = document.getElementById('fromDate').value;
+   486→    const to = document.getElementById('toDate').value;
+   487→    if (from && to) {
+   488→        const d1 = new Date(from), d2 = new Date(to);
+   489→        const diff = Math.ceil((d2 - d1) / (1000*60*60*24)) + 1;
+   490→        document.getElementById('totalDays').value = Math.max(0.5, diff);
+   491→    }
+   492→}
+   493→
+   494→$(document).ready(function() {
+   495→    $('#leaveAppTable, #balanceTable').DataTable({ responsive: true, pageLength: 25, order: [[0,'desc']] });
+   496→    $('#empSelect').select2({ placeholder: 'Search employee...', width: '100%' });
+   497→});
+   498→</script>
+   499→

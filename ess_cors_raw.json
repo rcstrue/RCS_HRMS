@@ -1,0 +1,20 @@
+{
+  "code": 200,
+  "data": {
+    "description": "",
+    "html": "<html><head><meta name=\"color-scheme\" content=\"light dark\"></head><body><pre style=\"word-wrap: break-word; white-space: pre-wrap;\"><?php\n/**\n * RCS ESS - CORS Handler\n * Must be included at the VERY TOP of every API file (before any output).\n *\n * Strict HTTPS-only whitelist. No wildcards, no HTTP fallback.\n * To add a new domain, add it to the $allowedOrigins array below.\n */\n\n// Handle preflight OPTIONS request\nif ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {\n    header('Access-Control-Allow-Origin: ' . getAllowedOrigin());\n    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');\n    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Cache-Control');\n    header('Access-Control-Allow-Credentials: true');\n    header('Access-Control-Max-Age: 86400');\n    http_response_code(204);\n    exit;\n}\n\n// Set CORS headers for all requests\nheader('Access-Control-Allow-Origin: ' . getAllowedOrigin());\nheader('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');\nheader('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Cache-Control');\nheader('Access-Control-Allow-Credentials: true');\n\n/**\n * Strict HTTPS-only origin whitelist.\n * Returns the whitelisted origin, or empty string to deny CORS for unknown origins.\n */\nfunction getAllowedOrigin() {\n    $allowedOrigins = [\n        'https://join.rcsfacility.com',\n        'https://sid.rcsfacility.com',\n    ];\n\n    $requestOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';\n\n    return in_array($requestOrigin, $allowedOrigins, true) ? $requestOrigin : '';\n}\n</pre></body></html>",
+    "httpStatus": 200,
+    "httpStatusText": "",
+    "title": "",
+    "url": "https://raw.githubusercontent.com/rcstrue/RCS_HRMS/main/api/ess/cors.php",
+    "usage": {
+      "tokens": 377
+    }
+  },
+  "meta": {
+    "usage": {
+      "tokens": 377
+    }
+  },
+  "status": 20000
+}

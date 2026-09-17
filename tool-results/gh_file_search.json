@@ -1,0 +1,47 @@
+[
+  {
+    "url": "https://github.com/graphile/starter/blob/main/@app/client/src/pages/index.tsx",
+    "name": "starter/@app/client/src/pages/index.tsx at main",
+    "snippet": "Opinionated SaaS quick-start. This entry point creates an Express.js server and installs a number of middlewares, including PostGraphile.",
+    "host_name": "github.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://palmyra.dev/docs/employee-app/frontend/04-employee-pages",
+    "name": "4. Employee screens | Palmyra",
+    "snippet": "Repeats the Department five-file pattern for Employees, view subfolder for the detail page and its edit dialog. src / pages /employee/ paths to project joined ...",
+    "host_name": "palmyra.dev",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://success.openasset.com/en/articles/5279978-finding-and-selecting-employees",
+    "name": "Finding and Selecting Employees | Help Center",
+    "snippet": "Nov 3, 2022 — Finding Employees by Name or Code. You can search for Employees from the Employee Search Page , which is accessible from the top header menu.",
+    "host_name": "success.openasset.com",
+    "rank": 2,
+    "date": "Nov 3, 2022",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.shiftflow.app/blog/employee-directory",
+    "name": "What Is an Employee Directory?",
+    "snippet": "Nov 19, 2025 — Employee directory is an internal database of staff contact info and org charts. Learn key features, privacy controls, GDPR compliance, ...",
+    "host_name": "www.shiftflow.app",
+    "rank": 3,
+    "date": "Nov 19, 2025",
+    "favicon": ""
+  },
+  {
+    "url": "https://learn.outsystems.com/training/journeys/web-developer-single-use-case-2608",
+    "name": "OutSystems Training: Employee Directory",
+    "snippet": "Learn how to build incredible, reactive web experiences. See how to get your data and show it in the screens, providing the user with the best experience.",
+    "host_name": "learn.outsystems.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  }
+]

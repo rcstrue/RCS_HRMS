@@ -1,0 +1,1068 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect, useCallback, useRef } from 'react';
+     4→import { toast } from 'sonner';
+     5→import {
+     6→  Send,
+     7→  Users,
+     8→  Building2,
+     9→  MapPin,
+    10→  Globe,
+    11→  User,
+    12→  Check,
+    13→  X,
+    14→  Search,
+    15→  Loader2,
+    16→  Megaphone,
+    17→  Eye,
+    18→  Clock,
+    19→  ChevronRight,
+    20→  Inbox,
+    21→} from 'lucide-react';
+    22→
+    23→import { cn } from '@/lib/utils';
+    24→import { apiRequest } from '@/lib/api/config';
+    25→import { usePullToRefresh } from './hooks/usePullToRefresh';
+    26→
+    27→import { Card, CardContent } from '@/components/ui/card';
+    28→import { Button } from '@/components/ui/button';
+    29→import { Skeleton } from '@/components/ui/skeleton';
+    30→import { Badge } from '@/components/ui/badge';
+    31→import { Input } from '@/components/ui/input';
+    32→import { Textarea } from '@/components/ui/textarea';
+    33→
+    34→import PageHeader from './PageHeader';
+    35→import { logger } from "@/lib/logger";
+    36→
+    37→// ══════════════════════════════════════════════════════════════
+    38→// Types
+    39→// ══════════════════════════════════════════════════════════════
+    40→
+    41→interface FilterData {
+    42→  units: { id: number; name: string }[];
+    43→  clients: { id: number; name: string }[];
+    44→  cities: string[];
+    45→  states: string[];
+    46→}
+    47→
+    48→interface SearchedEmployee {
+    49→  id: string;
+    50→  full_name: string;
+    51→  mobile_number: string;
+    52→  role: string;
+    53→  unit_name: string;
+    54→  client_name: string;
+    55→}
+    56→
+    57→interface BroadcastItem {
+    58→  broadcast_id: number;
+    59→  title: string;
+    60→  message: string;
+    61→  created_at: string;
+    62→  target_type: string;
+    63→  target_label: string;
+    64→  total_recipients: number;
+    65→  read_count: number;
+    66→  read_percent: number;
+    67→}
+    68→
+    69→interface BroadcastPagination {
+    70→  page: number;
+    71→  limit: number;
+    72→  total: number;
+    73→  total_pages: number;
+    74→}
+    75→
+    76→type TargetType = 'all' | 'managers' | 'unit' | 'client' | 'city' | 'state' | 'individual';
+    77→
+    78→// ══════════════════════════════════════════════════════════════
+    79→// unwrap helper — PHP wraps in { success, data } envelope
+    80→// ══════════════════════════════════════════════════════════════
+    81→
+    82→function unwrap<T>(result: Promise<{ data: T | null; error: string | null }>): Promise<{ data: T | null; error: string | null }> {
+    83→  return result.then((res) => {
+    84→    if (res.error) return res;
+    85→    const d = res.data as Record<string, unknown> | null;
+    86→    if (d && typeof d === 'object' && 'success' in d) {
+    87→      if (d.success === false) {
+    88→        const msg = (d.message as string) || (d.error as string) || 'Request failed';
+    89→        return { data: null, error: msg };
+    90→      }
+    91→      if ('data' in d && d.data != null) {
+    92→        return { data: d.data as T, error: null };
+    93→      }
+    94→      if (d.success === true) {
+    95→        return { data: null, error: null };
+    96→      }
+    97→    }
+    98→    return res;
+    99→  });
+   100→}
+   101→
+   102→// ══════════════════════════════════════════════════════════════
+   103→// Constants
+   104→// ══════════════════════════════════════════════════════════════
+   105→
+   106→const TARGET_TYPES: { value: TargetType; label: string; icon: typeof Users }[] = [
+   107→  { value: 'all', label: 'All Employees', icon: Users },
+   108→  { value: 'managers', label: 'Managers', icon: Users },
+   109→  { value: 'unit', label: 'By Unit', icon: Building2 },
+   110→  { value: 'client', label: 'By Client', icon: Building2 },
+   111→  { value: 'city', label: 'By City', icon: MapPin },
+   112→  { value: 'state', label: 'By State', icon: Globe },
+   113→  { value: 'individual', label: 'Individual', icon: User },
+   114→];
+   115→
+   116→// ══════════════════════════════════════════════════════════════
+   117→// Props
+   118→// ══════════════════════════════════════════════════════════════
+   119→
+   120→interface SendNotificationPageProps {
+   121→  onBack?: () => void;
+   122→}
+   123→
+   124→// ══════════════════════════════════════════════════════════════
+   125→// Component
+   126→// ══════════════════════════════════════════════════════════════
+   127→
+   128→export default function SendNotificationPage({ onBack }: SendNotificationPageProps) {
+   129→  const [activeTab, setActiveTab] = useState<'compose' | 'sent'>('compose');
+   130→
+   131→  return (
+   132→    <div className="flex flex-col gap-3 pb-6">
+   133→      <PageHeader
+   134→        title="Send Notification"
+   135→        subtitle="Broadcast messages to employees"
+   136→        onBack={onBack}
+   137→      />
+   138→
+   139→      {/* Tab Switcher */}
+   140→      <div className="flex rounded-xl bg-muted/70 p-1">
+   141→        {(['compose', 'sent'] as const).map((tab) => (
+   142→          <button
+   143→            key={tab}
+   144→            onClick={() => setActiveTab(tab)}
+   145→            className={cn(
+   146→              'flex-1 py-2 text-[13px] font-semibold rounded-lg transition-all',
+   147→              activeTab === tab
+   148→                ? 'bg-white text-violet-700 shadow-sm'
+   149→                : 'text-muted-foreground hover:text-foreground'
+   150→            )}
+   151→          >
+   152→            {tab === 'compose' ? (
+   153→              <span className="flex items-center justify-center gap-1.5">
+   154→                <Send className="w-3.5 h-3.5" />
+   155→                Compose
+   156→              </span>
+   157→            ) : (
+   158→              <span className="flex items-center justify-center gap-1.5">
+   159→                <Megaphone className="w-3.5 h-3.5" />
+   160→                Sent
+   161→              </span>
+   162→            )}
+   163→          </button>
+   164→        ))}
+   165→      </div>
+   166→
+   167→      {activeTab === 'compose' ? <ComposeTab onSent={() => setActiveTab('sent')} /> : <SentTab />}
+   168→    </div>
+   169→  );
+   170→}
+   171→
+   172→// ══════════════════════════════════════════════════════════════
+   173→// Compose Tab
+   174→// ══════════════════════════════════════════════════════════════
+   175→
+   176→function ComposeTab({ onSent }: { onSent: () => void }) {
+   177→  // ── Target type ──
+   178→  const [targetType, setTargetType] = useState<TargetType>('all');
+   179→
+   180→  // ── Filters data ──
+   181→  const [filters, setFilters] = useState<FilterData | null>(null);
+   182→  const [filtersLoading, setFiltersLoading] = useState(true);
+   183→
+   184→  // ── Multi-select selections ──
+   185→  const [selectedUnits, setSelectedUnits] = useState<number[]>([]);
+   186→  const [selectedClients, setSelectedClients] = useState<number[]>([]);
+   187→  const [selectedCities, setSelectedCities] = useState<string[]>([]);
+   188→  const [selectedStates, setSelectedStates] = useState<string[]>([]);
+   189→
+   190→  // ── Individual search ──
+   191→  const [searchQuery, setSearchQuery] = useState('');
+   192→  const [searchResults, setSearchResults] = useState<SearchedEmployee[]>([]);
+   193→  const [searchLoading, setSearchLoading] = useState(false);
+   194→  const [selectedEmployees, setSelectedEmployees] = useState<SearchedEmployee[]>([]);
+   195→  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   196→
+   197→  // ── Form ──
+   198→  const [title, setTitle] = useState('');
+   199→  const [message, setMessage] = useState('');
+   200→  const [sending, setSending] = useState(false);
+   201→
+   202→  // ── Load filters on mount ──
+   203→  useEffect(() => {
+   204→    let cancelled = false;
+   205→    setFiltersLoading(true);
+   206→    unwrap(apiRequest<{ units: FilterData['units']; clients: FilterData['clients']; cities: FilterData['cities']; states: FilterData['states'] }>(
+   207→      '/ess/admin-notifications?view=filters'
+   208→    )).then(({ data, error }) => {
+   209→      if (cancelled) return;
+   210→      if (error) {
+   211→        toast.error(error);
+   212→        setFiltersLoading(false);
+   213→        return;
+   214→      }
+   215→      if (data) {
+   216→        setFilters({
+   217→          units: Array.isArray(data.units) ? data.units : [],
+   218→          clients: Array.isArray(data.clients) ? data.clients : [],
+   219→          cities: Array.isArray(data.cities) ? data.cities : [],
+   220→          states: Array.isArray(data.states) ? data.states : [],
+   221→        });
+   222→      }
+   223→      setFiltersLoading(false);
+   224→    });
+   225→    return () => { cancelled = true; };
+   226→  }, []);
+   227→
+   228→  // ── Individual search with debounce ──
+   229→  useEffect(() => {
+   230→    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+   231→    if (!searchQuery.trim()) {
+   232→      setSearchResults([]);
+   233→      return;
+   234→    }
+   235→    searchTimerRef.current = setTimeout(async () => {
+   236→      setSearchLoading(true);
+   237→      const { data, error } = await unwrap(apiRequest<SearchedEmployee[]>(
+   238→        `/ess/admin-notifications?view=search-employees&q=${encodeURIComponent(searchQuery.trim())}`
+   239→      ));
+   240→      setSearchLoading(false);
+   241→      if (error) { toast.error(error); return; }
+   242→      setSearchResults(data ? data.slice(0, 5) : []);
+   243→    }, 300);
+   244→    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+   245→  }, [searchQuery]);
+   246→
+   247→  // ── Selection helpers ──
+   248→  const toggleUnit = useCallback((id: number) => {
+   249→    setSelectedUnits((prev) => prev.includes(id) ? prev.filter((u) => u !== id) : [...prev, id]);
+   250→  }, []);
+   251→
+   252→  const toggleClient = useCallback((id: number) => {
+   253→    setSelectedClients((prev) => prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]);
+   254→  }, []);
+   255→
+   256→  const toggleCity = useCallback((city: string) => {
+   257→    setSelectedCities((prev) => prev.includes(city) ? prev.filter((c) => c !== city) : [...prev, city]);
+   258→  }, []);
+   259→
+   260→  const toggleState = useCallback((state: string) => {
+   261→    setSelectedStates((prev) => prev.includes(state) ? prev.filter((s) => s !== state) : [...prev, state]);
+   262→  }, []);
+   263→
+   264→  const addEmployee = useCallback((emp: SearchedEmployee) => {
+   265→    if (selectedEmployees.some((e) => e.id === emp.id)) return;
+   266→    setSelectedEmployees((prev) => [...prev, emp]);
+   267→    setSearchQuery('');
+   268→    setSearchResults([]);
+   269→  }, [selectedEmployees]);
+   270→
+   271→  const removeEmployee = useCallback((id: string) => {
+   272→    setSelectedEmployees((prev) => prev.filter((e) => e.id !== id));
+   273→  }, []);
+   274→
+   275→  // ── Validation ──
+   276→  const isFormValid = (() => {
+   277→    if (!title.trim() || !message.trim()) return false;
+   278→    switch (targetType) {
+   279→      case 'all':
+   280→      case 'managers':
+   281→        return true;
+   282→      case 'unit':
+   283→        return selectedUnits.length > 0;
+   284→      case 'client':
+   285→        return selectedClients.length > 0;
+   286→      case 'city':
+   287→        return selectedCities.length > 0;
+   288→      case 'state':
+   289→        return selectedStates.length > 0;
+   290→      case 'individual':
+   291→        return selectedEmployees.length > 0;
+   292→      default:
+   293→        return false;
+   294→    }
+   295→  })();
+   296→
+   297→  // ── Build target_ids for submission ──
+   298→  const getTargetIds = useCallback((): (number | string)[] => {
+   299→    switch (targetType) {
+   300→      case 'all':
+   301→      case 'managers':
+   302→        return [];
+   303→      case 'unit':
+   304→        return selectedUnits;
+   305→      case 'client':
+   306→        return selectedClients;
+   307→      case 'city':
+   308→        return selectedCities;
+   309→      case 'state':
+   310→        return selectedStates;
+   311→      case 'individual':
+   312→        return selectedEmployees.map((e) => e.id);
+   313→      default:
+   314→        return [];
+   315→    }
+   316→  }, [targetType, selectedUnits, selectedClients, selectedCities, selectedStates, selectedEmployees]);
+   317→
+   318→  // ── Confirm & send ──
+   319→  const handleSend = useCallback(async () => {
+   320→    if (!isFormValid || sending) return;
+   321→
+   322→    const targetIds = getTargetIds();
+   323→    const targetLabel = TARGET_TYPES.find((t) => t.value === targetType)?.label ?? targetType;
+   324→    let recipientDesc = '';
+   325→    if (targetType === 'all') recipientDesc = 'all employees';
+   326→    else if (targetType === 'managers') recipientDesc = 'all managers';
+   327→    else if (targetType === 'individual') recipientDesc = `${targetIds.length} employee(s)`;
+   328→    else recipientDesc = `${targetIds.length} ${targetLabel.toLowerCase()}(s)`;
+   329→
+   330→    if (!window.confirm(`Send this notification to ${recipientDesc}?`)) return;
+   331→
+   332→    setSending(true);
+   333→    try {
+   334→      const { data, error } = await unwrap(apiRequest<{ broadcast_id: number; recipient_count: number; message: string }>(
+   335→        '/ess/admin-notifications',
+   336→        {
+   337→          method: 'POST',
+   338→          body: JSON.stringify({
+   339→            title: title.trim(),
+   340→            message: message.trim(),
+   341→            target_type: targetType,
+   342→            target_ids: targetIds,
+   343→          }),
+   344→        }
+   345→      ));
+   346→
+   347→      if (error) {
+   348→        toast.error(error);
+   349→        return;
+   350→      }
+   351→
+   352→      toast.success(`Notification sent to ${data?.recipient_count ?? 0} recipient(s)`);
+   353→
+   354→      // Reset form
+   355→      setTitle('');
+   356→      setMessage('');
+   357→      setTargetType('all');
+   358→      setSelectedUnits([]);
+   359→      setSelectedClients([]);
+   360→      setSelectedCities([]);
+   361→      setSelectedStates([]);
+   362→      setSelectedEmployees([]);
+   363→      setSearchQuery('');
+   364→      setSearchResults([]);
+   365→
+   366→      // Switch to sent tab
+   367→      onSent();
+   368→    } catch (err) {
+   369→      logger.error('Failed to send notification:', err);
+   370→      toast.error('Failed to send notification');
+   371→    } finally {
+   372→      setSending(false);
+   373→    }
+   374→  }, [isFormValid, sending, getTargetIds, targetType, title, message, onSent]);
+   375→
+   376→  // ── Reset target selections when type changes ──
+   377→  const handleTargetTypeChange = useCallback((newType: TargetType) => {
+   378→    setTargetType(newType);
+   379→    setSelectedUnits([]);
+   380→    setSelectedClients([]);
+   381→    setSelectedCities([]);
+   382→    setSelectedStates([]);
+   383→    setSelectedEmployees([]);
+   384→    setSearchQuery('');
+   385→    setSearchResults([]);
+   386→  }, []);
+   387→
+   388→  return (
+   389→    <div className="flex flex-col gap-4">
+   390→      {/* Purple gradient header */}
+   391→      <div className="bg-gradient-to-r from-violet-600 to-purple-500 rounded-2xl px-4 py-3 text-white flex items-center gap-2 shadow-lg">
+   392→        <Send className="w-5 h-5 text-white/80" />
+   393→        <h1 className="text-[15px] font-bold">Send Notification</h1>
+   394→      </div>
+   395→
+   396→      {/* Target Type Selector — horizontal scroll */}
+   397→      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
+   398→        {TARGET_TYPES.map((t) => {
+   399→          const Icon = t.icon;
+   400→          const isActive = targetType === t.value;
+   401→          return (
+   402→            <button
+   403→              key={t.value}
+   404→              onClick={() => handleTargetTypeChange(t.value)}
+   405→              className={cn(
+   406→                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold whitespace-nowrap shrink-0 transition-all border',
+   407→                isActive
+   408→                  ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+   409→                  : 'bg-white text-muted-foreground border-gray-200 hover:border-violet-300 hover:text-violet-700'
+   410→              )}
+   411→            >
+   412→              <Icon className="w-3.5 h-3.5" />
+   413→              {t.label}
+   414→            </button>
+   415→          );
+   416→        })}
+   417→      </div>
+   418→
+   419→      {/* ── Target-specific content ── */}
+   420→
+   421→      {/* All employees info */}
+   422→      {targetType === 'all' && (
+   423→        <div className="flex items-start gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-3">
+   424→          <Users className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+   425→          <div className="min-w-0">
+   426→            <p className="text-[12px] font-semibold text-emerald-800">Broadcast to all employees</p>
+   427→            <p className="text-[11px] text-emerald-600 mt-0.5">
+   428→              This notification will be sent to all active employees across the organization.
+   429→            </p>
+   430→          </div>
+   431→        </div>
+   432→      )}
+   433→
+   434→      {/* Managers info */}
+   435→      {targetType === 'managers' && (
+   436→        <div className="flex items-start gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-3">
+   437→          <Users className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+   438→          <div className="min-w-0">
+   439→            <p className="text-[12px] font-semibold text-emerald-800">Broadcast to all managers</p>
+   440→            <p className="text-[11px] text-emerald-600 mt-0.5">
+   441→              This notification will be sent to all active managers across the organization.
+   442→            </p>
+   443→          </div>
+   444→        </div>
+   445→      )}
+   446→
+   447→      {/* By Unit — multi-select */}
+   448→      {targetType === 'unit' && (
+   449→        <Card className="border-0 shadow-sm">
+   450→          <CardContent className="p-3 space-y-2">
+   451→            <p className="text-[12px] font-semibold text-gray-700 flex items-center gap-1.5">
+   452→              <Building2 className="w-3.5 h-3.5 text-violet-500" />
+   453→              Select Units
+   454→              {selectedUnits.length > 0 && (
+   455→                <Badge variant="secondary" className="ml-auto text-[11px] bg-violet-100 text-violet-700 border-violet-200">
+   456→                  {selectedUnits.length} selected
+   457→                </Badge>
+   458→              )}
+   459→            </p>
+   460→            {filtersLoading ? (
+   461→              <div className="space-y-2">
+   462→                {Array.from({ length: 4 }).map((_, i) => (
+   463→                  <Skeleton key={i} className="h-9 w-full rounded-lg" />
+   464→                ))}
+   465→              </div>
+   466→            ) : !filters || filters.units.length === 0 ? (
+   467→              <p className="text-[12px] text-muted-foreground py-2 text-center">No units available</p>
+   468→            ) : (
+   469→              <div className="max-h-48 overflow-y-auto space-y-1">
+   470→                {filters.units.map((unit) => {
+   471→                  const isSelected = selectedUnits.includes(unit.id);
+   472→                  return (
+   473→                    <button
+   474→                      key={unit.id}
+   475→                      onClick={() => toggleUnit(unit.id)}
+   476→                      className={cn(
+   477→                        'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] transition-colors text-left',
+   478→                        isSelected
+   479→                          ? 'bg-violet-50 border border-violet-200'
+   480→                          : 'hover:bg-gray-50 border border-transparent'
+   481→                      )}
+   482→                    >
+   483→                      <div className={cn(
+   484→                        'w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors',
+   485→                        isSelected
+   486→                          ? 'bg-violet-600 border-violet-600'
+   487→                          : 'border-gray-300 bg-white'
+   488→                      )}>
+   489→                        {isSelected && <Check className="w-3 h-3 text-white" />}
+   490→                      </div>
+   491→                      <span className={cn('truncate', isSelected ? 'text-violet-900 font-medium' : 'text-gray-700')}>
+   492→                        {unit.name}
+   493→                      </span>
+   494→                    </button>
+   495→                  );
+   496→                })}
+   497→              </div>
+   498→            )}
+   499→            {/* Selected chips */}
+   500→            {selectedUnits.length > 0 && (
+   501→              <div className="flex flex-wrap gap-1.5 pt-1">
+   502→                {selectedUnits.map((id) => {
+   503→                  const unit = filters?.units.find((u) => u.id === id);
+   504→                  if (!unit) return null;
+   505→                  return (
+   506→                    <span
+   507→                      key={id}
+   508→                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[11px] font-medium border border-violet-200"
+   509→                    >
+   510→                      {unit.name}
+   511→                      <button onClick={() => toggleUnit(id)} className="hover:text-violet-900">
+   512→                        <X className="w-3 h-3" />
+   513→                      </button>
+   514→                    </span>
+   515→                  );
+   516→                })}
+   517→              </div>
+   518→            )}
+   519→          </CardContent>
+   520→        </Card>
+   521→      )}
+   522→
+   523→      {/* By Client — multi-select */}
+   524→      {targetType === 'client' && (
+   525→        <Card className="border-0 shadow-sm">
+   526→          <CardContent className="p-3 space-y-2">
+   527→            <p className="text-[12px] font-semibold text-gray-700 flex items-center gap-1.5">
+   528→              <Building2 className="w-3.5 h-3.5 text-violet-500" />
+   529→              Select Clients
+   530→              {selectedClients.length > 0 && (
+   531→                <Badge variant="secondary" className="ml-auto text-[11px] bg-violet-100 text-violet-700 border-violet-200">
+   532→                  {selectedClients.length} selected
+   533→                </Badge>
+   534→              )}
+   535→            </p>
+   536→            {filtersLoading ? (
+   537→              <div className="space-y-2">
+   538→                {Array.from({ length: 4 }).map((_, i) => (
+   539→                  <Skeleton key={i} className="h-9 w-full rounded-lg" />
+   540→                ))}
+   541→              </div>
+   542→            ) : !filters || filters.clients.length === 0 ? (
+   543→              <p className="text-[12px] text-muted-foreground py-2 text-center">No clients available</p>
+   544→            ) : (
+   545→              <div className="max-h-48 overflow-y-auto space-y-1">
+   546→                {filters.clients.map((client) => {
+   547→                  const isSelected = selectedClients.includes(client.id);
+   548→                  return (
+   549→                    <button
+   550→                      key={client.id}
+   551→                      onClick={() => toggleClient(client.id)}
+   552→                      className={cn(
+   553→                        'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] transition-colors text-left',
+   554→                        isSelected
+   555→                          ? 'bg-violet-50 border border-violet-200'
+   556→                          : 'hover:bg-gray-50 border border-transparent'
+   557→                      )}
+   558→                    >
+   559→                      <div className={cn(
+   560→                        'w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors',
+   561→                        isSelected
+   562→                          ? 'bg-violet-600 border-violet-600'
+   563→                          : 'border-gray-300 bg-white'
+   564→                      )}>
+   565→                        {isSelected && <Check className="w-3 h-3 text-white" />}
+   566→                      </div>
+   567→                      <span className={cn('truncate', isSelected ? 'text-violet-900 font-medium' : 'text-gray-700')}>
+   568→                        {client.name}
+   569→                      </span>
+   570→                    </button>
+   571→                  );
+   572→                })}
+   573→              </div>
+   574→            )}
+   575→            {/* Selected chips */}
+   576→            {selectedClients.length > 0 && (
+   577→              <div className="flex flex-wrap gap-1.5 pt-1">
+   578→                {selectedClients.map((id) => {
+   579→                  const client = filters?.clients.find((c) => c.id === id);
+   580→                  if (!client) return null;
+   581→                  return (
+   582→                    <span
+   583→                      key={id}
+   584→                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[11px] font-medium border border-violet-200"
+   585→                    >
+   586→                      {client.name}
+   587→                      <button onClick={() => toggleClient(id)} className="hover:text-violet-900">
+   588→                        <X className="w-3 h-3" />
+   589→                      </button>
+   590→                    </span>
+   591→                  );
+   592→                })}
+   593→              </div>
+   594→            )}
+   595→          </CardContent>
+   596→        </Card>
+   597→      )}
+   598→
+   599→      {/* By City — multi-select */}
+   600→      {targetType === 'city' && (
+   601→        <Card className="border-0 shadow-sm">
+   602→          <CardContent className="p-3 space-y-2">
+   603→            <p className="text-[12px] font-semibold text-gray-700 flex items-center gap-1.5">
+   604→              <MapPin className="w-3.5 h-3.5 text-violet-500" />
+   605→              Select Cities
+   606→              {selectedCities.length > 0 && (
+   607→                <Badge variant="secondary" className="ml-auto text-[11px] bg-violet-100 text-violet-700 border-violet-200">
+   608→                  {selectedCities.length} selected
+   609→                </Badge>
+   610→              )}
+   611→            </p>
+   612→            {filtersLoading ? (
+   613→              <div className="space-y-2">
+   614→                {Array.from({ length: 4 }).map((_, i) => (
+   615→                  <Skeleton key={i} className="h-9 w-full rounded-lg" />
+   616→                ))}
+   617→              </div>
+   618→            ) : !filters || filters.cities.length === 0 ? (
+   619→              <p className="text-[12px] text-muted-foreground py-2 text-center">No cities available</p>
+   620→            ) : (
+   621→              <div className="max-h-48 overflow-y-auto space-y-1">
+   622→                {filters.cities.map((city) => {
+   623→                  const isSelected = selectedCities.includes(city);
+   624→                  return (
+   625→                    <button
+   626→                      key={city}
+   627→                      onClick={() => toggleCity(city)}
+   628→                      className={cn(
+   629→                        'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] transition-colors text-left',
+   630→                        isSelected
+   631→                          ? 'bg-violet-50 border border-violet-200'
+   632→                          : 'hover:bg-gray-50 border border-transparent'
+   633→                      )}
+   634→                    >
+   635→                      <div className={cn(
+   636→                        'w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors',
+   637→                        isSelected
+   638→                          ? 'bg-violet-600 border-violet-600'
+   639→                          : 'border-gray-300 bg-white'
+   640→                      )}>
+   641→                        {isSelected && <Check className="w-3 h-3 text-white" />}
+   642→                      </div>
+   643→                      <span className={cn('truncate', isSelected ? 'text-violet-900 font-medium' : 'text-gray-700')}>
+   644→                        {city}
+   645→                      </span>
+   646→                    </button>
+   647→                  );
+   648→                })}
+   649→              </div>
+   650→            )}
+   651→            {selectedCities.length > 0 && (
+   652→              <div className="flex flex-wrap gap-1.5 pt-1">
+   653→                {selectedCities.map((city) => (
+   654→                  <span
+   655→                    key={city}
+   656→                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[11px] font-medium border border-violet-200"
+   657→                  >
+   658→                    {city}
+   659→                    <button onClick={() => toggleCity(city)} className="hover:text-violet-900">
+   660→                      <X className="w-3 h-3" />
+   661→                    </button>
+   662→                  </span>
+   663→                ))}
+   664→              </div>
+   665→            )}
+   666→          </CardContent>
+   667→        </Card>
+   668→      )}
+   669→
+   670→      {/* By State — multi-select */}
+   671→      {targetType === 'state' && (
+   672→        <Card className="border-0 shadow-sm">
+   673→          <CardContent className="p-3 space-y-2">
+   674→            <p className="text-[12px] font-semibold text-gray-700 flex items-center gap-1.5">
+   675→              <Globe className="w-3.5 h-3.5 text-violet-500" />
+   676→              Select States
+   677→              {selectedStates.length > 0 && (
+   678→                <Badge variant="secondary" className="ml-auto text-[11px] bg-violet-100 text-violet-700 border-violet-200">
+   679→                  {selectedStates.length} selected
+   680→                </Badge>
+   681→              )}
+   682→            </p>
+   683→            {filtersLoading ? (
+   684→              <div className="space-y-2">
+   685→                {Array.from({ length: 4 }).map((_, i) => (
+   686→                  <Skeleton key={i} className="h-9 w-full rounded-lg" />
+   687→                ))}
+   688→              </div>
+   689→            ) : !filters || filters.states.length === 0 ? (
+   690→              <p className="text-[12px] text-muted-foreground py-2 text-center">No states available</p>
+   691→            ) : (
+   692→              <div className="max-h-48 overflow-y-auto space-y-1">
+   693→                {filters.states.map((state) => {
+   694→                  const isSelected = selectedStates.includes(state);
+   695→                  return (
+   696→                    <button
+   697→                      key={state}
+   698→                      onClick={() => toggleState(state)}
+   699→                      className={cn(
+   700→                        'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] transition-colors text-left',
+   701→                        isSelected
+   702→                          ? 'bg-violet-50 border border-violet-200'
+   703→                          : 'hover:bg-gray-50 border border-transparent'
+   704→                      )}
+   705→                    >
+   706→                      <div className={cn(
+   707→                        'w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors',
+   708→                        isSelected
+   709→                          ? 'bg-violet-600 border-violet-600'
+   710→                          : 'border-gray-300 bg-white'
+   711→                      )}>
+   712→                        {isSelected && <Check className="w-3 h-3 text-white" />}
+   713→                      </div>
+   714→                      <span className={cn('truncate', isSelected ? 'text-violet-900 font-medium' : 'text-gray-700')}>
+   715→                        {state}
+   716→                      </span>
+   717→                    </button>
+   718→                  );
+   719→                })}
+   720→              </div>
+   721→            )}
+   722→            {selectedStates.length > 0 && (
+   723→              <div className="flex flex-wrap gap-1.5 pt-1">
+   724→                {selectedStates.map((state) => (
+   725→                  <span
+   726→                    key={state}
+   727→                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[11px] font-medium border border-violet-200"
+   728→                  >
+   729→                    {state}
+   730→                    <button onClick={() => toggleState(state)} className="hover:text-violet-900">
+   731→                      <X className="w-3 h-3" />
+   732→                    </button>
+   733→                  </span>
+   734→                ))}
+   735→              </div>
+   736→            )}
+   737→          </CardContent>
+   738→        </Card>
+   739→      )}
+   740→
+   741→      {/* Individual — search */}
+   742→      {targetType === 'individual' && (
+   743→        <Card className="border-0 shadow-sm">
+   744→          <CardContent className="p-3 space-y-2.5">
+   745→            <p className="text-[12px] font-semibold text-gray-700 flex items-center gap-1.5">
+   746→              <User className="w-3.5 h-3.5 text-violet-500" />
+   747→              Search Employees
+   748→              {selectedEmployees.length > 0 && (
+   749→                <Badge variant="secondary" className="ml-auto text-[11px] bg-violet-100 text-violet-700 border-violet-200">
+   750→                  {selectedEmployees.length} selected
+   751→                </Badge>
+   752→              )}
+   753→            </p>
+   754→
+   755→            {/* Selected employee chips above input */}
+   756→            {selectedEmployees.length > 0 && (
+   757→              <div className="flex flex-wrap gap-1.5">
+   758→                {selectedEmployees.map((emp) => (
+   759→                  <span
+   760→                    key={emp.id}
+   761→                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[11px] font-medium border border-violet-200"
+   762→                  >
+   763→                    {emp.full_name}
+   764→                    <button onClick={() => removeEmployee(emp.id)} className="hover:text-violet-900">
+   765→                      <X className="w-3 h-3" />
+   766→                    </button>
+   767→                  </span>
+   768→                ))}
+   769→              </div>
+   770→            )}
+   771→
+   772→            {/* Search input */}
+   773→            <div className="relative">
+   774→              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+   775→              <Input
+   776→                value={searchQuery}
+   777→                onChange={(e) => setSearchQuery(e.target.value)}
+   778→                placeholder="Search by name..."
+   779→                className="pl-9 h-9 text-[13px]"
+   780→              />
+   781→              {searchLoading && (
+   782→                <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-violet-500" />
+   783→              )}
+   784→            </div>
+   785→
+   786→            {/* Search results */}
+   787→            {searchResults.length > 0 && (
+   788→              <div className="border rounded-lg overflow-hidden divide-y max-h-52 overflow-y-auto">
+   789→                {searchResults.map((emp) => {
+   790→                  const alreadySelected = selectedEmployees.some((e) => e.id === emp.id);
+   791→                  return (
+   792→                    <button
+   793→                      key={emp.id}
+   794→                      onClick={() => !alreadySelected && addEmployee(emp)}
+   795→                      disabled={alreadySelected}
+   796→                      className={cn(
+   797→                        'w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors',
+   798→                        alreadySelected
+   799→                          ? 'bg-gray-50 opacity-60 cursor-not-allowed'
+   800→                          : 'hover:bg-violet-50'
+   801→                      )}
+   802→                    >
+   803→                      <div className="w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
+   804→                        <User className="w-4 h-4 text-violet-600" />
+   805→                      </div>
+   806→                      <div className="min-w-0 flex-1">
+   807→                        <p className="text-[13px] font-medium text-gray-900 truncate">{emp.full_name}</p>
+   808→                        <p className="text-[11px] text-muted-foreground truncate">
+   809→                          {emp.role && `${emp.role} · `}{emp.unit_name}{emp.client_name ? ` · ${emp.client_name}` : ''}
+   810→                        </p>
+   811→                      </div>
+   812→                      {alreadySelected ? (
+   813→                        <Check className="w-4 h-4 text-violet-500 shrink-0" />
+   814→                      ) : (
+   815→                        <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+   816→                      )}
+   817→                    </button>
+   818→                  );
+   819→                })}
+   820→              </div>
+   821→            )}
+   822→
+   823→            {!searchLoading && searchQuery.trim().length > 0 && searchResults.length === 0 && (
+   824→              <p className="text-[12px] text-muted-foreground text-center py-2">No employees found</p>
+   825→            )}
+   826→          </CardContent>
+   827→        </Card>
+   828→      )}
+   829→
+   830→      {/* ── Title input ── */}
+   831→      <Card className="border-0 shadow-sm">
+   832→        <CardContent className="p-3 space-y-1.5">
+   833→          <label htmlFor="notif-title" className="text-[12px] font-semibold text-gray-700">
+   834→            Title
+   835→          </label>
+   836→          <Input
+   837→            id="notif-title"
+   838→            value={title}
+   839→            onChange={(e) => setTitle(e.target.value)}
+   840→            placeholder="Notification title"
+   841→            className="text-[13px] h-10"
+   842→            maxLength={200}
+   843→          />
+   844→        </CardContent>
+   845→      </Card>
+   846→
+   847→      {/* ── Message textarea ── */}
+   848→      <Card className="border-0 shadow-sm">
+   849→        <CardContent className="p-3 space-y-1.5">
+   850→          <label htmlFor="notif-message" className="text-[12px] font-semibold text-gray-700">
+   851→            Message
+   852→          </label>
+   853→          <Textarea
+   854→            id="notif-message"
+   855→            value={message}
+   856→            onChange={(e) => setMessage(e.target.value)}
+   857→            placeholder="Write your notification message..."
+   858→            className="text-[13px] min-h-[120px] resize-none"
+   859→            rows={5}
+   860→            maxLength={5000}
+   861→          />
+   862→        </CardContent>
+   863→      </Card>
+   864→
+   865→      {/* ── Send button ── */}
+   866→      <Button
+   867→        className="w-full h-12 text-[15px] font-bold bg-violet-600 hover:bg-violet-700 text-white gap-2 shadow-lg rounded-xl"
+   868→        onClick={handleSend}
+   869→        disabled={!isFormValid || sending}
+   870→      >
+   871→        {sending ? (
+   872→          <Loader2 className="w-5 h-5 animate-spin" />
+   873→        ) : (
+   874→          <Send className="w-5 h-5" />
+   875→        )}
+   876→        {sending ? 'Sending...' : 'Send Notification'}
+   877→      </Button>
+   878→    </div>
+   879→  );
+   880→}
+   881→
+   882→// ══════════════════════════════════════════════════════════════
+   883→// Sent Tab
+   884→// ══════════════════════════════════════════════════════════════
+   885→
+   886→function SentTab() {
+   887→  const [broadcasts, setBroadcasts] = useState<BroadcastItem[]>([]);
+   888→  const [loading, setLoading] = useState(true);
+   889→  const [error, setError] = useState<string | null>(null);
+   890→
+   891→  const loadBroadcasts = useCallback(async () => {
+   892→    setLoading(true);
+   893→    setError(null);
+   894→    try {
+   895→      const { data, error: fetchError } = await unwrap(apiRequest<{ items: BroadcastItem[]; pagination: BroadcastPagination }>(
+   896→        '/ess/admin-notifications?view=broadcasts&page=1&limit=20'
+   897→      ));
+   898→      if (fetchError) {
+   899→        toast.error(fetchError);
+   900→        setError(fetchError);
+   901→        return;
+   902→      }
+   903→      setBroadcasts(data?.items ? (Array.isArray(data.items) ? data.items : []) : []);
+   904→    } catch (err) {
+   905→      logger.error('Failed to fetch broadcasts:', err);
+   906→      setError('Failed to load sent notifications');
+   907→      toast.error('Failed to load sent notifications');
+   908→    } finally {
+   909→      setLoading(false);
+   910→    }
+   911→  }, []);
+   912→
+   913→  useEffect(() => {
+   914→    loadBroadcasts();
+   915→  }, [loadBroadcasts]);
+   916→
+   917→  const pullRefresh = usePullToRefresh<HTMLDivElement>({
+   918→    onRefresh: loadBroadcasts,
+   919→  });
+   920→
+   921→  const pullRefreshProps = {
+   922→    ref: pullRefresh.containerRef,
+   923→    onTouchStart: pullRefresh.handleTouchStart,
+   924→    onTouchMove: pullRefresh.handleTouchMove,
+   925→    onTouchEnd: pullRefresh.handleTouchEnd,
+   926→  };
+   927→
+   928→  return (
+   929→    <div {...pullRefreshProps} className="flex flex-col gap-3" style={{ touchAction: 'pan-y' }}>
+   930→      {/* Pull-to-refresh indicator */}
+   931→      <div style={pullRefresh.pullIndicatorStyle} className="flex items-center justify-center">
+   932→        <Loader2 className={cn(
+   933→          'h-5 w-5 text-violet-500',
+   934→          (pullRefresh.isRefreshing || pullRefresh.pullDistance > 20) && 'animate-spin'
+   935→        )} />
+   936→      </div>
+   937→
+   938→      {loading ? (
+   939→        <div className="flex flex-col gap-3">
+   940→          {Array.from({ length: 3 }).map((_, i) => (
+   941→            <div key={i} className="rounded-xl border p-4 space-y-3">
+   942→              <div className="flex items-center justify-between">
+   943→                <Skeleton className="h-5 w-24" />
+   944→                <Skeleton className="h-5 w-16" />
+   945→              </div>
+   946→              <Skeleton className="h-5 w-3/4" />
+   947→              <Skeleton className="h-4 w-full" />
+   948→              <Skeleton className="h-4 w-2/3" />
+   949→              <div className="flex items-center justify-between pt-1">
+   950→                <Skeleton className="h-2.5 flex-1 max-w-[120px]" />
+   951→                <Skeleton className="h-4 w-20" />
+   952→              </div>
+   953→            </div>
+   954→          ))}
+   955→        </div>
+   956→      ) : error ? (
+   957→        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-8 text-center">
+   958→          <X className="h-10 w-10 text-destructive" />
+   959→          <p className="text-sm text-destructive">{error}</p>
+   960→          <Button variant="outline" size="sm" onClick={loadBroadcasts}>
+   961→            Retry
+   962→          </Button>
+   963→        </div>
+   964→      ) : broadcasts.length === 0 ? (
+   965→        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed p-10 text-center">
+   966→          <Inbox className="h-10 w-10 text-muted-foreground/50" />
+   967→          <div>
+   968→            <p className="font-medium text-muted-foreground">No notifications sent</p>
+   969→            <p className="text-sm text-muted-foreground/70">
+   970→              Notifications you send will appear here
+   971→            </p>
+   972→          </div>
+   973→        </div>
+   974→      ) : (
+   975→        <div className="flex flex-col gap-3">
+   976→          {broadcasts.map((item) => (
+   977→            <BroadcastCard key={item.broadcast_id} item={item} />
+   978→          ))}
+   979→        </div>
+   980→      )}
+   981→    </div>
+   982→  );
+   983→}
+   984→
+   985→// ══════════════════════════════════════════════════════════════
+   986→// Broadcast Card
+   987→// ══════════════════════════════════════════════════════════════
+   988→
+   989→function BroadcastCard({ item }: { item: BroadcastItem }) {
+   990→  const readPercent = Math.round(item.read_percent) || 0;
+   991→
+   992→  const timeAgo = (dateStr: string): string => {
+   993→    const now = new Date();
+   994→    const date = new Date(dateStr);
+   995→    const diffMs = now.getTime() - date.getTime();
+   996→    const diffSec = Math.floor(diffMs / 1000);
+   997→    const diffMin = Math.floor(diffSec / 60);
+   998→    const diffHr = Math.floor(diffMin / 60);
+   999→    const diffDay = Math.floor(diffHr / 24);
+  1000→
+  1001→    if (diffSec < 60) return 'Just now';
+  1002→    if (diffMin < 60) return `${diffMin}m ago`;
+  1003→    if (diffHr < 24) return `${diffHr}h ago`;
+  1004→    if (diffDay < 7) return `${diffDay}d ago`;
+  1005→    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  1006→  };
+  1007→
+  1008→  const progressColor = readPercent >= 80
+  1009→    ? 'bg-emerald-500'
+  1010→    : readPercent >= 50
+  1011→      ? 'bg-amber-500'
+  1012→      : readPercent > 0
+  1013→        ? 'bg-violet-500'
+  1014→        : 'bg-gray-300';
+  1015→
+  1016→  return (
+  1017→    <div className="rounded-xl border bg-card p-4 transition-colors hover:bg-accent/30">
+  1018→      {/* Title + target badge */}
+  1019→      <div className="flex items-start justify-between gap-2 mb-1.5">
+  1020→        <h3 className="font-semibold text-[13px] text-gray-900 leading-snug line-clamp-1">
+  1021→          {item.title}
+  1022→        </h3>
+  1023→        <Badge
+  1024→          variant="outline"
+  1025→          className="shrink-0 text-[10px] bg-violet-50 text-violet-700 border-violet-200"
+  1026→        >
+  1027→          {item.target_label}
+  1028→        </Badge>
+  1029→      </div>
+  1030→
+  1031→      {/* Message (truncated) */}
+  1032→      <p className="text-[12px] text-muted-foreground leading-relaxed line-clamp-2 mb-3">
+  1033→        {item.message}
+  1034→      </p>
+  1035→
+  1036→      {/* Read progress bar */}
+  1037→      <div className="flex items-center gap-2.5 mb-2.5">
+  1038→        <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
+  1039→          <div
+  1040→            className={cn('h-full rounded-full transition-all', progressColor)}
+  1041→            style={{ width: `${Math.min(readPercent, 100)}%` }}
+  1042→          />
+  1043→        </div>
+  1044→        <span className="text-[11px] font-semibold text-gray-500 tabular-nums shrink-0">
+  1045→          {readPercent}%
+  1046→        </span>
+  1047→      </div>
+  1048→
+  1049→      {/* Meta: recipients, read count, time */}
+  1050→      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+  1051→        <div className="flex items-center gap-3">
+  1052→          <span className="flex items-center gap-1">
+  1053→            <Users className="w-3 h-3" />
+  1054→            {item.total_recipients}
+  1055→          </span>
+  1056→          <span className="flex items-center gap-1">
+  1057→            <Eye className="w-3 h-3" />
+  1058→            {item.read_count}
+  1059→          </span>
+  1060→        </div>
+  1061→        <span className="flex items-center gap-1">
+  1062→          <Clock className="w-3 h-3" />
+  1063→          {timeAgo(item.created_at)}
+  1064→        </span>
+  1065→      </div>
+  1066→    </div>
+  1067→  );
+  1068→}

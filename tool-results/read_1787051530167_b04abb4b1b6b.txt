@@ -1,0 +1,514 @@
+   415→                            'entry/leave-entry'     => 'Leave Entry',
+   416→                            'entry/muster-entry'    => 'Muster Entry',
+   417→                            'entry/overtime-entry'  => 'Overtime Entry',
+   418→                            'entry/quick-salary'    => 'Quick Salary',
+   419→                            // Employee
+   420→                            'employee/add'      => 'Add Employee',
+   421→                            'employee/edit'     => 'Edit Employee',
+   422→                            'employee/view'     => 'View Employee',
+   423→                            'employee/list'     => 'Employee List',
+   424→                            'employee/import'   => 'Import Employees',
+   425→                            'employee/bulk-edit'=> 'Bulk Edit',
+   426→                            'employee/documents'=> 'Documents',
+   427→                            'employee/id-card'  => 'ID Card',
+   428→                            'employee/id-card-fixed' => 'ID Card',
+   429→                            'employee/designation'=> 'Designations',
+   430→                            'employee/run-designation-migration'=> 'Run Designation Migration',
+   431→                            'employee/esic-import'=> 'Import ESIC IP Data',
+   432→                            'employee/change-requests'=> 'Change Requests',
+   433→                            'employee/data-sync' => 'Data Matching',
+   434→                            // Attendance
+   435→                            'attendance/add'    => 'Add Attendance',
+   436→                            'attendance/upload' => 'Upload Attendance',
+   437→                            'attendance/view'   => 'View Attendance',
+   438→                            'attendance/report' => 'Attendance Report',
+   439→                            // Payroll
+   440→                            'payroll/process-edit' => 'Payroll Entry',
+   441→                            'payroll/payslips'     => 'Payslips',
+   442→                            'payroll/print_payslip'=> 'Print Payslip',
+   443→                            'payroll/print_payslips'=> 'Print Payslips',
+   444→                            'payroll/bank-advice'  => 'Bank Advice',
+   445→                            'payroll/bonus'        => 'Bonus Calculation',
+   446→                            'payroll/arrears'      => 'Arrear Calculation',
+   447→                            'payroll/salary-revision'=> 'Salary Revision',
+   448→                            'payroll/view'         => 'View Payroll',
+   449→                            // Expense
+   450→                            'expense/approvals'    => 'Approvals',
+   451→                            'expense/dashboard'    => 'Expense Overview',
+   452→                            'expense/reports'      => 'Expense Reports',
+   453→                            'expense/ledger'       => 'Manager Ledger',
+   454→                            'expense/allocations'  => 'Advance Allocation',
+   455→                            'expense/allocate'     => 'Allocate Budget',
+   456→                            'expense/expense-setup'=> 'Expense Setup',
+   457→                            // Compliance
+   458→                            'compliance/dashboard' => 'Compliance Dashboard',
+   459→                            'compliance/calendar'  => 'Compliance Calendar',
+   460→                            'compliance/filings'   => 'Filings',
+   461→                            'compliance/add_filing'=> 'Add Filing',
+   462→                            'compliance/pf'        => 'PF Compliance',
+   463→                            'compliance/esi'       => 'ESI Compliance',
+   464→                            'compliance/pt'        => 'PT Compliance',
+   465→                            'compliance/ecr'       => 'ECR Filing',
+   466→                            'compliance/esi-return'=> 'ESI Return',
+   467→                            'compliance/pt-challan'=> 'PT Challan',
+   468→                            'compliance/minimum-wage-check'=> 'Min Wage Check',
+   469→                            'compliance/minimum-wages'=> 'Minimum Wages',
+   470→                            'compliance/minimum-wage-sync'=> 'Wage Sync',
+   471→                            // Leave
+   472→                            'leave/apply'      => 'Apply Leave',
+   473→                            'leave/balance'    => 'Leave Balance',
+   474→                            // Helpdesk
+   475→                            'helpdesk/add'     => 'New Ticket',
+   476→                            'helpdesk/list'    => 'Ticket List',
+   477→                            // Settlement
+   478→                            'settlement/list'  => 'Settlements',
+   479→                            'settlement/view'  => 'View Settlement',
+   480→                            // Notifications
+   481→                            'notifications/announcements'=> 'Announcements',
+   482→                            'notifications/bulk-email'   => 'Bulk Email',
+   483→                            'notifications/center'       => 'Notification Center',
+   484→                            'notifications/whatsapp'      => 'WhatsApp',
+   485→                            // Settings
+   486→                            'settings/company'   => 'Company Profile',
+   487→                            'settings/users'     => 'User Management',
+   488→                            'settings/roles'     => 'Roles & Permissions',
+   489→                            'settings/holidays'  => 'Holiday Calendar',
+   490→                            'settings/manager-allocation'=> 'Manager Allocation',
+   491→                            'settings/statutory' => 'Statutory Settings',
+   492→                            'settings/notifications'=> 'Notification Settings',
+   493→                            'settings/payslip-templates'=> 'Payslip Templates',
+   494→                            'settings/image-tool'=> 'Image Editor',
+   495→                            'settings/image-tool-lite'=> 'Image Editor Lite',
+   496→                            // Forms (root level)
+   497→                            'forms/nomination'        => 'Nomination Forms',
+   498→                            'forms/nomination_pf'     => 'PF Nomination',
+   499→                            'forms/nomination_esi'    => 'ESI Nomination',
+   500→                            'forms/nomination_gratuity'=> 'Gratuity Nomination',
+   501→                            'forms/appointment'       => 'Appointment Letter',
+   502→                            'forms/experience'        => 'Experience Letter',
+   503→                            'forms/relieving'         => 'Relieving Letter',
+   504→                            'forms/service_certificate'=> 'Service Certificate',
+   505→                            'forms/form-f2'           => 'Form F2',
+   506→                            'forms/form-v'            => 'Form V',
+   507→                            'forms/form-xvii'         => 'Form XVII',
+   508→                            'forms/form-xvi'          => 'Form XVI',
+   509→                            // Forms > Labour
+   510→                            'forms/labour/form-iv'   => 'Form IV',
+   511→                            'forms/labour/form-v'    => 'Form V',
+   512→                            'forms/labour/form-xvi'  => 'Form XVI',
+   513→                            'forms/labour/form-xvii'=> 'Form XVII',
+   514→                            'forms/labour/form-xix'  => 'Form XIX',
+   515→                            'forms/labour/form-xx'   => 'Form XX',
+   516→                            'forms/labour/form-xxi'  => 'Form XXI',
+   517→                            'forms/labour/form-xxii' => 'Form XXII',
+   518→                            'forms/labour/form-13'   => 'Form 13',
+   519→                            'forms/labour/form-15'   => 'Form 15',
+   520→                            'forms/labour/index'     => 'Labour Forms (CLRA)',
+   521→                            'forms/labour/form-24'   => 'Form 24',
+   522→                            'forms/labour/form-25'   => 'Form 25',
+   523→                            'forms/labour/form-32'   => 'Form 32',
+   524→                            'forms/labour/annexure-a'=> 'Annexure A',
+   525→                            'forms/labour/employment-card'=> 'Employment Card',
+   526→                            // Report (root level)
+   527→                            'report/payroll'       => 'Payroll Reports',
+   528→                            'report/employee'      => 'Employee Reports',
+   529→                            'report/attendance'    => 'Attendance Reports',
+   530→                            'report/compliance'    => 'Compliance Reports',
+   531→                            'report/custom'        => 'Custom Reports',
+   532→                            'report/summary-reports'=> 'Summary Reports',
+   533→                            'report/mis/index'   => 'MIS Reports',
+   534→                            'report/salary-register'=> 'Salary Register',
+   535→                            'report/department-salary-register'=> 'Dept Salary Register',
+   536→                            'report/bonus-register'=> 'Bonus Register',
+   537→                            'report/leave-register'=> 'Leave Register',
+   538→                            'report/stipend-register'=> 'Stipend Register',
+   539→                            'report/muster-roll'   => 'Muster Roll',
+   540→                            'report/payroll'       => 'Payroll Reports',
+   541→                            'report/lwf-report'    => 'LWF Report',
+   542→                            'report/form-er1'      => 'Form ER-1',
+   543→                            'report/gratuity-form-f'=> 'Gratuity Form F',
+   544→                            'report/pf/index'    => 'PF Reports',
+   545→                            'report/esi/index'   => 'ESI Reports',
+   546→                            // Gumastadhara
+   547→                            'report/gumastadhara-salary-register'=> 'Gumastadhara Salary',
+   548→                            'report/gumastadhara-ot-register'    => 'Gumastadhara OT Register',
+   549→                            'report/gumastadhara-muster-roll'    => 'Gumastadhara Muster Roll',
+   550→                            'report/gumastadhara-form-d'         => 'Gumastadhara Form D',
+   551→                            'report/gumastadhara-fine-register'  => 'Gumastadhara Fine Register',
+   552→                            // Report > PF
+   553→                            'report/pf/form-5'       => 'Form 5',
+   554→                            'report/pf/form-9'       => 'Form 9',
+   555→                            'report/pf/form-10'      => 'Form 10',
+   556→                            'report/pf/form-10c'     => 'Form 10C',
+   557→                            'report/pf/form-12a'     => 'Form 12A',
+   558→                            'report/pf/form-13'      => 'Form 13',
+   559→                            'report/pf/form-19'      => 'Form 19',
+   560→                            'report/pf/form-2-revised'=> 'Form 2 Revised',
+   561→                            'report/pf/cover-exempt' => 'Cover & Exempt',
+   562→                            'report/pf/dues-remitted'=> 'Dues & Remitted',
+   563→                            // Report > ESI
+   564→                            'report/esi/form-3'       => 'Form 3',
+   565→                            'report/esi/form-5'       => 'Form 5',
+   566→                            'report/esi/cover-exempt' => 'Cover & Exempt',
+   567→                            'report/esi/rcc-report'   => 'RCC Report',
+   568→                            'report/esi/inspection-report'=> 'Inspection Report',
+   569→                            // Report > MIS
+   570→                            'report/mis/form-16'          => 'Form 16',
+   571→                            'report/mis/salary-certificate'=> 'Salary Certificate',
+   572→                            'report/mis/loan-ledger'      => 'Loan Ledger',
+   573→                            'report/mis/cheque-print'     => 'Cheque Print',
+   574→                            'report/mis/advance-report'   => 'Advance Report',
+   575→                            'report/mis/increment-report' => 'Increment Report',
+   576→                            'report/mis/employee-entry-form'=> 'Employee Entry Form',
+   577→                            // Report > PT
+   578→                            'report/pt/form-5'      => 'PT Form 5',
+   579→                            'report/pt/index'      => 'PT Reports',
+   580→                            'report/pt/summary'     => 'PT Summary',
+   581→                            'report/pt/employee-wise'=> 'PT Employee Wise',
+   582→                            // Advance
+   583→                            'attendance/add'  => 'Add Attendance',
+   584→                            'advance/index'=> 'Advance',
+   585→                            // Client
+   586→                            'client/list' => 'Client List',
+   587→                            // Contract
+   588→                            'contract/add'  => 'Add Contract',
+   589→                            'contract/list' => 'Contract List',
+   590→                            // Billing
+   591→                            'billing/create'    => 'Create Invoice',
+   592→                            'billing/edit'      => 'Edit Invoice',
+   593→                            'billing/view'      => 'View Invoice',
+   594→                            'billing/print'     => 'Print Invoice',
+   595→                            'billing/gst-invoice'=> 'GST Invoice',
+   596→                            'billing/list'      => 'Invoice List',
+   597→                            // Recruitment
+   598→                            'recruitment/add'  => 'Add Candidate',
+   599→                            'recruitment/list' => 'Recruitment List',
+   600→                            // Announcement
+   601→                            'announcement/add'  => 'Add Announcement',
+   602→                            'announcement/list' => 'Announcement List',
+   603→                            // Requisition
+   604→                            'requisition/add'  => 'Add Requisition',
+   605→                            'requisition/list' => 'Requisition List',
+   606→                            // Deployment
+   607→                            'deployment/add'  => 'Add Deployment',
+   608→                            'deployment/list' => 'Deployment List',
+   609→                            // Ratecard
+   610→                            'ratecard/add'  => 'Add Rate Card',
+   611→                            'ratecard/list' => 'Rate Card List',
+   612→                            // Timesheet
+   613→                            'timesheet/create' => 'Create Timesheet',
+   614→                            'timesheet/list'   => 'Timesheet List',
+   615→                            // Loan
+   616→                            'loan/list' => 'Loan List',
+   617→                            'loan/view' => 'View Loan',
+   618→                            // Assets
+   619→                            'assets/list'  => 'Asset List',
+   620→                            'assets/issue' => 'Issue Asset',
+   621→                            // Audit
+   622→                            'audit/list' => 'Audit Log',
+   623→                            // Bulk upload
+   624→                            'bulk-upload/salary' => 'Bulk Salary Upload',
+   625→                        ];
+   626→
+   627→                        // Module index page routes (where clicking module name should go)
+   628→                        $bcModuleIndex = [
+   629→                            'dashboard'   => 'dashboard',
+   630→                            'employee'    => 'employee/index',
+   631→                            'client'      => 'client/index',
+   632→                            'attendance'  => 'attendance/index',
+   633→                            'advance'     => 'advance/index',
+   634→                            'expense'     => 'expense/index',
+   635→                            'entry'       => 'entry/index',
+   636→                            'payroll'     => 'payroll/index',
+   637→                            'compliance'  => 'compliance/index',
+   638→                            'forms'       => 'forms/index',
+   639→                            'assets'      => 'assets/index',
+   640→                            'helpdesk'    => 'helpdesk/index',
+   641→                            'leave'       => 'leave/index',
+   642→                            'report'      => 'report/index',
+   643→                            'settlement'  => 'settlement/list',
+   644→                            'notifications'=> 'notifications/index',
+   645→                            'settings'    => 'settings/index',
+   646→                        ];
+   647→
+   648→                        // Build breadcrumb trail
+   649→                        $breadcrumbs = [];
+   650→
+   651→                        if ($bcModule === 'dashboard') {
+   652→                            // Dashboard - no extra crumbs
+   653→                            $breadcrumbs[] = ['label' => 'Dashboard', 'link' => null, 'active' => true];
+   654→                        } else {
+   655→                            // Add parent menu crumb if module has a parent in new structure
+   656→                            if (isset($bcParentMenu[$bcModule])) {
+   657→                                $parentInfo = $bcParentMenu[$bcModule];
+   658→                                // Only add parent if it differs from the module's own label
+   659→                                $modOwnLabel = $bcModules[$bcModule] ?? '';
+   660→                                if ($parentInfo['label'] !== $modOwnLabel) {
+   661→                                    $breadcrumbs[] = ['label' => $parentInfo['label'], 'link' => $parentInfo['link'], 'active' => false];
+   662→                                }
+   663→                            }
+   664→
+   665→                            // Add module crumb (clickable)
+   666→                            $modLabel = $bcModules[$bcModule] ?? ucfirst(str_replace('-', ' ', $bcModule));
+   667→                            $modLink = $bcModuleIndex[$bcModule] ?? $bcModule;
+   668→                            $breadcrumbs[] = ['label' => $modLabel, 'link' => 'index.php?page=' . $modLink, 'active' => false];
+   669→
+   670→                            if (count($bcParts) >= 3) {
+   671→                                // Has sub-folder (e.g., forms/labour/form-13)
+   672→                                $bcSub = $bcModule . '/' . $bcParts[1];
+   673→                                $subLabel = $bcSubfolders[$bcSub] ?? ucfirst(str_replace(['-', '_'], ' ', $bcParts[1]));
+   674→
+   675→                                // Check if sub-folder has an index page
+   676→                                $subIndexPath = dirname(__FILE__) . '/../modules/' . $bcSub . '/index.php';
+   677→                                $subLink = (file_exists($subIndexPath)) ? 'index.php?page=' . $bcSub . '/index' : null;
+   678→
+   679→                                // Don't add sub-folder as separate crumb if the page itself is in the mapping
+   680→                                // (it would be redundant with the final crumb)
+   681→                                $fullPageKey = implode('/', $bcParts);
+   682→                                if (!isset($bcPages[$fullPageKey]) && $subLink) {
+   683→                                    $breadcrumbs[] = ['label' => $subLabel, 'link' => $subLink, 'active' => false];
+   684→                                } elseif (!$subLink) {
+   685→                                    // No index page for sub-folder, show as active (non-clickable)
+   686→                                    $breadcrumbs[] = ['label' => $subLabel, 'link' => null, 'active' => true];
+   687→                                }
+   688→                            }
+   689→
+   690→                            // Add final page crumb
+   691→                            $fullPageKey = implode('/', $bcParts);
+   692→                            $bcPart2 = $bcParts[1] ?? null;
+   693→                            if ($bcPart2 && $bcPart2 !== 'index' && isset($bcPages[$fullPageKey])) {
+   694→                                $breadcrumbs[] = ['label' => $bcPages[$fullPageKey], 'link' => null, 'active' => true];
+   695→                            } elseif ($bcPart2 === 'index' || (count($bcParts) === 1 && $bcModule !== 'dashboard')) {
+   696→                                // On module index page, mark module as active
+   697→                                $breadcrumbs[count($breadcrumbs)-1]['active'] = true;
+   698→                                $breadcrumbs[count($breadcrumbs)-1]['link'] = null;
+   699→                            } elseif (!isset($bcPages[$fullPageKey])) {
+   700→                                // File not in mapping — generate label from filename
+   701→                                $fileName = end($bcParts);
+   702→                                $fileLabel = str_replace(['-', '_'], ' ', pathinfo($fileName, PATHINFO_FILENAME));
+   703→                                $fileLabel = ucwords($fileLabel);
+   704→                                // Clean up common prefixes
+   705→                                $fileLabel = preg_replace('/^Form\s*/i', 'Form ', $fileLabel);
+   706→                                $breadcrumbs[] = ['label' => $fileLabel, 'link' => null, 'active' => true];
+   707→                            }
+   708→                        }
+   709→
+   710→                        // Render breadcrumbs
+   711→                        foreach ($breadcrumbs as $crumb):
+   712→                            if ($crumb['active']):
+   713→                        ?>
+   714→                                <li class="breadcrumb-item active" aria-current="page"><?= htmlspecialchars($crumb['label']) ?></li>
+   715→                            <?php else: ?>
+   716→                                <li class="breadcrumb-item"><a href="<?= htmlspecialchars($crumb['link'] ?? '#') ?>"><?= htmlspecialchars($crumb['label']) ?></a></li>
+   717→                        <?php
+   718→                            endif;
+   719→                        endforeach;
+   720→                        ?>
+   721→                    </ol>
+   722→                </nav>
+   723→            </div>
+   724→            
+   725→            <div class="topbar-right">
+   726→                <!-- Language Selector -->
+   727→                <div class="topbar-item dropdown">
+   728→                    <a href="#" class="topbar-link" data-bs-toggle="dropdown">
+   729→                        <i class="bi bi-translate"></i>
+   730→                    </a>
+   731→                    <ul class="dropdown-menu dropdown-menu-end">
+   732→                        <li><a class="dropdown-item" href="?lang=en">English</a></li>
+   733→                        <li><a class="dropdown-item" href="?lang=hi">हिंदी</a></li>
+   734→                    </ul>
+   735→                </div>
+   736→                
+   737→                <!-- Pending Employees Alert (separate count) -->
+   738→                <?php
+   739→                try {
+   740→                    $pendingStmt = $db->query("SELECT COUNT(*) as count FROM employees WHERE status LIKE 'pending%'");
+   741→                    $pendingEmpCountTop = (int)$pendingStmt->fetch(PDO::FETCH_ASSOC)['count'];
+   742→                    if ($pendingEmpCountTop > 0):
+   743→                ?>
+   744→                <div class="topbar-item">
+   745→                    <a href="index.php?page=employee/list&status=pending" class="topbar-link text-warning" title="Pending Employee Approvals">
+   746→                        <i class="bi bi-person-plus-fill"></i>
+   747→                        <span class="notification-badge" style="background:#ffc107; color:#000;"><?php echo $pendingEmpCountTop; ?></span>
+   748→                    </a>
+   749→                </div>
+   750→                <?php
+   751→                    endif;
+   752→                } catch (Exception $e) {}
+   753→                ?>
+   754→
+   755→                <!-- Notification Bell + Announcement Unread Count -->
+   756→                <div class="topbar-item dropdown">
+   757→                    <a href="#" class="topbar-link" data-bs-toggle="dropdown">
+   758→                        <i class="bi bi-bell"></i>
+   759→                        <?php
+   760→                        $totalNotifCount = 0;
+   761→                        $annUnreadTop = 0;
+   762→                        $headerRole = $_SESSION['role_code'] ?? '';
+   763→                        $headerUid = $_SESSION['user_id'] ?? '';
+   764→                        // Build scope filter for header queries
+   765→                        if ($headerRole === 'admin') {
+   766→                            $headerScopeWhere = '';
+   767→                            $headerScopeParams = [];
+   768→                        } elseif (in_array($headerRole, ['manager', 'regional_manager'])) {
+   769→                            $headerScopeWhere = "AND (a.target_scope = 'all' OR a.target_scope = 'managers' OR a.created_by = :selfid)";
+   770→                            $headerScopeParams = [':selfid' => $headerUid];
+   771→                        } else {
+   772→                            $headerScopeWhere = "AND (a.target_scope = 'all' OR a.created_by = :selfid)";
+   773→                            $headerScopeParams = [':selfid' => $headerUid];
+   774→                        }
+   775→                        try {
+   776→                            // Unread notifications count
+   777→                            $notifStmt = $db->prepare("SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0");
+   778→                            $notifStmt->execute([$_SESSION['user_id']]);
+   779→                            $totalNotifCount = (int)$notifStmt->fetch(PDO::FETCH_ASSOC)['count'];
+   780→
+   781→                            // Unread announcements count (scope-filtered)
+   782→                            $annUnreadTop = (int)$db->fetchColumn(
+   783→                                "SELECT COUNT(*) FROM ess_announcements a LEFT JOIN ess_announcement_reads r ON a.id = r.announcement_id AND r.user_id = :uid WHERE r.id IS NULL $headerScopeWhere",
+   784→                                array_merge([':uid' => $headerUid], $headerScopeParams)
+   785→                            ) ?: 0;
+   786→                            $totalNotifCount += $annUnreadTop;
+   787→                        } catch (Exception $e) {}
+   788→
+   789→                        if ($totalNotifCount > 0):
+   790→                        ?>
+   791→                            <span class="notification-badge"><?php echo $totalNotifCount; ?></span>
+   792→                        <?php endif; ?>
+   793→                    </a>
+   794→                    <div class="dropdown-menu dropdown-menu-end notification-dropdown" style="min-width: 340px; max-height: 420px; overflow-y: auto;">
+   795→                        <h6 class="dropdown-header d-flex justify-content-between align-items-center">
+   796→                            <span>Notifications</span>
+   797→                            <?php if ($annUnreadTop > 0): ?>
+   798→                            <a href="index.php?page=notifications/announcements&mark_all_read=1" class="text-primary small text-decoration-none">Mark All Read</a>
+   799→                            <?php endif; ?>
+   800→                        </h6>
+   801→
+   802→                        <?php
+   803→                        // Show unread announcements first (scope-filtered)
+   804→                        $recentAnnouncements = [];
+   805→                        try {
+   806→                            $annStmt = $db->prepare("
+   807→                                SELECT a.*, COALESCE(e.full_name, CONCAT(u.first_name, ' ', u.last_name), a.created_by) AS creator_name
+   808→                                FROM ess_announcements a
+   809→                                LEFT JOIN ess_announcement_reads r ON a.id = r.announcement_id AND r.user_id = :uid
+   810→                                LEFT JOIN ess_employee_cache e ON a.created_by = e.employee_id
+   811→                                LEFT JOIN users u ON a.created_by = CAST(u.id AS CHAR COLLATE utf8mb4_unicode_ci)
+   812→                                WHERE r.id IS NULL $headerScopeWhere
+   813→                                ORDER BY FIELD(a.priority, 'urgent', 'high', 'normal', 'low'), a.created_at DESC
+   814→                                LIMIT 5
+   815→                            ");
+   816→                            $annStmt->execute(array_merge([':uid' => $headerUid], $headerScopeParams));
+   817→                            $recentAnnouncements = $annStmt->fetchAll(PDO::FETCH_ASSOC);
+   818→                        } catch (Exception $e) {}
+   819→
+   820→                        if (!empty($recentAnnouncements)):
+   821→                            foreach ($recentAnnouncements as $ann):
+   822→                        ?>
+   823→                        <a href="index.php?page=notifications/announcements" class="dropdown-item notification-item unread">
+   824→                            <div class="d-flex align-items-start">
+   825→                                <i class="bi bi-megaphone-fill text-primary me-2 mt-1"></i>
+   826→                                <div class="flex-grow-1">
+   827→                                    <div class="notification-title">
+   828→                                        <strong><?php echo sanitize($ann['title']); ?></strong>
+   829→                                        <?php if ($ann['priority'] === 'urgent'): ?><span class="badge bg-danger ms-1">Urgent</span><?php endif; ?>
+   830→                                        <?php if ($ann['priority'] === 'high'): ?><span class="badge bg-warning text-dark ms-1">High</span><?php endif; ?>
+   831→                                    </div>
+   832→                                    <div class="notification-time small text-muted">
+   833→                                        <?php echo htmlspecialchars($ann['creator_name'] ?? 'Admin'); ?> &bull; <?php echo date('d M H:i', strtotime($ann['created_at'])); ?>
+   834→                                    </div>
+   835→                                </div>
+   836→                                <span class="badge bg-primary rounded-pill ms-1" style="font-size:10px;">New</span>
+   837→                            </div>
+   838→                        </a>
+   839→                        <?php endforeach; ?>
+   840→                        <div class="dropdown-divider"></div>
+   841→                        <?php endif; ?>
+   842→
+   843→                        <?php
+   844→                        // Show other notifications
+   845→                        try {
+   846→                            $notifStmt = $db->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 5");
+   847→                            $notifStmt->execute([$_SESSION['user_id']]);
+   848→                            $notifications = $notifStmt->fetchAll(PDO::FETCH_ASSOC);
+   849→
+   850→                            foreach ($notifications as $notif):
+   851→                        ?>
+   852→                        <a href="<?php echo $notif['link'] ?? '#'; ?>" class="dropdown-item notification-item <?php echo $notif['is_read'] ? '' : 'unread'; ?>">
+   853→                            <div class="notification-title"><?php echo sanitize($notif['title']); ?></div>
+   854→                            <div class="notification-time"><?php echo date('d M H:i', strtotime($notif['created_at'])); ?></div>
+   855→                        </a>
+   856→                        <?php
+   857→                            endforeach;
+   858→                        } catch (Exception $e) {}
+   859→
+   860→                        // If no notifications at all
+   861→                        if (empty($recentAnnouncements) && empty($notifications)):
+   862→                        ?>
+   863→                            <div class="dropdown-item text-muted text-center py-3">
+   864→                                <i class="bi bi-bell-slash d-block fs-4 mb-2"></i>
+   865→                                No new notifications
+   866→                            </div>
+   867→                        <?php endif; ?>
+   868→
+   869→                        <div class="dropdown-divider"></div>
+   870→                        <div class="d-flex gap-2">
+   871→                            <?php if ($annUnreadTop > 0): ?>
+   872→                            <a href="index.php?page=notifications/announcements" class="dropdown-item text-center text-primary flex-grow-1">
+   873→                                <i class="bi bi-megaphone me-1"></i>All Announcements (<?php echo $annUnreadTop; ?>)
+   874→                            </a>
+   875→                            <?php endif; ?>
+   876→                            <a href="index.php?page=notifications" class="dropdown-item text-center text-primary flex-grow-1">
+   877→                                <i class="bi bi-eye me-1"></i>View All
+   878→                            </a>
+   879→                        </div>
+   880→                    </div>
+   881→                </div>
+   882→                
+   883→                <!-- User Menu -->
+   884→                <div class="topbar-item dropdown">
+   885→                    <a href="#" class="topbar-link user-menu" data-bs-toggle="dropdown">
+   886→                        <div class="user-avatar">
+   887→                            <?php echo substr($_SESSION['first_name'] ?? 'U', 0, 1); ?>
+   888→                        </div>
+   889→                        <span class="user-name d-none d-md-inline">
+   890→                            <?php echo sanitize($_SESSION['first_name'] ?? 'User'); ?>
+   891→                        </span>
+   892→                        <i class="bi bi-chevron-down"></i>
+   893→                    </a>
+   894→                    <ul class="dropdown-menu dropdown-menu-end">
+   895→                        <li class="dropdown-header">
+   896→                            <div class="user-info">
+   897→                                <strong><?php echo sanitize($_SESSION['first_name'] . ' ' . $_SESSION['last_name']); ?></strong>
+   898→                                <small><?php echo sanitize($_SESSION['role_name']); ?></small>
+   899→                            </div>
+   900→                        </li>
+   901→                        <li><hr class="dropdown-divider"></li>
+   902→                        <li><a class="dropdown-item" href="index.php?page=profile"><i class="bi bi-person me-2"></i>My Profile</a></li>
+   903→                        <li><a class="dropdown-item" href="index.php?page=profile/settings"><i class="bi bi-gear me-2"></i>Settings</a></li>
+   904→                        <li><hr class="dropdown-divider"></li>
+   905→                        <li><a class="dropdown-item text-danger" href="index.php?page=auth/logout"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
+   906→                    </ul>
+   907→                </div>
+   908→            </div>
+   909→        </nav>
+   910→        
+   911→        <!-- Page Content -->
+   912→        <div class="page-content">
+   913→    <?php else: ?>
+   914→    <!-- Non-authenticated page content -->
+   915→    <div class="login-wrapper">
+   916→    <?php endif; ?>
+   917→    
+   918→    <!-- Flash Messages -->
+   919→    <?php 
+   920→    $flash = getFlash();
+   921→    if ($flash):
+   922→    ?>
+   923→        <div class="alert alert-<?php echo $flash['type'] === 'error' ? 'danger' : $flash['type']; ?> alert-dismissible fade show" role="alert">
+   924→            <?php echo sanitize($flash['message']); ?>
+   925→            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+   926→        </div>
+   927→    <?php endif; ?>
+   928→

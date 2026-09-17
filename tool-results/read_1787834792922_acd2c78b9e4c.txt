@@ -1,0 +1,2002 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS - Expense Management (Single Page)
+     4→ * Modern UI with tabs: Dashboard, Add Advance, Add Expense, Approvals, Reports
+     5→ * Route: index.php?page=expense/dashboard
+     6→ */
+     7→
+     8→if (!isset($db) || !is_object($db)) { header("Location: index.php"); exit; }
+     9→
+    10→$pageTitle = 'Expense Management';
+    11→require_once __DIR__ . '/expense-setup.php';
+    12→// xlsx_reader still available if needed but CSV is primary format now
+    13→
+    14→$baseUrl = 'index.php?page=expense/dashboard';
+    15→$activeTab = sanitize($_GET['tab'] ?? 'dashboard');
+    16→if (!in_array($activeTab, ['dashboard','advance','expense','approvals','reports','upload'])) $activeTab = 'dashboard';
+    17→// Report sub-tabs
+    18→$rptSub = sanitize($_GET['rpt_sub'] ?? 'monthly');
+    19→if (!in_array($rptSub, ['monthly','yearly','ledger','category','pending','top','stats','trend','emp_adv','bill'])) $rptSub = 'monthly';
+    20→
+    21→// Shared data
+    22→$currentYear = (int)date('Y');
+    23→$currentMonth = (int)prev_month_num();
+    24→$monthNames = [1=>'January',2=>'February',3=>'March',4=>'April',5=>'May',6=>'June',7=>'July',8=>'August',9=>'September',10=>'October',11=>'November',12=>'December'];
+    25→$monthShort = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',7=>'Jul',8=>'Aug',9=>'Sep',10=>'Oct',11=>'Nov',12=>'Dec'];
+    26→
+    27→// ============================================================================
+    28→// POST HANDLERS
+    29→// ============================================================================
+    30→
+    31→if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    32→    // CSRF check (Round 9)
+    33→    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+    34→        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+    35→        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    36→    }
+    37→    $action = sanitize($_POST['action']);
+    38→
+    39→    // ── Allocate Advance ──────────────────────────────────────────
+    40→    if ($action === 'allocate_advance') {
+    41→        $manager_id = sanitize(trim($_POST['manager_id'] ?? ''));
+    42→        $amount     = round(floatval($_POST['amount'] ?? 0), 2);
+    43→        $remarks    = sanitize(trim($_POST['remarks'] ?? ''));
+    44→        $allocMonth = (int)($_POST['alloc_month'] ?? 0);
+    45→        $allocYear  = (int)($_POST['alloc_year'] ?? 0);
+    46→        $allocDate  = sanitize($_POST['alloc_date'] ?? '');
+    47→        if ($manager_id && $amount > 0 && $allocMonth >= 1 && $allocMonth <= 12 && $allocYear >= 2000) {
+    48→            // ── Calculate carry-forward from previous month ──
+    49→            $carryForward = 0;
+    50→            $prevMonth = $allocMonth - 1; $prevYear = $allocYear;
+    51→            if ($prevMonth < 1) { $prevMonth = 12; $prevYear--; }
+    52→            try {
+    53→                $prevAlloc = (float)$db->fetchColumn(
+    54→                    "SELECT COALESCE(SUM(amount + COALESCE(carry_forward_amount,0)),0) FROM manager_advance_allocations WHERE manager_id=:m AND month=:mo AND year=:yr",
+    55→                    ['m'=>$manager_id,'mo'=>$prevMonth,'yr'=>$prevYear]
+    56→                );
+    57→                $monthStart = sprintf('%04d-%02d-01', $prevYear, $prevMonth);
+    58→                $monthEnd   = sprintf('%04d-%02d-31', $prevYear, $prevMonth);
+    59→                // Include ESS app entries (manager_id=0 but employee_id matches)
+    60→                $prevExpenses = (float)$db->fetchColumn(
+    61→                    "SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE category='expense' AND status='approved' AND (manager_id=:m OR (employee_id=:m2 AND (manager_id IS NULL OR manager_id=0 OR manager_id='' OR manager_id='0'))) AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed",
+    62→                    ['m'=>$manager_id,'m2'=>$manager_id,'sd'=>$monthStart,'ed'=>$monthEnd]
+    63→                );
+    64→                $prevEmpAdv = (float)$db->fetchColumn(
+    65→                    "SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE category='employee_advance' AND status='approved' AND (manager_id=:m OR (employee_id=:m2 AND (manager_id IS NULL OR manager_id=0 OR manager_id='' OR manager_id='0'))) AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed",
+    66→                    ['m'=>$manager_id,'m2'=>$manager_id,'sd'=>$monthStart,'ed'=>$monthEnd]
+    67→                );
+    68→                $carryForward = round($prevAlloc - $prevExpenses - $prevEmpAdv, 2);
+    69→                if ($carryForward < 0) $carryForward = 0;
+    70→            } catch (Exception $e) {}
+    71→
+    72→            $insertData = [
+    73→                'manager_id' => $manager_id, 'amount' => $amount,
+    74→                'month' => $allocMonth, 'year' => $allocYear,
+    75→                'alloc_date' => ($allocDate ? $allocDate : null),
+    76→                'carry_forward_amount' => $carryForward,
+    77→                'carry_forward_from_month' => ($carryForward > 0 ? $prevMonth : null),
+    78→                'carry_forward_from_year'  => ($carryForward > 0 ? $prevYear : null),
+    79→                'remarks' => $remarks, 'allocated_by' => $_SESSION['user_id'] ?? 'admin',
+    80→            ];
+    81→            $db->insert('manager_advance_allocations', $insertData);
+    82→            $msg = 'Advance of &#8377;' . number_format($amount,2) . ' allocated for ' . $monthNames[$allocMonth] . ' ' . $allocYear . '.';
+    83→            if ($carryForward > 0) {
+    84→                $msg .= ' Carry-forward from ' . $monthNames[$prevMonth] . ': &#8377;' . number_format($carryForward,2);
+    85→            }
+    86→            setFlash('success', $msg);
+    87→        } else {
+    88→            setFlash('danger', 'Please fill all required fields.');
+    89→        }
+    90→        redirect($baseUrl . '&tab=advance');
+    91→    }
+    92→
+    93→    // ── Add Expense ───────────────────────────────────────────────
+    94→    if ($action === 'add_expense') {
+    95→        $manager_id  = sanitize(trim($_POST['manager_id'] ?? ''));
+    96→        $category    = sanitize($_POST['category'] ?? 'expense');
+    97→        $type        = sanitize($_POST['type'] ?? 'other');
+    98→        $amount      = round(floatval($_POST['amount'] ?? 0), 2);
+    99→        $description = sanitize(trim($_POST['description'] ?? ''));
+   100→        $expense_date = sanitize($_POST['expense_date'] ?? '');
+   101→        $emp_name    = sanitize(trim($_POST['emp_name'] ?? ''));
+   102→        $emp_code    = sanitize(trim($_POST['emp_code'] ?? ''));
+   103→
+   104→        if ($manager_id && $amount > 0 && $expense_date) {
+   105→            // Get manager info for emp fields
+   106→            if (empty($emp_name)) {
+   107→                try {
+   108→                    $mgrInfo = $db->fetch("SELECT full_name, designation FROM ess_employee_cache WHERE employee_id = :mid", ['mid' => $manager_id]);
+   109→                    if ($mgrInfo) { $emp_name = $mgrInfo['full_name']; $emp_code = $manager_id; }
+   110→                } catch (Exception $e) {}
+   111→            }
+   112→            $expMonth = (int)date('m', strtotime($expense_date));
+   113→            $expYear  = (int)date('Y', strtotime($expense_date));
+   114→
+   115→            $insertData = [
+   116→                'employee_id' => $manager_id, 'category' => $category, 'type' => $type,
+   117→                'amount' => $amount, 'description' => $description, 'expense_date' => $expense_date,
+   118→                'status' => 'pending', 'manager_id' => $manager_id,
+   119→                'emp_name' => $emp_name, 'emp_code' => $emp_code,
+   120→                'month' => $expMonth, 'year' => $expYear,
+   121→            ];
+   122→            if ($monthColExists) {
+   123→                $insertData['month'] = $expMonth;
+   124→                $insertData['year'] = $expYear;
+   125→            }
+   126→            $db->insert('ess_expenses', $insertData);
+   127→            setFlash('success', 'Expense of &#8377;' . number_format($amount,2) . ' added successfully.');
+   128→        } else {
+   129→            setFlash('danger', 'Please fill all required fields.');
+   130→        }
+   131→        redirect($baseUrl . '&tab=expense');
+   132→    }
+   133→
+   134→    // ── Approve ───────────────────────────────────────────────────
+   135→    if ($action === 'approve') {
+   136→        $id = (int)($_POST['id'] ?? 0);
+   137→        $exp = $db->fetch("SELECT * FROM ess_expenses WHERE id = :id", ['id' => $id]);
+   138→        if ($exp && $exp['status'] === 'pending') {
+   139→            $db->update('ess_expenses',
+   140→                ['status' => 'approved', 'approved_by' => $_SESSION['user_id'] ?? 'admin', 'approved_at' => date('Y-m-d H:i:s')],
+   141→                'id = :id', ['id' => $id]
+   142→            );
+   143→            setFlash('success', 'Expense #' . $id . ' approved.');
+   144→        }
+   145→        redirect($baseUrl . '&tab=approvals');
+   146→    }
+   147→
+   148→    // ── Reject ────────────────────────────────────────────────────
+   149→    if ($action === 'reject') {
+   150→        $id = (int)($_POST['id'] ?? 0);
+   151→        $reason = sanitize(trim($_POST['rejection_reason'] ?? ''));
+   152→        if ($id > 0 && $reason !== '') {
+   153→            $db->update('ess_expenses',
+   154→                ['status' => 'rejected', 'rejected_by' => $_SESSION['user_id'] ?? 'admin', 'rejection_reason' => $reason],
+   155→                'id = :id', ['id' => $id]
+   156→            );
+   157→            setFlash('success', 'Expense #' . $id . ' rejected.');
+   158→        } else {
+   159→            setFlash('danger', 'Rejection reason is required.');
+   160→        }
+   161→        redirect($baseUrl . '&tab=approvals');
+   162→    }
+   163→
+   164→    // ── Edit Entry ────────────────────────────────────────────────
+   165→    if ($action === 'edit_entry') {
+   166→        $id   = (int)($_POST['id'] ?? 0);
+   167→        $amt  = round(floatval($_POST['amount'] ?? 0), 2);
+   168→        $desc = sanitize(trim($_POST['description'] ?? ''));
+   169→        if ($id > 0 && $amt >= 0) {
+   170→            $db->update('ess_expenses',
+   171→                ['amount' => $amt, 'description' => $desc, 'edited_by' => 'admin', 'edited_at' => date('Y-m-d H:i:s')],
+   172→                'id = :id', ['id' => $id]
+   173→            );
+   174→            setFlash('success', 'Entry updated.');
+   175→        }
+   176→        redirect($baseUrl . '&tab=' . $activeTab);
+   177→    }
+   178→
+   179→    // ── Delete Allocation ─────────────────────────────────────────
+   180→    if ($action === 'delete_allocation') {
+   181→        $id = (int)($_POST['alloc_id'] ?? 0);
+   182→        if ($id > 0) {
+   183→            $db->query("DELETE FROM manager_advance_allocations WHERE id = :id", ['id' => $id]);
+   184→            setFlash('success', 'Allocation deleted.');
+   185→        }
+   186→        redirect($baseUrl . '&tab=advance');
+   187→    }
+   188→
+   189→    // ── Bulk CSV Upload (Advance + Expense in one file) ─────────
+   190→    if ($action === 'bulk_xlsx_upload') {
+   191→        require_once __DIR__ . '/bulk-upload-handler.php';
+   192→    }
+   193→}
+   194→// ============================================================================
+   195→// SHARED DATA QUERIES
+   196→// ============================================================================
+   197→
+   198→// Employees for dropdowns (exclude Workers & HK Lady)
+   199→$exclDesignations = ["'%worker%'", "'%hk lady%'"];
+   200→$exclWhere = 'LOWER(e.designation) NOT LIKE ' . implode(' AND LOWER(e.designation) NOT LIKE ', $exclDesignations);
+   201→$managersList = [];
+   202→try {
+   203→    $managersList = $db->fetchAll(
+   204→        "SELECT e.id AS employee_id, e.full_name, e.designation, u.name AS unit_name, u.city
+   205→         FROM employees e LEFT JOIN units u ON e.unit_id = u.id
+   206→         WHERE e.status = 'approved' AND $exclWhere
+   207→         ORDER BY e.full_name ASC"
+   208→    );
+   209→} catch (Exception $e) {
+   210→    try {
+   211→        $managersList = $db->fetchAll(
+   212→            "SELECT employee_id, full_name, designation, unit_name, city FROM ess_employee_cache
+   213→             WHERE LOWER(designation) NOT LIKE '%worker%' AND LOWER(designation) NOT LIKE '%hk lady%' ORDER BY full_name ASC"
+   214→        );
+   215→    } catch (Exception $e2) { $managersList = []; }
+   216→}
+   217→
+   218→// ── Only load data for the active tab (performance) ────────────
+   219→$totalAdvanceIssued = 0; $totalExpenses = 0; $pendingApprovals = 0; $totalEmpAdvances = 0;
+   220→$managerSummary = [];
+   221→$mgrCacheList = [];
+   222→
+   223→// Pending approvals count needed for badge on all tabs
+   224→try { $pendingApprovals = (int)$db->fetchColumn("SELECT COUNT(*) FROM ess_expenses WHERE status='pending'"); } catch (Exception $e) {}
+   225→
+   226→if ($activeTab === 'dashboard') {
+   227→    try { $totalAdvanceIssued = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM manager_advance_allocations"); } catch (Exception $e) {}
+   228→    try {
+   229→        if ($categoryColExists) {
+   230→            $totalExpenses = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE category='expense' AND status='approved'");
+   231→            $totalEmpAdvances = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE category='employee_advance' AND status='approved'");
+   232→        } else {
+   233→            $totalExpenses = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE status='approved'");
+   234→        }
+   235→    } catch (Exception $e) {}
+   236→
+   237→    // Manager summary — BULK queries (no N+1)
+   238→    try {
+   239→        $activeManagers = $db->fetchAll(
+   240→            "SELECT DISTINCT COALESCE(NULLIF(NULLIF(e.manager_id,''),'0'), e.employee_id) AS emp_id
+   241→             FROM ess_expenses e WHERE 1=1 LIMIT 500"
+   242→        );
+   243→        $allocManagers = $db->fetchAll("SELECT DISTINCT manager_id AS emp_id FROM manager_advance_allocations LIMIT 500");
+   244→        $allActiveIds = array_unique(array_merge(
+   245→            array_column($activeManagers, 'emp_id'),
+   246→            array_column($allocManagers, 'emp_id')
+   247→        ));
+   248→    } catch (Exception $e) { $allActiveIds = []; }
+   249→
+   250→    if (!empty($allActiveIds)) {
+   251→        // Bulk fetch all manager info
+   252→        $placeholders = implode(',', array_fill(0, count($allActiveIds), '?'));
+   253→        $placeholders2 = implode(',', array_fill(0, count($allActiveIds), '?'));
+   254→        $mgrRows = $db->fetchAll("SELECT employee_id, full_name, designation, unit_name FROM ess_employee_cache WHERE employee_id IN ($placeholders)", array_values($allActiveIds));
+   255→        $mgrMap = [];
+   256→        foreach ($mgrRows as $mr) { $mgrMap[(string)$mr['employee_id']] = $mr; }
+   257→
+   258→        // Bulk fetch advance totals per manager
+   259→        $advRows = $db->fetchAll("SELECT manager_id, COALESCE(SUM(amount),0) AS total_adv FROM manager_advance_allocations WHERE manager_id IN ($placeholders) GROUP BY manager_id", array_values($allActiveIds));
+   260→        $advMap = [];
+   261→        foreach ($advRows as $ar) { $advMap[(string)$ar['manager_id']] = (float)$ar['total_adv']; }
+   262→
+   263→        // Bulk fetch expense totals per manager (include ESS app entries with manager_id=NULL/0)
+   264→        if ($categoryColExists) {
+   265→            $expRows = $db->fetchAll("SELECT COALESCE(NULLIF(NULLIF(manager_id,''),'0'), employee_id) AS mgr_id, category, COALESCE(SUM(amount),0) AS total_amt FROM ess_expenses WHERE status='approved' AND (manager_id IN ($placeholders) OR (employee_id IN ($placeholders2) AND (manager_id IS NULL OR manager_id=0 OR manager_id='' OR manager_id='0'))) GROUP BY mgr_id, category", array_merge(array_values($allActiveIds), array_values($allActiveIds)));
+   266→        } else {
+   267→            $expRows = $db->fetchAll("SELECT employee_id AS manager_id, 'expense' AS category, COALESCE(SUM(amount),0) AS total_amt FROM ess_expenses WHERE employee_id IN ($placeholders) AND status='approved' GROUP BY employee_id", array_values($allActiveIds));
+   268→        }
+   269→        $expMap = []; $empAdvMap = [];
+   270→        foreach ($expRows as $er) {
+   271→            $mid = (string)($er['mgr_id'] ?? $er['manager_id'] ?? $er['employee_id']);
+   272→            if (($er['category'] ?? '') === 'employee_advance') { $empAdvMap[$mid] = (float)$er['total_amt']; }
+   273→            else { $expMap[$mid] = (float)$er['total_amt']; }
+   274→        }
+   275→
+   276→        // Bulk fetch pending counts
+   277→        $pendRows = $db->fetchAll("SELECT employee_id, COUNT(*) AS cnt FROM ess_expenses WHERE status='pending' AND employee_id IN ($placeholders) GROUP BY employee_id", array_values($allActiveIds));
+   278→        $pendMap = [];
+   279→        foreach ($pendRows as $pr) { $pendMap[(string)$pr['employee_id']] = (int)$pr['cnt']; }
+   280→
+   281→        foreach ($allActiveIds as $mid) {
+   282→            $mid = (string)$mid;
+   283→            if (!isset($mgrMap[$mid])) continue;
+   284→            $mi = $mgrMap[$mid];
+   285→            $adv = $advMap[$mid] ?? 0;
+   286→            $exp = $expMap[$mid] ?? 0;
+   287→            $empAdv = $empAdvMap[$mid] ?? 0;
+   288→            $pend = $pendMap[$mid] ?? 0;
+   289→            $managerSummary[] = [
+   290→                'id'=>$mid, 'name'=>$mi['full_name'], 'designation'=>$mi['designation'], 'unit'=>$mi['unit_name'],
+   291→                'advance'=>$adv, 'expenses'=>$exp, 'emp_advances'=>$empAdv, 'balance'=>$adv-$exp-$empAdv, 'pending'=>$pend
+   292→            ];
+   293→        }
+   294→    }
+   295→}
+   296→
+   297→// ── Advance tab data ─────────────────────────────────────────────
+   298→$advMonth = (int)($_GET['adv_month'] ?? $currentMonth);
+   299→$advYear  = (int)($_GET['adv_year'] ?? $currentYear);
+   300→if ($advMonth < 1 || $advMonth > 12) $advMonth = $currentMonth;
+   301→
+   302→$allocations = [];
+   303→if ($activeTab === 'advance') {
+   304→    try {
+   305→        $allocations = $db->fetchAll(
+   306→            "SELECT ma.*, ec.full_name, ec.designation, ec.unit_name, ec.city
+   307→             FROM manager_advance_allocations ma
+   308→             LEFT JOIN ess_employee_cache ec ON ma.manager_id = ec.employee_id
+   309→             WHERE ma.month = :m AND ma.year = :y ORDER BY ma.created_at DESC",
+   310→            ['m' => $advMonth, 'y' => $advYear]
+   311→        );
+   312→    } catch (Exception $e) {}
+   313→}
+   314→
+   315→// ── Approvals data ───────────────────────────────────────────────
+   316→$pendingList = [];
+   317→if ($activeTab === 'approvals' && empty($fStatus)) {
+   318→    try {
+   319→        $pendingList = $db->fetchAll(
+   320→            "SELECT e.*, ec.full_name AS manager_name, ec.designation
+   321→             FROM ess_expenses e
+   322→             LEFT JOIN ess_employee_cache ec ON " . ($managerIdColExists ? "e.manager_id = ec.employee_id" : "e.employee_id = ec.employee_id") . "
+   323→             WHERE e.status='pending' ORDER BY e.created_at DESC"
+   324→        );
+   325→    } catch (Exception $e) {}
+   326→}
+   327→
+   328→// ── All Expenses data with filters ───────────────────────────────
+   329→$fMonth   = sanitize($_GET['f_month'] ?? '');
+   330→$fYear    = sanitize($_GET['f_year'] ?? '');
+   331→$fManager = sanitize($_GET['f_manager'] ?? '');
+   332→$fStatus  = sanitize($_GET['f_status'] ?? '');
+   333→
+   334→$allExpenses = [];
+   335→$expTotal = 0; $expCounts = ['pending'=>0,'approved'=>0,'rejected'=>0]; $expAmounts = ['pending'=>0,'approved'=>0,'rejected'=>0];
+   336→if ($activeTab === 'approvals' && !empty($fStatus)) {
+   337→    $where = ['1=1']; $params = [];
+   338→    if ($fStatus !== '' && in_array($fStatus, ['pending','approved','rejected'])) { $where[]='e.status=:s'; $params['s']=$fStatus; }
+   339→    if ($managerIdColExists && $fManager !== '') { $where[]='(e.employee_id=:m1 OR e.manager_id=:m2)'; $params['m1']=$fManager; $params['m2']=$fManager; }
+   340→    elseif ($fManager !== '') { $where[]='e.employee_id=:m1'; $params['m1']=$fManager; }
+   341→    if ($monthColExists && $fMonth !== '') { $m=(int)$fMonth; if ($m>=1&&$m<=12) { $where[]='e.month=:mo'; $params['mo']=$m; } }
+   342→    if ($monthColExists && $fYear !== '') { $y=(int)$fYear; if ($y>=2000&&$y<=2099) { $where[]='e.year=:yr'; $params['yr']=$y; } }
+   343→    $allExpenses = $db->fetchAll(
+   344→        "SELECT e.*, ec.full_name AS manager_name, ec.designation
+   345→         FROM ess_expenses e LEFT JOIN ess_employee_cache ec ON e.employee_id = ec.employee_id
+   346→         WHERE " . implode(' AND ', $where) . " ORDER BY e.created_at DESC LIMIT 200", $params
+   347→    );
+   348→    foreach ($allExpenses as $e) { $expTotal+=(float)$e['amount']; $s=$e['status']; if(isset($expCounts[$s])){ $expCounts[$s]++; $expAmounts[$s]+=(float)$e['amount']; } }
+   349→}
+   350→
+   351→// ── Reports data ─────────────────────────────────────────────────
+   352→$rptType   = sanitize($_GET['rpt_type'] ?? 'monthly');
+   353→$rptMonth  = sanitize($_GET['rpt_month'] ?? $currentMonth);
+   354→$rptYear   = sanitize($_GET['rpt_year'] ?? $currentYear);
+   355→$rptManager = sanitize($_GET['rpt_manager'] ?? '');
+   356→
+   357→// Monthly report data
+   358→$monthlyReport = [];
+   359→if ($activeTab === 'reports' && $rptType === 'monthly') {
+   360→    $allMgrs = $managersList;
+   361→    $monthStart = sprintf('%04d-%02d-01', (int)$rptYear, (int)$rptMonth);
+   362→    $monthEnd   = sprintf('%04d-%02d-31', (int)$rptYear, (int)$rptMonth);
+   363→    foreach ($allMgrs as $mgr) {
+   364→        $mid = $mgr['employee_id'];
+   365→        $allocated = $spent = $empAdv = $carryForward = 0;
+   366→        try { $allocated = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM manager_advance_allocations WHERE manager_id=:m AND month=:mo AND year=:yr", ['m'=>$mid,'mo'=>$rptMonth,'yr'=>$rptYear]); } catch (Exception $e) {}
+   367→        try { $carryForward = (float)$db->fetchColumn("SELECT COALESCE(SUM(carry_forward_amount),0) FROM manager_advance_allocations WHERE manager_id=:m AND month=:mo AND year=:yr", ['m'=>$mid,'mo'=>$rptMonth,'yr'=>$rptYear]); } catch (Exception $e) {}
+   368→        // Include ESS app entries: manager_id matches OR (employee_id matches AND manager_id=0)
+   369→        try { $spent = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE category='expense' AND status='approved' AND (manager_id=:m OR (employee_id=:m2 AND (manager_id IS NULL OR manager_id=0 OR manager_id='' OR manager_id='0'))) AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed", ['m'=>$mid,'m2'=>$mid,'sd'=>$monthStart,'ed'=>$monthEnd]); } catch (Exception $e) {}
+   370→        try { $empAdv = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE category='employee_advance' AND status='approved' AND (manager_id=:m OR (employee_id=:m2 AND (manager_id IS NULL OR manager_id=0 OR manager_id='' OR manager_id='0'))) AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed", ['m'=>$mid,'m2'=>$mid,'sd'=>$monthStart,'ed'=>$monthEnd]); } catch (Exception $e) {}
+   371→        $totalAlloc = $allocated + $carryForward;
+   372→        // Only show managers who have some activity (allocation, expense, or employee advance)
+   373→        if ($allocated > 0 || $carryForward > 0 || $spent > 0 || $empAdv > 0) {
+   374→            $monthlyReport[] = ['name'=>$mgr['full_name'], 'unit'=>$mgr['unit_name'], 'allocated'=>$allocated, 'carry_forward'=>$carryForward, 'total_allocated'=>$totalAlloc, 'expenses'=>$spent, 'emp_adv'=>$empAdv, 'balance'=>$totalAlloc-$spent-$empAdv];
+   375→        }
+   376→    }
+   377→}
+   378→
+   379→// Manager-wise ledger report data
+   380→$ledgerTransactions = []; $ledgerSummary = ['total_advance'=>0,'total_expenses'=>0,'total_emp_advances'=>0,'net_balance'=>0,'total_pending'=>0,'total_rejected'=>0];
+   381→if ($rptType === 'manager' && $rptManager !== '') {
+   382→    // Support both new (month/year) and old (date) URL params for backward compat
+   383→    $rptFromMonth = (int)($_GET['rpt_from_month'] ?? 0);
+   384→    $rptFromYear  = (int)($_GET['rpt_from_year'] ?? 0);
+   385→    $rptToMonth   = (int)($_GET['rpt_to_month'] ?? 0);
+   386→    $rptToYear    = (int)($_GET['rpt_to_year'] ?? 0);
+   387→    if ($rptFromMonth >= 1 && $rptFromMonth <= 12 && $rptFromYear >= 2000) {
+   388→        $fromDate = sprintf('%04d-%02d-01', $rptFromYear, $rptFromMonth);
+   389→    } else {
+   390→        $fromDate = sanitize($_GET['rpt_from'] ?? '');
+   391→    }
+   392→    if ($rptToMonth >= 1 && $rptToMonth <= 12 && $rptToYear >= 2000) {
+   393→        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $rptToMonth, $rptToYear);
+   394→        $toDate = sprintf('%04d-%02d-%02d', $rptToYear, $rptToMonth, $daysInMonth);
+   395→    } else {
+   396→        $toDate = sanitize($_GET['rpt_to'] ?? '');
+   397→    }
+   398→    if ($fromDate && $toDate) {
+   399→        // Build month/year range for filtering allocations by their month/year columns
+   400→        $fromMonth = (int)date('m', strtotime($fromDate));
+   401→        $fromYear  = (int)date('Y', strtotime($fromDate));
+   402→        $toMonth   = (int)date('m', strtotime($toDate));
+   403→        $toYear    = (int)date('Y', strtotime($toDate));
+   404→        // Convert to comparable integers: YYYYMM
+   405→        $fromYM = $fromYear * 100 + $fromMonth;
+   406→        $toYM   = $toYear * 100 + $toMonth;
+   407→
+   408→        $advances = $db->fetchAll(
+   409→            "SELECT 'allocation' AS txn_type, id, amount, remarks AS description, COALESCE(alloc_date, created_at) AS txn_date, alloc_date, month, year, NULL AS expense_date, NULL AS type, NULL AS category, 'approved' AS status
+   410→             FROM manager_advance_allocations WHERE manager_id=:m AND (year*100+month) BETWEEN :fym AND :tym ORDER BY COALESCE(alloc_date, created_at) ASC",
+   411→            ['m'=>$rptManager,'fym'=>$fromYM,'tym'=>$toYM]
+   412→        );
+   413→        // Include ALL ESS expenses (approved, pending, rejected — not just approved)
+   414→        $expenses = $db->fetchAll(
+   415→            "SELECT 'expense' AS txn_type, id, amount, description, created_at AS txn_date, expense_date, type, category, status
+   416→             FROM ess_expenses
+   417→             WHERE (manager_id=:m OR (employee_id=:m2 AND (manager_id IS NULL OR manager_id=0 OR manager_id='' OR manager_id='0')))
+   418→             AND ((expense_date IS NOT NULL AND DATE(expense_date) BETWEEN :f1 AND :t1) OR (expense_date IS NULL AND DATE(created_at) BETWEEN :f2 AND :t2))
+   419→             ORDER BY created_at ASC",
+   420→            ['m'=>$rptManager,'m2'=>$rptManager,'f1'=>$fromDate,'t1'=>$toDate,'f2'=>$fromDate,'t2'=>$toDate]
+   421→        );
+   422→        $ledgerTransactions = array_merge($advances, $expenses);
+   423→        usort($ledgerTransactions, function($a,$b) {
+   424→            return strcmp(!empty($a['expense_date'])?$a['expense_date']:$a['txn_date'], !empty($b['expense_date'])?$b['expense_date']:$b['txn_date']);
+   425→        });
+   426→        $rb = 0;
+   427→        foreach ($ledgerTransactions as &$txn) {
+   428→            if ($txn['txn_type']==='allocation') {
+   429→                $rb+=(float)$txn['amount']; $ledgerSummary['total_advance']+=(float)$txn['amount'];
+   430→            } else {
+   431→                $txnStatus = $txn['status'] ?? '';
+   432→                // Only approved expenses affect balance; pending/rejected are informational
+   433→                if ($txnStatus === 'approved') {
+   434→                    $rb-=(float)$txn['amount'];
+   435→                    if (($txn['category']??'')==='employee_advance') $ledgerSummary['total_emp_advances']+=(float)$txn['amount'];
+   436→                    else $ledgerSummary['total_expenses']+=(float)$txn['amount'];
+   437→                } elseif ($txnStatus === 'rejected') {
+   438→                    $ledgerSummary['total_rejected']+=1;
+   439→                } elseif ($txnStatus === 'pending') {
+   440→                    $ledgerSummary['total_pending']+=1;
+   441→                }
+   442→            }
+   443→            $txn['running_balance'] = $rb;
+   444→        }
+   445→        unset($txn);
+   446→        $ledgerSummary['net_balance'] = $ledgerSummary['total_advance'] - $ledgerSummary['total_expenses'] - $ledgerSummary['total_emp_advances'];
+   447→    }
+   448→}
+   449→
+   450→// ── Report: Yearly Summary ────────────────────────────────────────
+   451→$yearlySummary = [];
+   452→if ($activeTab === 'reports') {
+   453→    $rptYearForAnnual = (int)($_GET['rpt_yearly'] ?? $currentYear);
+   454→    for ($m = 1; $m <= 12; $m++) {
+   455→        $allocAmt = 0; $expAmt = 0; $empAdvAmt = 0;
+   456→        try { $allocAmt = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM manager_advance_allocations WHERE month=:m AND year=:y", ['m'=>$m,'y'=>$rptYearForAnnual]); } catch (Exception $e) {}
+   457→        $mStart = sprintf('%04d-%02d-01', $rptYearForAnnual, $m);
+   458→        $mEnd = sprintf('%04d-%02d-31', $rptYearForAnnual, $m);
+   459→        try { $expAmt = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE category='expense' AND status='approved' AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed", ['sd'=>$mStart,'ed'=>$mEnd]); } catch (Exception $e) {}
+   460→        try { $empAdvAmt = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE category='employee_advance' AND status='approved' AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed", ['sd'=>$mStart,'ed'=>$mEnd]); } catch (Exception $e) {}
+   461→        $yearlySummary[$m] = ['allocated'=>$allocAmt, 'expenses'=>$expAmt, 'emp_adv'=>$empAdvAmt, 'net'=>$allocAmt-$expAmt-$empAdvAmt];
+   462→    }
+   463→}
+   464→
+   465→// ── Report: Category-wise Expense Breakdown ──────────────────────
+   466→$categoryBreakdown = [];
+   467→if ($activeTab === 'reports') {
+   468→    $catFrom = sanitize($_GET['cat_from'] ?? date('Y-m-01'));
+   469→    $catTo   = sanitize($_GET['cat_to'] ?? date('Y-m-d'));
+   470→    try {
+   471→        $catRows = $db->fetchAll(
+   472→            "SELECT COALESCE(type,'other') AS exp_type, category, COUNT(*) AS cnt, COALESCE(SUM(amount),0) AS total
+   473→             FROM ess_expenses
+   474→             WHERE status='approved' AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed
+   475→             GROUP BY exp_type, category
+   476→             ORDER BY total DESC",
+   477→            ['sd'=>$catFrom,'ed'=>$catTo]
+   478→        );
+   479→        $categoryBreakdown = $catRows;
+   480→    } catch (Exception $e) {}
+   481→}
+   482→
+   483→// ── Report: Pending Expense Aging ────────────────────────────────
+   484→$pendingAging = [];
+   485→if ($activeTab === 'reports') {
+   486→    try {
+   487→        $pendingRows = $db->fetchAll(
+   488→            "SELECT e.*, ec.full_name AS manager_name, ec.designation, DATEDIFF(CURDATE(), COALESCE(DATE(e.expense_date), DATE(e.created_at))) AS days_pending
+   489→             FROM ess_expenses e
+   490→             LEFT JOIN ess_employee_cache ec ON e.employee_id = ec.employee_id
+   491→             WHERE e.status='pending'
+   492→             ORDER BY days_pending DESC, e.created_at ASC
+   493→             LIMIT 100"
+   494→        );
+   495→        $pendingAging = $pendingRows;
+   496→    } catch (Exception $e) {}
+   497→}
+   498→
+   499→// ── Report: Top Spenders (all-time) ──────────────────────────────
+   500→$topSpenders = [];
+   501→if ($activeTab === 'reports') {
+   502→    try {
+   503→        $topRows = $db->fetchAll(
+   504→            "SELECT ec.employee_id, ec.full_name, ec.designation, ec.unit_name,
+   505→                    COUNT(e.id) AS txn_count, COALESCE(SUM(e.amount),0) AS total_spent
+   506→             FROM ess_expenses e
+   507→             JOIN ess_employee_cache ec ON e.employee_id = ec.employee_id
+   508→             WHERE e.status='approved' AND e.category='expense'
+   509→             GROUP BY ec.employee_id
+   510→             ORDER BY total_spent DESC
+   511→             LIMIT 15"
+   512→        );
+   513→        $topSpenders = $topRows;
+   514→    } catch (Exception $e) {}
+   515→}
+   516→
+   517→// ── Report: Approval Statistics ──────────────────────────────────
+   518→$approvalStats = ['approved'=>0,'pending'=>0,'rejected'=>0,'approved_amt'=>0,'pending_amt'=>0,'rejected_amt'=>0];
+   519→if ($activeTab === 'reports') {
+   520→    try {
+   521→        $statRows = $db->fetchAll(
+   522→            "SELECT status, COUNT(*) AS cnt, COALESCE(SUM(amount),0) AS total
+   523→             FROM ess_expenses
+   524→             GROUP BY status"
+   525→        );
+   526→        foreach ($statRows as $sr) {
+   527→            $s = $sr['status'];
+   528→            if (isset($approvalStats[$s])) {
+   529→                $approvalStats[$s] = (int)$sr['cnt'];
+   530→                $approvalStats[$s.'_amt'] = (float)$sr['total'];
+   531→            }
+   532→        }
+   533→    } catch (Exception $e) {}
+   534→}
+   535→
+   536→// ── Report: Employee Advance Register ────────────────────────────
+   537→$empAdvanceRegister = [];
+   538→if ($activeTab === 'reports') {
+   539→    $eaMonth = sanitize($_GET['ea_month'] ?? $currentMonth);
+   540→    $eaYear  = sanitize($_GET['ea_year'] ?? $currentYear);
+   541→    try {
+   542→        $eaStart = sprintf('%04d-%02d-01', (int)$eaYear, (int)$eaMonth);
+   543→        $eaEnd   = sprintf('%04d-%02d-31', (int)$eaYear, (int)$eaMonth);
+   544→        $eaRows = $db->fetchAll(
+   545→            "SELECT e.id, e.amount, e.description, e.status, e.created_at,
+   546→                    COALESCE(e.expense_date, DATE(e.created_at)) AS txn_date,
+   547→                    ec.full_name, ec.designation, ec.unit_name
+   548→             FROM ess_expenses e
+   549→             LEFT JOIN ess_employee_cache ec ON e.employee_id = ec.employee_id
+   550→             WHERE e.category='employee_advance'
+   551→             AND COALESCE(e.expense_date, DATE(e.created_at)) BETWEEN :sd AND :ed
+   552→             ORDER BY e.created_at DESC",
+   553→            ['sd'=>$eaStart, 'ed'=>$eaEnd]
+   554→        );
+   555→        $empAdvanceRegister = $eaRows;
+   556→    } catch (Exception $e) {}
+   557→}
+   558→
+   559→// ── Report: Month-over-Month Trend ───────────────────────────────
+   560→$momTrend = [];
+   561→if ($activeTab === 'reports') {
+   562→    try {
+   563→        for ($i = 5; $i >= 0; $i--) {
+   564→            $tm = (int)date('m', strtotime("-$i months"));
+   565→            $ty = (int)date('Y', strtotime("-$i months"));
+   566→            $tStart = sprintf('%04d-%02d-01', $ty, $tm);
+   567→            $tEnd   = sprintf('%04d-%02d-31', $ty, $tm);
+   568→            $tAlloc = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM manager_advance_allocations WHERE month=:m AND year=:y", ['m'=>$tm,'y'=>$ty]);
+   569→            $tExp   = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE category='expense' AND status='approved' AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed", ['sd'=>$tStart,'ed'=>$tEnd]);
+   570→            $tEmpA  = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE category='employee_advance' AND status='approved' AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed", ['sd'=>$tStart,'ed'=>$tEnd]);
+   571→            $momTrend[] = ['month'=>$tm, 'year'=>$ty, 'label'=>$monthShort[$tm].' '.$ty, 'allocated'=>$tAlloc, 'expenses'=>$tExp, 'emp_adv'=>$tEmpA, 'net'=>$tAlloc-$tExp-$tEmpA];
+   572→        }
+   573→    } catch (Exception $e) {}
+   574→}
+   575→
+   576→// ── Report: Bill Compliance ──────────────────────────────────────
+   577→$billCompliance = ['with_bill'=>0,'with_bill_amt'=>0,'without_bill'=>0,'without_bill_amt'=>0,'total'=>0,'total_amt'=>0];
+   578→if ($activeTab === 'reports') {
+   579→    $billMonth = sanitize($_GET['bill_month'] ?? $currentMonth);
+   580→    $billYear  = sanitize($_GET['bill_year'] ?? $currentYear);
+   581→    try {
+   582→        $bStart = sprintf('%04d-%02d-01', (int)$billYear, (int)$billMonth);
+   583→        $bEnd   = sprintf('%04d-%02d-31', (int)$billYear, (int)$billMonth);
+   584→        $billCompliance['with_bill'] = (int)$db->fetchColumn("SELECT COUNT(*) FROM ess_expenses WHERE status='approved' AND category='expense' AND (bill_url IS NOT NULL AND bill_url != '') AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed", ['sd'=>$bStart,'ed'=>$bEnd]);
+   585→        $billCompliance['with_bill_amt'] = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE status='approved' AND category='expense' AND (bill_url IS NOT NULL AND bill_url != '') AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed", ['sd'=>$bStart,'ed'=>$bEnd]);
+   586→        $billCompliance['without_bill'] = (int)$db->fetchColumn("SELECT COUNT(*) FROM ess_expenses WHERE status='approved' AND category='expense' AND (bill_url IS NULL OR bill_url = '') AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed", ['sd'=>$bStart,'ed'=>$bEnd]);
+   587→        $billCompliance['without_bill_amt'] = (float)$db->fetchColumn("SELECT COALESCE(SUM(amount),0) FROM ess_expenses WHERE status='approved' AND category='expense' AND (bill_url IS NULL OR bill_url = '') AND COALESCE(expense_date,DATE(created_at)) BETWEEN :sd AND :ed", ['sd'=>$bStart,'ed'=>$bEnd]);
+   588→        $billCompliance['total'] = $billCompliance['with_bill'] + $billCompliance['without_bill'];
+   589→        $billCompliance['total_amt'] = $billCompliance['with_bill_amt'] + $billCompliance['without_bill_amt'];
+   590→    } catch (Exception $e) {}
+   591→}
+   592→
+   593→// ============================================================================
+   594→// HELPERS
+   595→// ============================================================================
+   596→
+   597→function catBadge($cat) {
+   598→    $m = ['advance'=>'primary','expense'=>'info','employee_advance'=>'warning'];
+   599→    return '<span class="badge bg-'.($m[$cat]??'secondary').'">'.str_replace('_',' ',ucfirst($cat?:'expense')).'</span>';
+   600→}
+   601→function statusBadge($s) {
+   602→    $m = ['pending'=>'warning text-dark','approved'=>'success','rejected'=>'danger'];
+   603→    return '<span class="badge bg-'.($m[$s]??'secondary').'">'.ucfirst($s).'</span>';
+   604→}
+   605→
+   606→// Filter managers for dropdowns (people who have expenses OR allocations, excluding Workers & HK Lady)
+   607→$filterManagers = [];
+   608→try {
+   609→    $filterManagers = $db->fetchAll(
+   610→        "SELECT DISTINCT ec.employee_id, ec.full_name
+   611→         FROM ess_employee_cache ec
+   612→         WHERE LOWER(ec.designation) NOT LIKE '%worker%' AND LOWER(ec.designation) NOT LIKE '%hk lady%'
+   613→         AND (ec.employee_id IN (SELECT DISTINCT employee_id FROM ess_expenses)
+   614→              OR ec.employee_id IN (SELECT DISTINCT manager_id FROM manager_advance_allocations)
+   615→              OR ec.employee_id IN (SELECT DISTINCT COALESCE(NULLIF(NULLIF(manager_id,''),'0'), employee_id) FROM ess_expenses))
+   616→         ORDER BY ec.full_name ASC"
+   617→    );
+   618→} catch (Exception $e) {
+   619→    try {
+   620→        $filterManagers = $db->fetchAll(
+   621→            "SELECT DISTINCT ec.employee_id, ec.full_name FROM ess_expenses e
+   622→             JOIN ess_employee_cache ec ON e.employee_id = ec.employee_id
+   623→             WHERE LOWER(ec.designation) NOT LIKE '%worker%' AND LOWER(ec.designation) NOT LIKE '%hk lady%'
+   624→             ORDER BY ec.full_name ASC"
+   625→        );
+   626→    } catch (Exception $e2) { $filterManagers = []; }
+   627→}
+   628→?>
+   629→
+   630→<!-- ═══════════════════════════════════════════════════════════════════════════
+   631→     MODERN EXPENSE MANAGEMENT - SINGLE PAGE
+   632→     ═══════════════════════════════════════════════════════════════════════════ -->
+   633→<style>
+   634→.exp-page { --exp-primary: #4f46e5; --exp-success: #059669; --exp-warning: #d97706; --exp-danger: #dc2626; --exp-info: #0284c7; --exp-bg: #f8fafc; --exp-card: #ffffff; --exp-border: #e2e8f0; --exp-text: #1e293b; --exp-muted: #64748b; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+   635→.exp-page * { box-sizing: border-box; }
+   636→
+   637→/* ── Top Navigation Tabs ──────────────────────────────────────── */
+   638→.exp-tabs { display: flex; gap: 4px; background: #ffffff; border-bottom: 2px solid var(--exp-border); padding: 0 16px; overflow-x: auto; }
+   639→.exp-tab { padding: 12px 20px; font-size: 0.82rem; font-weight: 500; color: var(--exp-muted); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; white-space: nowrap; transition: all 0.2s; display: flex; align-items: center; gap: 6px; border-radius: 6px 6px 0 0; }
+   640→.exp-tab:hover { color: var(--exp-primary); background: #eef2ff; }
+   641→.exp-tab.active { color: var(--exp-primary); border-bottom-color: var(--exp-primary); font-weight: 600; }
+   642→.exp-tab .tab-badge { background: var(--exp-danger); color: #fff; font-size: 0.65rem; padding: 1px 6px; border-radius: 10px; font-weight: 700; }
+   643→
+   644→/* ── Cards ─────────────────────────────────────────────────────── */
+   645→.exp-card { background: var(--exp-card); border: 1px solid var(--exp-border); border-radius: 12px; overflow: hidden; }
+   646→.exp-card-header { padding: 16px 20px; border-bottom: 1px solid var(--exp-border); display: flex; justify-content: space-between; align-items: center; }
+   647→.exp-card-header h5 { margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--exp-text); }
+   648→.exp-card-body { padding: 20px; }
+   649→
+   650→/* ── Stat Cards ────────────────────────────────────────────────── */
+   651→.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+   652→.stat-card { background: var(--exp-card); border: 1px solid var(--exp-border); border-radius: 12px; padding: 20px; position: relative; overflow: hidden; transition: box-shadow 0.2s, transform 0.2s; }
+   653→.stat-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-1px); }
+   654→.stat-card .stat-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; margin-bottom: 12px; }
+   655→.stat-card .stat-value { font-size: 1.5rem; font-weight: 700; color: var(--exp-text); line-height: 1.2; }
+   656→.stat-card .stat-label { font-size: 0.75rem; color: var(--exp-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; font-weight: 500; }
+   657→
+   658→/* ── Tables ─────────────────────────────────────────────────────── */
+   659→.exp-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+   660→.exp-table thead th { background: #f8fafc; padding: 10px 14px; text-align: left; font-weight: 600; color: var(--exp-muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid var(--exp-border); white-space: nowrap; }
+   661→.exp-table thead th.text-end { text-align: right; }
+   662→.exp-table thead th.text-center { text-align: center; }
+   663→.exp-table tbody td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; color: var(--exp-text); vertical-align: middle; }
+   664→.exp-table tbody tr:hover { background: #f8fafc; }
+   665→.exp-table tbody tr:last-child td { border-bottom: none; }
+   666→.exp-table tfoot td { background: #f1f5f9; font-weight: 700; padding: 10px 14px; border-top: 2px solid var(--exp-border); font-size: 0.8rem; }
+   667→
+   668→/* ── Forms ──────────────────────────────────────────────────────── */
+   669→.exp-form .form-label { font-size: 0.78rem; font-weight: 600; color: var(--exp-text); margin-bottom: 4px; }
+   670→.exp-form .form-control, .exp-form .form-select { font-size: 0.85rem; border-color: var(--exp-border); border-radius: 8px; padding: 8px 12px; }
+   671→.exp-form .form-control:focus, .exp-form .form-select:focus { border-color: var(--exp-primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+   672→.exp-btn { padding: 8px 20px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+   673→.exp-btn-primary { background: var(--exp-primary); color: #fff; }
+   674→.exp-btn-primary:hover { background: #4338ca; }
+   675→.exp-btn-success { background: var(--exp-success); color: #fff; }
+   676→.exp-btn-success:hover { background: #047857; }
+   677→.exp-btn-danger { background: var(--exp-danger); color: #fff; }
+   678→.exp-btn-danger:hover { background: #b91c1c; }
+   679→.exp-btn-outline { background: transparent; color: var(--exp-muted); border: 1px solid var(--exp-border); }
+   680→.exp-btn-outline:hover { background: #f1f5f9; color: var(--exp-text); }
+   681→.exp-btn-sm { padding: 4px 10px; font-size: 0.75rem; }
+   682→
+   683→/* ── Filter Bar ─────────────────────────────────────────────────── */
+   684→.filter-bar { background: #f8fafc; border: 1px solid var(--exp-border); border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; }
+   685→.filter-bar .row { align-items: flex-end; }
+   686→
+   687→/* ── Badge helpers ─────────────────────────────────────────────── */
+   688→.badge-sm { font-size: 0.68rem; padding: 2px 8px; border-radius: 6px; }
+   689→
+   690→/* ── Empty state ───────────────────────────────────────────────── */
+   691→.empty-state { text-align: center; padding: 48px 20px; color: var(--exp-muted); }
+   692→.empty-state i { font-size: 2.5rem; margin-bottom: 12px; opacity: 0.3; display: block; }
+   693→
+   694→/* ── Responsive ─────────────────────────────────────────────────── */
+   695→@media (max-width: 768px) {
+   696→    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+   697→    .exp-tab { padding: 10px 14px; font-size: 0.75rem; }
+   698→}
+   699→
+   700→/* ── Print ──────────────────────────────────────────────────────── */
+   701→@media print {
+   702→    .exp-tabs, .no-print, .filter-bar { display: none !important; }
+   703→    body * { visibility: hidden; }
+   704→    #expensePage, #expensePage * { visibility: visible; }
+   705→    #expensePage { position: absolute; left: 0; top: 0; width: 100%; }
+   706→}
+   707→</style>
+   708→
+   709→<div class="exp-page" id="expensePage">
+   710→
+   711→    <!-- ═══ PAGE HEADER ═══ -->
+   712→    <div style="padding: 20px 0 0;">
+   713→        <div class="d-flex justify-content-between align-items-center">
+   714→            <div>
+   715→                <h4 style="margin:0; font-weight:700; color:var(--exp-text); font-size:1.3rem;">
+   716→                    <i class="bi bi-wallet2 me-2" style="color:var(--exp-primary);"></i>Expense Management
+   717→                </h4>
+   718→                <nav aria-label="breadcrumb" style="margin:4px 0 0;">
+   719→                    <ol class="breadcrumb" style="margin:0; font-size:0.75rem;">
+   720→                        <li class="breadcrumb-item"><a href="index.php" style="text-decoration:none; color:var(--exp-muted);">Home</a></li>
+   721→                        <li class="breadcrumb-item active" style="color:var(--exp-primary);">Expense</li>
+   722→                    </ol>
+   723→                </nav>
+   724→            </div>
+   725→        </div>
+   726→    </div>
+   727→
+   728→    <!-- ═══ FLASH MESSAGES ═══ -->
+   729→    <?php if (isset($_SESSION['flash'])): ?>
+   730→    <div style="padding: 12px 0 0;">
+   731→        <?php foreach ($_SESSION['flash'] as $flash): ?>
+   732→        <div class="alert alert-<?= $flash['type'] === 'error' ? 'danger' : 'success' ?> alert-dismissible fade show py-2 px-3" role="alert" style="font-size:0.82rem; border-radius:8px;">
+   733→            <?= $flash['message'] ?>
+   734→            <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+   735→        </div>
+   736→        <?php endforeach; ?>
+   737→        <?php unset($_SESSION['flash']); ?>
+   738→    </div>
+   739→    <?php endif; ?>
+   740→
+   741→    <!-- ═══ TAB NAVIGATION ═══ -->
+   742→    <div class="exp-tabs" style="margin-top: 16px;">
+   743→        <a href="<?= $baseUrl ?>&tab=dashboard" class="exp-tab <?= $activeTab==='dashboard'?'active':'' ?>">
+   744→            <i class="bi bi-grid-1x2"></i> Dashboard
+   745→        </a>
+   746→        <a href="<?= $baseUrl ?>&tab=advance" class="exp-tab <?= $activeTab==='advance'?'active':'' ?>">
+   747→            <i class="bi bi-cash-plus"></i> Add Advance
+   748→        </a>
+   749→        <a href="<?= $baseUrl ?>&tab=expense" class="exp-tab <?= $activeTab==='expense'?'active':'' ?>">
+   750→            <i class="bi bi-receipt"></i> Add Expense
+   751→        </a>
+   752→        <a href="<?= $baseUrl ?>&tab=approvals" class="exp-tab <?= $activeTab==='approvals'?'active':'' ?>">
+   753→            <i class="bi bi-check2-square"></i> Approvals
+   754→            <?php if ($pendingApprovals > 0): ?><span class="tab-badge"><?= $pendingApprovals ?></span><?php endif; ?>
+   755→        </a>
+   756→        <a href="<?= $baseUrl ?>&tab=reports" class="exp-tab <?= $activeTab==='reports'?'active':'' ?>">
+   757→            <i class="bi bi-bar-chart-line"></i> Reports
+   758→        </a>
+   759→        <a href="<?= $baseUrl ?>&tab=upload" class="exp-tab <?= $activeTab==='upload'?'active':'' ?>">
+   760→            <i class="bi bi-file-earmark-spreadsheet"></i> Upload
+   761→        </a>
+   762→    </div>
+   763→
+   764→    <!-- ═══════════════════════════════════════════════════════════════
+   765→         TAB: DASHBOARD
+   766→         ═══════════════════════════════════════════════════════════════ -->
+   767→    <?php if ($activeTab === 'dashboard'): ?>
+   768→    <div style="padding: 24px 0;">
+   769→
+   770→        <!-- Summary Stats -->
+   771→        <div class="stat-grid">
+   772→            <div class="stat-card">
+   773→                <div class="stat-icon" style="background:#dcfce7; color:#059669;"><i class="bi bi-cash-stack"></i></div>
+   774→                <div class="stat-value" style="color:#059669;">&#8377;<?= number_format($totalAdvanceIssued,2) ?></div>
+   775→                <div class="stat-label">Total Advance Issued</div>
+   776→            </div>
+   777→            <div class="stat-card">
+   778→                <div class="stat-icon" style="background:#fef3c7; color:#d97706;"><i class="bi bi-receipt"></i></div>
+   779→                <div class="stat-value" style="color:#d97706;">&#8377;<?= number_format($totalExpenses,2) ?></div>
+   780→                <div class="stat-label">Total Expenses</div>
+   781→            </div>
+   782→            <div class="stat-card">
+   783→                <div class="stat-icon" style="background:#fee2e2; color:#dc2626;"><i class="bi bi-clock-history"></i></div>
+   784→                <div class="stat-value" style="color:#dc2626;"><?= $pendingApprovals ?></div>
+   785→                <div class="stat-label">Pending Approvals</div>
+   786→            </div>
+   787→            <div class="stat-card">
+   788→                <div class="stat-icon" style="background:#e0e7ff; color:#4f46e5;"><i class="bi bi-people"></i></div>
+   789→                <div class="stat-value" style="color:#4f46e5;">&#8377;<?= number_format($totalEmpAdvances,2) ?></div>
+   790→                <div class="stat-label">Employee Advances</div>
+   791→            </div>
+   792→        </div>
+   793→
+   794→        <!-- Manager Balance Table -->
+   795→        <div class="exp-card">
+   796→            <div class="exp-card-header">
+   797→                <h5><i class="bi bi-people me-2"></i>Manager Balance Overview</h5>
+   798→                <span class="badge bg-light text-dark border badge-sm"><?= count($managerSummary) ?> managers</span>
+   799→            </div>
+   800→            <div class="exp-card-body" style="padding:0;">
+   801→                <?php if (empty($managerSummary)): ?>
+   802→                <div class="empty-state"><i class="bi bi-people"></i><p>No managers found.</p></div>
+   803→                <?php else: ?>
+   804→                <div style="overflow-x:auto;">
+   805→                    <table class="exp-table">
+   806→                        <thead>
+   807→                            <tr>
+   808→                                <th>Manager</th>
+   809→                                <th class="text-end">Allocated</th>
+   810→                                <th class="text-end">Expenses</th>
+   811→                                <th class="text-end">Emp. Adv.</th>
+   812→                                <th class="text-end">Balance</th>
+   813→                                <th class="text-center">Pending</th>
+   814→                                <th class="text-center">Ledger</th>
+   815→                            </tr>
+   816→                        </thead>
+   817→                        <tbody>
+   818→                            <?php foreach ($managerSummary as $ms): ?>
+   819→                            <tr>
+   820→                                <td>
+   821→                                    <strong><?= htmlspecialchars($ms['name']) ?></strong>
+   822→                                    <?php if ($ms['designation']): ?><br><small style="color:var(--exp-muted);"><?= htmlspecialchars($ms['designation']) ?></small><?php endif; ?>
+   823→                                    <?php if ($ms['unit']): ?><br><small style="color:var(--exp-muted);"><?= htmlspecialchars($ms['unit']) ?></small><?php endif; ?>
+   824→                                </td>
+   825→                                <td class="text-end" style="color:#059669; font-weight:600;">&#8377;<?= number_format($ms['advance'],2) ?></td>
+   826→                                <td class="text-end" style="color:#d97706; font-weight:600;">&#8377;<?= number_format($ms['expenses'],2) ?></td>
+   827→                                <td class="text-end" style="color:#0284c7; font-weight:600;">&#8377;<?= number_format($ms['emp_advances'],2) ?></td>
+   828→                                <td class="text-end" style="font-weight:700; color:<?= $ms['balance']>=0?'#059669':'#dc2626' ?>;">&#8377;<?= number_format($ms['balance'],2) ?></td>
+   829→                                <td class="text-center">
+   830→                                    <?php if ($ms['pending']>0): ?>
+   831→                                    <a href="<?= $baseUrl ?>&tab=approvals" class="badge bg-danger text-decoration-none badge-sm"><?= $ms['pending'] ?></a>
+   832→                                    <?php else: ?><span style="color:var(--exp-muted);">-</span><?php endif; ?>
+   833→                                </td>
+   834→                                <td class="text-center">
+   835→                                    <a href="<?= $baseUrl ?>&tab=reports&rpt_type=manager&rpt_manager=<?= urlencode($ms['id']) ?>" class="exp-btn exp-btn-outline exp-btn-sm" title="View Ledger">
+   836→                                        <i class="bi bi-journal-text"></i>
+   837→                                    </a>
+   838→                                </td>
+   839→                            </tr>
+   840→                            <?php endforeach; ?>
+   841→                        </tbody>
+   842→                    </table>
+   843→                </div>
+   844→                <?php endif; ?>
+   845→            </div>
+   846→        </div>
+   847→    </div>
+   848→
+   849→    <!-- ═══════════════════════════════════════════════════════════════
+   850→         TAB: ADD ADVANCE
+   851→         ═══════════════════════════════════════════════════════════════ -->
+   852→    <?php elseif ($activeTab === 'advance'): ?>
+   853→    <div style="padding: 24px 0;">
+   854→        <div class="row g-4">
+   855→            <!-- Allocation Form -->
+   856→            <div class="col-lg-4">
+   857→                <div class="exp-card" style="position:sticky; top:20px;">
+   858→                    <div class="exp-card-header" style="background:#f0fdf4;">
+   859→                        <h5 style="color:#059669;"><i class="bi bi-plus-circle me-2"></i>Allocate Advance</h5>
+   860→                    </div>
+   861→                    <div class="exp-card-body">
+   862→                        <form method="POST" action="" class="exp-form" id="allocateForm">
+   863→            <?php echo getCSRFTokenField(); ?>
+   864→                            <input type="hidden" name="action" value="allocate_advance">
+   865→
+   866→                            <div class="mb-3">
+   867→                                <label class="form-label">Manager <span class="text-danger">*</span></label>
+   868→                                <input type="text" class="form-control form-control-sm mb-1" id="advSearch" placeholder="Search name, designation..." autocomplete="off">
+   869→                                <select name="manager_id" id="advManagerId" class="form-select form-select-sm" required>
+   870→                                    <option value="">-- Select Manager --</option>
+   871→                                    <?php foreach ($managersList as $m): ?>
+   872→                                    <option value="<?= htmlspecialchars($m['employee_id']) ?>" data-label="<?= htmlspecialchars(($m['full_name']??'').' '.($m['designation']??'').' '.($m['unit_name']??'')) ?>">
+   873→                                        <?= htmlspecialchars($m['full_name']) ?><?php if ($m['designation']): ?> - <?= htmlspecialchars($m['designation']) ?><?php endif; ?>
+   874→                                    </option>
+   875→                                    <?php endforeach; ?>
+   876→                                </select>
+   877→                            </div>
+   878→
+   879→                            <div class="row g-2 mb-3">
+   880→                                <div class="col-6">
+   881→                                    <label class="form-label">Month <span class="text-danger">*</span></label>
+   882→                                    <select name="alloc_month" class="form-select form-select-sm" required>
+   883→                                        <?php for ($mi=1;$mi<=12;$mi++): ?>
+   884→                                        <option value="<?= $mi ?>" <?= $advMonth==$mi?'selected':'' ?>><?= $monthNames[$mi] ?></option>
+   885→                                        <?php endfor; ?>
+   886→                                    </select>
+   887→                                </div>
+   888→                                <div class="col-6">
+   889→                                    <label class="form-label">Year <span class="text-danger">*</span></label>
+   890→                                    <select name="alloc_year" class="form-select form-select-sm" required>
+   891→                                        <?php for ($yi=$currentYear+1;$yi>=$currentYear-3;$yi--): ?>
+   892→                                        <option value="<?= $yi ?>" <?= $advYear==$yi?'selected':'' ?>><?= $yi ?></option>
+   893→                                        <?php endfor; ?>
+   894→                                    </select>
+   895→                                </div>
+   896→                            </div>
+   897→
+   898→                            <div class="mb-3">
+   899→                                <label class="form-label">Advance Given Date</label>
+   900→                                <input type="date" name="alloc_date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>" max="<?= date('Y-m-d') ?>">
+   901→                            </div>
+   902→
+   903→                            <div class="mb-3">
+   904→                                <label class="form-label">Amount (&#8377;) <span class="text-danger">*</span></label>
+   905→                                <div class="input-group input-group-sm">
+   906→                                    <span class="input-group-text"><i class="bi bi-currency-rupee"></i></span>
+   907→                                    <input type="number" name="amount" class="form-control" placeholder="0.00" step="0.01" min="0.01" required>
+   908→                                </div>
+   909→                            </div>
+   910→
+   911→                            <div class="mb-3">
+   912→                                <label class="form-label">Remarks</label>
+   913→                                <textarea name="remarks" class="form-control form-control-sm" rows="2" placeholder="Optional..."></textarea>
+   914→                            </div>
+   915→
+   916→                            <button type="submit" class="exp-btn exp-btn-success w-100" style="padding:10px;">
+   917→                                <i class="bi bi-cash-coin"></i> Allocate Advance
+   918→                            </button>
+   919→
+   920→                            <div style="margin-top:12px; background:#fffbeb; border-radius:8px; padding:10px 14px; font-size:0.72rem; color:#92400e;">
+   921→                                <i class="bi bi-info-circle me-1"></i>
+   922→                                <strong>How carry-forward works:</strong><br>
+   923→                                When you allocate for a month, the system automatically checks the previous month's balance:<br>
+   924→                                <strong>Balance = Prev. Allocation - Prev. Expenses - Prev. Employee Advances</strong><br>
+   925→                                If balance &gt; 0, it gets added as carry-forward to this month's allocation.
+   926→                            </div>
+   927→                        </form>
+   928→                    </div>
+   929→                </div>
+   930→            </div>
+   931→
+   932→            <!-- Right Side -->
+   933→            <div class="col-lg-8">
+   934→                <!-- Month Navigation -->
+   935→                <div class="filter-bar no-print">
+   936→                    <form method="GET" action="<?= $baseUrl ?>" class="row g-2 align-items-center">
+   937→                        <input type="hidden" name="page" value="expense/dashboard">
+   938→                        <input type="hidden" name="tab" value="advance">
+   939→                        <div class="col-auto">
+   940→                            <select name="adv_month" class="form-select form-select-sm" style="min-width:130px;">
+   941→                                <?php for ($mi=1;$mi<=12;$mi++): ?>
+   942→                                <option value="<?= $mi ?>" <?= $advMonth===$mi?'selected':'' ?>><?= $monthNames[$mi] ?></option>
+   943→                                <?php endfor; ?>
+   944→                            </select>
+   945→                        </div>
+   946→                        <div class="col-auto">
+   947→                            <select name="adv_year" class="form-select form-select-sm" style="min-width:90px;">
+   948→                                <?php for ($yi=$currentYear+1;$yi>=$currentYear-3;$yi--): ?>
+   949→                                <option value="<?= $yi ?>" <?= $advYear===$yi?'selected':'' ?>><?= $yi ?></option>
+   950→                                <?php endfor; ?>
+   951→                            </select>
+   952→                        </div>
+   953→                        <div class="col-auto">
+   954→                            <button type="submit" class="exp-btn exp-btn-primary exp-btn-sm"><i class="bi bi-search"></i> View</button>
+   955→                        </div>
+   956→                        <div class="col-auto ms-auto">
+   957→                            <div class="btn-group btn-group-sm">
+   958→                                <?php
+   959→                                $pm=$advMonth-1; $py=$advYear; if($pm<1){$pm=12;$py--;}
+   960→                                $nm=$advMonth+1; $ny=$advYear; if($nm>12){$nm=1;$ny++;}
+   961→                                ?>
+   962→                                <a href="<?= $baseUrl ?>&tab=advance&adv_month=<?= $pm ?>&adv_year=<?= $py ?>" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i></a>
+   963→                                <span class="btn btn-dark btn-sm disabled" style="min-width:120px;"><?= $monthShort[$advMonth] ?> <?= $advYear ?></span>
+   964→                                <a href="<?= $baseUrl ?>&tab=advance&adv_month=<?= $nm ?>&adv_year=<?= $ny ?>" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-right"></i></a>
+   965→                            </div>
+   966→                        </div>
+   967→                    </form>
+   968→                </div>
+   969→
+   970→                <!-- Allocations Table -->
+   971→                <div class="exp-card">
+   972→                    <div class="exp-card-header">
+   973→                        <h5><i class="bi bi-list-ul me-2"></i>Allocations — <?= $monthNames[$advMonth] ?> <?= $advYear ?></h5>
+   974→                        <span class="badge bg-light text-dark border badge-sm"><?= count($allocations) ?> records</span>
+   975→                    </div>
+   976→                    <div class="exp-card-body" style="padding:0;">
+   977→                        <?php if (empty($allocations)): ?>
+   978→                        <div class="empty-state"><i class="bi bi-inbox"></i><p>No allocations for this month.</p></div>
+   979→                        <?php else: ?>
+   980→                        <div style="overflow-x:auto;">
+   981→                            <table class="exp-table">
+   982→                                <thead><tr><th>Date Given</th><th>Month</th><th>Manager</th><th class="text-end">Amount</th><th class="text-end">Carry-Forward</th><th class="text-end">Total</th><th>Remarks</th><th class="text-center">Actions</th></tr></thead>
+   983→                                <tbody>
+   984→                                    <?php foreach ($allocations as $row): 
+   985→                                    $cf = (float)($row['carry_forward_amount'] ?? 0); 
+   986→                                    $totalAlloc = (float)$row['amount'] + $cf; 
+   987→                                    $showDate = !empty($row['alloc_date']) ? $row['alloc_date'] : $row['created_at']; ?>
+   988→                                    <tr>
+   989→                                        <td style="white-space:nowrap;"><?= date('d M Y', strtotime($showDate)) ?></td>
+   990→                                        <td><span class="badge bg-light text-dark border badge-sm"><?= $monthShort[(int)($row['month']??0)] ?> <?= $row['year']??'' ?></span></td>
+   991→                                        <td><strong><?= htmlspecialchars($row['full_name']??'N/A') ?></strong><br><small style="color:var(--exp-muted);"><?= htmlspecialchars($row['unit_name']??'') ?></small></td>
+   992→                                        <td class="text-end" style="font-weight:700; color:var(--exp-primary);">&#8377;<?= number_format((float)$row['amount'],2) ?></td>
+   993→                                        <td class="text-end"><?php if ($cf > 0): ?><span style="color:#059669; font-weight:600;">+&#8377;<?= number_format($cf,2) ?></span><?php else: ?><span style="color:var(--exp-muted);">-</span><?php endif; ?></td>
+   994→                                        <td class="text-end" style="font-weight:700;">&#8377;<?= number_format($totalAlloc,2) ?></td>
+   995→                                        <td><?= htmlspecialchars($row['remarks']??'-') ?><?php if ($cf > 0): ?><br><small style="color:#059669;">incl. &#8377;<?= number_format($cf,2) ?> from <?= $monthNames[(int)($row['carry_forward_from_month']??0)] ?? '' ?> <?= $row['carry_forward_from_year']??'' ?></small><?php endif; ?></td>
+   996→                                        <td class="text-center">
+   997→                                            <form method="POST" action="" class="d-inline" onsubmit="return confirm('Delete?');">
+   998→            <?php echo getCSRFTokenField(); ?>
+   999→                                                <input type="hidden" name="action" value="delete_allocation">
+  1000→                                                <input type="hidden" name="alloc_id" value="<?= (int)$row['id'] ?>">
+  1001→                                                <button type="submit" class="exp-btn exp-btn-danger exp-btn-sm"><i class="bi bi-trash"></i></button>
+  1002→                                            </form>
+  1003→                                        </td>
+  1004→                                    </tr>
+  1005→                                    <?php endforeach; ?>
+  1006→                                </tbody>
+  1007→                            </table>
+  1008→                        </div>
+  1009→                        <?php endif; ?>
+  1010→                    </div>
+  1011→                </div>
+  1012→            </div>
+  1013→        </div>
+  1014→    </div>
+  1015→
+  1016→    <!-- ═══════════════════════════════════════════════════════════════
+  1017→         TAB: ADD EXPENSE
+  1018→         ═══════════════════════════════════════════════════════════════ -->
+  1019→    <?php elseif ($activeTab === 'expense'): ?>
+  1020→    <div style="padding: 24px 0;">
+  1021→        <div class="row g-4">
+  1022→            <div class="col-lg-5">
+  1023→                <div class="exp-card" style="position:sticky; top:20px;">
+  1024→                    <div class="exp-card-header" style="background:#eff6ff;">
+  1025→                        <h5 style="color:var(--exp-info);"><i class="bi bi-plus-circle me-2"></i>Add New Expense</h5>
+  1026→                    </div>
+  1027→                    <div class="exp-card-body">
+  1028→                        <form method="POST" action="" class="exp-form" id="addExpenseForm">
+  1029→            <?php echo getCSRFTokenField(); ?>
+  1030→                            <input type="hidden" name="action" value="add_expense">
+  1031→
+  1032→                            <div class="mb-3">
+  1033→                                <label class="form-label">Manager <span class="text-danger">*</span></label>
+  1034→                                <input type="text" class="form-control form-control-sm mb-1" id="expSearch" placeholder="Search..." autocomplete="off">
+  1035→                                <select name="manager_id" id="expManagerId" class="form-select form-select-sm" required>
+  1036→                                    <option value="">-- Select --</option>
+  1037→                                    <?php foreach ($managersList as $m): ?>
+  1038→                                    <option value="<?= htmlspecialchars($m['employee_id']) ?>" data-label="<?= htmlspecialchars(($m['full_name']??'').' '.($m['designation']??'')) ?>">
+  1039→                                        <?= htmlspecialchars($m['full_name']) ?> - <?= htmlspecialchars($m['designation']??'') ?>
+  1040→                                    </option>
+  1041→                                    <?php endforeach; ?>
+  1042→                                </select>
+  1043→                            </div>
+  1044→
+  1045→                            <div class="row g-2 mb-3">
+  1046→                                <div class="col-6">
+  1047→                                    <label class="form-label">Category</label>
+  1048→                                    <select name="category" class="form-select form-select-sm">
+  1049→                                        <option value="expense">Expense</option>
+  1050→                                        <option value="employee_advance">Employee Advance</option>
+  1051→                                    </select>
+  1052→                                </div>
+  1053→                                <div class="col-6">
+  1054→                                    <label class="form-label">Type</label>
+  1055→                                    <select name="type" class="form-select form-select-sm">
+  1056→                                        <option value="travel">Travel</option>
+  1057→                                        <option value="food">Food</option>
+  1058→                                        <option value="cab">Cab</option>
+  1059→                                        <option value="supplies">Supplies</option>
+  1060→                                        <option value="medical">Medical</option>
+  1061→                                        <option value="other">Other</option>
+  1062→                                    </select>
+  1063→                                </div>
+  1064→                            </div>
+  1065→
+  1066→                            <div class="row g-2 mb-3">
+  1067→                                <div class="col-7">
+  1068→                                    <label class="form-label">Amount (&#8377;) <span class="text-danger">*</span></label>
+  1069→                                    <div class="input-group input-group-sm">
+  1070→                                        <span class="input-group-text"><i class="bi bi-currency-rupee"></i></span>
+  1071→                                        <input type="number" name="amount" class="form-control" placeholder="0.00" step="0.01" min="0.01" required>
+  1072→                                    </div>
+  1073→                                </div>
+  1074→                                <div class="col-5">
+  1075→                                    <label class="form-label">Date <span class="text-danger">*</span></label>
+  1076→                                    <input type="date" name="expense_date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>" required>
+  1077→                                </div>
+  1078→                            </div>
+  1079→
+  1080→                            <div class="mb-3">
+  1081→                                <label class="form-label">Description</label>
+  1082→                                <textarea name="description" class="form-control form-control-sm" rows="2" placeholder="Brief description..."></textarea>
+  1083→                            </div>
+  1084→
+  1085→                            <div class="mb-3" id="empFields">
+  1086→                                <label class="form-label">Employee Name <small class="text-muted">(for Employee Advance)</small></label>
+  1087→                                <input type="text" name="emp_name" class="form-control form-control-sm" placeholder="Employee name (if applicable)">
+  1088→                            </div>
+  1089→
+  1090→                            <button type="submit" class="exp-btn exp-btn-primary w-100" style="padding:10px;">
+  1091→                                <i class="bi bi-plus-circle"></i> Add Expense
+  1092→                            </button>
+  1093→
+  1094→                        </form>
+  1095→                    </div>
+  1096→                </div>
+  1097→            </div>
+  1098→
+  1099→            <!-- Recent Expenses -->
+  1100→            <div class="col-lg-7">
+  1101→                <div class="exp-card">
+  1102→                    <div class="exp-card-header">
+  1103→                        <h5><i class="bi bi-clock-history me-2"></i>Recent Expenses</h5>
+  1104→                        <a href="<?= $baseUrl ?>&tab=approvals" class="exp-btn exp-btn-outline exp-btn-sm">View All</a>
+  1105→                    </div>
+  1106→                    <div class="exp-card-body" style="padding:0;">
+  1107→                        <?php
+  1108→                        $recentExpenses = $db->fetchAll(
+  1109→                            "SELECT e.*, ec.full_name AS manager_name FROM ess_expenses e
+  1110→                             LEFT JOIN ess_employee_cache ec ON e.employee_id = ec.employee_id
+  1111→                             ORDER BY e.created_at DESC LIMIT 20"
+  1112→                        );
+  1113→                        if (empty($recentExpenses)): ?>
+  1114→                        <div class="empty-state"><i class="bi bi-inbox"></i><p>No expenses yet.</p></div>
+  1115→                        <?php else: ?>
+  1116→                        <div style="overflow-x:auto;">
+  1117→                            <table class="exp-table">
+  1118→                                <thead><tr><th>Date</th><th>Manager</th><th>Category</th><th class="text-end">Amount</th><th class="text-center">Status</th></tr></thead>
+  1119→                                <tbody>
+  1120→                                    <?php foreach ($recentExpenses as $r): ?>
+  1121→                                    <tr>
+  1122→                                        <td><?= date('d M', strtotime($r['expense_date']??$r['created_at'])) ?></td>
+  1123→                                        <td><strong><?= htmlspecialchars($r['manager_name']??$r['emp_name']??'N/A') ?></strong></td>
+  1124→                                        <td><?= catBadge($r['category']) ?></td>
+  1125→                                        <td class="text-end" style="font-weight:600;">&#8377;<?= number_format((float)$r['amount'],2) ?></td>
+  1126→                                        <td class="text-center"><?= statusBadge($r['status']) ?></td>
+  1127→                                    </tr>
+  1128→                                    <?php endforeach; ?>
+  1129→                                </tbody>
+  1130→                            </table>
+  1131→                        </div>
+  1132→                        <?php endif; ?>
+  1133→                    </div>
+  1134→                </div>
+  1135→            </div>
+  1136→        </div>
+  1137→    </div>
+  1138→
+  1139→    <!-- ═══════════════════════════════════════════════════════════════
+  1140→         TAB: APPROVALS
+  1141→         ═══════════════════════════════════════════════════════════════ -->
+  1142→    <?php elseif ($activeTab === 'approvals'): ?>
+  1143→    <div style="padding: 24px 0;">
+  1144→
+  1145→        <!-- Sub-tabs: Pending | All -->
+  1146→        <div class="d-flex gap-2 mb-3">
+  1147→            <a href="<?= $baseUrl ?>&tab=approvals" class="exp-btn <?= empty($fStatus) || $fStatus==='pending' ? 'exp-btn-primary' : 'exp-btn-outline' ?> exp-btn-sm">
+  1148→                <i class="bi bi-hourglass-split"></i> Pending <?= $pendingApprovals>0?'('.$pendingApprovals.')':'' ?>
+  1149→            </a>
+  1150→            <a href="<?= $baseUrl ?>&tab=approvals" class="exp-btn exp-btn-outline exp-btn-sm" onclick="this.href+='&f_status=approved'">
+  1151→                <i class="bi bi-check-circle"></i> Approved
+  1152→            </a>
+  1153→            <a href="<?= $baseUrl ?>&tab=approvals" class="exp-btn exp-btn-outline exp-btn-sm" onclick="this.href+='&f_status=rejected'">
+  1154→                <i class="bi bi-x-circle"></i> Rejected
+  1155→            </a>
+  1156→        </div>
+  1157→
+  1158→        <!-- Pending List -->
+  1159→        <?php if (empty($fStatus) || $fStatus === 'pending'): ?>
+  1160→        <div class="exp-card">
+  1161→            <div class="exp-card-header" style="background:#fef9c3;">
+  1162→                <h5 style="color:#a16207;"><i class="bi bi-hourglass-split me-2"></i>Pending Approvals</h5>
+  1163→                <span class="badge bg-warning text-dark badge-sm"><?= count($pendingList) ?></span>
+  1164→            </div>
+  1165→            <div class="exp-card-body" style="padding:0;">
+  1166→                <?php if (empty($pendingList)): ?>
+  1167→                <div class="empty-state"><i class="bi bi-check-circle"></i><p>All caught up! No pending approvals.</p></div>
+  1168→                <?php else: ?>
+  1169→                <div style="overflow-x:auto;">
+  1170→                    <table class="exp-table" id="pendingTable">
+  1171→                        <thead><tr><th>Date</th><th>Manager</th><th>Category</th><th>Type</th><th class="text-end">Amount</th><th>Description</th><th class="text-center">Actions</th></tr></thead>
+  1172→                        <tbody>
+  1173→                            <?php foreach ($pendingList as $p): $billUrl = $p['bill_url'] ?? ''; $billType = $p['bill_type'] ?? ''; ?>
+  1174→                            <tr id="prow-<?= (int)$p['id'] ?>">
+  1175→                                <td style="white-space:nowrap;"><?= date('d M Y', strtotime($p['expense_date']??$p['created_at'])) ?></td>
+  1176→                                <td>
+  1177→                                    <strong><?= htmlspecialchars($p['manager_name']??$p['emp_name']??'N/A') ?></strong>
+  1178→                                    <?php if ($p['designation']): ?><br><small style="color:var(--exp-muted);"><?= htmlspecialchars($p['designation']) ?></small><?php endif; ?>
+  1179→                                </td>
+  1180→                                <td><?= catBadge($p['category']) ?></td>
+  1181→                                <td><span class="badge bg-light text-dark border badge-sm"><?= ucfirst($p['type']??'other') ?></span></td>
+  1182→                                <td class="text-end" style="font-weight:700;">&#8377;<?= number_format((float)$p['amount'],2) ?></td>
+  1183→                                <td><?= htmlspecialchars(mb_substr($p['description']??'',0,50)) ?></td>
+  1184→                                <td class="text-center">
+  1185→                                    <div class="d-flex justify-content-center gap-1">
+  1186→                                        <?php if ($billUrl): ?><button type="button" class="exp-btn exp-btn-outline exp-btn-sm" title="View Bill" data-bs-toggle="modal" data-bs-target="#viewModal-<?= (int)$p['id'] ?>"><i class="bi bi-eye"></i></button><?php endif; ?>
+  1187→                                        <button type="button" class="exp-btn exp-btn-outline exp-btn-sm" title="View Details" data-bs-toggle="modal" data-bs-target="#detailModal-<?= (int)$p['id'] ?>"><i class="bi bi-info-lg"></i></button>
+  1188→                                        <form method="POST" action="<?= $baseUrl ?>&tab=approvals" style="display:inline;" onsubmit="return confirm('Approve?');">
+  1189→                                            <input type="hidden" name="action" value="approve">
+  1190→                                            <input type="hidden" name="id" value="<?= (int)$p['id'] ?>">
+  1191→                                            <button type="submit" class="exp-btn exp-btn-success exp-btn-sm" title="Approve"><i class="bi bi-check-lg"></i></button>
+  1192→                                            <?php echo getCSRFTokenField(); ?>
+  1193→                                        </form>
+  1194→                                        <button type="button" class="exp-btn exp-btn-danger exp-btn-sm" title="Reject" onclick="showRejectBox(<?= (int)$p['id'] ?>)">
+  1195→                                            <i class="bi bi-x-lg"></i>
+  1196→                                        </button>
+  1197→                                        <button type="button" class="exp-btn exp-btn-outline exp-btn-sm" title="Edit"
+  1198→                                                data-bs-toggle="modal" data-bs-target="#editModal-<?= (int)$p['id'] ?>">
+  1199→                                            <i class="bi bi-pencil"></i>
+  1200→                                        </button>
+  1201→                                    </div>
+  1202→                                </td>
+  1203→                            </tr>
+  1204→                            <?php endforeach; ?>
+  1205→                        </tbody>
+  1206→                    </table>
+  1207→                </div>
+  1208→                <?php endif; ?>
+  1209→            </div>
+  1210→        </div>
+  1211→
+  1212→        <!-- Reject Box -->
+  1213→        <div id="rejectBox" class="exp-card mt-3 d-none" style="border-color:#dc2626;">
+  1214→            <div class="exp-card-header" style="background:#fee2e2;">
+  1215→                <h5 style="color:#dc2626; font-size:0.85rem;"><i class="bi bi-x-circle me-1"></i>Reject Expense #<span id="rejectId"></span></h5>
+  1216→            </div>
+  1217→            <div class="exp-card-body" style="padding:12px 16px;">
+  1218→                <form method="POST" action="<?= $baseUrl ?>&tab=approvals" id="rejectForm">
+  1219→                    <input type="hidden" name="action" value="reject">
+  1220→                    <input type="hidden" name="id" id="rejectIdInput" value="">
+  1221→                    <textarea name="rejection_reason" class="form-control form-control-sm mb-2" rows="2" required placeholder="Reason for rejection..."></textarea>
+  1222→                    <div class="d-flex gap-2 justify-content-end">
+  1223→                        <button type="button" class="exp-btn exp-btn-outline exp-btn-sm" onclick="hideRejectBox()">Cancel</button>
+  1224→                        <button type="submit" class="exp-btn exp-btn-danger exp-btn-sm"><i class="bi bi-x-lg"></i> Reject</button>
+  1225→                    </div>
+  1226→                    <?php echo getCSRFTokenField(); ?>
+  1227→                </form>
+  1228→            </div>
+  1229→        </div>
+  1230→        <?php endif; ?>
+  1231→
+  1232→        <!-- Filtered All Expenses -->
+  1233→        <?php if (!empty($fStatus)): ?>
+  1234→        <div class="filter-bar no-print">
+  1235→            <form method="GET" action="<?= $baseUrl ?>" class="row g-2 align-items-end">
+  1236→                <input type="hidden" name="page" value="expense/dashboard">
+  1237→                <input type="hidden" name="tab" value="approvals">
+  1238→                <input type="hidden" name="f_status" value="<?= htmlspecialchars($fStatus) ?>">
+  1239→                <div class="col-md-3"><label class="form-label small fw-semibold">Manager</label>
+  1240→                    <select name="f_manager" class="form-select form-select-sm">
+  1241→                        <option value="">All</option>
+  1242→                        <?php foreach ($filterManagers as $m): ?>
+  1243→                        <option value="<?= $m['employee_id'] ?>" <?= $fManager==$m['employee_id']?'selected':'' ?>><?= htmlspecialchars($m['full_name']) ?></option>
+  1244→                        <?php endforeach; ?>
+  1245→                    </select>
+  1246→                </div>
+  1247→                <div class="col-md-2"><label class="form-label small fw-semibold">Month</label>
+  1248→                    <select name="f_month" class="form-select form-select-sm">
+  1249→                        <option value="">--</option>
+  1250→                        <?php for ($mi=1;$mi<=12;$mi++): ?><option value="<?= $mi ?>" <?= $fMonth==(string)$mi?'selected':'' ?>><?= $monthShort[$mi] ?></option><?php endfor; ?>
+  1251→                    </select>
+  1252→                </div>
+  1253→                <div class="col-md-2"><label class="form-label small fw-semibold">Year</label>
+  1254→                    <select name="f_year" class="form-select form-select-sm">
+  1255→                        <option value="">--</option>
+  1256→                        <?php for ($yi=$currentYear+1;$yi>=$currentYear-3;$yi--): ?><option value="<?= $yi ?>" <?= $fYear==(string)$yi?'selected':'' ?>><?= $yi ?></option><?php endfor; ?>
+  1257→                    </select>
+  1258→                </div>
+  1259→                <div class="col-auto"><button type="submit" class="exp-btn exp-btn-primary exp-btn-sm"><i class="bi bi-funnel"></i> Filter</button></div>
+  1260→                <div class="col-auto"><a href="<?= $baseUrl ?>&tab=approvals" class="exp-btn exp-btn-outline exp-btn-sm"><i class="bi bi-x-circle"></i></a></div>
+  1261→            </form>
+  1262→        </div>
+  1263→
+  1264→        <div class="exp-card">
+  1265→            <div class="exp-card-header">
+  1266→                <h5><i class="bi bi-list-ul me-2"></i><?= ucfirst($fStatus) ?> Expenses</h5>
+  1267→                <span class="badge bg-light text-dark border badge-sm"><?= count($allExpenses) ?> entries</span>
+  1268→            </div>
+  1269→            <div class="exp-card-body" style="padding:0;">
+  1270→                <?php if (empty($allExpenses)): ?>
+  1271→                <div class="empty-state"><i class="bi bi-inbox"></i><p>No expenses found.</p></div>
+  1272→                <?php else: ?>
+  1273→                <div style="overflow-x:auto;">
+  1274→                    <table class="exp-table">
+  1275→                        <thead><tr><th>Date</th><th>Manager</th><th>Category</th><th class="text-end">Amount</th><th>Description</th><th class="text-center">Status</th></tr></thead>
+  1276→                        <tbody>
+  1277→                            <?php foreach ($allExpenses as $row): ?>
+  1278→                            <tr>
+  1279→                                <td><?= date('d M Y', strtotime($row['expense_date']??$row['created_at'])) ?></td>
+  1280→                                <td><strong><?= htmlspecialchars($row['manager_name']??'N/A') ?></strong></td>
+  1281→                                <td><?= catBadge($row['category']) ?></td>
+  1282→                                <td class="text-end" style="font-weight:600;">&#8377;<?= number_format((float)$row['amount'],2) ?></td>
+  1283→                                <td><?= htmlspecialchars(mb_substr($row['description']??'',0,50)) ?></td>
+  1284→                                <td class="text-center"><?= statusBadge($row['status']) ?></td>
+  1285→                            </tr>
+  1286→                            <?php endforeach; ?>
+  1287→                        </tbody>
+  1288→                        <tfoot>
+  1289→                            <tr>
+  1290→                                <td colspan="3" class="text-end">Total (<?= count($allExpenses) ?>):</td>
+  1291→                                <td class="text-end" style="color:var(--exp-primary); font-weight:700;">&#8377;<?= number_format($expTotal,2) ?></td>
+  1292→                                <td colspan="2"></td>
+  1293→                            </tr>
+  1294→                        </tfoot>
+  1295→                    </table>
+  1296→                </div>
+  1297→                <?php endif; ?>
+  1298→            </div>
+  1299→        </div>
+  1300→        <?php endif; ?>
+  1301→
+  1302→    </div>
+  1303→
+  1304→    <!-- ═══════════════════════════════════════════════════════════════
+  1305→         TAB: REPORTS (SUB-TABS - 10 REPORTS)
+  1306→         ═══════════════════════════════════════════════════════════════ -->
+  1307→    <?php elseif ($activeTab === 'reports'): ?>
+  1308→    <div style="padding: 24px 0;">
+  1309→        <!-- Sub-tab Navigation -->
+  1310→        <div class="no-print" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:20px; padding-bottom:16px; border-bottom:2px solid var(--exp-border);">
+  1311→            <?php
+  1312→            $rptTabs = [
+  1313→                'monthly'  => ['icon'=>'bi-calendar-range','label'=>'Monthly','color'=>'#059669'],
+  1314→                'yearly'   => ['icon'=>'bi-graph-up','label'=>'Yearly','color'=>'#4f46e5'],
+  1315→                'ledger'   => ['icon'=>'bi-journal-text','label'=>'Ledger','color'=>'#d97706'],
+  1316→                'category' => ['icon'=>'bi-pie-chart','label'=>'Category','color'=>'#7c3aed'],
+  1317→                'pending'  => ['icon'=>'bi-clock-history','label'=>'Pending','color'=>'#dc2626'],
+  1318→                'top'      => ['icon'=>'bi-trophy','label'=>'Top Spenders','color'=>'#0284c7'],
+  1319→                'stats'    => ['icon'=>'bi-clipboard-data','label'=>'Statistics','color'=>'#059669'],
+  1320→                'trend'    => ['icon'=>'bi-arrow-left-right','label'=>'Trend','color'=>'#7c3aed'],
+  1321→                'emp_adv'  => ['icon'=>'bi-person-check','label'=>'Emp. Advance','color'=>'#ea580c'],
+  1322→                'bill'     => ['icon'=>'bi-receipt-cutoff','label'=>'Bill Compliance','color'=>'#0891b2'],
+  1323→            ];
+  1324→            foreach ($rptTabs as $rk => $rt):
+  1325→                $isActive = ($rptSub === $rk);
+  1326→            ?>
+  1327→            <a href="<?= $baseUrl ?>&tab=reports&rpt_sub=<?= $rk ?>" class="text-decoration-none" style="flex-shrink:0;">
+  1328→                <div style="display:inline-flex; align-items:center; gap:5px; padding:7px 14px; border-radius:8px; font-size:0.78rem; font-weight:600; transition:all .15s; cursor:pointer;
+  1329→                    background:<?= $isActive?$rt['color'].'12':'transparent' ?>;
+  1330→                    border:1.5px solid <?= $isActive?$rt['color']:'var(--exp-border)' ?>;
+  1331→                    color:<?= $isActive?$rt['color']:'var(--exp-muted)' ?>;">
+  1332→                    <i class="bi <?= $rt['icon'] ?>"></i><?= $rt['label'] ?>
+  1333→                </div>
+  1334→            </a>
+  1335→            <?php endforeach; ?>
+  1336→            <button onclick="window.print()" class="exp-btn exp-btn-outline exp-btn-sm" style="margin-left:auto; align-self:center;"><i class="bi bi-printer"></i> Print</button>
+  1337→        </div>
+  1338→
+  1339→        <?php if ($rptSub === 'monthly'): ?>
+  1340→        <!-- CARD 1: MONTHLY SUMMARY -->
+  1341→        <div class="exp-card" style="margin-bottom:20px;">
+  1342→            <div class="exp-card-header" style="background:#f0fdf4;">
+  1343→                <h5 style="color:#059669;"><i class="bi bi-calendar-range me-2"></i>Monthly Summary</h5>
+  1344→                <form method="GET" class="d-flex gap-2 align-items-center no-print" style="font-size:0.78rem;">
+  1345→                    <input type="hidden" name="page" value="expense/dashboard">
+  1346→                    <input type="hidden" name="tab" value="reports">
+  1347→                    <input type="hidden" name="rpt_sub" value="<?= $rptSub ?>">
+  1348→                    <input type="hidden" name="rpt_type" value="monthly">
+  1349→                    <select name="rpt_month" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem;">
+  1350→                        <?php for ($mi=1;$mi<=12;$mi++): ?>
+  1351→                        <option value="<?= $mi ?>" <?= $rptMonth==(string)$mi?'selected':'' ?>><?= $monthShort[$mi] ?></option>
+  1352→                        <?php endfor; ?>
+  1353→                    </select>
+  1354→                    <select name="rpt_year" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem;">
+  1355→                        <?php for ($yi=$currentYear+1;$yi>=$currentYear-3;$yi--): ?>
+  1356→                        <option value="<?= $yi ?>" <?= $rptYear==(string)$yi?'selected':'' ?>><?= $yi ?></option>
+  1357→                        <?php endfor; ?>
+  1358→                    </select>
+  1359→                    <button type="submit" class="exp-btn exp-btn-sm" style="background:#059669;color:#fff;padding:4px 12px;"><i class="bi bi-arrow-clockwise"></i></button>
+  1360→                </form>
+  1361→            </div>
+  1362→            <div class="exp-card-body" style="padding:0;">
+  1363→                <?php if (!empty($monthlyReport)):
+  1364→                    $rptTotalAlloc = $rptTotalCF = $rptTotalExp = $rptTotalEmpAdv = $rptTotalBal = 0;
+  1365→                    foreach ($monthlyReport as $r) { $rptTotalAlloc+=$r['allocated']; $rptTotalCF+=$r['carry_forward']; $rptTotalExp+=$r['expenses']; $rptTotalEmpAdv+=$r['emp_adv']; $rptTotalBal+=$r['balance']; }
+  1366→                ?>
+  1367→                <div style="overflow-x:auto;">
+  1368→                    <table class="exp-table">
+  1369→                        <thead><tr><th>Manager</th><th>Unit</th><th class="text-end">Allocated</th><th class="text-end">Carry-Fwd</th><th class="text-end">Total Avail.</th><th class="text-end">Expenses</th><th class="text-end">Emp. Adv.</th><th class="text-end">Balance</th></tr></thead>
+  1370→                        <tbody>
+  1371→                            <?php foreach ($monthlyReport as $r): ?>
+  1372→                            <tr>
+  1373→                                <td><strong><?= htmlspecialchars($r['name']) ?></strong></td>
+  1374→                                <td style="color:var(--exp-muted);"><?= htmlspecialchars($r['unit']??'-') ?></td>
+  1375→                                <td class="text-end" style="color:#059669;">&#8377;<?= number_format($r['allocated'],2) ?></td>
+  1376→                                <td class="text-end"><?php if ($r['carry_forward'] > 0): ?><span style="color:#4f46e5; font-weight:600;">+&#8377;<?= number_format($r['carry_forward'],2) ?></span><?php else: ?><span style="color:var(--exp-muted);">-</span><?php endif; ?></td>
+  1377→                                <td class="text-end" style="font-weight:700; color:#059669;">&#8377;<?= number_format($r['total_allocated'],2) ?></td>
+  1378→                                <td class="text-end" style="color:#d97706;">&#8377;<?= number_format($r['expenses'],2) ?></td>
+  1379→                                <td class="text-end" style="color:#db2777;">&#8377;<?= number_format($r['emp_adv'],2) ?></td>
+  1380→                                <td class="text-end" style="font-weight:700; color:<?= $r['balance']>=0?'#059669':'#dc2626' ?>;">&#8377;<?= number_format($r['balance'],2) ?></td>
+  1381→                            </tr>
+  1382→                            <?php endforeach; ?>
+  1383→                        </tbody>
+  1384→                        <tfoot>
+  1385→                            <tr>
+  1386→                                <td colspan="2" class="text-end" style="font-weight:700;">TOTAL</td>
+  1387→                                <td class="text-end" style="color:#059669;">&#8377;<?= number_format($rptTotalAlloc,2) ?></td>
+  1388→                                <td class="text-end" style="color:#4f46e5;">&#8377;<?= number_format($rptTotalCF,2) ?></td>
+  1389→                                <td class="text-end" style="font-weight:700; color:#059669;">&#8377;<?= number_format($rptTotalAlloc+$rptTotalCF,2) ?></td>
+  1390→                                <td class="text-end" style="color:#d97706;">&#8377;<?= number_format($rptTotalExp,2) ?></td>
+  1391→                                <td class="text-end" style="color:#db2777;">&#8377;<?= number_format($rptTotalEmpAdv,2) ?></td>
+  1392→                                <td class="text-end" style="font-weight:700; color:<?= $rptTotalBal>=0?'#059669':'#dc2626' ?>;">&#8377;<?= number_format($rptTotalBal,2) ?></td>
+  1393→                            </tr>
+  1394→                        </tfoot>
+  1395→                    </table>
+  1396→                </div>
+  1397→                <?php else: ?>
+  1398→                <div class="empty-state" style="padding:30px;"><i class="bi bi-funnel"></i><p>Select month/year and refresh.</p></div>
+  1399→                <?php endif; ?>
+  1400→            </div>
+  1401→        </div>
+  1402→
+  1403→        <?php elseif ($rptSub === 'yearly'): ?>
+  1404→        <!-- CARD 2: YEARLY OVERVIEW -->
+  1405→        <div class="exp-card" style="margin-bottom:20px;">
+  1406→            <div class="exp-card-header" style="background:#eef2ff;">
+  1407→                <h5 style="color:#4f46e5;"><i class="bi bi-graph-up me-2"></i>Yearly Overview</h5>
+  1408→                <form method="GET" class="d-flex gap-2 align-items-center no-print" style="font-size:0.78rem;">
+  1409→                    <input type="hidden" name="page" value="expense/dashboard">
+  1410→                    <input type="hidden" name="tab" value="reports">
+  1411→                    <input type="hidden" name="rpt_sub" value="<?= $rptSub ?>">
+  1412→                    <select name="rpt_yearly" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem;">
+  1413→                        <?php for ($yi=$currentYear+1;$yi>=$currentYear-3;$yi--): ?>
+  1414→                        <option value="<?= $yi ?>" <?= $rptYearForAnnual==$yi?'selected':'' ?>><?= $yi ?></option>
+  1415→                        <?php endfor; ?>
+  1416→                    </select>
+  1417→                    <button type="submit" class="exp-btn exp-btn-sm" style="background:#4f46e5;color:#fff;padding:4px 12px;"><i class="bi bi-arrow-clockwise"></i></button>
+  1418→                </form>
+  1419→            </div>
+  1420→            <div class="exp-card-body" style="padding:0;">
+  1421→                <div style="overflow-x:auto;">
+  1422→                    <table class="exp-table">
+  1423→                        <thead><tr><th>Month</th><th class="text-end">Advance Allocated</th><th class="text-end">Expenses</th><th class="text-end">Emp. Advances</th><th class="text-end">Net</th></tr></thead>
+  1424→                        <tbody>
+  1425→                            <?php
+  1426→                            $yTA=0; $yTE=0; $yEA=0; $yTN=0;
+  1427→                            for ($m=1;$m<=12;$m++):
+  1428→                                $yd = $yearlySummary[$m] ?? ['allocated'=>0,'expenses'=>0,'emp_adv'=>0,'net'=>0];
+  1429→                                $yTA+=$yd['allocated']; $yTE+=$yd['expenses']; $yEA+=$yd['emp_adv']; $yTN+=$yd['net'];
+  1430→                                $isActive = ($yd['allocated']>0 || $yd['expenses']>0 || $yd['emp_adv']>0);
+  1431→                            ?>
+  1432→                            <tr style="<?= $isActive?'':'opacity:0.4;' ?>">
+  1433→                                <td><strong><?= $monthShort[$m] ?></strong></td>
+  1434→                                <td class="text-end" style="color:#059669;"><?= $yd['allocated']>0?'&#8377;'.number_format($yd['allocated'],2):'-' ?></td>
+  1435→                                <td class="text-end" style="color:#d97706;"><?= $yd['expenses']>0?'&#8377;'.number_format($yd['expenses'],2):'-' ?></td>
+  1436→                                <td class="text-end" style="color:#db2777;"><?= $yd['emp_adv']>0?'&#8377;'.number_format($yd['emp_adv'],2):'-' ?></td>
+  1437→                                <td class="text-end" style="font-weight:700; color:<?= $yd['net']>=0?'#059669':'#dc2626' ?>;">&#8377;<?= number_format($yd['net'],2) ?></td>
+  1438→                            </tr>
+  1439→                            <?php endfor; ?>
+  1440→                        </tbody>
+  1441→                        <tfoot>
+  1442→                            <tr>
+  1443→                                <td style="font-weight:700;">Total <?= $rptYearForAnnual ?></td>
+  1444→                                <td class="text-end" style="color:#059669;">&#8377;<?= number_format($yTA,2) ?></td>
+  1445→                                <td class="text-end" style="color:#d97706;">&#8377;<?= number_format($yTE,2) ?></td>
+  1446→                                <td class="text-end" style="color:#db2777;">&#8377;<?= number_format($yEA,2) ?></td>
+  1447→                                <td class="text-end" style="font-weight:700; color:<?= $yTN>=0?'#059669':'#dc2626' ?>;">&#8377;<?= number_format($yTN,2) ?></td>
+  1448→                            </tr>
+  1449→                        </tfoot>
+  1450→                    </table>
+  1451→                </div>
+  1452→            </div>
+  1453→        </div>
+  1454→
+  1455→        <?php elseif ($rptSub === 'ledger'): ?>
+  1456→        <!-- CARD 3: MANAGER LEDGER -->
+  1457→        <div class="exp-card" style="margin-bottom:20px;">
+  1458→            <div class="exp-card-header" style="background:#fef3c7;">
+  1459→                <h5 style="color:#d97706;"><i class="bi bi-journal-text me-2"></i>Manager Ledger</h5>
+  1460→                <form method="GET" class="d-flex gap-2 align-items-center flex-wrap no-print" style="font-size:0.78rem;">
+  1461→                    <input type="hidden" name="page" value="expense/dashboard">
+  1462→                    <input type="hidden" name="tab" value="reports">
+  1463→                    <input type="hidden" name="rpt_sub" value="<?= $rptSub ?>">
+  1464→                    <input type="hidden" name="rpt_type" value="manager">
+  1465→                    <select name="rpt_manager" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem; min-width:150px;">
+  1466→                        <option value="">-- Select --</option>
+  1467→                        <?php foreach ($managersList as $m): ?>
+  1468→                        <option value="<?= $m['employee_id'] ?>" <?= $rptManager==$m['employee_id']?'selected':'' ?>><?= htmlspecialchars($m['full_name']) ?></option>
+  1469→                        <?php endforeach; ?>
+  1470→                    </select>
+  1471→                    <select name="rpt_from_month" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem;">
+  1472→                        <?php for ($mi=1;$mi<=12;$mi++): ?>
+  1473→                        <option value="<?= $mi ?>" <?= ((int)($_GET['rpt_from_month']??$currentMonth))==$mi?'selected':'' ?>><?= $monthShort[$mi] ?></option>
+  1474→                        <?php endfor; ?>
+  1475→                    </select>
+  1476→                    <select name="rpt_from_year" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem;">
+  1477→                        <?php for ($yi=$currentYear+1;$yi>=$currentYear-3;$yi--): ?>
+  1478→                        <option value="<?= $yi ?>" <?= ((int)($_GET['rpt_from_year']??($currentYear-1)))==$yi?'selected':'' ?>><?= $yi ?></option>
+  1479→                        <?php endfor; ?>
+  1480→                    </select>
+  1481→                    <span style="color:var(--exp-muted);">to</span>
+  1482→                    <select name="rpt_to_month" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem;">
+  1483→                        <?php for ($mi=1;$mi<=12;$mi++): ?>
+  1484→                        <option value="<?= $mi ?>" <?= ((int)($_GET['rpt_to_month']??$currentMonth))==$mi?'selected':'' ?>><?= $monthShort[$mi] ?></option>
+  1485→                        <?php endfor; ?>
+  1486→                    </select>
+  1487→                    <select name="rpt_to_year" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem;">
+  1488→                        <?php for ($yi=$currentYear+1;$yi>=$currentYear-3;$yi--): ?>
+  1489→                        <option value="<?= $yi ?>" <?= ((int)($_GET['rpt_to_year']??$currentYear))==$yi?'selected':'' ?>><?= $yi ?></option>
+  1490→                        <?php endfor; ?>
+  1491→                    </select>
+  1492→                    <button type="submit" class="exp-btn exp-btn-sm" style="background:#d97706;color:#fff;padding:4px 12px;"><i class="bi bi-arrow-clockwise"></i></button>
+  1493→                </form>
+  1494→            </div>
+  1495→            <div class="exp-card-body" style="padding:0;">
+  1496→                <?php if ($rptType === 'manager' && !empty($ledgerTransactions)): ?>
+  1497→                <div style="display:flex; gap:16px; padding:14px 20px; background:#fffbeb; border-bottom:1px solid var(--exp-border); flex-wrap:wrap; font-size:0.78rem;">
+  1498→                    <div><strong>Advance:</strong> <span style="color:#059669; font-weight:700;">&#8377;<?= number_format($ledgerSummary['total_advance'],2) ?></span></div>
+  1499→                    <div><strong>Expenses:</strong> <span style="color:#dc2626; font-weight:700;">&#8377;<?= number_format($ledgerSummary['total_expenses'],2) ?></span></div>
+  1500→                    <div><strong>Emp.Adv:</strong> <span style="color:#4f46e5; font-weight:700;">&#8377;<?= number_format($ledgerSummary['total_emp_advances'],2) ?></span></div>
+  1501→                    <div><strong>Pending:</strong> <span style="color:#d97706; font-weight:700;"><?= $ledgerSummary['total_pending'] ?></span></div>
+  1502→                    <div><strong>Rejected:</strong> <span style="color:#dc2626; font-weight:700;"><?= $ledgerSummary['total_rejected'] ?></span></div>
+  1503→                    <div style="margin-left:auto;"><strong>Net:</strong> <span style="font-weight:700; color:<?= $ledgerSummary['net_balance']>=0?'#059669':'#dc2626' ?>;">&#8377;<?= number_format($ledgerSummary['net_balance'],2) ?></span></div>
+  1504→                </div>
+  1505→                <div style="overflow-x:auto;">
+  1506→                    <table class="exp-table">
+  1507→                        <thead><tr><th>#</th><th>Date</th><th>Category</th><th>Type</th><th>Description</th><th class="text-end">Credit</th><th class="text-end">Debit</th><th class="text-end">Balance</th><th class="text-center">Status</th></tr></thead>
+  1508→                        <tbody>
+  1509→                            <?php $sl=0; foreach ($ledgerTransactions as $txn): $sl++; $isCredit=$txn['txn_type']==='allocation'; $rb=(float)$txn['running_balance']; $txnStatus=$txn['status']??''; $txnCat=$txn['category']??''; $txnType=!empty($txn['type'])?$txn['type']:'other'; ?>
+  1510→                            <tr style="<?= ($txnStatus==='rejected')?'opacity:0.45;':'' ?>">
+  1511→                                <td class="text-center" style="color:var(--exp-muted);"><?= $sl ?></td>
+  1512→                                <td style="white-space:nowrap;"><?= date('d M Y', strtotime(!empty($txn['expense_date'])?$txn['expense_date']:$txn['txn_date'])) ?></td>
+  1513→                                <td><?= $isCredit?'<span class="badge bg-success badge-sm">Allocation</span>':catBadge($txnCat) ?></td>
+  1514→                                <td><?= $isCredit?'<span style="color:var(--exp-muted);">-</span>':'<span class="badge bg-light text-dark border badge-sm">'.ucfirst($txnType).'</span>' ?></td>
+  1515→                                <td><?= htmlspecialchars(mb_substr($txn['description']??'',0,40)) ?></td>
+  1516→                                <td class="text-end"><?= $isCredit?'<span style="color:#059669;">+&#8377;'.number_format((float)$txn['amount'],2).'</span>':'-' ?></td>
+  1517→                                <td class="text-end"><?= (!$isCredit && $txnStatus==='approved')?'<span style="color:#dc2626;">-&#8377;'.number_format((float)$txn['amount'],2).'</span>':((!$isCredit)?'<span style="color:var(--exp-muted);">&#8377;'.number_format((float)$txn['amount'],2).'</span>':'-') ?></td>
+  1518→                                <td class="text-end" style="font-weight:600; color:<?= $rb>=0?'#059669':'#dc2626' ?>;">&#8377;<?= number_format($rb,2) ?></td>
+  1519→                                <td class="text-center"><?= $isCredit?'<span class="badge bg-success badge-sm">Done</span>':statusBadge($txnStatus) ?></td>
+  1520→                            </tr>
+  1521→                            <?php endforeach; ?>
+  1522→                        </tbody>
+  1523→                        <tfoot>
+  1524→                            <tr>
+  1525→                                <td colspan="6" class="text-end">Net Balance:</td>
+  1526→                                <td class="text-end" style="color:#059669;">&#8377;<?= number_format($ledgerSummary['total_advance'],2) ?></td>
+  1527→                                <td class="text-end" style="color:#dc2626;">&#8377;<?= number_format($ledgerSummary['total_expenses']+$ledgerSummary['total_emp_advances'],2) ?></td>
+  1528→                                <td class="text-end" style="font-weight:700; color:<?= $ledgerSummary['net_balance']>=0?'#059669':'#dc2626' ?>;">&#8377;<?= number_format($ledgerSummary['net_balance'],2) ?></td>
+  1529→                            </tr>
+  1530→                        </tfoot>
+  1531→                    </table>
+  1532→                </div>
+  1533→                <?php elseif ($rptType === 'manager'): ?>
+  1534→                <div class="empty-state" style="padding:30px;"><i class="bi bi-journal-text"></i><p>Select a manager and date range to view the ledger.</p></div>
+  1535→                <?php else: ?>
+  1536→                <div class="empty-state" style="padding:30px;"><i class="bi bi-journal-text"></i><p>Select a manager above to view their detailed ledger.</p></div>
+  1537→                <?php endif; ?>
+  1538→            </div>
+  1539→        </div>
+  1540→
+  1541→        <?php elseif ($rptSub === 'category'): ?>
+  1542→        <!-- CARD 4: EXPENSE TYPE BREAKDOWN -->
+  1543→        <div class="exp-card" style="margin-bottom:20px;">
+  1544→            <div class="exp-card-header" style="background:#fefce8;">
+  1545→                <h5 style="color:#854d0e;"><i class="bi bi-pie-chart me-2"></i>Expense Type Breakdown</h5>
+  1546→                <form method="GET" class="d-flex gap-2 align-items-center no-print" style="font-size:0.78rem;">
+  1547→                    <input type="hidden" name="page" value="expense/dashboard">
+  1548→                    <input type="hidden" name="tab" value="reports">
+  1549→                    <input type="hidden" name="rpt_sub" value="<?= $rptSub ?>">
+  1550→                    <input type="date" name="cat_from" value="<?= htmlspecialchars($catFrom) ?>" class="form-control form-control-sm py-0" style="width:auto; font-size:0.78rem;">
+  1551→                    <span style="color:var(--exp-muted);">to</span>
+  1552→                    <input type="date" name="cat_to" value="<?= htmlspecialchars($catTo) ?>" class="form-control form-control-sm py-0" style="width:auto; font-size:0.78rem;">
+  1553→                    <button type="submit" class="exp-btn exp-btn-sm" style="background:#854d0e;color:#fff;padding:4px 12px;"><i class="bi bi-arrow-clockwise"></i></button>
+  1554→                </form>
+  1555→            </div>
+  1556→            <div class="exp-card-body" style="padding:0;">
+  1557→                <?php if (!empty($categoryBreakdown)):
+  1558→                    $catGT = array_sum(array_column($categoryBreakdown, 'total'));
+  1559→                ?>
+  1560→                <div style="overflow-x:auto;">
+  1561→                    <table class="exp-table">
+  1562→                        <thead><tr><th>Expense Type</th><th>Category</th><th class="text-center">Count</th><th class="text-end">Total Amount</th><th class="text-end">% of Total</th></tr></thead>
+  1563→                        <tbody>
+  1564→                            <?php foreach ($categoryBreakdown as $cr): ?>
+  1565→                            <tr>
+  1566→                                <td><strong><?= ucfirst(htmlspecialchars($cr['exp_type'])) ?></strong></td>
+  1567→                                <td><?= catBadge($cr['category']) ?></td>
+  1568→                                <td class="text-center"><?= (int)$cr['cnt'] ?></td>
+  1569→                                <td class="text-end" style="font-weight:600;">&#8377;<?= number_format((float)$cr['total'],2) ?></td>
+  1570→                                <td class="text-end"><?= $catGT>0? round((float)$cr['total']/$catGT*100,1):0 ?>%</td>
+  1571→                            </tr>
+  1572→                            <?php endforeach; ?>
+  1573→                        </tbody>
+  1574→                        <tfoot>
+  1575→                            <tr>
+  1576→                                <td colspan="3" class="text-end" style="font-weight:700;">Grand Total</td>
+  1577→                                <td class="text-end" style="font-weight:700;">&#8377;<?= number_format($catGT,2) ?></td>
+  1578→                                <td class="text-end" style="font-weight:700;">100%</td>
+  1579→                            </tr>
+  1580→                        </tfoot>
+  1581→                    </table>
+  1582→                </div>
+  1583→                <?php else: ?>
+  1584→                <div class="empty-state" style="padding:30px;"><i class="bi bi-pie-chart"></i><p>No approved expenses in this date range.</p></div>
+  1585→                <?php endif; ?>
+  1586→            </div>
+  1587→        </div>
+  1588→
+  1589→        <?php elseif ($rptSub === 'pending'): ?>
+  1590→        <!-- CARD 5: PENDING EXPENSES (AGING) -->
+  1591→        <div class="exp-card" style="margin-bottom:20px;">
+  1592→            <div class="exp-card-header" style="background:#fef2f2;">
+  1593→                <h5 style="color:#dc2626;"><i class="bi bi-clock-history me-2"></i>Pending Expenses <span class="badge bg-danger badge-sm"><?= count($pendingAging) ?></span></h5>
+  1594→            </div>
+  1595→            <div class="exp-card-body" style="padding:0;">
+  1596→                <?php if (!empty($pendingAging)): ?>
+  1597→                <div style="overflow-x:auto;">
+  1598→                    <table class="exp-table">
+  1599→                        <thead><tr><th>Employee</th><th>Description</th><th>Category</th><th class="text-end">Amount</th><th>Date</th><th class="text-center">Days Pending</th></tr></thead>
+  1600→                        <tbody>
+  1601→                            <?php foreach ($pendingAging as $pa): ?>
+  1602→                            <tr>
+  1603→                                <td><strong><?= htmlspecialchars($pa['manager_name']??$pa['emp_name']??'-') ?></strong><br><small style="color:var(--exp-muted);"><?= htmlspecialchars($pa['designation']??'') ?></small></td>
+  1604→                                <td><?= htmlspecialchars(mb_substr($pa['description']??'',0,50)) ?></td>
+  1605→                                <td><?= catBadge($pa['category']??'') ?></td>
+  1606→                                <td class="text-end" style="font-weight:600;">&#8377;<?= number_format((float)$pa['amount'],2) ?></td>
+  1607→                                <td style="white-space:nowrap;"><?= date('d M Y', strtotime(!empty($pa['expense_date'])?$pa['expense_date']:$pa['created_at'])) ?></td>
+  1608→                                <td class="text-center">
+  1609→                                    <?php $dp = (int)$pa['days_pending']; ?>
+  1610→                                    <?php if ($dp >= 7): ?><span class="badge bg-danger badge-sm" style="font-weight:700;"><?= $dp ?>d</span>
+  1611→                                    <?php elseif ($dp >= 3): ?><span class="badge bg-warning text-dark badge-sm" style="font-weight:700;"><?= $dp ?>d</span>
+  1612→                                    <?php else: ?><span class="badge bg-success badge-sm"><?= $dp ?>d</span><?php endif; ?>
+  1613→                                </td>
+  1614→                            </tr>
+  1615→                            <?php endforeach; ?>
+  1616→                        </tbody>
+  1617→                    </table>
+  1618→                </div>
+  1619→                <?php else: ?>
+  1620→                <div class="empty-state" style="padding:30px; background:#f0fdf4;"><i class="bi bi-check-circle" style="color:#059669;"></i><p style="color:#059669; font-weight:600;">All caught up! No pending expenses.</p></div>
+  1621→                <?php endif; ?>
+  1622→            </div>
+  1623→        </div>
+  1624→
+  1625→        <?php elseif ($rptSub === 'top'): ?>
+  1626→        <!-- CARD 6: TOP SPENDERS -->
+  1627→        <div class="exp-card" style="margin-bottom:20px;">
+  1628→            <div class="exp-card-header" style="background:#f0f9ff;">
+  1629→                <h5 style="color:#0284c7;"><i class="bi bi-trophy me-2"></i>Top Spenders (All Time)</h5>
+  1630→                <span class="badge bg-light text-dark border badge-sm">Top 15</span>
+  1631→            </div>
+  1632→            <div class="exp-card-body" style="padding:0;">
+  1633→                <?php if (!empty($topSpenders)): ?>
+  1634→                <div style="overflow-x:auto;">
+  1635→                    <table class="exp-table">
+  1636→                        <thead><tr><th>#</th><th>Employee</th><th>Designation</th><th>Unit</th><th class="text-center">Transactions</th><th class="text-end">Total Spent</th></tr></thead>
+  1637→                        <tbody>
+  1638→                            <?php $rank=0; $topGT = array_sum(array_column($topSpenders, 'total_spent')); foreach ($topSpenders as $ts): $rank++; ?>
+  1639→                            <tr>
+  1640→                                <td class="text-center" style="font-weight:700; color:<?= $rank<=3?'#d97706':'var(--exp-muted)' ?>;"><?= $rank<=3?'<i class="bi bi-trophy-fill"></i>':'' ?><?= $rank ?></td>
+  1641→                                <td><strong><?= htmlspecialchars($ts['full_name']) ?></strong></td>
+  1642→                                <td style="color:var(--exp-muted);"><?= htmlspecialchars($ts['designation']??'-') ?></td>
+  1643→                                <td style="color:var(--exp-muted);"><?= htmlspecialchars($ts['unit_name']??'-') ?></td>
+  1644→                                <td class="text-center"><?= (int)$ts['txn_count'] ?></td>
+  1645→                                <td class="text-end" style="font-weight:700; color:#dc2626;">&#8377;<?= number_format((float)$ts['total_spent'],2) ?></td>
+  1646→                            </tr>
+  1647→                            <?php endforeach; ?>
+  1648→                        </tbody>
+  1649→                        <tfoot>
+  1650→                            <tr>
+  1651→                                <td colspan="5" class="text-end" style="font-weight:700;">Grand Total (all employees)</td>
+  1652→                                <td class="text-end" style="font-weight:700;">&#8377;<?= number_format($topGT,2) ?></td>
+  1653→                            </tr>
+  1654→                        </tfoot>
+  1655→                    </table>
+  1656→                </div>
+  1657→                <?php else: ?>
+  1658→                <div class="empty-state" style="padding:30px;"><i class="bi bi-trophy"></i><p>No expense data yet.</p></div>
+  1659→                <?php endif; ?>
+  1660→            </div>
+  1661→        </div>
+  1662→
+  1663→        <?php elseif ($rptSub === 'stats'): ?>
+  1664→        <!-- CARD 7: APPROVAL STATISTICS (ALL TIME) -->
+  1665→        <div class="exp-card" style="margin-bottom:20px;">
+  1666→            <div class="exp-card-header" style="background:#f0fdf4;">
+  1667→                <h5 style="color:#059669;"><i class="bi bi-clipboard-data me-2"></i>Approval Statistics <span class="badge bg-light text-dark border badge-sm">All Time</span></h5>
+  1668→            </div>
+  1669→            <div class="exp-card-body">
+  1670→                <div class="row g-3">
+  1671→                    <div class="col-md-4">
+  1672→                        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:12px; padding:16px; text-align:center;">
+  1673→                            <div style="font-size:2rem; font-weight:800; color:#059669;"><?= number_format($approvalStats['approved']) ?></div>
+  1674→                            <div style="font-size:0.78rem; color:#166534; font-weight:600;">Approved</div>
+  1675→                            <div style="font-size:0.85rem; font-weight:700; color:#059669;">&#8377;<?= number_format($approvalStats['approved_amt'],2) ?></div>
+  1676→                        </div>
+  1677→                    </div>
+  1678→                    <div class="col-md-4">
+  1679→                        <div style="background:#fefce8; border:1px solid #fde68a; border-radius:12px; padding:16px; text-align:center;">
+  1680→                            <div style="font-size:2rem; font-weight:800; color:#d97706;"><?= number_format($approvalStats['pending']) ?></div>
+  1681→                            <div style="font-size:0.78rem; color:#92400e; font-weight:600;">Pending</div>
+  1682→                            <div style="font-size:0.85rem; font-weight:700; color:#d97706;">&#8377;<?= number_format($approvalStats['pending_amt'],2) ?></div>
+  1683→                        </div>
+  1684→                    </div>
+  1685→                    <div class="col-md-4">
+  1686→                        <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:12px; padding:16px; text-align:center;">
+  1687→                            <div style="font-size:2rem; font-weight:800; color:#dc2626;"><?= number_format($approvalStats['rejected']) ?></div>
+  1688→                            <div style="font-size:0.78rem; color:#991b1b; font-weight:600;">Rejected</div>
+  1689→                            <div style="font-size:0.85rem; font-weight:700; color:#dc2626;">&#8377;<?= number_format($approvalStats['rejected_amt'],2) ?></div>
+  1690→                        </div>
+  1691→                    </div>
+  1692→                </div>
+  1693→                <?php $totalAll = $approvalStats['approved']+$approvalStats['pending']+$approvalStats['rejected']; if ($totalAll > 0): ?>
+  1694→                <div style="margin-top:16px;">
+  1695→                    <div style="display:flex; border-radius:8px; overflow:hidden; height:28px;">
+  1696→                        <?php $pctApp = round($approvalStats['approved']/$totalAll*100,1); $pctPen = round($approvalStats['pending']/$totalAll*100,1); $pctRej = round($approvalStats['rejected']/$totalAll*100,1); ?>
+  1697→                        <div style="width:<?= $pctApp ?>%; background:#059669; display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.7rem; font-weight:700;" title="Approved: <?= $pctApp ?>%"><?= $pctApp>8?$pctApp.'%':'' ?></div>
+  1698→                        <div style="width:<?= $pctPen ?>%; background:#d97706; display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.7rem; font-weight:700;" title="Pending: <?= $pctPen ?>%"><?= $pctPen>8?$pctPen.'%':'' ?></div>
+  1699→                        <div style="width:<?= $pctRej ?>%; background:#dc2626; display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.7rem; font-weight:700;" title="Rejected: <?= $pctRej ?>%"><?= $pctRej>8?$pctRej.'%':'' ?></div>
+  1700→                    </div>
+  1701→                    <div style="display:flex; gap:16px; margin-top:6px; font-size:0.72rem; color:var(--exp-muted); justify-content:center;">
+  1702→                        <span><i class="bi bi-square-fill" style="color:#059669;"></i> Approved</span>
+  1703→                        <span><i class="bi bi-square-fill" style="color:#d97706;"></i> Pending</span>
+  1704→                        <span><i class="bi bi-square-fill" style="color:#dc2626;"></i> Rejected</span>
+  1705→                    </div>
+  1706→                </div>
+  1707→                <?php endif; ?>
+  1708→            </div>
+  1709→        </div>
+  1710→
+  1711→        <?php elseif ($rptSub === 'trend'): ?>
+  1712→        <!-- CARD 8: MONTH-OVER-MONTH TREND (LAST 6 MONTHS) -->
+  1713→        <div class="exp-card" style="margin-bottom:20px;">
+  1714→            <div class="exp-card-header" style="background:#f5f3ff;">
+  1715→                <h5 style="color:#7c3aed;"><i class="bi bi-arrow-left-right me-2"></i>Month-over-Month Trend <span class="badge bg-light text-dark border badge-sm">Last 6 Months</span></h5>
+  1716→            </div>
+  1717→            <div class="exp-card-body" style="padding:0;">
+  1718→                <div style="overflow-x:auto;">
+  1719→                    <table class="exp-table">
+  1720→                        <thead><tr><th>Month</th><th class="text-end">Allocated</th><th class="text-end">Expenses</th><th class="text-end">Emp. Adv.</th><th class="text-end">Net</th><th class="text-center">Trend</th></tr></thead>
+  1721→                        <tbody>
+  1722→                            <?php $prevNet = null; foreach ($momTrend as $mt): ?>
+  1723→                            <tr>
+  1724→                                <td><strong><?= $mt['label'] ?></strong></td>
+  1725→                                <td class="text-end" style="color:#059669;"><?= $mt['allocated']>0?'&#8377;'.number_format($mt['allocated'],2):'-' ?></td>
+  1726→                                <td class="text-end" style="color:#d97706;"><?= $mt['expenses']>0?'&#8377;'.number_format($mt['expenses'],2):'-' ?></td>
+  1727→                                <td class="text-end" style="color:#db2777;"><?= $mt['emp_adv']>0?'&#8377;'.number_format($mt['emp_adv'],2):'-' ?></td>
+  1728→                                <td class="text-end" style="font-weight:700; color:<?= $mt['net']>=0?'#059669':'#dc2626' ?>;">&#8377;<?= number_format($mt['net'],2) ?></td>
+  1729→                                <td class="text-center">
+  1730→                                    <?php if ($prevNet !== null): ?>
+  1731→                                        <?php if ($mt['net'] > $prevNet): ?><span style="color:#059669; font-weight:700;"><i class="bi bi-arrow-up-short"></i>+&#8377;<?= number_format($mt['net']-$prevNet,2) ?></span>
+  1732→                                        <?php elseif ($mt['net'] < $prevNet): ?><span style="color:#dc2626; font-weight:700;"><i class="bi bi-arrow-down-short"></i>&#8377;<?= number_format($mt['net']-$prevNet,2) ?></span>
+  1733→                                        <?php else: ?><span style="color:var(--exp-muted);">-</span>
+  1734→                                        <?php endif; ?>
+  1735→                                    <?php else: ?><span style="color:var(--exp-muted);">-</span>
+  1736→                                    <?php endif; ?>
+  1737→                                </td>
+  1738→                            </tr>
+  1739→                            <?php $prevNet = $mt['net']; endforeach; ?>
+  1740→                        </tbody>
+  1741→                    </table>
+  1742→                </div>
+  1743→            </div>
+  1744→        </div>
+  1745→
+  1746→        <?php elseif ($rptSub === 'emp_adv'): ?>
+  1747→        <!-- CARD 9: EMPLOYEE ADVANCE REGISTER -->
+  1748→        <div class="exp-card" style="margin-bottom:20px;">
+  1749→            <div class="exp-card-header" style="background:#fff7ed;">
+  1750→                <h5 style="color:#ea580c;"><i class="bi bi-person-check me-2"></i>Employee Advance Register</h5>
+  1751→                <form method="GET" class="d-flex gap-2 align-items-center no-print" style="font-size:0.78rem;">
+  1752→                    <input type="hidden" name="page" value="expense/dashboard">
+  1753→                    <input type="hidden" name="tab" value="reports">
+  1754→                    <input type="hidden" name="rpt_sub" value="<?= $rptSub ?>">
+  1755→                    <select name="ea_month" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem;">
+  1756→                        <?php for ($mi=1;$mi<=12;$mi++): ?>
+  1757→                        <option value="<?= $mi ?>" <?= $eaMonth==(string)$mi?'selected':'' ?>><?= $monthShort[$mi] ?></option>
+  1758→                        <?php endfor; ?>
+  1759→                    </select>
+  1760→                    <select name="ea_year" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem;">
+  1761→                        <?php for ($yi=$currentYear+1;$yi>=$currentYear-3;$yi--): ?>
+  1762→                        <option value="<?= $yi ?>" <?= $eaYear==(string)$yi?'selected':'' ?>><?= $yi ?></option>
+  1763→                        <?php endfor; ?>
+  1764→                    </select>
+  1765→                    <button type="submit" class="exp-btn exp-btn-sm" style="background:#ea580c;color:#fff;padding:4px 12px;"><i class="bi bi-arrow-clockwise"></i></button>
+  1766→                </form>
+  1767→            </div>
+  1768→            <div class="exp-card-body" style="padding:0;">
+  1769→                <?php if (!empty($empAdvanceRegister)):
+  1770→                    $eaGT = array_sum(array_column($empAdvanceRegister, 'amount'));
+  1771→                ?>
+  1772→                <div style="overflow-x:auto;">
+  1773→                    <table class="exp-table">
+  1774→                        <thead><tr><th>#</th><th>Employee</th><th>Designation</th><th>Unit</th><th class="text-end">Amount</th><th>Description</th><th>Date</th><th class="text-center">Status</th></tr></thead>
+  1775→                        <tbody>
+  1776→                            <?php $eaIdx=0; foreach ($empAdvanceRegister as $ea): $eaIdx++; ?>
+  1777→                            <tr>
+  1778→                                <td class="text-center"><?= $eaIdx ?></td>
+  1779→                                <td><strong><?= htmlspecialchars($ea['full_name']??'-') ?></strong></td>
+  1780→                                <td style="color:var(--exp-muted); font-size:0.82rem;"><?= htmlspecialchars($ea['designation']??'-') ?></td>
+  1781→                                <td style="color:var(--exp-muted); font-size:0.82rem;"><?= htmlspecialchars($ea['unit_name']??'-') ?></td>
+  1782→                                <td class="text-end" style="font-weight:700; color:#ea580c;">&#8377;<?= number_format((float)$ea['amount'],2) ?></td>
+  1783→                                <td style="font-size:0.82rem;"><?= htmlspecialchars(mb_substr($ea['description']??'',0,40)) ?></td>
+  1784→                                <td style="white-space:nowrap; font-size:0.82rem;"><?= date('d M Y', strtotime($ea['txn_date'])) ?></td>
+  1785→                                <td class="text-center"><?= statusBadge($ea['status']) ?></td>
+  1786→                            </tr>
+  1787→                            <?php endforeach; ?>
+  1788→                        </tbody>
+  1789→                        <tfoot>
+  1790→                            <tr>
+  1791→                                <td colspan="4" class="text-end" style="font-weight:700;">Total (<?= $eaIdx ?> entries)</td>
+  1792→                                <td class="text-end" style="font-weight:700; color:#ea580c;">&#8377;<?= number_format($eaGT,2) ?></td>
+  1793→                                <td colspan="3"></td>
+  1794→                            </tr>
+  1795→                        </tfoot>
+  1796→                    </table>
+  1797→                </div>
+  1798→                <?php else: ?>
+  1799→                <div class="empty-state" style="padding:30px;"><i class="bi bi-person-x"></i><p>No employee advances in this month.</p></div>
+  1800→                <?php endif; ?>
+  1801→            </div>
+  1802→        </div>
+  1803→
+  1804→        <?php elseif ($rptSub === 'bill'): ?>
+  1805→        <!-- CARD 10: BILL COMPLIANCE -->
+  1806→        <div class="exp-card" style="margin-bottom:20px;">
+  1807→            <div class="exp-card-header" style="background:#ecfeff;">
+  1808→                <h5 style="color:#0891b2;"><i class="bi bi-receipt-cutoff me-2"></i>Bill Compliance</h5>
+  1809→                <form method="GET" class="d-flex gap-2 align-items-center no-print" style="font-size:0.78rem;">
+  1810→                    <input type="hidden" name="page" value="expense/dashboard">
+  1811→                    <input type="hidden" name="tab" value="reports">
+  1812→                    <input type="hidden" name="rpt_sub" value="<?= $rptSub ?>">
+  1813→                    <select name="bill_month" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem;">
+  1814→                        <?php for ($mi=1;$mi<=12;$mi++): ?>
+  1815→                        <option value="<?= $mi ?>" <?= $billMonth==(string)$mi?'selected':'' ?>><?= $monthShort[$mi] ?></option>
+  1816→                        <?php endfor; ?>
+  1817→                    </select>
+  1818→                    <select name="bill_year" class="form-select form-select-sm py-0" style="width:auto; font-size:0.78rem;">
+  1819→                        <?php for ($yi=$currentYear+1;$yi>=$currentYear-3;$yi--): ?>
+  1820→                        <option value="<?= $yi ?>" <?= $billYear==(string)$yi?'selected':'' ?>><?= $yi ?></option>
+  1821→                        <?php endfor; ?>
+  1822→                    </select>
+  1823→                    <button type="submit" class="exp-btn exp-btn-sm" style="background:#0891b2;color:#fff;padding:4px 12px;"><i class="bi bi-arrow-clockwise"></i></button>
+  1824→                </form>
+  1825→            </div>
+  1826→            <div class="exp-card-body">
+  1827→                <?php if ($billCompliance['total'] > 0):
+  1828→                    $billPct = round($billCompliance['with_bill']/$billCompliance['total']*100,1);
+  1829→                    $noBillPct = round($billCompliance['without_bill']/$billCompliance['total']*100,1);
+  1830→                ?>
+  1831→                <div class="row g-3 mb-3">
+  1832→                    <div class="col-md-4">
+  1833→                        <div style="background:#f0fdfa; border:1px solid #99f6e4; border-radius:12px; padding:16px; text-align:center;">
+  1834→                            <div style="font-size:1.6rem; font-weight:800; color:#0891b2;"><?= $billCompliance['total'] ?></div>
+  1835→                            <div style="font-size:0.78rem; color:#155e75; font-weight:600;">Total Expenses</div>
+  1836→                            <div style="font-size:0.85rem; font-weight:700;">&#8377;<?= number_format($billCompliance['total_amt'],2) ?></div>
+  1837→                        </div>
+  1838→                    </div>
+  1839→                    <div class="col-md-4">
+  1840→                        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:12px; padding:16px; text-align:center;">
+  1841→                            <div style="font-size:1.6rem; font-weight:800; color:#059669;"><?= $billCompliance['with_bill'] ?></div>
+  1842→                            <div style="font-size:0.78rem; color:#166534; font-weight:600;">With Bill</div>
+  1843→                            <div style="font-size:0.85rem; font-weight:700;">&#8377;<?= number_format($billCompliance['with_bill_amt'],2) ?></div>
+  1844→                        </div>
+  1845→                    </div>
+  1846→                    <div class="col-md-4">
+  1847→                        <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:12px; padding:16px; text-align:center;">
+  1848→                            <div style="font-size:1.6rem; font-weight:800; color:#dc2626;"><?= $billCompliance['without_bill'] ?></div>
+  1849→                            <div style="font-size:0.78rem; color:#991b1b; font-weight:600;">Without Bill</div>
+  1850→                            <div style="font-size:0.85rem; font-weight:700;">&#8377;<?= number_format($billCompliance['without_bill_amt'],2) ?></div>
+  1851→                        </div>
+  1852→                    </div>
+  1853→                </div>
+  1854→                <div>
+  1855→                    <div style="font-size:0.78rem; font-weight:600; margin-bottom:6px;">Bill Upload Rate: <span style="color:<?= $billPct>=80?'#059669':($billPct>=50?'#d97706':'#dc2626') ?>; font-weight:800;"><?= $billPct ?>%</span></div>
+  1856→                    <div style="display:flex; border-radius:8px; overflow:hidden; height:24px;">
+  1857→                        <div style="width:<?= $billPct ?>%; background:#059669; display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.7rem; font-weight:700;" title="With Bill: <?= $billPct ?>%"><?= $billPct>10?$billPct.'%':'' ?></div>
+  1858→                        <div style="width:<?= $noBillPct ?>%; background:#dc2626; display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.7rem; font-weight:700;" title="Without Bill: <?= $noBillPct ?>%"><?= $noBillPct>10?$noBillPct.'%':'' ?></div>
+  1859→                    </div>
+  1860→                </div>
+  1861→                <?php else: ?>
+  1862→                <div class="empty-state" style="padding:30px;"><i class="bi bi-receipt"></i><p>No approved expenses in this month.</p></div>
+  1863→                <?php endif; ?>
+  1864→            </div>
+  1865→        </div>
+  1866→        <?php endif; ?>
+  1867→
+  1868→    </div>
+  1869→
+  1870→    <?php elseif ($activeTab === 'upload'): ?>
+  1871→    <div style="padding: 24px 0;">
+  1872→        <div class="row g-4 justify-content-center">
+  1873→            <div class="col-lg-8 col-xl-7">
+  1874→                <div class="exp-card">
+  1875→                    <div class="exp-card-header" style="background:#f5f3ff;">
+  1876→                        <h5 style="color:#7c3aed;"><i class="bi bi-file-earmark-arrow-up me-2"></i>Bulk Upload — Advance &amp; Expense (CSV)</h5>
+  1877→                    </div>
+  1878→                    <div class="exp-card-body">
+  1879→                        <form method="POST" action="<?= $baseUrl ?>&tab=upload" enctype="multipart/form-data" id="csvUploadForm">
+  1880→                            <input type="hidden" name="action" value="bulk_xlsx_upload">
+  1881→                            <div class="alert" style="background:#f5f3ff; border:1px solid #ddd6fe; color:#5b21b6; border-radius:10px; padding:16px; margin-bottom:20px;">
+  1882→                                <h6 style="margin:0 0 10px; font-weight:700; font-size:0.88rem;"><i class="bi bi-info-circle me-1"></i>How to Upload</h6>
+  1883→                                <ol style="margin:0; padding-left:20px; font-size:0.8rem; line-height:1.8;">
+  1884→                                    <li><a href="<?= $baseUrl ?>&download_template=upload" class="text-decoration-none" style="color:#7c3aed; font-weight:700;" download><i class="bi bi-download me-1"></i>Download the CSV template</a></li>
+  1885→                                    <li>Fill in Employee Code, Date, Advance amount, Expense amount, Remark</li>
+  1886→                                    <li>One row per entry — you can put both advance and expense in the same row</li>
+  1887→                                    <li>Leave Advance or Expense as <code>0</code> or empty if not applicable</li>
+  1888→                                    <li>Upload the filled .csv file below</li>
+  1889→                                </ol>
+  1890→                            </div>
+  1891→
+  1892→                            <div class="row g-3 align-items-end">
+  1893→                                <div class="col-12">
+  1894→                                    <label class="form-label fw-semibold" style="font-size:0.85rem;">Select CSV File <span class="text-danger">*</span></label>
+  1895→                                    <input type="file" name="csv_file" accept=".csv,.txt" class="form-control" id="csvUploadFile" required style="font-size:0.88rem;">
+  1896→                                    <div class="form-text" style="font-size:0.75rem;">Only .csv files accepted. Download template above to get correct format.</div>
+  1897→                                </div>
+  1898→                                <div class="col-12">
+  1899→                                    <button type="submit" class="exp-btn w-100" style="padding:12px; background:#7c3aed; color:#fff; font-size:0.9rem;" onclick="return confirm('Upload this file and process all rows?')">
+  1900→                                        <i class="bi bi-upload me-2"></i>Upload &amp; Process
+  1901→                                    </button>
+  1902→                                </div>
+  1903→                            </div>
+  1904→                            <?php echo getCSRFTokenField(); ?>
+  1905→                        </form>
+  1906→
+  1907→                        <?php if (!empty($_SESSION['upload_debug'])): ?>
+  1908→                        <div style="margin-top:20px; border:1px solid #cbd5e1; border-radius:10px; overflow:hidden;">
+  1909→                            <div style="background:#fefce8; padding:10px 16px; font-weight:600; font-size:0.78rem; color:#854d0e; border-bottom:1px solid #fde68a; cursor:pointer;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+  1910→                                <i class="bi bi-bug me-1"></i>Upload Debug Log (click to expand/collapse)
+  1911→                            </div>
+  1912→                            <div id="debugLog" style="background:#fafaf9; padding:12px 16px; font-family:'Courier New',monospace; font-size:0.72rem; line-height:1.7; color:#374151; max-height:300px; overflow-y:auto; display:block;">
+  1913→                                <?php foreach ($_SESSION['upload_debug'] as $dbgLine): ?>
+  1914→                                <div><?= htmlspecialchars($dbgLine) ?></div>
+  1915→                                <?php endforeach; ?>
+  1916→                            </div>
+  1917→                        </div>
+  1918→                        <?php unset($_SESSION['upload_debug']); endif; ?>
+  1919→                    </div>
+  1920→                </div>
+  1921→                <div style="margin-top:16px; text-align:center;">
+  1922→                    <a href="<?= $baseUrl ?>&download_template=upload" class="btn btn-outline-secondary btn-sm" download style="border-radius:8px;">
+  1923→                        <i class="bi bi-download me-1"></i> Download CSV Template
+  1924→                    </a>
+  1925→                </div>
+  1926→            </div>
+  1927→        </div>
+  1928→    </div>
+  1929→    <?php endif; ?>
+  1930→
+  1931→</div><!-- /exp-page -->
+  1932→
+  1933→<!-- ═══════════════════════════════════════════════════════════════
+  1934→     DETAIL + BILL VIEW MODALS (for Approvals)
+  1935→     ═══════════════════════════════════════════════════════════════ -->
+  1936→<?php if ($activeTab === 'approvals' && empty($fStatus)): ?>
+  1937→<?php foreach ($pendingList as $p):
+  1938→    $pid = (int)$p['id'];
+  1939→    $billUrl = $p['bill_url'] ?? '';
+  1940→    $billType = strtolower($p['bill_type'] ?? '');
+  1941→    $billLabel = ($billType === 'pdf') ? 'PDF' : (($billType === 'image') ? 'Image' : 'Bill');
+  1942→    $billIsPdf = ($billType === 'pdf');
+  1943→?>
+  1944→<!-- Detail Modal -->
+  1945→<div class="modal fade" id="detailModal-<?= $pid ?>" tabindex="-1" aria-hidden="true">
+  1946→    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+  1947→        <div class="modal-content" style="border-radius:14px; overflow:hidden;">
+  1948→            <div class="modal-header py-2" style="background:#f8fafc; border-bottom:2px solid var(--exp-primary);">
+  1949→                <h6 class="modal-title mb-0" style="font-size:0.9rem; color:var(--exp-primary);"><i class="bi bi-receipt me-2"></i>Expense #<?= $pid ?> — Details</h6>
+  1950→                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+  1951→            </div>
+  1952→            <div class="modal-body" style="padding:20px;">
+  1953→                <div class="row g-3">
+  1954→                    <div class="col-sm-6">
+  1955→                        <div style="font-size:0.7rem; color:var(--exp-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Employee / Manager</div>
+  1956→                        <div style="font-weight:600;"><?= htmlspecialchars($p['manager_name']??$p['emp_name']??'N/A') ?></div>
+  1957→                        <?php if ($p['designation']): ?><div style="font-size:0.78rem; color:var(--exp-muted);"><?= htmlspecialchars($p['designation']) ?></div><?php endif; ?>
+  1958→                    </div>
+  1959→                    <div class="col-sm-3">
+  1960→                        <div style="font-size:0.7rem; color:var(--exp-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Amount</div>
+  1961→                        <div style="font-weight:700; font-size:1.1rem; color:var(--exp-primary);">&#8377;<?= number_format((float)$p['amount'],2) ?></div>
+  1962→                    </div>
+  1963→                    <div class="col-sm-3">
+  1964→                        <div style="font-size:0.7rem; color:var(--exp-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Date</div>
+  1965→                        <div style="font-weight:600;"><?= date('d M Y', strtotime($p['expense_date']??$p['created_at'])) ?></div>
+  1966→                    </div>
+  1967→                    <div class="col-4">
+  1968→                        <div style="font-size:0.7rem; color:var(--exp-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Category</div>
+  1969→                        <div><?= catBadge($p['category']) ?></div>
+  1970→                    </div>
+  1971→                    <div class="col-4">
+  1972→                        <div style="font-size:0.7rem; color:var(--exp-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Type</div>
+  1973→                        <div><span class="badge bg-light text-dark border"><?= ucfirst($p['type']??'other') ?></span></div>
+  1974→                    </div>
+  1975→                    <div class="col-4">
+  1976→                        <div style="font-size:0.7rem; color:var(--exp-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Status</div>
+  1977→                        <div><?= statusBadge($p['status']) ?></div>
+  1978→                    </div>
+  1979→                    <?php if (!empty($p['emp_name'])): ?>
+  1980→                    <div class="col-sm-6">
+  1981→                        <div style="font-size:0.7rem; color:var(--exp-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Employee (for Advance)</div>
+  1982→                        <div style="font-weight:600;"><?= htmlspecialchars($p['emp_name']) ?><?php if ($p['emp_code']): ?> <small style="color:var(--exp-muted);">(<?= htmlspecialchars($p['emp_code']) ?>)</small><?php endif; ?></div>
+  1983→                    </div>
+  1984→                    <?php endif; ?>
+  1985→                    <?php if (!empty($p['month']) && !empty($p['year'])): ?>
+  1986→                    <div class="col-sm-3">
+  1987→                        <div style="font-size:0.7rem; color:var(--exp-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Month / Year</div>
+  1988→                        <div><?= $monthShort[(int)$p['month']] ?> <?= $p['year'] ?></div>
+  1989→                    </div>
+  1990→                    <?php endif; ?>
+  1991→                    <div class="col-12">
+  1992→                        <div style="font-size:0.7rem; color:var(--exp-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Description</div>
+  1993→                        <div style="background:#f8fafc; border-radius:8px; padding:10px 14px; font-size:0.85rem; min-height:40px;"><?= htmlspecialchars($p['description'] ?? 'No description') ?></div>
+  1994→                    </div>
+  1995→                    <?php if (!empty($billUrl)): ?>
+  1996→                    <div class="col-12">
+  1997→                        <div style="font-size:0.7rem; color:var(--exp-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Uploaded Bill</div>
+  1998→                        <div style="background:#f0fdf4; border:1px dashed #86efac; border-radius:10px; padding:12px; text-align:center;">
+  1999→                            <?php if ($billIsPdf): ?>
+  2000→                            <a href="<?= htmlspecialchars($billUrl) ?>" target="_blank" style="text-decoration:none; color:var(--exp-primary); font-weight:600;">
+
+[showing lines 1-2000 of 2154; use offset=2001 with limit to continue reading]

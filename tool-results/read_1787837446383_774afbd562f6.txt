@@ -1,0 +1,1344 @@
+     1→<?php
+     2→if (!isset($db) || !is_object($db)) { header("Location: index.php"); exit; }
+     3→/**
+     4→ * Manager Ledger - Full financial history and running balance
+     5→ * Loaded via index.php?page=expense/ledger
+     6→ *
+     7→ * ALL display calculations are LIVE (computed from actual transaction data).
+     8→ * The manager_ledger table is used for storage/settlement only.
+     9→ */
+    10→
+    11→$pageTitle = 'Manager Ledger';
+    12→
+    13→// Shared auto-migration & helpers
+    14→require_once __DIR__ . '/expense-setup.php';
+    15→
+    16→$baseUrl = 'index.php?page=expense/ledger';
+    17→
+    18→// ============================================================================
+    19→// Helper: Build the WHERE clause fragment for matching expenses to a manager
+    20→// Uses both employee_id and manager_id columns, with COALESCE for date.
+    21→// ============================================================================
+    22→function buildExpenseManagerWhere($alias = 'e') {
+    23→    return "({$alias}.employee_id = :mid OR {$alias}.manager_id = :mid)";
+    24→}
+    25→
+    26→// ============================================================================
+    27→// Helper: Compute LIVE opening balance for a manager at the start of a month
+    28→// Strategy: find the most recent settled ledger before this month.
+    29→// If none exists, walk back through all previous months summing live data.
+    30→// ============================================================================
+    31→function computeLiveOpeningBalance($db, $managerId, $month, $year) {
+    32→    // Look for the most recent settled ledger before this month/year
+    33→    $prevSettled = $db->fetch(
+    34→        "SELECT * FROM manager_ledger
+    35→         WHERE manager_id = :mid
+    36→           AND (year < :yr OR (year = :yr2 AND month < :m))
+    37→           AND carried_forward = 1
+    38→         ORDER BY year DESC, month DESC
+    39→         LIMIT 1",
+    40→        ['mid' => $managerId, 'yr' => $year, 'yr2' => $year, 'm' => $month]
+    41→    );
+    42→
+    43→    if ($prevSettled) {
+    44→        // We have a settled ledger. But there may be un-settled months between
+    45→        // that settled month and the current month. Sum live data for those gap months.
+    46→        $baseBalance = (float)$prevSettled['closing_balance'];
+    47→        $gapStartMonth = (int)$prevSettled['month'] + 1;
+    48→        $gapStartYear  = (int)$prevSettled['year'];
+    49→
+    50→        // Normalize: if gap start month > 12, rollover
+    51→        if ($gapStartMonth > 12) {
+    52→            $gapStartMonth = 1;
+    53→            $gapStartYear++;
+    54→        }
+    55→
+    56→        // Walk from gap start to the month BEFORE the target month
+    57→        $bal = $baseBalance;
+    58→        $cy = $gapStartYear;
+    59→        $cm = $gapStartMonth;
+    60→
+    61→        while ($cy < $year || ($cy === $year && $cm < $month)) {
+    62→            $live = computeLiveMonthTotals($db, $managerId, $cm, $cy);
+    63→            $bal = $bal + $live['advances'] - $live['expenses'] - $live['employee_advances'];
+    64→            $cm++;
+    65→            if ($cm > 12) { $cm = 1; $cy++; }
+    66→        }
+    67→        return $bal;
+    68→    }
+    69→
+    70→    // No settled ledger found at all. Compute from the very beginning by
+    71→    // summing all transactions before the target month.
+    72→    $startDate = '2000-01-01';
+    73→    $endDate   = sprintf('%04d-%02d-01', $year, $month); // first day of target month, exclusive
+    74→
+    75→    // Sum all advances before this month
+    76→    $totalAdvances = (float)$db->fetchColumn(
+    77→        "SELECT COALESCE(SUM(amount), 0) FROM manager_advance_allocations
+    78→         WHERE manager_id = :mid AND created_at < :ed",
+    79→        ['mid' => $managerId, 'ed' => $endDate]
+    80→    );
+    81→
+    82→    // Sum all approved expenses before this month
+    83→    $totalExpenses = (float)$db->fetchColumn(
+    84→        "SELECT COALESCE(SUM(amount), 0) FROM ess_expenses
+    85→         WHERE (employee_id = :mid1 OR manager_id = :mid2)
+    86→           AND category = 'expense' AND status = 'approved'
+    87→           AND COALESCE(expense_date, DATE(created_at)) < :ed",
+    88→        ['mid1' => $managerId, 'mid2' => $managerId, 'ed' => $endDate]
+    89→    );
+    90→
+    91→    // Sum all approved employee advances before this month
+    92→    $totalEmpAdvances = (float)$db->fetchColumn(
+    93→        "SELECT COALESCE(SUM(amount), 0) FROM ess_expenses
+    94→         WHERE (employee_id = :mid1 OR manager_id = :mid2)
+    95→           AND category = 'employee_advance' AND status = 'approved'
+    96→           AND COALESCE(expense_date, DATE(created_at)) < :ed",
+    97→        ['mid1' => $managerId, 'mid2' => $managerId, 'ed' => $endDate]
+    98→    );
+    99→
+   100→    return $totalAdvances - $totalExpenses - $totalEmpAdvances;
+   101→}
+   102→
+   103→// ============================================================================
+   104→// Helper: Compute LIVE totals for a specific month from actual transaction data
+   105→// ============================================================================
+   106→function computeLiveMonthTotals($db, $managerId, $month, $year) {
+   107→    $startDate = sprintf('%04d-%02d-01', $year, $month);
+   108→    $endDate   = sprintf('%04d-%02d-31', $year, $month);
+   109→
+   110→    // Total advance allocations this month
+   111→    $advances = (float)$db->fetchColumn(
+   112→        "SELECT COALESCE(SUM(amount), 0) FROM manager_advance_allocations
+   113→         WHERE manager_id = :mid
+   114→           AND DATE(created_at) >= :sd AND DATE(created_at) <= :ed",
+   115→        ['mid' => $managerId, 'sd' => $startDate, 'ed' => $endDate]
+   116→    );
+   117→
+   118→    // Total approved expenses this month
+   119→    $expenses = (float)$db->fetchColumn(
+   120→        "SELECT COALESCE(SUM(amount), 0) FROM ess_expenses
+   121→         WHERE (employee_id = :mid1 OR manager_id = :mid2)
+   122→           AND category = 'expense' AND status = 'approved'
+   123→           AND COALESCE(expense_date, DATE(created_at)) >= :sd
+   124→           AND COALESCE(expense_date, DATE(created_at)) <= :ed",
+   125→        ['mid1' => $managerId, 'mid2' => $managerId, 'sd' => $startDate, 'ed' => $endDate]
+   126→    );
+   127→
+   128→    // Total approved employee advances this month
+   129→    $employee_advances = (float)$db->fetchColumn(
+   130→        "SELECT COALESCE(SUM(amount), 0) FROM ess_expenses
+   131→         WHERE (employee_id = :mid1 OR manager_id = :mid2)
+   132→           AND category = 'employee_advance' AND status = 'approved'
+   133→           AND COALESCE(expense_date, DATE(created_at)) >= :sd
+   134→           AND COALESCE(expense_date, DATE(created_at)) <= :ed",
+   135→        ['mid1' => $managerId, 'mid2' => $managerId, 'sd' => $startDate, 'ed' => $endDate]
+   136→    );
+   137→
+   138→    return [
+   139→        'advances'          => $advances,
+   140→        'expenses'          => $expenses,
+   141→        'employee_advances' => $employee_advances,
+   142→    ];
+   143→}
+   144→
+   145→// ============================================================================
+   146→// SECTION 1: Handle POST Actions
+   147→// ============================================================================
+   148→
+   149→if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+   150→    // CSRF check (Round 9)
+   151→    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+   152→        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+   153→        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+   154→    }
+   155→    $action = sanitize($_POST['action']);
+   156→
+   157→    // ── Admin: Add Advance ───────────────────────────────────────────────
+   158→    if ($action === 'admin_add_advance') {
+   159→        $managerId = sanitize(trim($_POST['manager'] ?? ''));
+   160→        $amount    = floatval($_POST['advance_amount'] ?? 0);
+   161→        $remarks   = sanitize(trim($_POST['advance_remarks'] ?? ''));
+   162→        $advDate   = sanitize(trim($_POST['advance_date'] ?? ''));
+   163→
+   164→        if ($managerId === '' || $amount <= 0) {
+   165→            setFlash('danger', 'Please select a manager and enter a valid amount.');
+   166→            redirect($baseUrl . '&manager=' . $managerId . '&month=' . ($selectedMonth ?? prev_month_num()) . '&year=' . ($selectedYear ?? prev_month_year()) . '#admin-forms');
+   167→        }
+   168→
+   169→        $insertData = [
+   170→            'manager_id'   => $managerId,
+   171→            'amount'       => $amount,
+   172→            'remarks'      => $remarks ?: 'Advance allocated by admin',
+   173→            'allocated_by' => $_SESSION['user_id'] ?? 'admin',
+   174→        ];
+   175→
+   176→        // If a specific date is provided, we insert and then update created_at
+   177→        $db->insert('manager_advance_allocations', $insertData);
+   178→
+   179→        // If a custom date was given, update the created_at timestamp
+   180→        if ($advDate !== '' && strtotime($advDate)) {
+   181→            $lastId = $db->fetchColumn("SELECT LAST_INSERT_ID()");
+   182→            if ($lastId) {
+   183→                $db->query("UPDATE manager_advance_allocations SET created_at = :dt WHERE id = :id", [
+   184→                    'dt' => $advDate . ' 00:00:00',
+   185→                    'id' => (int)$lastId,
+   186→                ]);
+   187→            }
+   188→        }
+   189→
+   190→        setFlash('success', 'Advance of ' . formatCurrency($amount) . ' added successfully for this manager.');
+   191→        redirect($baseUrl . '&manager=' . $managerId);
+   192→    }
+   193→
+   194→    // ── Admin: Add Expense ───────────────────────────────────────────────
+   195→    if ($action === 'admin_add_expense') {
+   196→        $managerId   = sanitize(trim($_POST['manager'] ?? ''));
+   197→        $amount      = floatval($_POST['expense_amount'] ?? 0);
+   198→        $type        = sanitize(trim($_POST['expense_type'] ?? 'other'));
+   199→        $description = sanitize(trim($_POST['expense_description'] ?? ''));
+   200→        $expDate     = sanitize(trim($_POST['expense_date'] ?? ''));
+   201→        $billType    = sanitize(trim($_POST['bill_type'] ?? 'without_bill'));
+   202→
+   203→        if ($managerId === '' || $amount <= 0) {
+   204→            setFlash('danger', 'Please select a manager and enter a valid amount.');
+   205→            redirect($baseUrl . '&manager=' . $managerId . '&month=' . ($selectedMonth ?? prev_month_num()) . '&year=' . ($selectedYear ?? prev_month_year()) . '#admin-forms');
+   206→        }
+   207→
+   208→        // Validate expense type
+   209→        $validTypes = ['travel', 'food', 'cab', 'supplies', 'medical', 'other'];
+   210→        if (!in_array($type, $validTypes)) {
+   211→            $type = 'other';
+   212→        }
+   213→
+   214→        // Validate bill type
+   215→        if (!in_array($billType, ['with_bill', 'without_bill'])) {
+   216→            $billType = 'without_bill';
+   217→        }
+   218→
+   219→        // Get manager info for emp_name / emp_code
+   220→        $mgrInfo = $db->fetch(
+   221→            "SELECT * FROM ess_employee_cache WHERE employee_id = :eid",
+   222→            ['eid' => $managerId]
+   223→        );
+   224→
+   225→        $insertData = [
+   226→            'employee_id'  => $managerId,
+   227→            'category'     => 'expense',
+   228→            'manager_id'   => $managerId,
+   229→            'amount'       => $amount,
+   230→            'type'         => $type,
+   231→            'description'  => $description ?: ('Admin entry: ' . ucfirst($type)),
+   232→            'expense_date' => ($expDate !== '' && strtotime($expDate)) ? $expDate : null,
+   233→            'bill_type'    => $billType,
+   234→            'status'       => 'approved',
+   235→            'emp_name'     => $mgrInfo['full_name'] ?? '',
+   236→            'emp_code'     => $mgrInfo['employee_code'] ?? $managerId,
+   237→            'unit_id'      => $mgrInfo['unit_id'] ?? null,
+   238→            'month'        => ($expDate !== '' && strtotime($expDate)) ? (int)date('n', strtotime($expDate)) : (int)prev_month_num(),
+   239→            'year'         => ($expDate !== '' && strtotime($expDate)) ? (int)date('Y', strtotime($expDate)) : (int)prev_month_year(),
+   240→        ];
+   241→
+   242→        $db->insert('ess_expenses', $insertData);
+   243→
+   244→        setFlash('success', 'Expense of ' . formatCurrency($amount) . ' (' . ucfirst($type) . ') added and auto-approved.');
+   245→        redirect($baseUrl . '&manager=' . $managerId);
+   246→    }
+   247→
+   248→    // ── Generate / Regenerate Ledger (stored data + settlement) ──────────
+   249→    if ($action === 'generate_ledger') {
+   250→        $managerId = sanitize(trim($_POST['manager'] ?? ''));
+   251→        $month     = (int)($_POST['month'] ?? 0);
+   252→        $year      = (int)($_POST['year'] ?? 0);
+   253→
+   254→        if ($managerId === '' || $month < 1 || $month > 12 || $year < 2000) {
+   255→            setFlash('danger', 'Invalid manager, month, or year selected.');
+   256→            redirect($baseUrl);
+   257→        }
+   258→
+   259→        // 1. Compute live opening balance
+   260→        $openingBalance = computeLiveOpeningBalance($db, $managerId, $month, $year);
+   261→
+   262→        // 2. Compute live totals for this month
+   263→        $live = computeLiveMonthTotals($db, $managerId, $month, $year);
+   264→        $totalAdvanceGiven      = $live['advances'];
+   265→        $totalExpenses           = $live['expenses'];
+   266→        $totalEmployeeAdvances   = $live['employee_advances'];
+   267→
+   268→        // 3. Calculate closing balance
+   269→        $closingBalance = $openingBalance + $totalAdvanceGiven - $totalExpenses - $totalEmployeeAdvances;
+   270→
+   271→        // 4. Upsert into manager_ledger
+   272→        $existing = $db->fetch(
+   273→            "SELECT id FROM manager_ledger
+   274→             WHERE manager_id = :mid AND month = :m AND year = :yr",
+   275→            ['mid' => $managerId, 'm' => $month, 'yr' => $year]
+   276→        );
+   277→
+   278→        $ledgerData = [
+   279→            'opening_balance'         => $openingBalance,
+   280→            'total_advance_given'     => $totalAdvanceGiven,
+   281→            'total_expenses'          => $totalExpenses,
+   282→            'total_employee_advances' => $totalEmployeeAdvances,
+   283→            'closing_balance'         => $closingBalance,
+   284→        ];
+   285→
+   286→        if ($existing) {
+   287→            $db->update(
+   288→                'manager_ledger',
+   289→                $ledgerData,
+   290→                'manager_id = :mid AND month = :m AND year = :yr',
+   291→                ['mid' => $managerId, 'm' => $month, 'yr' => $year]
+   292→            );
+   293→            setFlash('success', 'Ledger for ' . date('F Y', mktime(0, 0, 0, $month, 1, $year)) . ' regenerated with live data.');
+   294→        } else {
+   295→            $ledgerData['manager_id'] = $managerId;
+   296→            $ledgerData['month']      = $month;
+   297→            $ledgerData['year']       = $year;
+   298→            $db->insert('manager_ledger', $ledgerData);
+   299→            setFlash('success', 'Ledger for ' . date('F Y', mktime(0, 0, 0, $month, 1, $year)) . ' generated with live data.');
+   300→        }
+   301→
+   302→        redirect($baseUrl . '&manager=' . $managerId . '&month=' . $month . '&year=' . $year);
+   303→    }
+   304→
+   305→    // ── Month End Settlement ──────────────────────────────────────────────
+   306→    if ($action === 'settle_month') {
+   307→        $managerId = sanitize(trim($_POST['manager'] ?? ''));
+   308→        $month     = (int)($_POST['month'] ?? 0);
+   309→        $year      = (int)($_POST['year'] ?? 0);
+   310→
+   311→        if ($managerId === '' || $month < 1 || $month > 12 || $year < 2000) {
+   312→            setFlash('danger', 'Invalid parameters for settlement.');
+   313→            redirect($baseUrl);
+   314→        }
+   315→
+   316→        // First, generate/update the stored ledger with live data
+   317→        $openingBalance = computeLiveOpeningBalance($db, $managerId, $month, $year);
+   318→        $live = computeLiveMonthTotals($db, $managerId, $month, $year);
+   319→        $totalAdvanceGiven      = $live['advances'];
+   320→        $totalExpenses           = $live['expenses'];
+   321→        $totalEmployeeAdvances   = $live['employee_advances'];
+   322→        $closingBalance = $openingBalance + $totalAdvanceGiven - $totalExpenses - $totalEmployeeAdvances;
+   323→
+   324→        // Upsert ledger with live data
+   325→        $existing = $db->fetch(
+   326→            "SELECT id FROM manager_ledger
+   327→             WHERE manager_id = :mid AND month = :m AND year = :yr",
+   328→            ['mid' => $managerId, 'm' => $month, 'yr' => $year]
+   329→        );
+   330→
+   331→        $ledgerData = [
+   332→            'opening_balance'         => $openingBalance,
+   333→            'total_advance_given'     => $totalAdvanceGiven,
+   334→            'total_expenses'          => $totalExpenses,
+   335→            'total_employee_advances' => $totalEmployeeAdvances,
+   336→            'closing_balance'         => $closingBalance,
+   337→        ];
+   338→
+   339→        if ($existing) {
+   340→            $db->update(
+   341→                'manager_ledger',
+   342→                $ledgerData,
+   343→                'manager_id = :mid AND month = :m AND year = :yr',
+   344→                ['mid' => $managerId, 'm' => $month, 'yr' => $year]
+   345→            );
+   346→        } else {
+   347→            $ledgerData['manager_id'] = $managerId;
+   348→            $ledgerData['month']      = $month;
+   349→            $ledgerData['year']       = $year;
+   350→            $db->insert('manager_ledger', $ledgerData);
+   351→        }
+   352→
+   353→        // Now fetch the ledger row for settlement
+   354→        $ledger = $db->fetch(
+   355→            "SELECT * FROM manager_ledger
+   356→             WHERE manager_id = :mid AND month = :m AND year = :yr",
+   357→            ['mid' => $managerId, 'm' => $month, 'yr' => $year]
+   358→        );
+   359→
+   360→        if (!$ledger) {
+   361→            setFlash('danger', 'Failed to create ledger for settlement.');
+   362→            redirect($baseUrl);
+   363→        }
+   364→
+   365→        if ((int)$ledger['carried_forward'] === 1) {
+   366→            setFlash('warning', 'This month has already been settled and carried forward.');
+   367→            redirect($baseUrl . '&manager=' . $managerId . '&month=' . $month . '&year=' . $year);
+   368→        }
+   369→
+   370→        // Mark as carried forward
+   371→        $db->update(
+   372→            'manager_ledger',
+   373→            [
+   374→                'carried_forward' => 1,
+   375→                'settled_by'      => $_SESSION['user_id'] ?? 'admin',
+   376→                'settled_at'      => date('Y-m-d H:i:s'),
+   377→            ],
+   378→            'id = :id',
+   379→            ['id' => (int)$ledger['id']]
+   380→        );
+   381→
+   382→        // Create expense_settlements row
+   383→        $settlementData = [
+   384→            'manager_id'          => $managerId,
+   385→            'month'               => $month,
+   386→            'year'                => $year,
+   387→            'total_advance'       => $totalAdvanceGiven,
+   388→            'total_expenses'      => $totalExpenses,
+   389→            'total_emp_advances'  => $totalEmployeeAdvances,
+   390→            'balance'             => $closingBalance,
+   391→            'status'              => 'settled',
+   392→            'settlement_remarks'  => 'Month end settlement for ' . date('F Y', mktime(0, 0, 0, $month, 1, $year)),
+   393→            'settled_by'          => $_SESSION['user_id'] ?? 'admin',
+   394→            'settled_at'          => date('Y-m-d H:i:s'),
+   395→        ];
+   396→
+   397→        try {
+   398→            $db->insert('expense_settlements', $settlementData);
+   399→        } catch (Exception $e) {
+   400→            // Settlements table might not exist, silently continue
+   401→        }
+   402→
+   403→        $monthLabel = date('F Y', mktime(0, 0, 0, $month, 1, $year));
+   404→        setFlash('success', 'Month end settlement completed for ' . $monthLabel . '. Balance of ' . formatCurrency($closingBalance) . ' carried forward.');
+   405→
+   406→        redirect($baseUrl . '&manager=' . $managerId . '&month=' . $month . '&year=' . $year);
+   407→    }
+   408→
+   409→    // Unknown action fallback
+   410→    setFlash('danger', 'Unknown action.');
+   411→    redirect($baseUrl);
+   412→}
+   413→
+   414→// ============================================================================
+   415→// SECTION 2: GET Parameters & Data Fetching
+   416→// ============================================================================
+   417→
+   418→// Manager selection — support both `manager` and `manager_id` params
+   419→$selectedManager = sanitize(trim($_GET['manager'] ?? $_GET['manager_id'] ?? ''));
+   420→$selectedMonth   = (int)($_GET['month'] ?? prev_month_num());
+   421→$selectedYear    = (int)($_GET['year'] ?? prev_month_year());
+   422→
+   423→// Validate month/year
+   424→if ($selectedMonth < 1 || $selectedMonth > 12) $selectedMonth = (int)prev_month_num();
+   425→if ($selectedYear < 2000 || $selectedYear > 2099) $selectedYear = (int)prev_month_year();
+   426→
+   427→// Fetch all managers for the dropdown
+   428→$managers = $db->fetchAll(
+   429→    "SELECT employee_id, full_name, designation, unit_name, city, role
+   430→     FROM ess_employee_cache
+   431→     WHERE role IN ('manager', 'regional_manager')
+   432→     ORDER BY full_name ASC"
+   433→);
+   434→
+   435→// Selected manager info
+   436→$selectedManagerInfo = null;
+   437→if ($selectedManager !== '') {
+   438→    $selectedManagerInfo = $db->fetch(
+   439→        "SELECT * FROM ess_employee_cache WHERE employee_id = :eid",
+   440→        ['eid' => $selectedManager]
+   441→    );
+   442→}
+   443→
+   444→// Ledger data for selected period (used for settlement status only)
+   445→$ledger = null;
+   446→if ($selectedManager !== '') {
+   447→    $ledger = $db->fetch(
+   448→        "SELECT * FROM manager_ledger
+   449→         WHERE manager_id = :mid AND month = :m AND year = :yr",
+   450→        ['mid' => $selectedManager, 'm' => $selectedMonth, 'yr' => $selectedYear]
+   451→    );
+   452→}
+   453→
+   454→// ============================================================================
+   455→// SECTION 3: LIVE Calculations (the real source of truth for display)
+   456→// ============================================================================
+   457→
+   458→// Compute live opening balance
+   459→$liveOpeningBalance = 0.00;
+   460→$liveAdvances = 0.00;
+   461→$liveExpenses = 0.00;
+   462→$liveEmployeeAdvances = 0.00;
+   463→$liveClosingBalance = 0.00;
+   464→
+   465→if ($selectedManager !== '') {
+   466→    $liveOpeningBalance = computeLiveOpeningBalance($db, $selectedManager, $selectedMonth, $selectedYear);
+   467→    $liveTotals = computeLiveMonthTotals($db, $selectedManager, $selectedMonth, $selectedYear);
+   468→    $liveAdvances         = $liveTotals['advances'];
+   469→    $liveExpenses         = $liveTotals['expenses'];
+   470→    $liveEmployeeAdvances = $liveTotals['employee_advances'];
+   471→    $liveClosingBalance   = $liveOpeningBalance + $liveAdvances - $liveExpenses - $liveEmployeeAdvances;
+   472→}
+   473→
+   474→// ============================================================================
+   475→// SECTION 4: Build Detailed Transaction List (for selected month)
+   476→// ============================================================================
+   477→
+   478→$transactions = [];
+   479→
+   480→if ($selectedManager !== '') {
+   481→    $mid = $selectedManager;
+   482→    $m   = $selectedMonth;
+   483→    $y   = $selectedYear;
+   484→
+   485→    $startDate = sprintf('%04d-%02d-01', $y, $m);
+   486→    $endDate   = sprintf('%04d-%02d-31', $y, $m);
+   487→
+   488→    // Union query combining all transaction types for the selected month
+   489→    // Uses COALESCE(expense_date, DATE(created_at)) for date filtering
+   490→    $unionSql = "
+   491→        SELECT created_at AS txn_date, remarks AS txn_desc, amount AS debit, 0 AS credit, 'advance' AS txn_type, id AS ref_id
+   492→        FROM manager_advance_allocations
+   493→        WHERE manager_id = :mid1 AND DATE(created_at) >= :sd1 AND DATE(created_at) <= :ed1
+   494→
+   495→        UNION ALL
+   496→
+   497→        SELECT COALESCE(expense_date, DATE(created_at)) AS txn_date, CONCAT(type, ': ', description) AS txn_desc, 0 AS debit, amount AS credit, 'expense' AS txn_type, id AS ref_id
+   498→        FROM ess_expenses
+   499→        WHERE (employee_id = :mid2 OR manager_id = :mid2b)
+   500→          AND category = 'expense' AND status = 'approved'
+   501→          AND COALESCE(expense_date, DATE(created_at)) >= :sd2 AND COALESCE(expense_date, DATE(created_at)) <= :ed2
+   502→
+   503→        UNION ALL
+   504→
+   505→        SELECT COALESCE(expense_date, DATE(created_at)) AS txn_date, CONCAT('Emp Adv: ', COALESCE(emp_name, 'Employee')) AS txn_desc, 0 AS debit, amount AS credit, 'employee_advance' AS txn_type, id AS ref_id
+   506→        FROM ess_expenses
+   507→        WHERE (employee_id = :mid3 OR manager_id = :mid3b)
+   508→          AND category = 'employee_advance' AND status = 'approved'
+   509→          AND COALESCE(expense_date, DATE(created_at)) >= :sd3 AND COALESCE(expense_date, DATE(created_at)) <= :ed3
+   510→
+   511→        UNION ALL
+   512→
+   513→        SELECT COALESCE(expense_date, DATE(created_at)) AS txn_date, CONCAT(type, ': ', description, ' [REJECTED]') AS txn_desc, 0 AS debit, 0 AS credit, 'rejected' AS txn_type, id AS ref_id
+   514→        FROM ess_expenses
+   515→        WHERE (employee_id = :mid4 OR manager_id = :mid4b)
+   516→          AND status = 'rejected'
+   517→          AND COALESCE(expense_date, DATE(created_at)) >= :sd4 AND COALESCE(expense_date, DATE(created_at)) <= :ed4
+   518→
+   519→        ORDER BY txn_date ASC, ref_id ASC
+   520→    ";
+   521→
+   522→    $unionParams = [
+   523→        'mid1'  => $mid, 'sd1' => $startDate, 'ed1' => $endDate,
+   524→        'mid2'  => $mid, 'mid2b' => $mid, 'sd2' => $startDate, 'ed2' => $endDate,
+   525→        'mid3'  => $mid, 'mid3b' => $mid, 'sd3' => $startDate, 'ed3' => $endDate,
+   526→        'mid4'  => $mid, 'mid4b' => $mid, 'sd4' => $startDate, 'ed4' => $endDate,
+   527→    ];
+   528→
+   529→    $transactions = $db->fetchAll($unionSql, $unionParams);
+   530→}
+   531→
+   532→// ============================================================================
+   533→// SECTION 5: Monthly Ledger History for selected manager
+   534→// ============================================================================
+   535→
+   536→$ledgerHistory = [];
+   537→if ($selectedManager !== '') {
+   538→    $ledgerHistory = $db->fetchAll(
+   539→        "SELECT * FROM manager_ledger
+   540→         WHERE manager_id = :mid
+   541→         ORDER BY year DESC, month DESC",
+   542→        ['mid' => $selectedManager]
+   543→    );
+   544→}
+   545→
+   546→// Month name helper
+   547→$monthNames = [
+   548→    1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr',
+   549→    5 => 'May', 6 => 'Jun', 7 => 'Jul', 8 => 'Aug',
+   550→    9 => 'Sep', 10 => 'Oct', 11 => 'Nov', 12 => 'Dec',
+   551→];
+   552→
+   553→// Determine if current period is settled (from stored ledger)
+   554→$isSettled   = false;
+   555→$settledBy   = null;
+   556→$settledAt   = null;
+   557→if ($ledger) {
+   558→    $isSettled   = (int)$ledger['carried_forward'] === 1;
+   559→    $settledBy   = $ledger['settled_by'] ?? null;
+   560→    $settledAt   = $ledger['settled_at'] ?? null;
+   561→}
+   562→
+   563→// ============================================================================
+   564→// SECTION 6: HTML Output
+   565→// ============================================================================
+   566→
+   567→// Page style
+   568→?>
+   569→<style>
+   570→    .ledger-card {
+   571→        border: none;
+   572→        border-radius: 12px;
+   573→        overflow: hidden;
+   574→        box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+   575→    }
+   576→    .ledger-summary-item {
+   577→        padding: 0.85rem 1.25rem;
+   578→        border-bottom: 1px solid rgba(0,0,0,0.06);
+   579→        display: flex;
+   580→        justify-content: space-between;
+   581→        align-items: center;
+   582→    }
+   583→    .ledger-summary-item:last-child {
+   584→        border-bottom: none;
+   585→    }
+   586→    .ledger-summary-item .label {
+   587→        font-size: 0.875rem;
+   588→        color: #6c757d;
+   589→        font-weight: 500;
+   590→    }
+   591→    .ledger-summary-item .value {
+   592→        font-size: 1.05rem;
+   593→        font-weight: 600;
+   594→    }
+   595→    .ledger-summary-item.total-row {
+   596→        background: #f8f9fa;
+   597→    }
+   598→    .ledger-summary-item.total-row .label {
+   599→        font-weight: 700;
+   600→        color: #343a40;
+   601→        font-size: 1rem;
+   602→    }
+   603→    .ledger-summary-item.total-row .value {
+   604→        font-size: 1.25rem;
+   605→    }
+   606→    .balance-positive { color: #198754 !important; }
+   607→    .balance-negative { color: #dc3545 !important; }
+   608→    .balance-zero     { color: #6c757d !important; }
+   609→
+   610→    .txn-table {
+   611→        font-size: 0.875rem;
+   612→    }
+   613→    .txn-table thead th {
+   614→        background: #f8f9fa;
+   615→        border-bottom: 2px solid #dee2e6;
+   616→        font-weight: 600;
+   617→        font-size: 0.78rem;
+   618→        text-transform: uppercase;
+   619→        letter-spacing: 0.4px;
+   620→        color: #495057;
+   621→        padding: 0.65rem 0.75rem;
+   622→        white-space: nowrap;
+   623→    }
+   624→    .txn-table tbody td {
+   625→        padding: 0.55rem 0.75rem;
+   626→        vertical-align: middle;
+   627→        border-color: #f1f3f5;
+   628→    }
+   629→    .txn-table tbody tr:hover {
+   630→        background-color: #f8f9fa;
+   631→    }
+   632→    .txn-type-advance {
+   633→        border-left: 3px solid #198754;
+   634→    }
+   635→    .txn-type-expense {
+   636→        border-left: 3px solid #dc3545;
+   637→    }
+   638→    .txn-type-employee_advance {
+   639→        border-left: 3px solid #0d6efd;
+   640→    }
+   641→    .txn-type-rejected {
+   642→        border-left: 3px solid #ffc107;
+   643→        opacity: 0.7;
+   644→    }
+   645→
+   646→    .history-table {
+   647→        font-size: 0.82rem;
+   648→    }
+   649→    .history-table thead th {
+   650→        background: #343a40;
+   651→        color: #fff;
+   652→        font-weight: 600;
+   653→        font-size: 0.75rem;
+   654→        text-transform: uppercase;
+   655→        letter-spacing: 0.4px;
+   656→        padding: 0.6rem 0.7rem;
+   657→        white-space: nowrap;
+   658→    }
+   659→    .history-table tbody td {
+   660→        padding: 0.5rem 0.7rem;
+   661→        vertical-align: middle;
+   662→    }
+   663→
+   664→    .filter-bar {
+   665→        background: #fff;
+   666→        border: 1px solid #e9ecef;
+   667→        border-radius: 12px;
+   668→        padding: 1rem 1.25rem;
+   669→        box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+   670→    }
+   671→
+   672→    .section-panel {
+   673→        background: #fff;
+   674→        border: 1px solid #e9ecef;
+   675→        border-radius: 12px;
+   676→        overflow: hidden;
+   677→        box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+   678→        margin-bottom: 1.5rem;
+   679→    }
+   680→    .section-panel .panel-header {
+   681→        padding: 0.9rem 1.25rem;
+   682→        border-bottom: 1px solid #e9ecef;
+   683→        display: flex;
+   684→        align-items: center;
+   685→        justify-content: space-between;
+   686→    }
+   687→    .section-panel .panel-header h5 {
+   688→        margin: 0;
+   689→        font-weight: 600;
+   690→        font-size: 1rem;
+   691→        color: #343a40;
+   692→    }
+   693→
+   694→    .empty-state {
+   695→        text-align: center;
+   696→        padding: 3rem 1rem;
+   697→        color: #6c757d;
+   698→    }
+   699→    .empty-state i {
+   700→        font-size: 2.5rem;
+   701→        margin-bottom: 0.75rem;
+   702→        opacity: 0.35;
+   703→        display: block;
+   704→    }
+   705→
+   706→    .badge-settled {
+   707→        background-color: #198754;
+   708→        color: #fff;
+   709→    }
+   710→    .badge-open {
+   711→        background-color: #ffc107;
+   712→        color: #212529;
+   713→    }
+   714→    .badge-carried {
+   715→        background-color: #0d6efd;
+   716→        color: #fff;
+   717→    }
+   718→
+   719→    .live-badge {
+   720→        background-color: #0dcaf0;
+   721→        color: #000;
+   722→        font-size: 0.65rem;
+   723→        vertical-align: middle;
+   724→    }
+   725→    .admin-form-section .form-label {
+   726→        font-size: 0.82rem;
+   727→        font-weight: 600;
+   728→        color: #495057;
+   729→    }
+   730→</style>
+   731→
+   732→<!-- Page Header -->
+   733→<div class="d-flex align-items-center justify-content-between mb-4">
+   734→    <div>
+   735→        <h4 class="mb-1 fw-bold text-dark">
+   736→            <i class="bi bi-journal-text me-2 text-primary"></i>Manager Ledger
+   737→        </h4>
+   738→        <nav aria-label="breadcrumb">
+   739→            <ol class="breadcrumb mb-0 small">
+   740→                <li class="breadcrumb-item"><a href="index.php">Home</a></li>
+   741→                <li class="breadcrumb-item"><a href="index.php?page=expense/dashboard">Expense</a></li>
+   742→                <li class="breadcrumb-item active">Ledger</li>
+   743→            </ol>
+   744→        </nav>
+   745→    </div>
+   746→    <div>
+   747→        <a href="index.php?page=expense/dashboard" class="btn btn-outline-secondary btn-sm">
+   748→            <i class="bi bi-arrow-left me-1"></i> Back to Dashboard
+   749→        </a>
+   750→    </div>
+   751→</div>
+   752→
+   753→<!-- Flash Messages -->
+   754→<?php if (isset($_SESSION['flash'])): ?>
+   755→    <div id="flashContainer">
+   756→        <?php foreach ($_SESSION['flash'] as $flash): ?>
+   757→            <div class="alert alert-<?= htmlspecialchars($flash['type']) ?> alert-dismissible fade show py-2" role="alert">
+   758→                <small class="fw-medium"><?= htmlspecialchars($flash['message']) ?></small>
+   759→                <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+   760→            </div>
+   761→        <?php endforeach; ?>
+   762→        <?php unset($_SESSION['flash']); ?>
+   763→    </div>
+   764→<?php endif; ?>
+   765→
+   766→<!-- ======================================================================== -->
+   767→<!-- FILTER BAR: Manager + Month/Year + Generate                              -->
+   768→<!-- ======================================================================== -->
+   769→<div class="filter-bar mb-4">
+   770→    <form method="GET" action="<?= htmlspecialchars($baseUrl) ?>" class="row g-2 align-items-end">
+   771→        <input type="hidden" name="page" value="expense/ledger">
+   772→
+   773→        <!-- Manager Select -->
+   774→        <div class="col-lg-4 col-md-6">
+   775→            <label class="form-label small fw-semibold mb-1">
+   776→                <i class="bi bi-person-badge me-1"></i>Manager
+   777→            </label>
+   778→            <select name="manager" id="managerSelect" class="form-select form-select-sm" required>
+   779→                <option value="">-- Select Manager --</option>
+   780→                <?php foreach ($managers as $mgr): ?>
+   781→                    <option value="<?= htmlspecialchars($mgr['employee_id']) ?>"
+   782→                        <?= ($selectedManager === (string)$mgr['employee_id']) ? 'selected' : '' ?>>
+   783→                        <?= htmlspecialchars($mgr['full_name']) ?>
+   784→                        <?php if ($mgr['designation']): ?> — <?= htmlspecialchars($mgr['designation']) ?><?php endif; ?>
+   785→                        <?php if ($mgr['unit_name']): ?> (<?= htmlspecialchars($mgr['unit_name']) ?>)<?php endif; ?>
+   786→                    </option>
+   787→                <?php endforeach; ?>
+   788→            </select>
+   789→        </div>
+   790→
+   791→        <!-- Month -->
+   792→        <div class="col-lg-2 col-md-3 col-6">
+   793→            <label class="form-label small fw-semibold mb-1">
+   794→                <i class="bi bi-calendar-event me-1"></i>Month
+   795→            </label>
+   796→            <select name="month" class="form-select form-select-sm">
+   797→                <?php for ($mi = 1; $mi <= 12; $mi++): ?>
+   798→                    <option value="<?= $mi ?>" <?= ($selectedMonth === $mi) ? 'selected' : '' ?>>
+   799→                        <?= $monthNames[$mi] ?>
+   800→                    </option>
+   801→                <?php endfor; ?>
+   802→            </select>
+   803→        </div>
+   804→
+   805→        <!-- Year -->
+   806→        <div class="col-lg-2 col-md-3 col-6">
+   807→            <label class="form-label small fw-semibold mb-1">Year</label>
+   808→            <select name="year" class="form-select form-select-sm">
+   809→                <?php
+   810→                $curYear = (int)date('Y');
+   811→                for ($yi = $curYear + 1; $yi >= $curYear - 5; $yi--): ?>
+   812→                    <option value="<?= $yi ?>" <?= ($selectedYear === $yi) ? 'selected' : '' ?>><?= $yi ?></option>
+   813→                <?php endfor; ?>
+   814→            </select>
+   815→        </div>
+   816→
+   817→        <!-- View Button -->
+   818→        <div class="col-lg-1 col-md-3 col-6">
+   819→            <button type="submit" class="btn btn-primary btn-sm w-100">
+   820→                <i class="bi bi-search me-1"></i> View
+   821→            </button>
+   822→        </div>
+   823→    </form>
+   824→
+   825→    <!-- Generate Ledger Button (outside the GET filter form to avoid nested forms) -->
+   826→    <?php if ($selectedManager !== ''): ?>
+   827→        <form method="POST" action="<?= htmlspecialchars($baseUrl) ?>" class="d-inline" id="generateForm">
+   828→            <input type="hidden" name="action" value="generate_ledger">
+   829→            <input type="hidden" name="manager" value="<?= $selectedManager ?>">
+   830→            <input type="hidden" name="month" value="<?= $selectedMonth ?>">
+   831→            <input type="hidden" name="year" value="<?= $selectedYear ?>">
+   832→            <button type="submit" class="btn btn-success btn-sm"
+   833→                    onclick="return confirm('Generate/Regenerate stored ledger for <?= htmlspecialchars($selectedManagerInfo['full_name'] ?? 'this manager') ?> for <?= $monthNames[$selectedMonth] ?> <?= $selectedYear ?>?\\n\\nThis updates stored data for settlement purposes.');">
+   834→                <i class="bi bi-arrow-repeat me-1"></i>
+   835→                Generate / Recalculate Ledger
+   836→            </button>
+   837→            <?php echo getCSRFTokenField(); ?>
+   838→        </form>
+   839→    <?php else: ?>
+   840→        <button type="button" class="btn btn-success btn-sm" disabled title="Select a manager first">
+   841→            <i class="bi bi-arrow-repeat me-1"></i> Generate Ledger
+   842→        </button>
+   843→    <?php endif; ?>
+   844→</div>
+   845→
+   846→<?php if ($selectedManager === '' || $selectedManager === '0'): ?>
+   847→    <!-- No manager selected state -->
+   848→    <div class="section-panel">
+   849→        <div class="empty-state py-5">
+   850→            <i class="bi bi-person-badge"></i>
+   851→            <h5 class="text-muted">Select a Manager</h5>
+   852→            <p class="mb-0">Choose a manager from the dropdown above to view their financial ledger.</p>
+   853→        </div>
+   854→    </div>
+   855→
+   856→<?php else: ?>
+   857→    <!-- ===================== MANAGER SELECTED — SHOW LIVE DATA ===================== -->
+   858→
+   859→    <!-- Manager Info Bar -->
+   860→    <div class="alert alert-light border mb-4 py-2 px-3">
+   861→        <div class="row align-items-center">
+   862→            <div class="col-md-6">
+   863→                <h5 class="mb-0 fw-bold">
+   864→                    <i class="bi bi-person-badge-fill me-2 text-primary"></i>
+   865→                    <?= htmlspecialchars($selectedManagerInfo['full_name'] ?? 'N/A') ?>
+   866→                </h5>
+   867→                <?php if (!empty($selectedManagerInfo['designation'])): ?>
+   868→                    <small class="text-muted"><?= htmlspecialchars($selectedManagerInfo['designation']) ?></small>
+   869→                <?php endif; ?>
+   870→                <?php if (!empty($selectedManagerInfo['unit_name'])): ?>
+   871→                    <small class="text-muted ms-2"><i class="bi bi-building me-1"></i><?= htmlspecialchars($selectedManagerInfo['unit_name']) ?></small>
+   872→                <?php endif; ?>
+   873→            </div>
+   874→            <div class="col-md-3 text-md-center mt-2 mt-md-0">
+   875→                <span class="badge bg-primary fs-6 px-3 py-2">
+   876→                    <i class="bi bi-calendar3 me-1"></i>
+   877→                    <?= $monthNames[$selectedMonth] ?> <?= $selectedYear ?>
+   878→                </span>
+   879→            </div>
+   880→            <div class="col-md-3 text-md-end mt-2 mt-md-0">
+   881→                <?php if ($isSettled): ?>
+   882→                    <span class="badge badge-settled px-3 py-2">
+   883→                        <i class="bi bi-check-circle-fill me-1"></i> Settled & Carried Forward
+   884→                    </span>
+   885→                <?php else: ?>
+   886→                    <span class="badge badge-open px-3 py-2">
+   887→                        <i class="bi bi-clock me-1"></i> Open
+   888→                    </span>
+   889→                <?php endif; ?>
+   890→            </div>
+   891→        </div>
+   892→    </div>
+   893→
+   894→    <div class="row g-4 mb-4">
+   895→
+   896→        <!-- ================================================================= -->
+   897→        <!-- LEDGER SUMMARY CARD (LIVE DATA)                                   -->
+   898→        <!-- ================================================================= -->
+   899→        <div class="col-lg-4">
+   900→            <div class="ledger-card h-100">
+   901→                <div class="panel-header bg-primary bg-opacity-10">
+   902→                    <h5>
+   903→                        <i class="bi bi-calculator me-2 text-primary"></i>Ledger Summary
+   904→                        <span class="badge live-badge ms-1">LIVE</span>
+   905→                    </h5>
+   906→                    <?php if (!$isSettled): ?>
+   907→                        <form method="POST" action="<?= htmlspecialchars($baseUrl) ?>" id="settleForm">
+   908→                            <input type="hidden" name="action" value="settle_month">
+   909→                            <input type="hidden" name="manager" value="<?= $selectedManager ?>">
+   910→                            <input type="hidden" name="month" value="<?= $selectedMonth ?>">
+   911→                            <input type="hidden" name="year" value="<?= $selectedYear ?>">
+   912→                            <button type="submit" class="btn btn-warning btn-sm"
+   913→                                    onclick="return confirm('Settle this month?\\n\\nThis will auto-generate the stored ledger with current live data and carry the closing balance forward.');">
+   914→                                <i class="bi bi-lock me-1"></i> Settle Month
+   915→                            </button>
+   916→                            <?php echo getCSRFTokenField(); ?>
+   917→                        </form>
+   918→                    <?php endif; ?>
+   919→                </div>
+   920→
+   921→                <div class="p-0">
+   922→                    <!-- Opening Balance -->
+   923→                    <div class="ledger-summary-item">
+   924→                        <span class="label"><i class="bi bi-box-arrow-in-left me-1"></i>Opening Balance</span>
+   925→                        <span class="value <?= $liveOpeningBalance > 0 ? 'balance-positive' : ($liveOpeningBalance < 0 ? 'balance-negative' : 'balance-zero') ?>">
+   926→                            <?= formatCurrency($liveOpeningBalance) ?>
+   927→                        </span>
+   928→                    </div>
+   929→
+   930→                    <!-- Advance Given (LIVE) -->
+   931→                    <div class="ledger-summary-item">
+   932→                        <span class="label"><i class="bi bi-plus-circle me-1 text-success"></i>(+) Advance Given</span>
+   933→                        <span class="value text-success">
+   934→                            <?= formatCurrency($liveAdvances) ?>
+   935→                        </span>
+   936→                    </div>
+   937→
+   938→                    <!-- Expenses (LIVE) -->
+   939→                    <div class="ledger-summary-item">
+   940→                        <span class="label"><i class="bi bi-dash-circle me-1 text-danger"></i>(−) Expenses</span>
+   941→                        <span class="value text-danger">
+   942→                            <?= formatCurrency($liveExpenses) ?>
+   943→                        </span>
+   944→                    </div>
+   945→
+   946→                    <!-- Employee Advances (LIVE) -->
+   947→                    <div class="ledger-summary-item">
+   948→                        <span class="label"><i class="bi bi-dash-circle me-1 text-danger"></i>(−) Employee Advances</span>
+   949→                        <span class="value text-danger">
+   950→                            <?= formatCurrency($liveEmployeeAdvances) ?>
+   951→                        </span>
+   952→                    </div>
+   953→
+   954→                    <!-- Closing Balance (LIVE, Bold) -->
+   955→                    <?php
+   956→                    $liveBalClass = $liveClosingBalance > 0 ? 'balance-positive' : ($liveClosingBalance < 0 ? 'balance-negative' : 'balance-zero');
+   957→                    ?>
+   958→                    <div class="ledger-summary-item total-row">
+   959→                        <span class="label"><i class="bi bi-equal me-1"></i>(=) Closing Balance</span>
+   960→                        <span class="value <?= $liveBalClass ?>" style="font-size:1.35rem;">
+   961→                            <?= formatCurrency($liveClosingBalance) ?>
+   962→                            <?php if ($liveClosingBalance < 0): ?>
+   963→                                <span class="badge bg-danger ms-1" style="font-size:0.65rem; vertical-align: middle;">OVERSPENT</span>
+   964→                            <?php endif; ?>
+   965→                        </span>
+   966→                    </div>
+   967→
+   968→                    <!-- Status -->
+   969→                    <div class="ledger-summary-item" style="background: #f8f9fa;">
+   970→                        <span class="label"><i class="bi bi-info-circle me-1"></i>Status</span>
+   971→                        <span class="value">
+   972→                            <?php if ($isSettled): ?>
+   973→                                <span class="badge badge-settled">Settled</span>
+   974→                            <?php else: ?>
+   975→                                <span class="badge badge-open">Open</span>
+   976→                            <?php endif; ?>
+   977→                        </span>
+   978→                    </div>
+   979→
+   980→                    <?php if ($isSettled && $settledAt): ?>
+   981→                    <div class="ledger-summary-item">
+   982→                        <span class="label"><i class="bi bi-clock-history me-1"></i>Settled At</span>
+   983→                        <span class="value small text-muted"><?= date('d M Y h:i A', strtotime($settledAt)) ?></span>
+   984→                    </div>
+   985→                    <?php endif; ?>
+   986→
+   987→                    <?php if ($isSettled && $settledBy): ?>
+   988→                    <div class="ledger-summary-item">
+   989→                        <span class="label"><i class="bi bi-person-check me-1"></i>Settled By</span>
+   990→                        <span class="value small text-muted"><?= htmlspecialchars($settledBy) ?></span>
+   991→                    </div>
+   992→                    <?php endif; ?>
+   993→                </div>
+   994→            </div>
+   995→        </div>
+   996→
+   997→        <!-- ================================================================= -->
+   998→        <!-- DETAILED TRANSACTION TABLE (LIVE)                                 -->
+   999→        <!-- ================================================================= -->
+  1000→        <div class="col-lg-8">
+  1001→            <div class="section-panel h-100">
+  1002→                <div class="panel-header">
+  1003→                    <h5>
+  1004→                        <i class="bi bi-list-ul me-2 text-dark"></i>
+  1005→                        Detailed Transactions
+  1006→                        <span class="badge bg-light text-dark border ms-2"><?= count($transactions) ?></span>
+  1007→                        <span class="badge live-badge ms-1">LIVE</span>
+  1008→                    </h5>
+  1009→                    <div class="d-flex align-items-center gap-2">
+  1010→                        <small class="text-muted">Period: <?= $monthNames[$selectedMonth] ?> <?= $selectedYear ?></small>
+  1011→                    </div>
+  1012→                </div>
+  1013→
+  1014→                <?php if (empty($transactions)): ?>
+  1015→                    <div class="empty-state">
+  1016→                        <i class="bi bi-receipt"></i>
+  1017→                        <p class="mb-0">No transactions found for this period.</p>
+  1018→                    </div>
+  1019→                <?php else: ?>
+  1020→                    <div class="table-responsive">
+  1021→                        <table class="table table-hover txn-table mb-0">
+  1022→                            <thead>
+  1023→                                <tr>
+  1024→                                    <th>#</th>
+  1025→                                    <th>Date</th>
+  1026→                                    <th>Description</th>
+  1027→                                    <th class="text-end">Debit (Advance In)</th>
+  1028→                                    <th class="text-end">Credit (Expense Out)</th>
+  1029→                                    <th class="text-end">Running Balance</th>
+  1030→                                </tr>
+  1031→                            </thead>
+  1032→                            <tbody>
+  1033→                                <?php
+  1034→                                $running = $liveOpeningBalance;
+  1035→                                $sl = 0;
+  1036→                                foreach ($transactions as $txn):
+  1037→                                    $sl++;
+  1038→                                    $debit  = (float)$txn['debit'];
+  1039→                                    $credit = (float)$txn['credit'];
+  1040→                                    // Running balance: +debit (money in), -credit (money out)
+  1041→                                    $running = $running + $debit - $credit;
+  1042→                                    $txnType    = $txn['txn_type'] ?? '';
+  1043→                                    $rowClass   = 'txn-type-' . $txnType;
+  1044→                                    $rowBalClass = $running > 0 ? 'balance-positive' : ($running < 0 ? 'balance-negative' : 'balance-zero');
+  1045→                                    $txnDateStr = !empty($txn['txn_date']) ? date('d M Y', strtotime($txn['txn_date'])) : '-';
+  1046→                                ?>
+  1047→                                    <tr class="<?= $rowClass ?>">
+  1048→                                        <td class="text-muted"><?= $sl ?></td>
+  1049→                                        <td class="text-nowrap"><?= $txnDateStr ?></td>
+  1050→                                        <td>
+  1051→                                            <?php
+  1052→                                            $desc = $txn['txn_desc'] ?? '';
+  1053→                                            echo htmlspecialchars($desc);
+  1054→                                            ?>
+  1055→                                        </td>
+  1056→                                        <td class="text-end">
+  1057→                                            <?php if ($debit > 0): ?>
+  1058→                                                <span class="fw-semibold text-success"><?= formatCurrency($debit) ?></span>
+  1059→                                            <?php else: ?>
+  1060→                                                <span class="text-muted">—</span>
+  1061→                                            <?php endif; ?>
+  1062→                                        </td>
+  1063→                                        <td class="text-end">
+  1064→                                            <?php if ($credit > 0): ?>
+  1065→                                                <span class="fw-semibold text-danger"><?= formatCurrency($credit) ?></span>
+  1066→                                            <?php else: ?>
+  1067→                                                <span class="text-muted">—</span>
+  1068→                                            <?php endif; ?>
+  1069→                                        </td>
+  1070→                                        <td class="text-end">
+  1071→                                            <span class="fw-bold <?= $rowBalClass ?>"><?= formatCurrency($running) ?></span>
+  1072→                                        </td>
+  1073→                                    </tr>
+  1074→                                <?php endforeach; ?>
+  1075→                            </tbody>
+  1076→                            <tfoot>
+  1077→                                <tr class="table-light fw-bold">
+  1078→                                    <td colspan="3" class="text-end">Closing Balance:</td>
+  1079→                                    <td class="text-end text-success"><?= formatCurrency($liveAdvances) ?></td>
+  1080→                                    <td class="text-end text-danger"><?= formatCurrency($liveExpenses + $liveEmployeeAdvances) ?></td>
+  1081→                                    <td class="text-end <?= $liveBalClass ?>"><?= formatCurrency($running) ?></td>
+  1082→                                </tr>
+  1083→                            </tfoot>
+  1084→                        </table>
+  1085→                    </div>
+  1086→                <?php endif; ?>
+  1087→            </div>
+  1088→        </div>
+  1089→
+  1090→    </div>
+  1091→
+  1092→    <!-- ================================================================= -->
+  1093→    <!-- MONTHLY LEDGER HISTORY TABLE                                       -->
+  1094→    <!-- ================================================================= -->
+  1095→    <div class="section-panel">
+  1096→        <div class="panel-header">
+  1097→            <h5>
+  1098→                <i class="bi bi-clock-history me-2 text-secondary"></i>
+  1099→                Monthly Ledger History
+  1100→                <span class="badge bg-light text-dark border ms-2"><?= count($ledgerHistory) ?> months</span>
+  1101→            </h5>
+  1102→            <?php if ($selectedManager !== '' && $selectedManager !== '0'): ?>
+  1103→                <a href="<?= htmlspecialchars($baseUrl) ?>&manager=<?= $selectedManager ?>" class="btn btn-outline-secondary btn-sm">
+  1104→                    <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+  1105→                </a>
+  1106→            <?php endif; ?>
+  1107→        </div>
+  1108→
+  1109→        <?php if (empty($ledgerHistory)): ?>
+  1110→            <div class="empty-state">
+  1111→                <i class="bi bi-calendar-x"></i>
+  1112→                <p class="mb-0">No ledger history found for this manager. Use "Generate / Recalculate Ledger" to create stored entries.</p>
+  1113→            </div>
+  1114→        <?php else: ?>
+  1115→            <div class="table-responsive">
+  1116→                <table class="table table-hover history-table mb-0">
+  1117→                    <thead>
+  1118→                        <tr>
+  1119→                            <th class="text-center">#</th>
+  1120→                            <th>Month / Year</th>
+  1121→                            <th class="text-end">Opening Balance</th>
+  1122→                            <th class="text-end">Advance In</th>
+  1123→                            <th class="text-end">Expenses</th>
+  1124→                            <th class="text-end">Emp. Advances</th>
+  1125→                            <th class="text-end">Closing Balance</th>
+  1126→                            <th class="text-center">Status</th>
+  1127→                        </tr>
+  1128→                    </thead>
+  1129→                    <tbody>
+  1130→                        <?php
+  1131→                        $hSl = 0;
+  1132→                        foreach ($ledgerHistory as $hRow):
+  1133→                            $hSl++;
+  1134→                            $hMonth    = (int)$hRow['month'];
+  1135→                            $hYear     = (int)$hRow['year'];
+  1136→                            $hClosing  = (float)$hRow['closing_balance'];
+  1137→                            $hSettled  = (int)$hRow['carried_forward'];
+  1138→                            $hBalClass = $hClosing > 0 ? 'balance-positive' : ($hClosing < 0 ? 'balance-negative' : 'balance-zero');
+  1139→                            $isActive  = ($hMonth === $selectedMonth && $hYear === $selectedYear);
+  1140→                        ?>
+  1141→                            <tr class="<?= $isActive ? 'table-primary' : '' ?>">
+  1142→                                <td class="text-center text-muted"><?= $hSl ?></td>
+  1143→                                <td>
+  1144→                                    <strong>
+  1145→                                        <a href="<?= htmlspecialchars($baseUrl) ?>&manager=<?= $selectedManager ?>&month=<?= $hMonth ?>&year=<?= $hYear ?>"
+  1146→                                           class="text-decoration-none <?= $isActive ? 'text-white' : 'text-dark' ?>">
+  1147→                                            <?= $monthNames[$hMonth] ?> <?= $hYear ?>
+  1148→                                        </a>
+  1149→                                    </strong>
+  1150→                                    <?php if ($isActive): ?>
+  1151→                                        <span class="badge bg-warning text-dark ms-1" style="font-size:0.6rem;">CURRENT</span>
+  1152→                                    <?php endif; ?>
+  1153→                                </td>
+  1154→                                <td class="text-end"><?= formatCurrency((float)$hRow['opening_balance']) ?></td>
+  1155→                                <td class="text-end text-success"><?= formatCurrency((float)$hRow['total_advance_given']) ?></td>
+  1156→                                <td class="text-end text-danger"><?= formatCurrency((float)$hRow['total_expenses']) ?></td>
+  1157→                                <td class="text-end text-danger"><?= formatCurrency((float)$hRow['total_employee_advances']) ?></td>
+  1158→                                <td class="text-end fw-bold <?= $hBalClass ?>"><?= formatCurrency($hClosing) ?></td>
+  1159→                                <td class="text-center">
+  1160→                                    <?php if ($hSettled): ?>
+  1161→                                        <span class="badge badge-settled">Settled</span>
+  1162→                                    <?php else: ?>
+  1163→                                        <span class="badge badge-open">Open</span>
+  1164→                                    <?php endif; ?>
+  1165→                                </td>
+  1166→                            </tr>
+  1167→                        <?php endforeach; ?>
+  1168→                    </tbody>
+  1169→                </table>
+  1170→            </div>
+  1171→        <?php endif; ?>
+  1172→    </div>
+  1173→
+  1174→    <!-- ================================================================= -->
+  1175→    <!-- ADMIN ENTRY FORMS                                                  -->
+  1176→    <!-- ================================================================= -->
+  1177→    <div class="section-panel admin-form-section" id="admin-forms">
+  1178→        <div class="panel-header bg-dark bg-opacity-10">
+  1179→            <h5>
+  1180→                <i class="bi bi-plus-circle me-2 text-dark"></i>
+  1181→                Admin: Add Transactions
+  1182→            </h5>
+  1183→            <small class="text-muted">Add advances or expenses on behalf of the selected manager</small>
+  1184→        </div>
+  1185→
+  1186→        <div class="p-3">
+  1187→            <div class="row g-4">
+  1188→
+  1189→                <!-- ── Add Advance Form ─────────────────────────────────── -->
+  1190→                <div class="col-lg-6">
+  1191→                    <div class="card border h-100">
+  1192→                        <div class="card-header bg-success bg-opacity-10 py-2">
+  1193→                            <h6 class="mb-0 fw-bold text-success">
+  1194→                                <i class="bi bi-cash-stack me-2"></i>Add Advance
+  1195→                            </h6>
+  1196→                        </div>
+  1197→                        <div class="card-body">
+  1198→                            <form method="POST" action="<?= htmlspecialchars($baseUrl) ?>" id="adminAdvanceForm">
+  1199→                                <input type="hidden" name="action" value="admin_add_advance">
+  1200→                                <input type="hidden" name="manager" value="<?= $selectedManager ?>">
+  1201→
+  1202→                                <div class="mb-3">
+  1203→                                    <label class="form-label">
+  1204→                                        <i class="bi bi-person me-1"></i>Manager
+  1205→                                    </label>
+  1206→                                    <input type="text" class="form-control form-control-sm"
+  1207→                                           value="<?= htmlspecialchars($selectedManagerInfo['full_name'] ?? $selectedManager) ?>"
+  1208→                                           readonly>
+  1209→                                </div>
+  1210→
+  1211→                                <div class="mb-3">
+  1212→                                    <label class="form-label" for="advance_amount">
+  1213→                                        <i class="bi bi-currency-rupee me-1"></i>Amount <span class="text-danger">*</span>
+  1214→                                    </label>
+  1215→                                    <input type="number" name="advance_amount" id="advance_amount"
+  1216→                                           class="form-control form-control-sm" placeholder="Enter amount"
+  1217→                                           step="0.01" min="0.01" required>
+  1218→                                </div>
+  1219→
+  1220→                                <div class="mb-3">
+  1221→                                    <label class="form-label" for="advance_remarks">
+  1222→                                        <i class="bi bi-chat-left-text me-1"></i>Remarks
+  1223→                                    </label>
+  1224→                                    <input type="text" name="advance_remarks" id="advance_remarks"
+  1225→                                           class="form-control form-control-sm"
+  1226→                                           placeholder="e.g. Monthly advance allocation">
+  1227→                                </div>
+  1228→
+  1229→                                <div class="mb-3">
+  1230→                                    <label class="form-label" for="advance_date">
+  1231→                                        <i class="bi bi-calendar me-1"></i>Date
+  1232→                                    </label>
+  1233→                                    <input type="date" name="advance_date" id="advance_date"
+  1234→                                           class="form-control form-control-sm"
+  1235→                                           value="<?= date('Y-m-d') ?>">
+  1236→                                    <small class="text-muted">Defaults to today if left empty</small>
+  1237→                                </div>
+  1238→
+  1239→                                <button type="submit" class="btn btn-success btn-sm w-100"
+  1240→                                        onclick="return confirm('Add this advance of the entered amount for <?= htmlspecialchars($selectedManagerInfo['full_name'] ?? 'this manager') ?>?');">
+  1241→                                    <i class="bi bi-plus-circle me-1"></i> Add Advance
+  1242→                                </button>
+  1243→                                <?php echo getCSRFTokenField(); ?>
+  1244→                            </form>
+  1245→                        </div>
+  1246→                    </div>
+  1247→                </div>
+  1248→
+  1249→                <!-- ── Add Expense Form ─────────────────────────────────── -->
+  1250→                <div class="col-lg-6">
+  1251→                    <div class="card border h-100">
+  1252→                        <div class="card-header bg-danger bg-opacity-10 py-2">
+  1253→                            <h6 class="mb-0 fw-bold text-danger">
+  1254→                                <i class="bi bi-receipt me-2"></i>Add Expense
+  1255→                            </h6>
+  1256→                        </div>
+  1257→                        <div class="card-body">
+  1258→                            <form method="POST" action="<?= htmlspecialchars($baseUrl) ?>" id="adminExpenseForm">
+  1259→                                <input type="hidden" name="action" value="admin_add_expense">
+  1260→                                <input type="hidden" name="manager" value="<?= $selectedManager ?>">
+  1261→
+  1262→                                <div class="mb-3">
+  1263→                                    <label class="form-label">
+  1264→                                        <i class="bi bi-person me-1"></i>Manager
+  1265→                                    </label>
+  1266→                                    <input type="text" class="form-control form-control-sm"
+  1267→                                           value="<?= htmlspecialchars($selectedManagerInfo['full_name'] ?? $selectedManager) ?>"
+  1268→                                           readonly>
+  1269→                                </div>
+  1270→
+  1271→                                <div class="row g-2 mb-3">
+  1272→                                    <div class="col-7">
+  1273→                                        <label class="form-label" for="expense_amount">
+  1274→                                            <i class="bi bi-currency-rupee me-1"></i>Amount <span class="text-danger">*</span>
+  1275→                                        </label>
+  1276→                                        <input type="number" name="expense_amount" id="expense_amount"
+  1277→                                               class="form-control form-control-sm" placeholder="Enter amount"
+  1278→                                               step="0.01" min="0.01" required>
+  1279→                                    </div>
+  1280→                                    <div class="col-5">
+  1281→                                        <label class="form-label" for="expense_type">
+  1282→                                            <i class="bi bi-tag me-1"></i>Type <span class="text-danger">*</span>
+  1283→                                        </label>
+  1284→                                        <select name="expense_type" id="expense_type" class="form-select form-select-sm" required>
+  1285→                                            <option value="travel">Travel</option>
+  1286→                                            <option value="food">Food</option>
+  1287→                                            <option value="cab">Cab</option>
+  1288→                                            <option value="supplies">Supplies</option>
+  1289→                                            <option value="medical">Medical</option>
+  1290→                                            <option value="other">Other</option>
+  1291→                                        </select>
+  1292→                                    </div>
+  1293→                                </div>
+  1294→
+  1295→                                <div class="mb-3">
+  1296→                                    <label class="form-label" for="expense_description">
+  1297→                                        <i class="bi bi-text-left me-1"></i>Description
+  1298→                                    </label>
+  1299→                                    <input type="text" name="expense_description" id="expense_description"
+  1300→                                           class="form-control form-control-sm"
+  1301→                                           placeholder="Brief description of the expense">
+  1302→                                </div>
+  1303→
+  1304→                                <div class="row g-2 mb-3">
+  1305→                                    <div class="col-6">
+  1306→                                        <label class="form-label" for="expense_date">
+  1307→                                            <i class="bi bi-calendar me-1"></i>Expense Date
+  1308→                                        </label>
+  1309→                                        <input type="date" name="expense_date" id="expense_date"
+  1310→                                               class="form-control form-control-sm"
+  1311→                                               value="<?= date('Y-m-d') ?>">
+  1312→                                    </div>
+  1313→                                    <div class="col-6">
+  1314→                                        <label class="form-label" for="bill_type">
+  1315→                                            <i class="bi bi-file-earmark-check me-1"></i>Bill Type
+  1316→                                        </label>
+  1317→                                        <select name="bill_type" id="bill_type" class="form-select form-select-sm">
+  1318→                                            <option value="with_bill">With Bill</option>
+  1319→                                            <option value="without_bill">Without Bill</option>
+  1320→                                        </select>
+  1321→                                    </div>
+  1322→                                </div>
+  1323→
+  1324→                                <div class="alert alert-info py-1 px-2 small mb-3">
+  1325→                                    <i class="bi bi-info-circle me-1"></i>
+  1326→                                    This expense will be <strong>auto-approved</strong> since it's being added by admin.
+  1327→                                </div>
+  1328→
+  1329→                                <button type="submit" class="btn btn-danger btn-sm w-100"
+  1330→                                        onclick="return confirm('Add this expense for <?= htmlspecialchars($selectedManagerInfo['full_name'] ?? 'this manager') ?>? It will be auto-approved.');">
+  1331→                                    <i class="bi bi-plus-circle me-1"></i> Add Expense (Auto-Approved)
+  1332→                                </button>
+  1333→                                <?php echo getCSRFTokenField(); ?>
+  1334→                            </form>
+  1335→                        </div>
+  1336→                    </div>
+  1337→                </div>
+  1338→
+  1339→            </div>
+  1340→        </div>
+  1341→    </div>
+  1342→
+  1343→<?php endif; ?>
+  1344→

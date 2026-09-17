@@ -1,0 +1,397 @@
+   601→   601→   601→                            </select>
+   602→   602→   602→                            <div class="form-text">Auto-filled from designation; editable if needed.</div>
+   603→   603→   603→                        </div>
+   604→   604→   604→                        <div class="col-md-3 mb-3">
+   605→   605→   605→                            <label for="employment_type" class="form-label">Employment Type</label>
+   606→   606→   606→                            <select class="form-select" id="employment_type" name="employment_type">
+   607→   607→   607→                                <?php foreach ($employmentTypes as $et): ?>
+   608→   608→   608→                                <option value="<?php echo $et; ?>" <?php echo ($employeeData['employment_type'] ?? 'Contract') == $et ? 'selected' : ''; ?>>
+   609→   609→   609→                                    <?php echo $et; ?>
+   610→   610→   610→                                </option>
+   611→   611→   611→                                <?php endforeach; ?>
+   612→   612→   612→                            </select>
+   613→   613→   613→                        </div>
+   614→   614→   614→                        <div class="col-md-3 mb-3">
+   615→   615→   615→                            <label for="date_of_joining" class="form-label">Date of Joining</label>
+   616→   616→   616→                            <input type="date" class="form-control" id="date_of_joining" name="date_of_joining" 
+   617→   617→   617→                                   value="<?php echo $employeeData['date_of_joining'] ?? ''; ?>">
+   618→   618→   618→                        </div>
+   619→   619→   619→                        <div class="col-md-3 mb-3">
+   620→   620→   620→                            <label for="probation_period" class="form-label">Probation Period (Months)</label>
+   621→   621→   621→                            <input type="number" class="form-control" id="probation_period" name="probation_period" 
+   622→   622→   622→                                   value="<?php echo $employeeData['probation_period'] ?? 3; ?>" min="0" max="12">
+   623→   623→   623→                        </div>
+   624→   624→   624→                        <div class="col-md-3 mb-3">
+   625→   625→   625→                            <label for="uan_number" class="form-label">UAN Number</label>
+   626→   626→   626→                            <input type="text" class="form-control" id="uan_number" name="uan_number" 
+   627→   627→   627→                                   value="<?php echo sanitize($employeeData['uan_number'] ?? ''); ?>">
+   628→   628→   628→                        </div>
+   629→   629→   629→                        <div class="col-md-3 mb-3">
+   630→   630→   630→                            <label for="esic_number" class="form-label">ESIC Number</label>
+   631→   631→   631→                            <input type="text" class="form-control" id="esic_number" name="esic_number" 
+   632→   632→   632→                                   value="<?php echo sanitize($employeeData['esic_number'] ?? ''); ?>">
+   633→   633→   633→                        </div>
+   634→   634→   634→                    </div>
+   635→   635→   635→                    
+   636→   636→   636→                    <!-- Salary Structure -->
+   637→   637→   637→                    <div class="row mb-4">
+   638→   638→   638→                        <div class="col-12">
+   639→   639→   639→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   640→   640→   640→                                <i class="bi bi-currency-rupee me-2"></i>Salary Structure
+   641→   641→   641→                            </h6>
+   642→   642→   642→                        </div>
+   643→   643→   643→                        <?php foreach ($salaryComponents as $field => $comp): ?>
+   644→   644→   644→                        <div class="col-md-2 mb-3">
+   645→   645→   645→                            <label for="<?php echo $field; ?>" class="form-label"><?php echo $comp['label']; ?></label>
+   646→   646→   646→                            <input type="number" class="form-control salary-component" id="<?php echo $field; ?>" 
+   647→   647→   647→                                   name="<?php echo $field; ?>" 
+   648→   648→   648→                                   value="<?php echo $employeeData[$field] ?? $comp['default']; ?>" 
+   649→   649→   649→                                   min="0" step="0.01">
+   650→   650→   650→                        </div>
+   651→   651→   651→                        <?php endforeach; ?>
+   652→   652→   652→                        <div class="col-md-2 mb-3">
+   653→   653→   653→                            <label for="gross_salary" class="form-label">Gross Salary</label>
+   654→   654→   654→                            <input type="number" class="form-control" id="gross_salary" name="gross_salary" 
+   655→   655→   655→                                   value="<?php echo $employeeData['gross_salary'] ?? 0; ?>" readonly>
+   656→   656→   656→                        </div>
+   657→   657→   657→                        
+   658→   658→   658→                        <!-- Applicability Checkboxes -->
+   659→   659→   659→                        <div class="col-12 mt-2">
+   660→   660→   660→                            <div class="row">
+   661→   661→   661→                                <div class="col-md-2">
+   662→   662→   662→                                    <div class="form-check">
+   663→   663→   663→                                        <input class="form-check-input" type="checkbox" id="pf_applicable" name="pf_applicable" 
+   664→   664→   664→                                               <?php echo !empty($employeeData['pf_applicable']) ? 'checked' : ''; ?>>
+   665→   665→   665→                                        <label class="form-check-label" for="pf_applicable">PF Applicable</label>
+   666→   666→   666→                                    </div>
+   667→   667→   667→                                </div>
+   668→   668→   668→                                <div class="col-md-2">
+   669→   669→   669→                                    <div class="form-check">
+   670→   670→   670→                                        <input class="form-check-input" type="checkbox" id="esi_applicable" name="esi_applicable" 
+   671→   671→   671→                                               <?php echo !empty($employeeData['esi_applicable']) ? 'checked' : ''; ?>>
+   672→   672→   672→                                        <label class="form-check-label" for="esi_applicable">ESI Applicable</label>
+   673→   673→   673→                                    </div>
+   674→   674→   674→                                </div>
+   675→   675→   675→                                <div class="col-md-2">
+   676→   676→   676→                                    <div class="form-check">
+   677→   677→   677→                                        <input class="form-check-input" type="checkbox" id="pt_applicable" name="pt_applicable" 
+   678→   678→   678→                                               <?php echo !empty($employeeData['pt_applicable']) ? 'checked' : ''; ?>>
+   679→   679→   679→                                        <label class="form-check-label" for="pt_applicable">PT Applicable</label>
+   680→   680→   680→                                    </div>
+   681→   681→   681→                                </div>
+   682→   682→   682→                                <div class="col-md-2">
+   683→   683→   683→                                    <div class="form-check">
+   684→   684→   684→                                        <input class="form-check-input" type="checkbox" id="bonus_applicable" name="bonus_applicable" 
+   685→   685→   685→                                               <?php echo !empty($employeeData['bonus_applicable']) ? 'checked' : ''; ?>>
+   686→   686→   686→                                        <label class="form-check-label" for="bonus_applicable">Bonus Applicable</label>
+   687→   687→   687→                                    </div>
+   688→   688→   688→                                </div>
+   689→   689→   689→                            </div>
+   690→   690→   690→                        </div>
+   691→   691→   691→                    </div>
+   692→   692→   692→                    
+   693→   693→   693→                    <!-- Bank Details -->
+   694→   694→   694→                    <div class="row mb-4">
+   695→   695→   695→                        <div class="col-12">
+   696→   696→   696→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   697→   697→   697→                                <i class="bi bi-bank me-2"></i>Bank Details
+   698→   698→   698→                            </h6>
+   699→   699→   699→                        </div>
+   700→   700→   700→                        <div class="col-md-3 mb-3">
+   701→   701→   701→                            <label for="bank_name" class="form-label">Bank Name</label>
+   702→   702→   702→                            <input type="text" class="form-control" id="bank_name" name="bank_name" 
+   703→   703→   703→                                   value="<?php echo sanitize($employeeData['bank_name'] ?? ''); ?>">
+   704→   704→   704→                        </div>
+   705→   705→   705→                        <div class="col-md-3 mb-3">
+   706→   706→   706→                            <label for="account_number" class="form-label">Account Number</label>
+   707→   707→   707→                            <input type="text" class="form-control" id="account_number" name="account_number" 
+   708→   708→   708→                                   value="<?php echo sanitize($employeeData['account_number'] ?? ''); ?>">
+   709→   709→   709→                        </div>
+   710→   710→   710→                        <div class="col-md-3 mb-3">
+   711→   711→   711→                            <label for="ifsc_code" class="form-label">IFSC Code</label>
+   712→   712→   712→                            <input type="text" class="form-control" id="ifsc_code" name="ifsc_code" 
+   713→   713→   713→                                   value="<?php echo sanitize($employeeData['ifsc_code'] ?? ''); ?>">
+   714→   714→   714→                        </div>
+   715→   715→   715→                        <div class="col-md-3 mb-3">
+   716→   716→   716→                            <label for="account_holder_name" class="form-label">Account Holder Name</label>
+   717→   717→   717→                            <input type="text" class="form-control" id="account_holder_name" name="account_holder_name" 
+   718→   718→   718→                                   value="<?php echo sanitize($employeeData['account_holder_name'] ?? ''); ?>">
+   719→   719→   719→                        </div>
+   720→   720→   720→                    </div>
+   721→   721→   721→                    
+   722→   722→   722→                    <!-- Documents Upload -->
+   723→   723→   723→                    <div class="row mb-4">
+   724→   724→   724→                        <div class="col-12">
+   725→   725→   725→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   726→   726→   726→                                <i class="bi bi-file-earmark me-2"></i>Documents
+   727→   727→   727→                            </h6>
+   728→   728→   728→                        </div>
+   729→   729→   729→                        <div class="col-md-3 mb-3">
+   730→   730→   730→                            <label for="profile_pic" class="form-label">Profile Photo</label>
+   731→   731→   731→                            <?php if (!empty($employeeData['profile_pic_url'])): ?>
+   732→   732→   732→                            <div class="mb-2">
+   733→   733→   733→                                <img id="empProfilePhoto" src="<?php echo sanitize($employeeData['profile_pic_url']); ?>" 
+   734→   734→   734→                                     alt="Profile photo" class="img-thumbnail" style="max-height: 100px;">
+   735→   735→   735→                            </div>
+   736→   736→   736→                            <?php if ($isEdit): ?>
+   737→   737→   737→                            <button type="button" class="btn btn-sm btn-outline-primary mb-2" onclick="editEmpProfilePhoto()">
+   738→   738→   738→                                <i class="bi bi-crop me-1"></i>Edit Photo
+   739→   739→   739→                            </button>
+   740→   740→   740→                            <?php endif; ?>
+   741→   741→   741→                            <?php endif; ?>
+   742→   742→   742→                            <input type="file" class="form-control" id="profile_pic" name="profile_pic" accept="image/*">
+   743→   743→   743→                            <small class="text-muted">JPG, PNG (max 5MB) - Saved to /uploads/profile/</small>
+   744→   744→   744→                        </div>
+   745→   745→   745→                        <div class="col-md-3 mb-3">
+   746→   746→   746→                            <label for="aadhaar_front" class="form-label">Aadhaar Front</label>
+   747→   747→   747→                            <?php if (!empty($employeeData['aadhaar_front_url'])): ?>
+   748→   748→   748→                            <div class="mb-2">
+   749→   749→   749→                                <a href="<?php echo sanitize($employeeData['aadhaar_front_url']); ?>" target="_blank" class="btn btn-sm btn-outline-success">
+   750→   750→   750→                                    <i class="bi bi-eye"></i> View
+   751→   751→   751→                                </a>
+   752→   752→   752→                            </div>
+   753→   753→   753→                            <?php endif; ?>
+   754→   754→   754→                            <input type="file" class="form-control" id="aadhaar_front" name="aadhaar_front" accept="image/*,.pdf">
+   755→   755→   755→                            <small class="text-muted">JPG, PNG, PDF (max 5MB)</small>
+   756→   756→   756→                        </div>
+   757→   757→   757→                        <div class="col-md-3 mb-3">
+   758→   758→   758→                            <label for="aadhaar_back" class="form-label">Aadhaar Back</label>
+   759→   759→   759→                            <?php if (!empty($employeeData['aadhaar_back_url'])): ?>
+   760→   760→   760→                            <div class="mb-2">
+   761→   761→   761→                                <a href="<?php echo sanitize($employeeData['aadhaar_back_url']); ?>" target="_blank" class="btn btn-sm btn-outline-success">
+   762→   762→   762→                                    <i class="bi bi-eye"></i> View
+   763→   763→   763→                                </a>
+   764→   764→   764→                            </div>
+   765→   765→   765→                            <?php endif; ?>
+   766→   766→   766→                            <input type="file" class="form-control" id="aadhaar_back" name="aadhaar_back" accept="image/*,.pdf">
+   767→   767→   767→                            <small class="text-muted">JPG, PNG, PDF (max 5MB)</small>
+   768→   768→   768→                        </div>
+   769→   769→   769→                        <div class="col-md-3 mb-3">
+   770→   770→   770→                            <label for="bank_document" class="form-label">Bank Passbook</label>
+   771→   771→   771→                            <?php if (!empty($employeeData['bank_document_url'])): ?>
+   772→   772→   772→                            <div class="mb-2">
+   773→   773→   773→                                <a href="<?php echo sanitize($employeeData['bank_document_url']); ?>" target="_blank" class="btn btn-sm btn-outline-success">
+   774→   774→   774→                                    <i class="bi bi-eye"></i> View
+   775→   775→   775→                                </a>
+   776→   776→   776→                            </div>
+   777→   777→   777→                            <?php endif; ?>
+   778→   778→   778→                            <input type="file" class="form-control" id="bank_document" name="bank_document" accept="image/*,.pdf">
+   779→   779→   779→                            <small class="text-muted">JPG, PNG, PDF (max 5MB)</small>
+   780→   780→   780→                        </div>
+   781→   781→   781→                    </div>
+   782→   782→   782→                    
+   783→   783→   783→                    <!-- Nominee Details -->
+   784→   784→   784→                    <div class="row mb-4">
+   785→   785→   785→                        <div class="col-12">
+   786→   786→   786→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   787→   787→   787→                                <i class="bi bi-people me-2"></i>Nominee Details
+   788→   788→   788→                            </h6>
+   789→   789→   789→                        </div>
+   790→   790→   790→                        <div class="col-md-3 mb-3">
+   791→   791→   791→                            <label for="nominee_name" class="form-label">Nominee Name</label>
+   792→   792→   792→                            <input type="text" class="form-control" id="nominee_name" name="nominee_name" 
+   793→   793→   793→                                   value="<?php echo sanitize($employeeData['nominee_name'] ?? ''); ?>">
+   794→   794→   794→                        </div>
+   795→   795→   795→                        <div class="col-md-3 mb-3">
+   796→   796→   796→                            <label for="nominee_relationship" class="form-label">Relationship</label>
+   797→   797→   797→                            <select class="form-select" id="nominee_relationship" name="nominee_relationship">
+   798→   798→   798→                                <?php foreach ($nomineeRelationships as $r): ?>
+   799→   799→   799→                                <option value="<?php echo $r; ?>" <?php echo ($employeeData['nominee_relationship'] ?? '') == $r ? 'selected' : ''; ?>>
+   800→   800→   800→                                    <?php echo $r ?: 'Select'; ?>
+   801→   801→   801→                                </option>
+   802→   802→   802→                                <?php endforeach; ?>
+   803→   803→   803→                            </select>
+   804→   804→   804→                        </div>
+   805→   805→   805→                        <div class="col-md-3 mb-3">
+   806→   806→   806→                            <label for="nominee_dob" class="form-label">Nominee DOB</label>
+   807→   807→   807→                            <input type="date" class="form-control" id="nominee_dob" name="nominee_dob" 
+   808→   808→   808→                                   value="<?php echo $employeeData['nominee_dob'] ?? ''; ?>">
+   809→   809→   809→                        </div>
+   810→   810→   810→                        <div class="col-md-3 mb-3">
+   811→   811→   811→                            <label for="nominee_contact" class="form-label">Nominee Contact</label>
+   812→   812→   812→                            <input type="tel" class="form-control" id="nominee_contact" name="nominee_contact" 
+   813→   813→   813→                                   value="<?php echo sanitize($employeeData['nominee_contact'] ?? ''); ?>" 
+   814→   814→   814→                                   pattern="[0-9]{10}" maxlength="10">
+   815→   815→   815→                        </div>
+   816→   816→   816→                    </div>
+   817→   817→   817→                    
+   818→   818→   818→                    <!-- Emergency Contact -->
+   819→   819→   819→                    <div class="row mb-4">
+   820→   820→   820→                        <div class="col-12">
+   821→   821→   821→                            <h6 class="text-primary border-bottom pb-2 mb-3">
+   822→   822→   822→                                <i class="bi bi-telephone me-2"></i>Emergency Contact
+   823→   823→   823→                            </h6>
+   824→   824→   824→                        </div>
+   825→   825→   825→                        <div class="col-md-4 mb-3">
+   826→   826→   826→                            <label for="emergency_contact_name" class="form-label">Contact Name</label>
+   827→   827→   827→                            <input type="text" class="form-control" id="emergency_contact_name" name="emergency_contact_name" 
+   828→   828→   828→                                   value="<?php echo sanitize($employeeData['emergency_contact_name'] ?? ''); ?>">
+   829→   829→   829→                        </div>
+   830→   830→   830→                        <div class="col-md-4 mb-3">
+   831→   831→   831→                            <label for="emergency_contact_relation" class="form-label">Relationship</label>
+   832→   832→   832→                            <select class="form-select" id="emergency_contact_relation" name="emergency_contact_relation">
+   833→   833→   833→                                <?php foreach ($relationships as $r): ?>
+   834→   834→   834→                                <option value="<?php echo $r; ?>" <?php echo ($employeeData['emergency_contact_relation'] ?? '') == $r ? 'selected' : ''; ?>>
+   835→   835→   835→                                    <?php echo $r ?: 'Select'; ?>
+   836→   836→   836→                                </option>
+   837→   837→   837→                                <?php endforeach; ?>
+   838→   838→   838→                            </select>
+   839→   839→   839→                        </div>
+   840→   840→   840→                        <div class="col-md-4 mb-3">
+   841→   841→   841→                            <label for="emergency_contact_number" class="form-label">Contact Number</label>
+   842→   842→   842→                            <input type="tel" class="form-control" id="emergency_contact_number" name="emergency_contact_number" 
+   843→   843→   843→                                   value="<?php echo sanitize($employeeData['emergency_contact_number'] ?? ''); ?>" 
+   844→   844→   844→                                   pattern="[0-9]{10}" maxlength="10">
+   845→   845→   845→                        </div>
+   846→   846→   846→                    </div>
+   847→   847→   847→                    
+   848→   848→   848→                    <?php if ($isEdit): ?>
+   849→   849→   849→                    <!-- Status (Edit Only) -->
+   850→   850→   850→                    <div class="row mb-4">
+   851→   851→   851→                        <div class="col-md-4">
+   852→   852→   852→                            <label for="status" class="form-label">Status</label>
+   853→   853→   853→                            <select class="form-select" id="status" name="status">
+   854→   854→   854→                                <option value="pending_hr_verification" <?php echo ($employeeData['status'] ?? '') == 'pending_hr_verification' ? 'selected' : ''; ?>>Pending HR Verification</option>
+   855→   855→   855→                                <option value="approved" <?php echo ($employeeData['status'] ?? '') == 'approved' ? 'selected' : ''; ?>>Active</option>
+   856→   856→   856→                                <option value="rejected" <?php echo ($employeeData['status'] ?? '') == 'rejected' ? 'selected' : ''; ?>>Rejected</option>
+   857→   857→   857→                                <option value="inactive" <?php echo ($employeeData['status'] ?? '') == 'inactive' ? 'selected' : ''; ?>>Inactive</option>
+   858→   858→   858→                                <option value="terminated" <?php echo ($employeeData['status'] ?? '') == 'terminated' ? 'selected' : ''; ?>>Terminated</option>
+   859→   859→   859→                                <option value="removed" <?php echo ($employeeData['status'] ?? '') == 'removed' ? 'selected' : ''; ?>>Removed</option>
+   860→   860→   860→                            </select>
+   861→   861→   861→                        </div>
+   862→   862→   862→                    </div>
+   863→   863→   863→                    <?php endif; ?>
+   864→   864→   864→                    
+   865→   865→   865→                    <!-- Submit Buttons -->
+   866→   866→   866→                    <div class="row">
+   867→   867→   867→                        <div class="col-12">
+   868→   868→   868→                            <button type="submit" class="btn btn-primary">
+   869→   869→   869→                                <i class="bi bi-save me-1"></i>
+   870→   870→   870→                                <?php echo $isEdit ? 'Update Employee' : 'Add Employee'; ?>
+   871→   871→   871→                            </button>
+   872→   872→   872→                            <a href="index.php?page=employee/list" class="btn btn-secondary ms-2">
+   873→   873→   873→                                <i class="bi bi-x-lg me-1"></i>Cancel
+   874→   874→   874→                            </a>
+   875→   875→   875→                        </div>
+   876→   876→   876→                    </div>
+   877→   877→   877→                    <?php echo getCSRFTokenField(); ?>
+   878→   878→   878→                </form>
+   879→   879→   879→            </div>
+   880→   880→   880→        </div>
+   881→   881→   881→    </div>
+   882→   882→   882→</div>
+   883→   883→   883→
+   884→   884→   884→<script>
+   885→   885→   885→// Unit dropdown population on client change
+   886→   886→   886→document.getElementById('client_id')?.addEventListener('change', function() {
+   887→   887→   887→    const clientId = this.value;
+   888→   888→   888→    const unitSelect = document.getElementById('unit_id');
+   889→   889→   889→    unitSelect.innerHTML = '<option value="">Loading...</option>';
+   890→   890→   890→    
+   891→   891→   891→    if (clientId) {
+   892→   892→   892→        fetch('index.php?page=api/units&client_id=' + clientId)
+   893→   893→   893→            .then(r => r.json())
+   894→   894→   894→            .then(data => {
+   895→   895→   895→                let html = '<option value="">Select Unit</option>';
+   896→   896→   896→                (data.units || []).forEach(u => {
+   897→   897→   897→                    html += `<option value="${u.id}">${u.name}</option>`;
+   898→   898→   898→                });
+   899→   899→   899→                unitSelect.innerHTML = html;
+   900→   900→   900→            })
+   901→   901→   901→            .catch(() => {
+   902→   902→   902→                unitSelect.innerHTML = '<option value="">Select Unit</option>';
+   903→   903→   903→            });
+   904→   904→   904→    } else {
+   905→   905→   905→        unitSelect.innerHTML = '<option value="">Select Unit</option>';
+   906→   906→   906→    }
+   907→   907→   907→});
+   908→   908→   908→
+   909→   909→   909→// Auto-populate Worker Category from the selected Designation
+   910→   910→   910→// (the option carries a data-category attribute sourced from the
+   911→   911→   911→//  designations.worker_category column)
+   912→   912→   912→function autoFillWorkerCategory(designationSelect) {
+   913→   913→   913→    const opt = designationSelect.options[designationSelect.selectedIndex];
+   914→   914→   914→    const cat = opt ? (opt.getAttribute('data-category') || '') : '';
+   915→   915→   915→    const wcSelect = document.getElementById('worker_category');
+   916→   916→   916→    if (!wcSelect || !cat) return;
+   917→   917→   917→
+   918→   918→   918→    // Try exact match first
+   919→   919→   919→    let matched = false;
+   920→   920→   920→    for (const o of wcSelect.options) {
+   921→   921→   921→        if (o.value === cat) { o.selected = true; matched = true; break; }
+   922→   922→   922→    }
+   923→   923→   923→    // Fallback: case-insensitive match (handles "Semi-skilled" vs "Semi-Skilled")
+   924→   924→   924→    if (!matched) {
+   925→   925→   925→        const lower = cat.toLowerCase();
+   926→   926→   926→        for (const o of wcSelect.options) {
+   927→   927→   927→            if (o.value.toLowerCase() === lower) { o.selected = true; matched = true; break; }
+   928→   928→   928→        }
+   929→   929→   929→    }
+   930→   930→   930→    if (matched) {
+   931→   931→   931→        wcSelect.classList.add('is-valid');
+   932→   932→   932→        setTimeout(() => wcSelect.classList.remove('is-valid'), 1200);
+   933→   933→   933→    }
+   934→   934→   934→}
+   935→   935→   935→
+   936→   936→   936→// On page load, if a designation is already selected (edit mode), sync the category
+   937→   937→   937→document.addEventListener('DOMContentLoaded', function() {
+   938→   938→   938→    const des = document.getElementById('designation');
+   939→   939→   939→    if (des && des.value) {
+   940→   940→   940→        autoFillWorkerCategory(des);
+   941→   941→   941→    }
+   942→   942→   942→});
+   943→   943→   943→
+   944→   944→   944→// Calculate gross salary
+   945→   945→   945→function calculateGross() {
+   946→   946→   946→    const components = document.querySelectorAll('.salary-component');
+   947→   947→   947→    let total = 0;
+   948→   948→   948→    components.forEach(c => {
+   949→   949→   949→        total += parseFloat(c.value) || 0;
+   950→   950→   950→    });
+   951→   951→   951→    document.getElementById('gross_salary').value = total.toFixed(2);
+   952→   952→   952→}
+   953→   953→   953→
+   954→   954→   954→// Add event listeners to salary components
+   955→   955→   955→document.querySelectorAll('.salary-component').forEach(input => {
+   956→   956→   956→    input.addEventListener('input', calculateGross);
+   957→   957→   957→});
+   958→   958→   958→
+   959→   959→   959→// Edit profile photo with lite editor (only available in edit mode)
+   960→   960→   960→function editEmpProfilePhoto() {
+   961→   961→   961→    const photoImg = document.getElementById('empProfilePhoto');
+   962→   962→   962→    if (!photoImg || !photoImg.src) return;
+   963→   963→   963→    
+   964→   964→   964→    const photoUrl = '<?php echo sanitize($employeeData['profile_pic_url'] ?? ''); ?>';
+   965→   965→   965→    
+   966→   966→   966→    openLiteEditor(photoImg.src + '?t=' + Date.now(), function(base64DataUrl) {
+   967→   967→   967→        const formData = new FormData();
+   968→   968→   968→        formData.append('action', 'save_canvas');
+   969→   969→   969→        formData.append('file', photoUrl);
+   970→   970→   970→        formData.append('image_data', base64DataUrl);
+   971→   971→   971→        
+   972→   972→   972→        fetch('?page=api/image-tool&ie_action=save_canvas', {
+   973→   973→   973→            method: 'POST',
+   974→   974→   974→            body: formData
+   975→   975→   975→        })
+   976→   976→   976→        .then(r => r.json())
+   977→   977→   977→        .then(res => {
+   978→   978→   978→            if (res.ok) {
+   979→   979→   979→                const newSrc = (res.rel ? '/' + res.rel : photoUrl) + '?t=' + Date.now();
+   980→   980→   980→                photoImg.src = newSrc;
+   981→   981→   981→                alert('Photo saved successfully!');
+   982→   982→   982→            } else {
+   983→   983→   983→                alert('Save failed: ' + (res.msg || 'Unknown error'));
+   984→   984→   984→            }
+   985→   985→   985→        })
+   986→   986→   986→        .catch(err => alert('Error saving photo: ' + err.message));
+   987→   987→   987→    });
+   988→   988→   988→}
+   989→   989→   989→
+   990→   990→   990→// Initial calculation
+   991→   991→   991→calculateGross();
+   992→   992→   992→</script>
+   993→   993→   993→
+   994→   994→   994→<?php if ($isEdit): ?>
+   995→   995→   995→<?php include_once 'modules/settings/image-tool-lite.php'; ?>
+   996→   996→   996→<?php endif; ?>
+   997→   997→   997→

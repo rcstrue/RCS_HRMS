@@ -1,0 +1,916 @@
+     1→<!DOCTYPE html>
+     2→<html lang="en">
+     3→<head>
+     4→    <meta charset="UTF-8">
+     5→    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     6→
+     7→    <title>404 | RCS TRUE FACILITIES PVT LTD</title>
+     8→
+     9→    <style>
+    10→        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+    11→
+    12→        * {
+    13→            margin: 0;
+    14→            padding: 0;
+    15→            box-sizing: border-box;
+    16→        }
+    17→
+    18→        body {
+    19→            min-height: 100vh;
+    20→            font-family: 'Inter', Arial, Helvetica, sans-serif;
+    21→            background: linear-gradient(135deg, #f4f7fb, #e8eef7);
+    22→            color: #1f2937;
+    23→            overflow-x: hidden;
+    24→        }
+    25→
+    26→        /* ===== HERO 404 SECTION ===== */
+    27→        .hero-section {
+    28→            min-height: 100vh;
+    29→            display: flex;
+    30→            align-items: center;
+    31→            justify-content: center;
+    32→            padding: 20px;
+    33→            position: relative;
+    34→        }
+    35→
+    36→        .container {
+    37→            width: 100%;
+    38→            max-width: 700px;
+    39→            background: rgba(255, 255, 255, 0.96);
+    40→            border-radius: 24px;
+    41→            padding: 50px 35px;
+    42→            text-align: center;
+    43→            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+    44→            position: relative;
+    45→            overflow: hidden;
+    46→        }
+    47→
+    48→        .container::before {
+    49→            content: "";
+    50→            position: absolute;
+    51→            top: 0;
+    52→            left: 0;
+    53→            width: 100%;
+    54→            height: 6px;
+    55→            background: linear-gradient(90deg, #2563eb, #0ea5e9, #10b981);
+    56→        }
+    57→
+    58→        .company {
+    59→            font-size: 15px;
+    60→            font-weight: 700;
+    61→            letter-spacing: 2px;
+    62→            color: #2563eb;
+    63→            margin-bottom: 20px;
+    64→        }
+    65→
+    66→        .error-number {
+    67→            font-size: clamp(90px, 18vw, 170px);
+    68→            line-height: 0.9;
+    69→            font-weight: 900;
+    70→            color: #1e3a8a;
+    71→            letter-spacing: -8px;
+    72→            margin-bottom: 20px;
+    73→            animation: float 3s ease-in-out infinite;
+    74→        }
+    75→
+    76→        .emoji {
+    77→            font-size: 70px;
+    78→            margin-bottom: 15px;
+    79→            animation: bounce 2s infinite;
+    80→        }
+    81→
+    82→        h1 {
+    83→            font-size: clamp(25px, 5vw, 38px);
+    84→            margin-bottom: 15px;
+    85→            color: #111827;
+    86→        }
+    87→
+    88→        #funnyMessage {
+    89→            font-size: 19px;
+    90→            line-height: 1.6;
+    91→            color: #4b5563;
+    92→            min-height: 65px;
+    93→            max-width: 560px;
+    94→            margin: 0 auto 30px;
+    95→        }
+    96→
+    97→        .buttons {
+    98→            display: flex;
+    99→            justify-content: center;
+   100→            gap: 12px;
+   101→            flex-wrap: wrap;
+   102→        }
+   103→
+   104→        .btn {
+   105→            display: inline-block;
+   106→            padding: 13px 25px;
+   107→            border-radius: 10px;
+   108→            text-decoration: none;
+   109→            font-size: 16px;
+   110→            font-weight: 700;
+   111→            cursor: pointer;
+   112→            border: none;
+   113→            transition: all 0.25s ease;
+   114→        }
+   115→
+   116→        .btn-home {
+   117→            background: #2563eb;
+   118→            color: white;
+   119→        }
+   120→
+   121→        .btn-home:hover {
+   122→            background: #1d4ed8;
+   123→            transform: translateY(-2px);
+   124→            box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3);
+   125→        }
+   126→
+   127→        .btn-back {
+   128→            background: #f3f4f6;
+   129→            color: #374151;
+   130→        }
+   131→
+   132→        .btn-back:hover {
+   133→            background: #e5e7eb;
+   134→            transform: translateY(-2px);
+   135→        }
+   136→
+   137→        .btn-memes {
+   138→            background: linear-gradient(135deg, #f59e0b, #ef4444);
+   139→            color: white;
+   140→            margin-top: 8px;
+   141→        }
+   142→
+   143→        .btn-memes:hover {
+   144→            background: linear-gradient(135deg, #d97706, #dc2626);
+   145→            transform: translateY(-2px);
+   146→            box-shadow: 0 8px 20px rgba(239, 68, 68, 0.3);
+   147→        }
+   148→
+   149→        .footer {
+   150→            margin-top: 35px;
+   151→            padding-top: 20px;
+   152→            border-top: 1px solid #e5e7eb;
+   153→            font-size: 13px;
+   154→            color: #9ca3af;
+   155→        }
+   156→
+   157→        .footer strong {
+   158→            color: #6b7280;
+   159→        }
+   160→
+   161→        .floating {
+   162→            position: absolute;
+   163→            font-size: 28px;
+   164→            opacity: 0.15;
+   165→            animation: drift 8s linear infinite;
+   166→            pointer-events: none;
+   167→        }
+   168→
+   169→        .one { top: 15%; left: 8%; }
+   170→        .two { bottom: 15%; right: 8%; animation-delay: 2s; }
+   171→        .three { top: 25%; right: 12%; animation-delay: 4s; }
+   172→
+   173→        /* ===== MEME GALLERY SECTION ===== */
+   174→        .meme-section {
+   175→            padding: 60px 20px 80px;
+   176→            background: linear-gradient(180deg, #f4f7fb 0%, #ede9fe 50%, #fce7f3 100%);
+   177→            position: relative;
+   178→        }
+   179→
+   180→        .meme-section::before {
+   181→            content: "";
+   182→            position: absolute;
+   183→            top: 0;
+   184→            left: 0;
+   185→            right: 0;
+   186→            height: 80px;
+   187→            background: linear-gradient(180deg, #f4f7fb, transparent);
+   188→            pointer-events: none;
+   189→        }
+   190→
+   191→        .meme-header {
+   192→            text-align: center;
+   193→            margin-bottom: 50px;
+   194→            position: relative;
+   195→            z-index: 1;
+   196→        }
+   197→
+   198→        .meme-header h2 {
+   199→            font-size: clamp(28px, 5vw, 42px);
+   200→            font-weight: 900;
+   201→            color: #1e3a8a;
+   202→            margin-bottom: 12px;
+   203→            line-height: 1.2;
+   204→        }
+   205→
+   206→        .meme-header .subtitle {
+   207→            font-size: 18px;
+   208→            color: #6b7280;
+   209→            max-width: 600px;
+   210→            margin: 0 auto;
+   211→            line-height: 1.5;
+   212→        }
+   213→
+   214→        .meme-header .emoji-row {
+   215→            font-size: 40px;
+   216→            margin-bottom: 16px;
+   217→            animation: bounce 2s infinite;
+   218→        }
+   219→
+   220→        .meme-grid {
+   221→            display: grid;
+   222→            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+   223→            gap: 24px;
+   224→            max-width: 1200px;
+   225→            margin: 0 auto;
+   226→            position: relative;
+   227→            z-index: 1;
+   228→        }
+   229→
+   230→        .meme-card {
+   231→            background: white;
+   232→            border-radius: 16px;
+   233→            overflow: hidden;
+   234→            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+   235→            transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+   236→            cursor: pointer;
+   237→            position: relative;
+   238→        }
+   239→
+   240→        .meme-card:hover {
+   241→            transform: translateY(-6px) scale(1.02);
+   242→            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+   243→        }
+   244→
+   245→        .meme-card img {
+   246→            width: 100%;
+   247→            height: 240px;
+   248→            object-fit: cover;
+   249→            display: block;
+   250→            background: #f3f4f6;
+   251→            transition: transform 0.4s ease;
+   252→        }
+   253→
+   254→        .meme-card:hover img {
+   255→            transform: scale(1.05);
+   256→        }
+   257→
+   258→        .meme-card .img-wrapper {
+   259→            overflow: hidden;
+   260→            position: relative;
+   261→        }
+   262→
+   263→        .meme-card .meme-tag {
+   264→            position: absolute;
+   265→            top: 10px;
+   266→            left: 10px;
+   267→            padding: 4px 10px;
+   268→            border-radius: 20px;
+   269→            font-size: 11px;
+   270→            font-weight: 700;
+   271→            color: white;
+   272→            text-transform: uppercase;
+   273→            letter-spacing: 0.5px;
+   274→            z-index: 2;
+   275→        }
+   276→
+   277→        .tag-hr { background: #8b5cf6; }
+   278→        .tag-housekeeping { background: #10b981; }
+   279→        .tag-payroll { background: #f59e0b; }
+   280→        .tag-attendance { background: #ef4444; }
+   281→        .tag-404 { background: #3b82f6; }
+   282→        .tag-esic { background: #06b6d4; }
+   283→        .tag-labour { background: #ec4899; }
+   284→        .tag-office { background: #6366f1; }
+   285→
+   286→        .meme-card .meme-caption {
+   287→            padding: 16px 18px;
+   288→            font-size: 15px;
+   289→            font-weight: 600;
+   290→            color: #374151;
+   291→            line-height: 1.4;
+   292→            min-height: 64px;
+   293→            display: flex;
+   294→            align-items: center;
+   295→        }
+   296→
+   297→        .meme-card .meme-caption .caption-emoji {
+   298→            margin-right: 8px;
+   299→            font-size: 20px;
+   300→            flex-shrink: 0;
+   301→        }
+   302→
+   303→        /* Floating decoration emojis in meme section */
+   304→        .meme-float {
+   305→            position: absolute;
+   306→            font-size: 32px;
+   307→            opacity: 0.2;
+   308→            animation: memeDrift 10s ease-in-out infinite;
+   309→            pointer-events: none;
+   310→            z-index: 0;
+   311→        }
+   312→
+   313→        .mf1 { top: 15%; left: 5%; animation-delay: 0s; }
+   314→        .mf2 { top: 30%; right: 3%; animation-delay: 2s; }
+   315→        .mf3 { top: 55%; left: 2%; animation-delay: 4s; }
+   316→        .mf4 { top: 75%; right: 5%; animation-delay: 6s; }
+   317→        .mf5 { top: 90%; left: 8%; animation-delay: 1s; }
+   318→        .mf6 { top: 10%; right: 10%; animation-delay: 3s; }
+   319→
+   320→        /* Lightbox */
+   321→        .lightbox {
+   322→            display: none;
+   323→            position: fixed;
+   324→            top: 0;
+   325→            left: 0;
+   326→            width: 100%;
+   327→            height: 100%;
+   328→            background: rgba(0, 0, 0, 0.85);
+   329→            z-index: 9999;
+   330→            align-items: center;
+   331→            justify-content: center;
+   332→            cursor: pointer;
+   333→            animation: fadeIn 0.3s ease;
+   334→        }
+   335→
+   336→        .lightbox.active {
+   337→            display: flex;
+   338→        }
+   339→
+   340→        .lightbox img {
+   341→            max-width: 90vw;
+   342→            max-height: 85vh;
+   343→            border-radius: 12px;
+   344→            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+   345→            animation: zoomIn 0.3s ease;
+   346→        }
+   347→
+   348→        .lightbox .lightbox-caption {
+   349→            position: absolute;
+   350→            bottom: 30px;
+   351→            left: 50%;
+   352→            transform: translateX(-50%);
+   353→            color: white;
+   354→            font-size: 18px;
+   355→            font-weight: 600;
+   356→            text-align: center;
+   357→            max-width: 80%;
+   358→            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+   359→            background: rgba(0, 0, 0, 0.5);
+   360→            padding: 10px 24px;
+   361→            border-radius: 30px;
+   362→        }
+   363→
+   364→        .lightbox .close-btn {
+   365→            position: absolute;
+   366→            top: 20px;
+   367→            right: 30px;
+   368→            color: white;
+   369→            font-size: 36px;
+   370→            cursor: pointer;
+   371→            width: 50px;
+   372→            height: 50px;
+   373→            display: flex;
+   374→            align-items: center;
+   375→            justify-content: center;
+   376→            border-radius: 50%;
+   377→            background: rgba(255, 255, 255, 0.15);
+   378→            transition: background 0.2s;
+   379→        }
+   380→
+   381→        .lightbox .close-btn:hover {
+   382→            background: rgba(255, 255, 255, 0.3);
+   383→        }
+   384→
+   385→        /* ===== BOTTOM CTA ===== */
+   386→        .bottom-cta {
+   387→            text-align: center;
+   388→            padding: 50px 20px;
+   389→            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+   390→            color: white;
+   391→        }
+   392→
+   393→        .bottom-cta h3 {
+   394→            font-size: 26px;
+   395→            font-weight: 800;
+   396→            margin-bottom: 10px;
+   397→        }
+   398→
+   399→        .bottom-cta p {
+   400→            font-size: 16px;
+   401→            opacity: 0.85;
+   402→            margin-bottom: 24px;
+   403→            max-width: 500px;
+   404→            margin-left: auto;
+   405→            margin-right: auto;
+   406→        }
+   407→
+   408→        .bottom-cta .btn-cta {
+   409→            display: inline-block;
+   410→            padding: 14px 32px;
+   411→            border-radius: 12px;
+   412→            background: white;
+   413→            color: #1e3a8a;
+   414→            font-size: 16px;
+   415→            font-weight: 700;
+   416→            text-decoration: none;
+   417→            transition: all 0.25s ease;
+   418→        }
+   419→
+   420→        .bottom-cta .btn-cta:hover {
+   421→            transform: translateY(-2px);
+   422→            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+   423→        }
+   424→
+   425→        /* ===== ANIMATIONS ===== */
+   426→        @keyframes float {
+   427→            0%, 100% { transform: translateY(0); }
+   428→            50% { transform: translateY(-10px); }
+   429→        }
+   430→
+   431→        @keyframes bounce {
+   432→            0%, 100% { transform: translateY(0); }
+   433→            50% { transform: translateY(-12px); }
+   434→        }
+   435→
+   436→        @keyframes drift {
+   437→            0% { transform: translateY(0) rotate(0deg); }
+   438→            50% { transform: translateY(-20px) rotate(10deg); }
+   439→            100% { transform: translateY(0) rotate(0deg); }
+   440→        }
+   441→
+   442→        @keyframes memeDrift {
+   443→            0%, 100% { transform: translateY(0) rotate(-5deg); }
+   444→            50% { transform: translateY(-30px) rotate(5deg); }
+   445→        }
+   446→
+   447→        @keyframes fadeIn {
+   448→            from { opacity: 0; }
+   449→            to { opacity: 1; }
+   450→        }
+   451→
+   452→        @keyframes zoomIn {
+   453→            from { transform: scale(0.8); opacity: 0; }
+   454→            to { transform: scale(1); opacity: 1; }
+   455→        }
+   456→
+   457→        /* ===== RESPONSIVE ===== */
+   458→        @media (max-width: 500px) {
+   459→            .hero-section {
+   460→                min-height: auto;
+   461→                padding: 30px 16px;
+   462→            }
+   463→
+   464→            .container {
+   465→                padding: 40px 20px;
+   466→            }
+   467→
+   468→            .error-number {
+   469→                letter-spacing: -4px;
+   470→            }
+   471→
+   472→            #funnyMessage {
+   473→                font-size: 17px;
+   474→            }
+   475→
+   476→            .emoji {
+   477→                font-size: 55px;
+   478→            }
+   479→
+   480→            .meme-grid {
+   481→                grid-template-columns: 1fr;
+   482→                gap: 16px;
+   483→            }
+   484→
+   485→            .meme-card img {
+   486→                height: 200px;
+   487→            }
+   488→
+   489→            .meme-header h2 {
+   490→                font-size: 24px;
+   491→            }
+   492→
+   493→            .meme-header .subtitle {
+   494→                font-size: 15px;
+   495→            }
+   496→
+   497→            .meme-section {
+   498→                padding: 40px 16px 60px;
+   499→            }
+   500→
+   501→            .lightbox .lightbox-caption {
+   502→                font-size: 14px;
+   503→                bottom: 15px;
+   504→                padding: 8px 16px;
+   505→            }
+   506→        }
+   507→
+   508→        @media (min-width: 501px) and (max-width: 768px) {
+   509→            .meme-grid {
+   510→                grid-template-columns: repeat(2, 1fr);
+   511→                gap: 16px;
+   512→            }
+   513→        }
+   514→    </style>
+   515→</head>
+   516→
+   517→<body>
+   518→
+   519→    <!-- ===== HERO 404 SECTION ===== -->
+   520→    <section class="hero-section">
+   521→
+   522→        <!-- Floating decoration -->
+   523→        <div class="floating one">🧹</div>
+   524→        <div class="floating two">👷</div>
+   525→        <div class="floating three">📋</div>
+   526→
+   527→        <div class="container">
+   528→
+   529→            <div class="company">
+   530→                RCS TRUE FACILITIES PVT LTD
+   531→            </div>
+   532→
+   533→            <div class="emoji" id="emoji">👷</div>
+   534→
+   535→            <div class="error-number">404</div>
+   536→
+   537→            <h1>Oops! Page Not Found</h1>
+   538→
+   539→            <p id="funnyMessage">
+   540→                Our team is searching for this page...
+   541→            </p>
+   542→
+   543→            <div class="buttons">
+   544→                <a href="/" class="btn btn-home">
+   545→                    🏠 Go to Homepage
+   546→                </a>
+   547→
+   548→                <button onclick="goBack()" class="btn btn-back">
+   549→                    ← Go Back
+   550→                </button>
+   551→            </div>
+   552→
+   553→            <div class="buttons" style="margin-top: 12px;">
+   554→                <a href="#memes" class="btn btn-memes">
+   555→                    😂 Scroll Down for Memes
+   556→                </a>
+   557→            </div>
+   558→
+   559→            <div class="footer">
+   560→                <strong>RCS TRUE FACILITIES PVT LTD</strong><br>
+   561→                Facility Management &bull; Manpower &bull; Housekeeping
+   562→            </div>
+   563→
+   564→        </div>
+   565→
+   566→    </section>
+   567→
+   568→    <!-- ===== MEME GALLERY SECTION ===== -->
+   569→    <section class="meme-section" id="memes">
+   570→
+   571→        <!-- Floating emojis -->
+   572→        <div class="meme-float mf1">🧹</div>
+   573→        <div class="meme-float mf2">📋</div>
+   574→        <div class="meme-float mf3">👷</div>
+   575→        <div class="meme-float mf4">💰</div>
+   576→        <div class="meme-float mf5">😴</div>
+   577→        <div class="meme-float mf6">📱</div>
+   578→
+   579→        <div class="meme-header">
+   580→            <div class="emoji-row">😂🤣</div>
+   581→            <h2>While You're Lost... Enjoy Some Memes!</h2>
+   582→            <p class="subtitle">The page is missing, but our meme collection is complete! Here are some relatable moments from the life of RCS True Facilities employees. 👇</p>
+   583→        </div>
+   584→
+   585→        <div class="meme-grid">
+   586→
+   587→            <!-- Meme 1: HR -->
+   588→            <div class="meme-card" onclick="openLightbox(this)">
+   589→                <div class="img-wrapper">
+   590→                    <span class="meme-tag tag-hr">HR</span>
+   591→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/bf4671366f0a.jpg" alt="HR Meme" loading="lazy">
+   592→                </div>
+   593→                <div class="meme-caption">
+   594→                    <span class="caption-emoji">🧑‍💼</span>
+   595→                    HR trying to explain PF & ESIC deductions to a new employee
+   596→                </div>
+   597→            </div>
+   598→
+   599→            <!-- Meme 2: 404 -->
+   600→            <div class="meme-card" onclick="openLightbox(this)">
+   601→                <div class="img-wrapper">
+   602→                    <span class="meme-tag tag-404">404</span>
+   603→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/4c7464f758b7.jpg" alt="404 Meme" loading="lazy">
+   604→                </div>
+   605→                <div class="meme-caption">
+   606→                    <span class="caption-emoji">🔍</span>
+   607→                    When your unit supervisor asks you to find a page that doesn't exist
+   608→                </div>
+   609→            </div>
+   610→
+   611→            <!-- Meme 3: Housekeeping -->
+   612→            <div class="meme-card" onclick="openLightbox(this)">
+   613→                <div class="img-wrapper">
+   614→                    <span class="meme-tag tag-housekeeping">Housekeeping</span>
+   615→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/f882fc0ae78a.png" alt="Housekeeping Meme" loading="lazy">
+   616→                </div>
+   617→                <div class="meme-caption">
+   618→                    <span class="caption-emoji">🧹</span>
+   619→                    Our housekeeping team cleaned this URL so thoroughly... it disappeared!
+   620→                </div>
+   621→            </div>
+   622→
+   623→            <!-- Meme 4: Payroll -->
+   624→            <div class="meme-card" onclick="openLightbox(this)">
+   625→                <div class="img-wrapper">
+   626→                    <span class="meme-tag tag-payroll">Payroll</span>
+   627→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/d8ead4de0e53.jpeg" alt="Payday Meme" loading="lazy">
+   628→                </div>
+   629→                <div class="meme-caption">
+   630→                    <span class="caption-emoji">💸</span>
+   631→                    When salary gets credited but you check the deductions... PF, ESIC, PT, LWF 💀
+   632→                </div>
+   633→            </div>
+   634→
+   635→            <!-- Meme 5: Attendance -->
+   636→            <div class="meme-card" onclick="openLightbox(this)">
+   637→                <div class="img-wrapper">
+   638→                    <span class="meme-tag tag-attendance">Attendance</span>
+   639→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/acbe2761aa36.png" alt="Attendance Meme" loading="lazy">
+   640→                </div>
+   641→                <div class="meme-caption">
+   642→                    <span class="caption-emoji">⏰</span>
+   643→                    Employee marking attendance at 8:59:59 AM before biometric closes
+   644→                </div>
+   645→            </div>
+   646→
+   647→            <!-- Meme 6: Office/Boss -->
+   648→            <div class="meme-card" onclick="openLightbox(this)">
+   649→                <div class="img-wrapper">
+   650→                    <span class="meme-tag tag-office">Office</span>
+   651→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/c6cd2d9fcf9a.jpeg" alt="Boss Meme" loading="lazy">
+   652→                </div>
+   653→                <div class="meme-caption">
+   654→                    <span class="caption-emoji">👔</span>
+   655→                    Manager: "Where were you?" Employee: "The page redirected me..."
+   656→                </div>
+   657→            </div>
+   658→
+   659→            <!-- Meme 7: Labour Law -->
+   660→            <div class="meme-card" onclick="openLightbox(this)">
+   661→                <div class="img-wrapper">
+   662→                    <span class="meme-tag tag-labour">Labour Law</span>
+   663→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/013a6b2d9fa8.jpg" alt="Labour Law Meme" loading="lazy">
+   664→                </div>
+   665→                <div class="meme-caption">
+   666→                    <span class="caption-emoji">⚖️</span>
+   667→                    Trying to remember all Minimum Wage rates for different zones
+   668→                </div>
+   669→            </div>
+   670→
+   671→            <!-- Meme 8: Confused -->
+   672→            <div class="meme-card" onclick="openLightbox(this)">
+   673→                <div class="img-wrapper">
+   674→                    <span class="meme-tag tag-404">Lost</span>
+   675→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/385a6756fba3.jpg" alt="Confused Meme" loading="lazy">
+   676→                </div>
+   677→                <div class="meme-caption">
+   678→                    <span class="caption-emoji">😵‍💫</span>
+   679→                    This page has been transferred to another unit. We don't know which one.
+   680→                </div>
+   681→            </div>
+   682→
+   683→            <!-- Meme 9: Salary Day -->
+   684→            <div class="meme-card" onclick="openLightbox(this)">
+   685→                <div class="img-wrapper">
+   686→                    <span class="meme-tag tag-payroll">Salary</span>
+   687→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/101bd7132a10.jpeg" alt="Salary Meme" loading="lazy">
+   688→                </div>
+   689→                <div class="meme-caption">
+   690→                    <span class="caption-emoji">🎉</span>
+   691→                    1st of every month... checking HRMS for salary slip at 12:01 AM
+   692→                </div>
+   693→            </div>
+   694→
+   695→            <!-- Meme 10: Housekeeping 2 -->
+   696→            <div class="meme-card" onclick="openLightbox(this)">
+   697→                <div class="img-wrapper">
+   698→                    <span class="meme-tag tag-housekeeping">Cleaning</span>
+   699→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/cd916e099398.jpg" alt="Cleaning Meme" loading="lazy">
+   700→                </div>
+   701→                <div class="meme-caption">
+   702→                    <span class="caption-emoji">🧽</span>
+   703→                    When client inspection is tomorrow and the whole unit goes on cleaning mode
+   704→                </div>
+   705→            </div>
+   706→
+   707→            <!-- Meme 11: ESIC -->
+   708→            <div class="meme-card" onclick="openLightbox(this)">
+   709→                <div class="img-wrapper">
+   710→                    <span class="meme-tag tag-esic">ESIC</span>
+   711→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/e86d4efc7b44.jpg" alt="ESIC Meme" loading="lazy">
+   712→                </div>
+   713→                <div class="meme-caption">
+   714→                    <span class="caption-emoji">🏥</span>
+   715→                    Filling ESIC return forms at the last minute before the due date
+   716→                </div>
+   717→            </div>
+   718→
+   719→            <!-- Meme 12: 404 Page Not Found -->
+   720→            <div class="meme-card" onclick="openLightbox(this)">
+   721→                <div class="img-wrapper">
+   722→                    <span class="meme-tag tag-404">404</span>
+   723→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/6371684b73fe.jpg" alt="Page Not Found Meme" loading="lazy">
+   724→                </div>
+   725→                <div class="meme-caption">
+   726→                    <span class="caption-emoji">📄</span>
+   727→                    This page forgot to mark attendance today. HR has been notified.
+   728→                </div>
+   729→            </div>
+   730→
+   731→            <!-- Meme 13: Monday -->
+   732→            <div class="meme-card" onclick="openLightbox(this)">
+   733→                <div class="img-wrapper">
+   734→                    <span class="meme-tag tag-office">Monday</span>
+   735→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/9a671a0e6068.jpg" alt="Monday Meme" loading="lazy">
+   736→                </div>
+   737→                <div class="meme-caption">
+   738→                    <span class="caption-emoji">😴</span>
+   739→                    Every Monday morning at the unit... "Where's the muster roll?"
+   740→                </div>
+   741→            </div>
+   742→
+   743→            <!-- Meme 14: Tax/Payroll -->
+   744→            <div class="meme-card" onclick="openLightbox(this)">
+   745→                <div class="img-wrapper">
+   746→                    <span class="meme-tag tag-payroll">Tax</span>
+   747→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/bac1c2d35c22.jpg" alt="Tax Meme" loading="lazy">
+   748→                </div>
+   749→                <div class="meme-caption">
+   750→                    <span class="caption-emoji">🧾</span>
+   751→                    When the salary slip shows: Gross ₹15,000 → In-hand ₹8,000
+   752→                </div>
+   753→            </div>
+   754→
+   755→            <!-- Meme 15: HR -->
+   756→            <div class="meme-card" onclick="openLightbox(this)">
+   757→                <div class="img-wrapper">
+   758→                    <span class="meme-tag tag-hr">HR</span>
+   759→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/a0033f154e36.jpg" alt="HR Meme" loading="lazy">
+   760→                </div>
+   761→                <div class="meme-caption">
+   762→                    <span class="caption-emoji">📋</span>
+   763→                    HR Department: "Please submit Form 2, Form 5, Form 10, Form 12A... and also breathe."
+   764→                </div>
+   765→            </div>
+   766→
+   767→            <!-- Meme 16: Compliance -->
+   768→            <div class="meme-card" onclick="openLightbox(this)">
+   769→                <div class="img-wrapper">
+   770→                    <span class="meme-tag tag-labour">PF</span>
+   771→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/2c589986dab3.jpg" alt="PF Compliance Meme" loading="lazy">
+   772→                </div>
+   773→                <div class="meme-caption">
+   774→                    <span class="caption-emoji">🏦</span>
+   775→                    PF ECR filing deadline approaching and the internet is down at the office
+   776→                </div>
+   777→            </div>
+   778→
+   779→            <!-- Meme 17: Lost Employee -->
+   780→            <div class="meme-card" onclick="openLightbox(this)">
+   781→                <div class="img-wrapper">
+   782→                    <span class="meme-tag tag-attendance">Absent</span>
+   783→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/e7cac7d572e1.png" alt="Lost Meme" loading="lazy">
+   784→                </div>
+   785→                <div class="meme-caption">
+   786→                    <span class="caption-emoji">🏃</span>
+   787→                    The requested page has absconded. If found, please inform HR immediately.
+   788→                </div>
+   789→            </div>
+   790→
+   791→            <!-- Meme 18: Boss -->
+   792→            <div class="meme-card" onclick="openLightbox(this)">
+   793→                <div class="img-wrapper">
+   794→                    <span class="meme-tag tag-office">Manager</span>
+   795→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/0599ccbaba92.jpg" alt="Boss Meme" loading="lazy">
+   796→                </div>
+   797→                <div class="meme-caption">
+   798→                    <span class="caption-emoji">😤</span>
+   799→                    Leave request status: "Pending with manager" for the last 3 weeks
+   800→                </div>
+   801→            </div>
+   802→
+   803→            <!-- Meme 19: Payroll Deductions -->
+   804→            <div class="meme-card" onclick="openLightbox(this)">
+   805→                <div class="img-wrapper">
+   806→                    <span class="meme-tag tag-esic">Deductions</span>
+   807→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/06dc2656e363.jpeg" alt="Deduction Meme" loading="lazy">
+   808→                </div>
+   809→                <div class="meme-caption">
+   810→                    <span class="caption-emoji">📉</span>
+   811→                    Employee's face when they see PD (Professional Tax) in the salary slip
+   812→                </div>
+   813→            </div>
+   814→
+   815→            <!-- Meme 20: 404 Escape -->
+   816→            <div class="meme-card" onclick="openLightbox(this)">
+   817→                <div class="img-wrapper">
+   818→                    <span class="meme-tag tag-404">Escape</span>
+   819→                    <img src="https://z-cdn.chatglm.cn/image-search-mcp/images-ppt/62abfad1ae0c.jpg" alt="Escape Meme" loading="lazy">
+   820→                </div>
+   821→                <div class="meme-caption">
+   822→                    <span class="caption-emoji">🚪</span>
+   823→                    This page left the premises without informing the supervisor!
+   824→                </div>
+   825→            </div>
+   826→
+   827→        </div>
+   828→
+   829→    </section>
+   830→
+   831→    <!-- ===== BOTTOM CTA ===== -->
+   832→    <section class="bottom-cta">
+   833→        <h3>🎉 Enough Memes? Let's Get Back to Work!</h3>
+   834→        <p>Don't worry, the real pages are all working fine. Head back to the HRMS portal.</p>
+   835→        <a href="/" class="btn-cta">🏠 Return to Homepage</a>
+   836→    </section>
+   837→
+   838→    <!-- ===== LIGHTBOX ===== -->
+   839→    <div class="lightbox" id="lightbox" onclick="closeLightbox()">
+   840→        <div class="close-btn">&times;</div>
+   841→        <img id="lightbox-img" src="" alt="Meme">
+   842→        <div class="lightbox-caption" id="lightbox-caption"></div>
+   843→    </div>
+   844→
+   845→    <script>
+   846→
+   847→        // ===== Funny Messages =====
+   848→        const messages = [
+   849→            { text: "🚨 Security Alert! Our security team searched everywhere, but this page is still missing.", emoji: "🕵️" },
+   850→            { text: "🧹 This page has gone on leave without submitting an application to HR.", emoji: "🧹" },
+   851→            { text: "📋 404! This page forgot to mark attendance today.", emoji: "😴" },
+   852→            { text: "👷 The page has been transferred to another unit. We don't know which one.", emoji: "🏢" },
+   853→            { text: "🧑‍💼 HR is investigating the matter. Please wait for the final approval.", emoji: "🧐" },
+   854→            { text: "🚨 The requested page has absconded. If you find it, please inform HR immediately.", emoji: "🏃" },
+   855→            { text: "☕ This page is currently on a tea break. Please try again later.", emoji: "☕" },
+   856→            { text: "📅 The contract for this page has expired. Renewal is under process.", emoji: "📄" },
+   857→            { text: "💰 Salary processed successfully... but unfortunately, the page was not found.", emoji: "💸" },
+   858→            { text: "🧹 Our housekeeping team cleaned this URL so well that the page disappeared.", emoji: "🧽" },
+   859→            { text: "🔍 We checked the attendance register. This page was absent today.", emoji: "📋" },
+   860→            { text: "📞 We tried calling this page, but it is currently out of network coverage.", emoji: "📱" },
+   861→            { text: "🏢 This page has been promoted to a new location. Unfortunately, nobody knows where.", emoji: "🤷" },
+   862→            { text: "😅 Even our HRMS couldn't find this employee... I mean, this page!", emoji: "💻" },
+   863→            { text: "🚪 This page left the premises without informing the supervisor.", emoji: "🏃" },
+   864→            { text: "📝 Leave request rejected! This page is required to report back immediately.", emoji: "😤" },
+   865→            { text: "🛠️ Maintenance Alert: Our technicians are looking for this missing page.", emoji: "🔧" },
+   866→            { text: "👮 Security says: 'We never saw this page enter the premises.'", emoji: "👮" },
+   867→            { text: "📢 Attention! The page you requested is missing from the muster roll.", emoji: "📢" },
+   868→            { text: "😂 404: Page not found. Maybe it is hiding from the monthly payroll.", emoji: "🙈" }
+   869→        ];
+   870→
+   871→        // Pick a random message
+   872→        const randomIndex = Math.floor(Math.random() * messages.length);
+   873→        document.getElementById("funnyMessage").textContent = messages[randomIndex].text;
+   874→        document.getElementById("emoji").textContent = messages[randomIndex].emoji;
+   875→
+   876→        // ===== Go Back =====
+   877→        function goBack() {
+   878→            if (document.referrer !== "") {
+   879→                window.history.back();
+   880→            } else {
+   881→                window.location.href = "/";
+   882→            }
+   883→        }
+   884→
+   885→        // ===== Lightbox =====
+   886→        function openLightbox(card) {
+   887→            const img = card.querySelector('img');
+   888→            const caption = card.querySelector('.meme-caption');
+   889→            const lightbox = document.getElementById('lightbox');
+   890→            const lightboxImg = document.getElementById('lightbox-img');
+   891→            const lightboxCaption = document.getElementById('lightbox-caption');
+   892→
+   893→            lightboxImg.src = img.src;
+   894→            lightboxCaption.textContent = caption.textContent.trim();
+   895→            lightbox.classList.add('active');
+   896→            document.body.style.overflow = 'hidden';
+   897→        }
+   898→
+   899→        function closeLightbox() {
+   900→            const lightbox = document.getElementById('lightbox');
+   901→            lightbox.classList.remove('active');
+   902→            document.body.style.overflow = '';
+   903→        }
+   904→
+   905→        // Close lightbox with Escape key
+   906→        document.addEventListener('keydown', function(e) {
+   907→            if (e.key === 'Escape') {
+   908→                closeLightbox();
+   909→            }
+   910→        });
+   911→
+   912→    </script>
+   913→
+   914→</body>
+   915→</html>
+   916→
