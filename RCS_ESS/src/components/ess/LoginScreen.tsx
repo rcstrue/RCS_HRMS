@@ -10,7 +10,8 @@ import {
   getRateLimitStatus,
   recordFailedAttempt,
 } from '@/lib/ess-auth';
-import type { ESSSession } from '@/lib/ess-types';
+import { rememberLastMobile } from '@/lib/api/config';
+import type { ESSSession, EmployeeRole } from '@/lib/ess-types';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,18 +22,30 @@ import {
   Loader2,
   ShieldAlert,
   Clock,
+  AlertCircle,
 } from 'lucide-react';
 
 // ══════════════════════════════════════════════════════════════
 // LoginScreen Component — JWT auth, rate-limit UI, force PIN
 // ══════════════════════════════════════════════════════════════
 
-export default function LoginScreen({ onLogin, onBackToRegistration, onForcePinChange }: {
+export default function LoginScreen({
+  onLogin,
+  onBackToRegistration,
+  onForcePinChange,
+  // When the session expired in-app, the parent passes the last-used
+  // mobile number (to pre-fill) and a human-readable reason (to show
+  // as a persistent banner). Both are null on a fresh app load.
+  expiryReason = null,
+  prefilledMobile = null,
+}: {
   onLogin: (session: ESSSession) => void;
   onBackToRegistration: () => void;
   onForcePinChange: (session: ESSSession) => void;
+  expiryReason?: string | null;
+  prefilledMobile?: string | null;
 }) {
-  const [mobile, setMobile] = useState('');
+  const [mobile, setMobile] = useState(prefilledMobile || '');
   const [pin, setPin] = useState(['', '', '', '']);
   const [showPin, setShowPin] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -175,6 +188,10 @@ export default function LoginScreen({ onLogin, onBackToRegistration, onForcePinC
       // ── Success ──
       clearRateLimit();
 
+      // Persist the mobile number for next time's pre-fill (e.g. if the
+      // session expires again later). No-op if already stored.
+      rememberLastMobile(mobile.replace(/\D/g, ''));
+
       // Store JWT token
       if (data.token) {
         storeEssToken(data.token);
@@ -235,6 +252,21 @@ export default function LoginScreen({ onLogin, onBackToRegistration, onForcePinC
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">RCS Facility</h1>
           <p className="text-sm text-gray-500 mt-1">Employee Self-Service</p>
         </div>
+
+        {/* ── Session-Expired Banner ── */}
+        {/* Shown when the user was logged in but their JWT expired (401/403-auth).
+            Persistent until the user logs in again — NOT a transient toast. */}
+        {expiryReason && (
+          <div className="w-full max-w-sm mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-1">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+              <p className="text-sm font-semibold text-amber-800">Your session has expired</p>
+            </div>
+            <p className="text-xs text-amber-700 pl-7">
+              Please login again to continue.
+            </p>
+          </div>
+        )}
 
         {/* ── Lockdown Banner ── */}
         {rateLimit.locked && (
