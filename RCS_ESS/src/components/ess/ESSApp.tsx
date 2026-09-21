@@ -104,17 +104,19 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
     setAuthReady(true);
   }, [loadSession]);
 
+  // ── Session expiry info from 401 interceptor (no hard reload) ──
+  const [sessionExpiredInfo, setSessionExpiredInfo] = useState<{ reason: string; mobile: string | null } | null>(null);
+
   // ── Listen for session expiry (401 interceptor dispatches this) ──
   useEffect(() => {
-    const handler = () => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ reason: string; mobile: string | null }>).detail;
       localStorage.removeItem('ess_employee');
       // R11 final: ess_token no longer stored (cookie only)
       stopProactiveRefresh();
-      toast.error('Session expired. Please login again.');
-      // Hard reload to fetch latest app version
-      setTimeout(() => {
-        window.location.replace(window.location.href.split('#')[0] + '#ess');
-      }, 800);
+      setSessionExpiredInfo(detail ?? { reason: 'Session expired. Please login again.', mobile: null });
+      // No reload — fall through to the normal "no session" render path,
+      // which renders <LoginScreen> with the expiry info.
     };
     window.addEventListener('ess:session-expired', handler);
     return () => window.removeEventListener('ess:session-expired', handler);
@@ -148,6 +150,7 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
   }, [clearSession]);
 
   const handleLogin = useCallback((s: ESSSession) => {
+    setSessionExpiredInfo(null); // Clear expiry banner on fresh login
     saveSession(s);
     toast.success(`Welcome, ${s.employee.full_name}!`);
   }, [saveSession]);
@@ -358,6 +361,8 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
         onLogin={handleLogin}
         onBackToRegistration={onBackToRegistration}
         onForcePinChange={handleForcePinChange}
+        prefilledMobile={sessionExpiredInfo?.mobile ?? null}
+        expiryReason={sessionExpiredInfo?.reason ?? null}
       />
     );
   }

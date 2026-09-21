@@ -45,9 +45,10 @@ export default function LoginScreen({
   expiryReason?: string | null;
   prefilledMobile?: string | null;
 }) {
-  const [mobile, setMobile] = useState(prefilledMobile || '');
+  const [mobile, setMobile] = useState(prefilledMobile ?? '');
   const [pin, setPin] = useState(['', '', '', '']);
-  const [showPin, setShowPin] = useState(false);
+  // ── If mobile is pre-filled (session expired), skip straight to PIN entry ──
+  const [showPin, setShowPin] = useState(!!prefilledMobile && prefilledMobile.replace(/\D/g, '').length === 10);
   const [loading, setLoading] = useState(false);
   const pinRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -259,12 +260,17 @@ export default function LoginScreen({
         {expiryReason && (
           <div className="w-full max-w-sm mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-1">
             <div className="flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-              <p className="text-sm font-semibold text-amber-800">Your session has expired</p>
+              <Clock className="w-5 h-5 text-amber-600 shrink-0" />
+              <p className="text-sm font-semibold text-amber-800">Session Expired</p>
             </div>
-            <p className="text-xs text-amber-700 pl-7">
-              Please login again to continue.
+            <p className="text-xs text-amber-700">
+              {expiryReason}
             </p>
+            {prefilledMobile && (
+              <p className="text-xs text-amber-600 mt-1">
+                Your mobile number has been pre-filled — just enter your PIN to continue.
+              </p>
+            )}
           </div>
         )}
 

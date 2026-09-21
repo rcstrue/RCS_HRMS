@@ -304,7 +304,7 @@ export async function apiRequest<T>(
             window.dispatchEvent(new CustomEvent('ess:session-expired', {
               detail: {
                 reason: errMsg || 'Session expired. Please login again.',
-                mobile: prefilledMobile,
+                mobile: prefilledMobile || null,
               },
             }));
           }
