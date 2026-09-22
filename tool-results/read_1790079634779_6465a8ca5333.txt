@@ -1,0 +1,1231 @@
+     1→import { useState, useEffect, useCallback, useMemo } from 'react';
+     2→import { toast } from 'sonner';
+     3→import {
+     4→  Search,
+     5→  Users,
+     6→  Phone,
+     7→  Building2,
+     8→  Briefcase,
+     9→  MapPin,
+    10→  Loader2,
+    11→  AlertCircle,
+    12→  ChevronLeft,
+    13→  ChevronRight,
+    14→  X,
+    15→  Mail,
+    16→  Calendar,
+    17→  User,
+    18→  Shield,
+    19→  IdCard,
+    20→  Inbox,
+    21→  CreditCard,
+    22→  Heart,
+    23→  Hash,
+    24→  UsersRound,
+    25→  FileText,
+    26→  Clock,
+    27→  Eye,
+    28→  EyeOff,
+    29→  Download,
+    30→  LogOut,
+    31→  ArrowRightLeft,
+    32→  CalendarX,
+    33→  Phone,
+    34→  MessageCircle,
+    35→  FileDown,
+    36→  Pencil,
+    37→} from 'lucide-react';
+    38→
+    39→import { cn } from '@/lib/utils';
+    40→import { getFileUrl } from '@/lib/api/config';
+    41→import { usePullToRefresh } from './hooks/usePullToRefresh';
+    42→import { useExportCSV } from './hooks/useExportCSV';
+    43→import { generateEmployeeRegistrationForm } from '@/lib/pdf/generateEmployeeRegistrationForm';
+    44→import {
+    45→  fetchEmployees,
+    46→  fetchEmployeeById,
+    47→  fetchClients,
+    48→  fetchUnits,
+    49→  exitEmployee,
+    50→  transferEmployee,
+    51→  updateProfile,
+    52→  submitChangeRequest,
+    53→  fetchChangeRequests,
+    54→} from '@/lib/ess-api';
+    55→import type { Employee, ClientOption, UnitOption, ChangeRequest } from '@/lib/ess-types';
+    56→import type { AccessLevel } from '@/lib/access-types';
+    57→
+    58→import EditProfilePage from './EditProfilePage';
+    59→
+    60→import { Button } from '@/components/ui/button';
+    61→import { Badge } from '@/components/ui/badge';
+    62→import { Input } from '@/components/ui/input';
+    63→import { Label } from '@/components/ui/label';
+    64→import { Skeleton } from '@/components/ui/skeleton';
+    65→import { Separator } from '@/components/ui/separator';
+    66→import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+    67→import {
+    68→  Dialog,
+    69→  DialogContent,
+    70→  DialogHeader,
+    71→  DialogTitle,
+    72→} from '@/components/ui/dialog';
+    73→import { logger } from "@/lib/logger";
+    74→import {
+    75→  Select,
+    76→  SelectContent,
+    77→  SelectItem,
+    78→  SelectTrigger,
+    79→  SelectValue,
+    80→} from '@/components/ui/select';
+    81→
+    82→// ── Props ──────────────────────────────────────────────
+    83→interface DirectoryPageProps {
+    84→  employeeId: number;
+    85→  role: string;
+    86→  scope: string;
+    87→  accessLevel: AccessLevel;
+    88→  unitIds: number[];
+    89→  unitIdsParam: string;
+    90→}
+    91→
+    92→// ── Constants ──────────────────────────────────────────
+    93→const PAGE_SIZE = 20;
+    94→
+    95→// ── Helpers ────────────────────────────────────────────
+    96→function getInitials(name: string): string {
+    97→  return name
+    98→    .split(' ')
+    99→    .map((w) => w[0])
+   100→    .filter(Boolean)
+   101→    .slice(0, 2)
+   102→    .join('')
+   103→    .toUpperCase();
+   104→}
+   105→
+   106→function maskMobile(mobile: string): string {
+   107→  // Show full mobile number — no masking
+   108→  return mobile || '';
+   109→}
+   110→
+   111→function maskSensitive(value: string | number | undefined): string {
+   112→  const str = value != null ? String(value) : '';
+   113→  if (!str) return '****';
+   114→  if (str.length <= 4) return '****';
+   115→  const first = str.slice(0, 2);
+   116→  const last = str.slice(-2);
+   117→  const middleLen = str.length - 4;
+   118→  return first + '*'.repeat(middleLen) + last;
+   119→}
+   120→
+   121→function formatDate(dateStr?: string): string {
+   122→  if (!dateStr) return '—';
+   123→  const d = new Date(dateStr);
+   124→  return d.toLocaleDateString('en-IN', {
+   125→    day: 'numeric',
+   126→    month: 'short',
+   127→    year: 'numeric',
+   128→  });
+   129→}
+   130→
+   131→function isActive(employee: Employee): boolean {
+   132→  return !employee.date_of_leaving && employee.status !== 'inactive' && employee.status !== 'resigned';
+   133→}
+   134→
+   135→// ── Component ──────────────────────────────────────────
+   136→export default function DirectoryPage({
+   137→  employeeId,
+   138→  role,
+   139→  scope,
+   140→  accessLevel,
+   141→  unitIds,
+   142→  unitIdsParam,
+   143→}: DirectoryPageProps) {
+   144→  // ── State ──
+   145→  const [employees, setEmployees] = useState<Employee[]>([]);
+   146→  const [loading, setLoading] = useState(false);
+   147→  const [error, setError] = useState<string | null>(null);
+   148→  const [searchedOnce, setSearchedOnce] = useState(false); // track if user has searched
+   149→  const [page, setPage] = useState(1);
+   150→  const [totalPages, setTotalPages] = useState(1);
+   151→  const [total, setTotal] = useState(0);
+   152→
+   153→  // Search & filters
+   154→  const [searchQuery, setSearchQuery] = useState('');
+   155→  const [searchInput, setSearchInput] = useState('');
+   156→  const [selectedClient, setSelectedClient] = useState('');
+   157→  const [selectedUnit, setSelectedUnit] = useState('');
+   158→  // Filter options
+   159→  const [clients, setClients] = useState<ClientOption[]>([]);
+   160→  const [units, setUnits] = useState<UnitOption[]>([]);
+   161→  const [filtersLoading, setFiltersLoading] = useState(true);
+   162→
+   163→  // Profile dialog
+   164→  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+   165→  const [profileOpen, setProfileOpen] = useState(false);
+   166→  const [profileLoading, setProfileLoading] = useState(false);
+   167→  const [viewingDoc, setViewingDoc] = useState<{ url: string; title: string } | null>(null);
+   168→
+   169→  // Manager actions
+   170→  const isManager = role !== 'employee';
+   171→  const [exitDialogOpen, setExitDialogOpen] = useState(false);
+   172→  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+   173→  const [exitDate, setExitDate] = useState('');
+   174→  const [transferClient, setTransferClient] = useState('');
+   175→  const [transferUnit, setTransferUnit] = useState('');
+   176→  const [actionLoading, setActionLoading] = useState(false);
+   177→  // Transfer dialog: all clients/units (unrestricted, for destination selection)
+   178→  const [allClients, setAllClients] = useState<ClientOption[]>([]);
+   179→  const [allUnits, setAllUnits] = useState<UnitOption[]>([]);
+   180→
+   181→  // Manager edit (EditProfilePage overlay — reuse of the self-service edit form)
+   182→  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+   183→  const [editingRequests, setEditingRequests] = useState<ChangeRequest[]>([]);
+   184→
+   185→  // ── Load filter options (filtered by access allocation) ──
+   186→  const loadFilters = useCallback(async () => {
+   187→    setFiltersLoading(true);
+   188→    try {
+   189→      const promises: Promise<void>[] = [
+   190→        // Pass unit_ids so only allocated clients/units show
+   191→        fetchClients(scope, employeeId, unitIds.length > 0 ? unitIds : undefined).then((r) => {
+   192→          setClients(Array.isArray(r?.data) ? r.data : []);
+   193→        }),
+   194→        fetchUnits(scope, employeeId, undefined, unitIds.length > 0 ? unitIds : undefined).then((r) => {
+   195→          setUnits(Array.isArray(r?.data) ? r.data : []);
+   196→        }),
+   197→      ];
+   198→      await Promise.all(promises);
+   199→    } catch (err) {
+   200→      logger.error('Failed to load filters:', err);
+   201→    } finally {
+   202→      setFiltersLoading(false);
+   203→    }
+   204→  }, [scope, employeeId, unitIds]);
+   205→
+   206→  // ── Load employees (only after user applies a filter or search) ──
+   207→  const loadEmployees = useCallback(async () => {
+   208→    setLoading(true);
+   209→    setError(null);
+   210→    setSearchedOnce(true);
+   211→    try {
+   212→      const { data: res, error: fetchError } = await fetchEmployees({
+   213→        scope,
+   214→        requester_id: employeeId,
+   215→        page,
+   216→        limit: PAGE_SIZE,
+   217→        q: searchQuery || undefined,
+   218→        client_id: selectedClient ? Number(selectedClient) : undefined,
+   219→        unit_id: selectedUnit ? Number(selectedUnit) : undefined,
+   220→        // Access allocation from payroll (server-side filtering)
+   221→        unit_ids: unitIds.length > 0 ? unitIds : undefined,
+   222→      });
+   223→      if (fetchError) {
+   224→        toast.error(fetchError);
+   225→        return;
+   226→      }
+   227→      const items = (res as Record<string, unknown>)?.items as Employee[] ?? [];
+   228→      // PHP buildPagination merges at top level: { items, total, page, limit, total_pages }
+   229→      // NOT nested under pagination key
+   230→      const rawTotal = (res as Record<string, unknown>)?.total as number | undefined;
+   231→      const rawTotalPages = (res as Record<string, unknown>)?.total_pages as number | undefined;
+   232→      // Fallback to items.length if backend has no pagination metadata
+   233→      const effectiveTotal = typeof rawTotal === 'number' ? rawTotal : items.length;
+   234→      const effectiveTotalPages = typeof rawTotalPages === 'number' ? rawTotalPages : Math.max(1, Math.ceil(effectiveTotal / PAGE_SIZE));
+   235→      setEmployees(items);
+   236→      setTotal(effectiveTotal);
+   237→      setTotalPages(effectiveTotalPages);
+   238→    } catch (err) {
+   239→      logger.error('Failed to fetch employees:', err);
+   240→      setError('Failed to load directory. Please try again.');
+   241→      toast.error('Failed to load employee directory');
+   242→    } finally {
+   243→      setLoading(false);
+   244→    }
+   245→  }, [scope, employeeId, page, searchQuery, selectedClient, selectedUnit, unitIds]);
+   246→
+   247→  // Pull-to-refresh (after loadEmployees is defined to avoid TDZ)
+   248→  const pullRefresh = usePullToRefresh<HTMLDivElement>({
+   249→    onRefresh: loadEmployees,
+   250→  });
+   251→
+   252→  useEffect(() => {
+   253→    loadFilters();
+   254→  }, [loadFilters]);
+   255→
+   256→  const hasClientFilter = selectedClient && selectedClient !== 'all_clients';
+   257→  const hasSearchOrFilter = hasClientFilter || (selectedUnit && selectedUnit !== 'all_units');
+   258→  const filterKey = `${searchQuery}|${selectedClient}|${selectedUnit}|${page}`;
+   259→
+   260→  // Only fetch when user has selected a client (required by API)
+   261→  useEffect(() => {
+   262→    if (hasClientFilter) {
+   263→      loadEmployees();
+   264→    }
+   265→  }, [filterKey, loadEmployees]);
+   266→
+   267→  // Reset page when search/filter changes
+   268→  useEffect(() => {
+   269→    setPage(1);
+   270→  }, [searchQuery, selectedClient, selectedUnit]);
+   271→
+   272→  // ── Filtered units by selected client ──
+   273→  const filteredUnits = useMemo(() => {
+   274→    if (!selectedClient) return units;
+   275→    return units.filter((u) => u.client_id === Number(selectedClient) || !u.client_id);
+   276→  }, [units, selectedClient]);
+   277→
+   278→  // ── Clear filters ──
+   279→  const clearFilters = () => {
+   280→    setSearchQuery('');
+   281→    setSearchInput('');
+   282→    setSelectedClient('');
+   283→    setSelectedUnit('');
+   284→  };
+   285→
+   286→  const hasActiveFilters = searchQuery || (selectedClient && selectedClient !== 'all_clients') || (selectedUnit && selectedUnit !== 'all_units');
+   287→
+   288→  // ── CSV Export ──
+   289→  const { exportCSV } = useExportCSV();
+   290→  const handleExport = () => {
+   291→    const headers = ['Name', 'Employee Code', 'Mobile', 'Designation', 'Client', 'Unit', 'City'];
+   292→    const rows = employees.map((e) => [
+   293→      e.full_name || '',
+   294→      String(e.employee_code || ''),
+   295→      e.mobile_number || '',
+   296→      e.designation || '',
+   297→      e.client_name || '',
+   298→      e.unit_name || '',
+   299→      (e as Record<string, unknown>).city || '',
+   300→    ]);
+   301→    exportCSV('Employee_Directory.csv', headers, rows);
+   302→    toast.success('Directory exported successfully');
+   303→  };
+   304→
+   305→  // ── Open profile dialog with full details ──
+   306→  const openProfile = async (emp: Employee) => {
+   307→    setSelectedEmployee(emp);
+   308→    setProfileOpen(true);
+   309→    setProfileLoading(true);
+   310→    try {
+   311→      const { data: fullEmp } = await fetchEmployeeById(emp.id);
+   312→      if (fullEmp) {
+   313→        setSelectedEmployee(fullEmp);
+   314→      }
+   315→    } catch (err) {
+   316→      logger.error('Failed to fetch full employee details:', err);
+   317→      // Keep the basic data from the list
+   318→    } finally {
+   319→      setProfileLoading(false);
+   320→    }
+   321→  };
+   322→
+   323→  const handleExit = async () => {
+   324→    if (!selectedEmployee || !exitDate) return;
+   325→    setActionLoading(true);
+   326→    try {
+   327→      const { error } = await exitEmployee({
+   328→        employee_id: selectedEmployee.id,
+   329→        exit_date: exitDate,
+   330→      });
+   331→      if (error) {
+   332→        toast.error(error);
+   333→      } else {
+   334→        toast.success(`${selectedEmployee.full_name} marked as inactive`);
+   335→        setExitDialogOpen(false);
+   336→        setProfileOpen(false);
+   337→        loadEmployees(); // refresh list
+   338→      }
+   339→    } catch {
+   340→      toast.error('Failed to remove employee');
+   341→    } finally {
+   342→      setActionLoading(false);
+   343→    }
+   344→  };
+   345→
+   346→  // Load ALL active clients + units for the transfer dialog (no access restriction)
+   347→  const loadTransferOptions = useCallback(async () => {
+   348→    try {
+   349→      const [cRes, uRes] = await Promise.all([
+   350→        fetchClients('active'),
+   351→        fetchUnits('active'),
+   352→      ]);
+   353→      setAllClients(Array.isArray(cRes?.data) ? cRes.data : []);
+   354→      setAllUnits(Array.isArray(uRes?.data) ? uRes.data : []);
+   355→    } catch (err) {
+   356→      logger.error('Failed to load transfer options:', err);
+   357→    }
+   358→  }, []);
+   359→
+   360→  const openTransferDialog = () => {
+   361→    if (!selectedEmployee) return;
+   362→    setTransferClient(String(selectedEmployee.client_id || ''));
+   363→    setTransferUnit('');
+   364→    setTransferDialogOpen(true);
+   365→    loadTransferOptions();
+   366→  };
+   367→
+   368→  const handleTransfer = async () => {
+   369→    if (!selectedEmployee) return;
+   370→    setActionLoading(true);
+   371→    try {
+   372→      const payload: { employee_id: number; client_id?: number; unit_id?: number } = {
+   373→        employee_id: selectedEmployee.id,
+   374→      };
+   375→      if (transferClient && transferClient !== 'all_clients') payload.client_id = Number(transferClient);
+   376→      if (transferUnit) payload.unit_id = Number(transferUnit);
+   377→
+   378→      const { error } = await transferEmployee(payload);
+   379→      if (error) {
+   380→        toast.error(error);
+   381→      } else {
+   382→        toast.success(`${selectedEmployee.full_name} transferred successfully`);
+   383→        setTransferDialogOpen(false);
+   384→        setProfileOpen(false);
+   385→        loadEmployees(); // refresh list
+   386→      }
+   387→    } catch {
+   388→      toast.error('Failed to transfer employee');
+   389→    } finally {
+   390→      setActionLoading(false);
+   391→    }
+   392→  };
+   393→
+   394→  // ── Manager edit: EditProfilePage on behalf of an employee ──
+   395→  // Load existing change requests for the employee being edited (drives the
+   396→  // "Pending" badges in the edit form)
+   397→  const loadEditingRequests = useCallback(async (empId: number) => {
+   398→    try {
+   399→      const { data } = await fetchChangeRequests(empId);
+   400→      setEditingRequests(Array.isArray(data) ? data : []);
+   401→    } catch (err) {
+   402→      logger.error('Failed to load change requests:', err);
+   403→      setEditingRequests([]);
+   404→    }
+   405→  }, []);
+   406→
+   407→  const openEditor = (em: Employee) => {
+   408→    setEditingEmployee(em);
+   409→    setEditingRequests([]);
+   410→    loadEditingRequests(em.id);
+   411→  };
+   412→
+   413→  // Save free fields directly (blank sensitive fields included — the backend
+   414→  // enforces the same fill-if-blank rule server-side)
+   415→  const saveEmployeeFreeFields = async (employeeId: number, fields: Record<string, string | null>) => {
+   416→    const { error } = await updateProfile({ employee_id: employeeId, fields });
+   417→    if (error) return { success: false, error };
+   418→    // Re-fetch so the detail view reflects saved values immediately
+   419→    try {
+   420→      const { data: fresh } = await fetchEmployeeById(employeeId);
+   421→      if (fresh) {
+   422→        setEditingEmployee((prev) => (prev && prev.id === employeeId ? { ...prev, ...fresh } : prev));
+   423→        setSelectedEmployee((prev) => (prev && prev.id === employeeId ? { ...prev, ...fresh } : prev));
+   424→        setEmployees((prev) => prev.map((e) => (e.id === employeeId ? { ...e, ...fresh } : e)));
+   425→      }
+   426→    } catch (err) {
+   427→      logger.error('Failed to refresh employee after save:', err);
+   428→    }
+   429→    return { success: true };
+   430→  };
+   431→
+   432→  // Submit a change request on behalf of an employee (goes to the HR approval queue)
+   433→  const submitChangeRequestFor = async (
+   434→    employeeId: number,
+   435→    data: { field_name: string; old_value: string; new_value: string; reason?: string },
+   436→  ) => {
+   437→    const { error } = await submitChangeRequest({ employee_id: employeeId, ...data });
+   438→    if (error) return { success: false, error };
+   439→    await loadEditingRequests(employeeId);
+   440→    return { success: true };
+   441→  };
+   442→
+   443→  const emp = selectedEmployee;
+   444→
+   445→  // Pull-to-refresh wrapper props
+   446→  const pullRefreshProps = {
+   447→    ref: pullRefresh.containerRef,
+   448→    onTouchStart: pullRefresh.handleTouchStart,
+   449→    onTouchMove: pullRefresh.handleTouchMove,
+   450→    onTouchEnd: pullRefresh.handleTouchEnd,
+   451→  };
+   452→
+   453→  // ── Manager edit overlay ──
+   454→  // Route-swap mount — same conditional-render pattern ESSApp.tsx uses to show
+   455→  // EditProfilePage for the self-service case (one page's content at a time).
+   456→  if (editingEmployee) {
+   457→    const empToEdit = editingEmployee;
+   458→    return (
+   459→      <div className="flex flex-col gap-4 pb-6">
+   460→        <EditProfilePage
+   461→          employee={empToEdit}
+   462→          pendingChangeRequests={editingRequests}
+   463→          onSaveFreeFields={(fields) => saveEmployeeFreeFields(empToEdit.id, fields)}
+   464→          onSubmitChangeRequest={(data) => submitChangeRequestFor(empToEdit.id, data)}
+   465→          onBack={() => setEditingEmployee(null)}
+   466→        />
+   467→      </div>
+   468→    );
+   469→  }
+   470→
+   471→  // ── Render ──
+   472→  return (
+   473→    <div {...pullRefreshProps} className="flex flex-col gap-4 pb-6" style={{ touchAction: 'pan-y' }}>
+   474→      {/* Pull-to-refresh indicator */}
+   475→      <div style={pullRefresh.pullIndicatorStyle} className="flex items-center justify-center">
+   476→        <Loader2 className={cn("h-5 w-5 text-primary", (pullRefresh.isRefreshing || pullRefresh.pullDistance > 20) && "animate-spin")} />
+   477→      </div>
+   478→      {/* Header */}
+   479→      <div className="flex items-start justify-between gap-2">
+   480→        <div>
+   481→          <h2 className="text-xl font-bold tracking-tight">Directory</h2>
+   482→          <p className="text-sm text-muted-foreground">
+   483→          {searchedOnce && (total > 0 || employees.length > 0) ? `${total || employees.length} employee${(total || employees.length) > 1 ? 's' : ''} found` :
+   484→           searchedOnce && employees.length === 0 ? 'No employees found' :
+   485→           'Search employees by name, client, or unit'}
+   486→        </p>
+   487→        </div>
+   488→        {employees.length > 0 && (
+   489→          <Button variant="outline" size="sm" className="gap-1.5 shrink-0 mt-0.5" onClick={handleExport}>
+   490→            <Download className="h-4 w-4" />
+   491→            <span className="text-xs font-medium hidden sm:inline">Export</span>
+   492→          </Button>
+   493→        )}
+   494→      </div>
+   495→
+   496→      {/* Search */}
+   497→      <div className="relative">
+   498→        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+   499→        <Input
+   500→          placeholder="Search by name or employee code..."
+   501→          className="pl-9 pr-9"
+   502→          value={searchInput}
+   503→          onChange={(e) => setSearchInput(e.target.value)}
+   504→          onKeyDown={(e) => {
+   505→            if (e.key === 'Enter') {
+   506→              setSearchQuery(searchInput.trim());
+   507→            }
+   508→          }}
+   509→        />
+   510→        {searchInput && (
+   511→          <button
+   512→            onClick={() => { setSearchInput(''); setSearchQuery(''); }}
+   513→            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+   514→          >
+   515→            <X className="h-4 w-4" />
+   516→          </button>
+   517→        )}
+   518→      </div>
+   519→
+   520→      {/* Filter dropdowns */}
+   521→      <div className="grid grid-cols-2 gap-2">
+   522→        <Select value={selectedClient} onValueChange={(v) => { setSelectedClient(v); setSelectedUnit(''); }}>
+   523→          <SelectTrigger className="h-9 text-sm">
+   524→            <SelectValue placeholder={filtersLoading ? 'Loading...' : 'All Clients'} />
+   525→          </SelectTrigger>
+   526→          <SelectContent>
+   527→            <SelectItem value="all_clients">All Clients</SelectItem>
+   528→            {clients.map((c) => (
+   529→              <SelectItem key={c.id} value={String(c.id)}>
+   530→                {c.name}
+   531→              </SelectItem>
+   532→            ))}
+   533→          </SelectContent>
+   534→        </Select>
+   535→
+   536→        <Select value={selectedUnit} onValueChange={setSelectedUnit}>
+   537→          <SelectTrigger className="h-9 text-sm">
+   538→            <SelectValue placeholder={filtersLoading ? 'Loading...' : 'All Units'} />
+   539→          </SelectTrigger>
+   540→          <SelectContent>
+   541→            <SelectItem value="all_units">All Units</SelectItem>
+   542→            {filteredUnits.map((u) => (
+   543→              <SelectItem key={u.id} value={String(u.id)}>
+   544→                {u.name}
+   545→              </SelectItem>
+   546→            ))}
+   547→          </SelectContent>
+   548→        </Select>
+   549→      </div>
+   550→
+   551→      {/* Pagination - under dropdowns, before list */}
+   552→      {searchedOnce && employees.length > 0 && (
+   553→        <div className="flex items-center justify-between">
+   554→          <p className="text-xs text-muted-foreground">
+   555→            {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+   556→          </p>
+   557→          <div className="flex items-center gap-1.5">
+   558→            <Button
+   559→              variant="outline"
+   560→              size="sm"
+   561→              className="h-7 px-2"
+   562→              disabled={page <= 1}
+   563→              onClick={() => setPage((p) => Math.max(1, p - 1))}
+   564→            >
+   565→              <ChevronLeft className="h-3.5 w-3.5" />
+   566→            </Button>
+   567→            <span className="text-sm font-medium">
+   568→              {page} / {totalPages}
+   569→            </span>
+   570→            <Button
+   571→              variant="outline"
+   572→              size="sm"
+   573→              className="h-7 px-2"
+   574→              disabled={page >= totalPages}
+   575→              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+   576→            >
+   577→              <ChevronRight className="h-3.5 w-3.5" />
+   578→            </Button>
+   579→          </div>
+   580→        </div>
+   581→      )}
+   582→
+   583→      {/* Active filters indicator */}
+   584→      {hasActiveFilters && (
+   585→        <div className="flex items-center gap-2">
+   586→          <span className="text-xs text-muted-foreground">Active filters:</span>
+   587→          {searchQuery && (
+   588→            <Badge variant="secondary" className="gap-1 text-xs">
+   589→              &ldquo;{searchQuery}&rdquo;
+   590→              <button onClick={() => { setSearchQuery(''); setSearchInput(''); }}>
+   591→                <X className="h-3 w-3" />
+   592→              </button>
+   593→            </Badge>
+   594→          )}
+   595→          {selectedClient && selectedClient !== 'all_clients' && (
+   596→            <Badge variant="secondary" className="gap-1 text-xs">
+   597→              {clients.find((c) => String(c.id) === selectedClient)?.name || 'Client'}
+   598→              <button onClick={() => setSelectedClient('')}>
+   599→                <X className="h-3 w-3" />
+   600→              </button>
+   601→            </Badge>
+   602→          )}
+   603→          {selectedUnit && selectedUnit !== 'all_units' && (
+   604→            <Badge variant="secondary" className="gap-1 text-xs">
+   605→              {filteredUnits.find((u) => String(u.id) === selectedUnit)?.name || 'Unit'}
+   606→              <button onClick={() => setSelectedUnit('')}>
+   607→                <X className="h-3 w-3" />
+   608→              </button>
+   609→            </Badge>
+   610→          )}
+   611→          <button
+   612→            onClick={clearFilters}
+   613→            className="text-xs text-muted-foreground hover:text-foreground underline"
+   614→          >
+   615→            Clear all
+   616→          </button>
+   617→        </div>
+   618→      )}
+   619→
+   620→      {/* Content */}
+   621→      {loading ? (
+   622→        <div className="flex flex-col gap-2">
+   623→          {Array.from({ length: 6 }).map((_, i) => (
+   624→            <div key={i} className="flex items-center gap-3 rounded-lg border p-3">
+   625→              <Skeleton className="h-10 w-10 rounded-full shrink-0" />
+   626→              <div className="flex-1 space-y-2">
+   627→                <Skeleton className="h-4 w-36" />
+   628→                <Skeleton className="h-3 w-48" />
+   629→                <Skeleton className="h-3 w-28" />
+   630→              </div>
+   631→            </div>
+   632→          ))}
+   633→        </div>
+   634→      ) : error ? (
+   635→        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-8 text-center">
+   636→          <AlertCircle className="h-10 w-10 text-destructive" />
+   637→          <p className="text-sm text-destructive">{error}</p>
+   638→          <Button variant="outline" size="sm" onClick={loadEmployees}>
+   639→            Retry
+   640→          </Button>
+   641→        </div>
+   642→      ) : !searchedOnce ? (
+   643→        /* ── Prompt to search before showing results ── */
+   644→        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-10 text-center">
+   645→          <Search className="h-10 w-10 text-muted-foreground/50" />
+   646→          <div>
+   647→            <p className="font-medium text-muted-foreground">Search Employees</p>
+   648→            <p className="text-sm text-muted-foreground/70">
+   649→              Enter a name or employee code, or select a client/unit to find employees
+   650→            </p>
+   651→          </div>
+   652→        </div>
+   653→      ) : employees.length === 0 ? (
+   654→        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-10 text-center">
+   655→          <Inbox className="h-10 w-10 text-muted-foreground/50" />
+   656→          <div>
+   657→            <p className="font-medium text-muted-foreground">No employees found</p>
+   658→            <p className="text-sm text-muted-foreground/70">
+   659→              Try adjusting your search or filters
+   660→            </p>
+   661→          </div>
+   662→          <Button variant="outline" size="sm" className="mt-1" onClick={clearFilters}>
+   663→            Clear Filters
+   664→          </Button>
+   665→        </div>
+   666→      ) : (
+   667→        <>
+   668→          {/* Employee list */}
+   669→          <div className="flex flex-col gap-2">
+   670→            {employees.map((emp) => (
+   671→              <button
+   672→                key={emp.id}
+   673→                onClick={() => openProfile(emp)}
+   674→                className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:opacity-90 w-full ${
+   675→                  emp.gender?.toLowerCase() === 'male'
+   676→                    ? 'bg-blue-50/60 border-blue-100'
+   677→                    : emp.gender?.toLowerCase() === 'female'
+   678→                    ? 'bg-pink-50/60 border-pink-100'
+   679→                    : 'bg-card'
+   680→                }`}
+   681→              >
+   682→                {/* Avatar */}
+   683→                <div className="relative shrink-0">
+   684→                  <Avatar className="h-11 w-11">
+   685→                    <AvatarImage src={getFileUrl(emp.profile_pic_url) || undefined} alt={emp.full_name} />
+   686→                    <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
+   687→                      {getInitials(emp.full_name || 'U')}
+   688→                    </AvatarFallback>
+   689→                  </Avatar>
+   690→                  {/* Status dot */}
+   691→                  {isActive(emp) && (
+   692→                    <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-emerald-500" />
+   693→                  )}
+   694→                </div>
+   695→
+   696→                {/* Info */}
+   697→                <div className="flex-1 min-w-0">
+   698→                  <div className="flex items-center gap-2">
+   699→                    <p className="font-semibold text-sm truncate">{emp.full_name}</p>
+   700→                    {!isActive(emp) && (
+   701→                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-slate-100 text-slate-500 border-slate-200 shrink-0">
+   702→                        Inactive
+   703→                      </Badge>
+   704→                    )}
+   705→                  </div>
+   706→                  {emp.designation && (
+   707→                    <p className="text-xs text-muted-foreground truncate">{emp.designation}</p>
+   708→                  )}
+   709→                  <div className="flex items-center gap-3 mt-0.5">
+   710→                    {(emp.client_name || emp.unit_name) && (
+   711→                      <span className="text-xs text-muted-foreground/80 truncate">
+   712→                        {[emp.client_name, emp.unit_name].filter(Boolean).join(' / ')}
+   713→                      </span>
+   714→                    )}
+   715→                  </div>
+   716→                </div>
+   717→
+   718→                {/* Employee Code + Mobile */}
+   719→                <div className="flex flex-col items-end shrink-0 gap-0.5">
+   720→                  {emp.employee_code && (
+   721→                    <span className="text-xs font-bold font-mono text-gray-700">{emp.employee_code}</span>
+   722→                  )}
+   723→                  {emp.mobile_number && (
+   724→                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+   725→                      <Phone className="h-3 w-3" />
+   726→                      <span>{maskMobile(emp.mobile_number)}</span>
+   727→                    </div>
+   728→                  )}
+   729→                </div>
+   730→              </button>
+   731→            ))}
+   732→          </div>
+   733→
+   734→          {/* Pagination at bottom of list */}
+   735→          {totalPages > 1 && (
+   736→            <div className="flex items-center justify-center gap-2 pt-2">
+   737→              <Button
+   738→                variant="outline"
+   739→                size="icon"
+   740→                className="h-8 w-8"
+   741→                disabled={page <= 1}
+   742→                onClick={() => setPage((p) => Math.max(1, p - 1))}
+   743→              >
+   744→                <ChevronLeft className="h-4 w-4" />
+   745→              </Button>
+   746→              <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
+   747→              <Button
+   748→                variant="outline"
+   749→                size="icon"
+   750→                className="h-8 w-8"
+   751→                disabled={page >= totalPages}
+   752→                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+   753→              >
+   754→                <ChevronRight className="h-4 w-4" />
+   755→              </Button>
+   756→            </div>
+   757→          )}
+   758→        </>
+   759→      )}
+   760→
+   761→      {/* ── Profile Dialog (Full Detail) ── */}
+   762→      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+   763→        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md p-0">
+   764→          <DialogTitle className="sr-only">Employee Profile — {emp?.full_name || 'Employee'}</DialogTitle>
+   765→          {emp && (
+   766→            <>
+   767→              {profileLoading ? (
+   768→                <div className="flex items-center justify-center py-20">
+   769→                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+   770→                </div>
+   771→              ) : (
+   772→                <>
+   773→                  {/* Header with avatar */}
+   774→                  <div className="flex flex-col items-center gap-3 pt-6 pb-4 px-4">
+   775→                    <div className="relative">
+   776→                      <Avatar className="h-20 w-20 border-2 border-primary/20">
+   777→                        <AvatarImage src={getFileUrl(emp.profile_pic_cropped_url || emp.profile_pic_url) || undefined} alt={emp.full_name} />
+   778→                        <AvatarFallback className="bg-primary/10 text-primary text-xl font-semibold">
+   779→                          {getInitials(emp.full_name || 'U')}
+   780→                        </AvatarFallback>
+   781→                      </Avatar>
+   782→                      <span
+   783→                        className={cn(
+   784→                          'absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-background',
+   785→                          isActive(emp) ? 'bg-emerald-500' : 'bg-slate-400'
+   786→                        )}
+   787→                      />
+   788→                    </div>
+   789→                    <div className="text-center">
+   790→                      <h3 className="text-lg font-bold">{emp.full_name}</h3>
+   791→                      <p className="text-sm text-muted-foreground">
+   792→                        {emp.employee_code || `EMP-${emp.id}`}
+   793→                      </p>
+   794→                      <div className="flex items-center justify-center gap-2 mt-1">
+   795→                        <Badge
+   796→                          variant="outline"
+   797→                          className={cn(
+   798→                            isActive(emp)
+   799→                              ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+   800→                              : 'bg-slate-100 text-slate-500 border-slate-200'
+   801→                          )}
+   802→                        >
+   803→                          {isActive(emp) ? 'Active' : 'Inactive'}
+   804→                        </Badge>
+   805→                        {emp.designation && (
+   806→                          <Badge variant="secondary" className="text-[10px]">
+   807→                            {emp.designation}
+   808→                          </Badge>
+   809→                        )}
+   810→                      </div>
+   811→                    </div>
+   812→                  </div>
+   813→
+   814→                  <div className="px-4 pb-6 space-y-4">
+   815→                    {/* Personal Information */}
+   816→                    <ProfileSection title="Personal">
+   817→                      <ProfileRow icon={User} label="Father/Husband Name" value={emp.father_name} />
+   818→                      <ProfileRow icon={Calendar} label="Date of Birth" value={emp.date_of_birth ? formatDate(emp.date_of_birth) : undefined} />
+   819→                      <ProfileRow icon={User} label="Gender" value={emp.gender} />
+   820→                      <ProfileRow icon={Heart} label="Marital Status" value={emp.marital_status} />
+   821→                      <ProfileRow icon={Heart} label="Blood Group" value={emp.blood_group} />
+   822→                    </ProfileSection>
+   823→
+   824→                    {/* Contact */}
+   825→                    <ProfileSection title="Contact">
+   826→                      <ProfileRow icon={Phone} label="Mobile" value={emp.mobile_number ? maskMobile(emp.mobile_number) : undefined} />
+   827→                      <SensitiveProfileRow icon={Phone} label="Alternate Mobile" value={emp.alternate_mobile} />
+   828→                      <ProfileRow icon={Mail} label="Email" value={emp.email} />
+   829→                      <ProfileRow icon={MapPin} label="Address" value={emp.address} />
+   830→                      <ProfileRow
+   831→                        icon={MapPin}
+   832→                        label="Location"
+   833→                        value={[emp.city, emp.district, emp.state].filter(Boolean).join(', ') || undefined}
+   834→                      />
+   835→                      <ProfileRow icon={Hash} label="PIN Code" value={emp.pin_code} />
+   836→                    </ProfileSection>
+   837→
+   838→                    {/* Employment */}
+   839→                    <ProfileSection title="Employment">
+   840→                      <ProfileRow
+   841→                        icon={Building2}
+   842→                        label="Client / Unit"
+   843→                        value={[emp.client_name, emp.unit_name].filter(Boolean).join(' / ') || undefined}
+   844→                      />
+   845→                      <ProfileRow icon={Building2} label="Department" value={emp.department} />
+   846→                      <ProfileRow icon={Briefcase} label="Employment Type" value={emp.employment_type} />
+   847→                      <ProfileRow icon={Shield} label="Worker Category" value={emp.worker_category} />
+   848→                      <ProfileRow icon={IdCard} label="Role" value={emp.employee_role} />
+   849→                      <ProfileRow icon={Clock} label="Date of Joining" value={emp.date_of_joining ? formatDate(emp.date_of_joining) : undefined} />
+   850→                      <ProfileRow icon={Calendar} label="Confirmation Date" value={emp.confirmation_date ? formatDate(emp.confirmation_date) : undefined} />
+   851→                      <ProfileRow icon={Clock} label="Probation Period" value={emp.probation_period ? `${emp.probation_period} months` : undefined} />
+   852→                      <ProfileRow icon={Calendar} label="Date of Leaving" value={emp.date_of_leaving ? formatDate(emp.date_of_leaving) : undefined} />
+   853→                    </ProfileSection>
+   854→
+   855→                    {/* Government IDs — always show section */}
+   856→                    <ProfileSection title="Government IDs">
+   857→                      <SensitiveProfileRow icon={IdCard} label="Aadhaar Number" value={emp.aadhaar_number} />
+   858→                      <SensitiveProfileRow icon={Hash} label="UAN Number" value={emp.uan_number} />
+   859→                      <SensitiveProfileRow icon={Hash} label="ESIC Number" value={emp.esic_number} />
+   860→                    </ProfileSection>
+   861→
+   862→                    {/* Bank Details — always show section */}
+   863→                    <ProfileSection title="Bank Details">
+   864→                      <ProfileRow icon={CreditCard} label="Bank Name" value={emp.bank_name} />
+   865→                      <ProfileRow icon={User} label="Account Holder" value={emp.account_holder_name} />
+   866→                      <SensitiveProfileRow icon={CreditCard} label="Account Number" value={emp.account_number} />
+   867→                      <SensitiveProfileRow icon={Hash} label="IFSC Code" value={emp.ifsc_code} />
+   868→                    </ProfileSection>
+   869→
+   870→                    {/* Emergency Contact — always show section */}
+   871→                    <ProfileSection title="Emergency Contact">
+   872→                      <ProfileRow icon={UsersRound} label="Contact Name" value={emp.emergency_contact_name} />
+   873→                      <ProfileRow icon={UsersRound} label="Relation" value={emp.emergency_contact_relation} />
+   874→                    </ProfileSection>
+   875→
+   876→                    {/* Nominee — always show section */}
+   877→                    <ProfileSection title="Nominee">
+   878→                      <ProfileRow icon={UsersRound} label="Nominee Name" value={emp.nominee_name} />
+   879→                      <ProfileRow icon={UsersRound} label="Relationship" value={emp.nominee_relationship} />
+   880→                      <ProfileRow icon={Calendar} label="Nominee DOB" value={emp.nominee_dob ? formatDate(emp.nominee_dob) : undefined} />
+   881→                      <SensitiveProfileRow icon={Phone} label="Nominee Contact" value={emp.nominee_contact} />
+   882→                    </ProfileSection>
+   883→
+   884→                    {/* Documents — always show section */}
+   885→                    <ProfileSection title="Documents">
+   886→                      {emp.aadhaar_front_url ? (
+   887→                        <DocThumbnail
+   888→                          label="Aadhaar Front"
+   889→                          url={getFileUrl(emp.aadhaar_front_url)}
+   890→                          onClick={() => setViewingDoc({ url: getFileUrl(emp.aadhaar_front_url), title: 'Aadhaar Front' })}
+   891→                        />
+   892→                      ) : (
+   893→                        <ProfileRow icon={FileText} label="Aadhaar Front" value={undefined} />
+   894→                      )}
+   895→                      {emp.aadhaar_back_url ? (
+   896→                        <DocThumbnail
+   897→                          label="Aadhaar Back"
+   898→                          url={getFileUrl(emp.aadhaar_back_url)}
+   899→                          onClick={() => setViewingDoc({ url: getFileUrl(emp.aadhaar_back_url), title: 'Aadhaar Back' })}
+   900→                        />
+   901→                      ) : (
+   902→                        <ProfileRow icon={FileText} label="Aadhaar Back" value={undefined} />
+   903→                      )}
+   904→                      {emp.bank_document_url ? (
+   905→                        <DocThumbnail
+   906→                          label="Bank Document"
+   907→                          url={getFileUrl(emp.bank_document_url)}
+   908→                          onClick={() => setViewingDoc({ url: getFileUrl(emp.bank_document_url), title: 'Bank Document' })}
+   909→                        />
+   910→                      ) : (
+   911→                        <ProfileRow icon={FileText} label="Bank Document" value={undefined} />
+   912→                      )}
+   913→                    </ProfileSection>
+   914→
+   915→                    {/* Manager Actions — only for active employees */}
+   916→                    {isManager && isActive(emp) && (
+   917→                      <div className="grid grid-cols-2 gap-2 px-4 pt-2 pb-4">
+   918→                        <a
+   919→                          href={`tel:${emp.mobile_number}`}
+   920→                          className="flex items-center justify-center gap-1.5 rounded-md border border-green-300 bg-green-50 px-3 py-2.5 text-xs font-medium text-green-700 hover:bg-green-100 transition-colors"
+   921→                        >
+   922→                          <Phone className="h-3.5 w-3.5" /> Call
+   923→                        </a>
+   924→                        <a
+   925→                          href={`https://wa.me/91${emp.mobile_number?.replace(/[^0-9]/g, '')}`}
+   926→                          target="_blank"
+   927→                          rel="noopener noreferrer"
+   928→                          className="flex items-center justify-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+   929→                        >
+   930→                          <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+   931→                        </a>
+   932→                        <button
+   933→                          type="button"
+   934→                          className="flex items-center justify-center gap-1.5 rounded-md border border-blue-300 bg-blue-50 px-3 py-2.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+   935→                          onClick={openTransferDialog}
+   936→                        >
+   937→                          <ArrowRightLeft className="h-3.5 w-3.5" /> Transfer
+   938→                        </button>
+   939→                        <button
+   940→                          type="button"
+   941→                          className="flex items-center justify-center gap-1.5 rounded-md border border-orange-300 bg-orange-50 px-3 py-2.5 text-xs font-medium text-orange-700 hover:bg-orange-100 transition-colors"
+   942→                          onClick={() => { setExitDate(''); setExitDialogOpen(true); }}
+   943→                        >
+   944→                          <CalendarX className="h-3.5 w-3.5" /> Remove
+   945→                        </button>
+   946→                        <button
+   947→                          type="button"
+   948→                          className="flex items-center justify-center gap-1.5 rounded-md border border-purple-300 bg-purple-50 px-3 py-2.5 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+   949→                          onClick={() => {
+   950→                            try { generateEmployeeRegistrationForm(emp); } catch (e: unknown) { toast.error((e as Error).message || 'Failed to open registration form'); }
+   951→                          }}
+   952→                        >
+   953→                          <FileDown className="h-3.5 w-3.5" /> Registration
+   954→                        </button>
+   955→                        <button
+   956→                          type="button"
+   957→                          className="flex items-center justify-center gap-1.5 rounded-md border border-indigo-300 bg-indigo-50 px-3 py-2.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
+   958→                          onClick={() => openEditor(emp)}
+   959→                        >
+   960→                          <Pencil className="h-3.5 w-3.5" /> Edit
+   961→                        </button>
+   962→                      </div>
+   963→                    )}
+   964→
+   965→                    {/* Manager Actions for inactive/resigned employees */}
+   966→                    {isManager && !isActive(emp) && emp.mobile_number && (
+   967→                      <div className="grid grid-cols-2 gap-2 px-4 pt-2 pb-4">
+   968→                        <a
+   969→                          href={`tel:${emp.mobile_number}`}
+   970→                          className="flex items-center justify-center gap-1.5 rounded-md border border-green-300 bg-green-50 px-3 py-2.5 text-xs font-medium text-green-700 hover:bg-green-100 transition-colors"
+   971→                        >
+   972→                          <Phone className="h-3.5 w-3.5" /> Call
+   973→                        </a>
+   974→                        <a
+   975→                          href={`https://wa.me/91${emp.mobile_number?.replace(/[^0-9]/g, '')}`}
+   976→                          target="_blank"
+   977→                          rel="noopener noreferrer"
+   978→                          className="flex items-center justify-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+   979→                        >
+   980→                          <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+   981→                        </a>
+   982→                        <button
+   983→                          type="button"
+   984→                          className="flex items-center justify-center gap-1.5 rounded-md border border-purple-300 bg-purple-50 px-3 py-2.5 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+   985→                          onClick={() => {
+   986→                            try { generateEmployeeRegistrationForm(emp); } catch (e: unknown) { toast.error((e as Error).message || 'Failed to open registration form'); }
+   987→                          }}
+   988→                        >
+   989→                          <FileDown className="h-3.5 w-3.5" /> Registration
+   990→                        </button>
+   991→                        <button
+   992→                          type="button"
+   993→                          className="flex items-center justify-center gap-1.5 rounded-md border border-indigo-300 bg-indigo-50 px-3 py-2.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
+   994→                          onClick={() => openEditor(emp)}
+   995→                        >
+   996→                          <Pencil className="h-3.5 w-3.5" /> Edit
+   997→                        </button>
+   998→                      </div>
+   999→                    )}
+  1000→                  </div>
+  1001→                </>
+  1002→              )}
+  1003→            </>
+  1004→          )}
+  1005→        </DialogContent>
+  1006→      </Dialog>
+  1007→
+  1008→      {/* ── Exit Employee Dialog ── */}
+  1009→      <Dialog open={exitDialogOpen} onOpenChange={setExitDialogOpen}>
+  1010→        <DialogContent className="sm:max-w-sm">
+  1011→          <DialogHeader>
+  1012→            <DialogTitle className="text-sm">Remove Employee</DialogTitle>
+  1013→          </DialogHeader>
+  1014→          <div className="space-y-4">
+  1015→            <p className="text-sm text-muted-foreground">
+  1016→              Mark <strong>{selectedEmployee?.full_name}</strong> as inactive.
+  1017→              They will no longer appear in the directory.
+  1018→            </p>
+  1019→            <div className="space-y-2">
+  1020→              <Label className="text-xs">Exit Date</Label>
+  1021→              <Input
+  1022→                type="date"
+  1023→                value={exitDate}
+  1024→                onChange={(e) => setExitDate(e.target.value)}
+  1025→                max={new Date().toISOString().split('T')[0]}
+  1026→                className="h-9"
+  1027→              />
+  1028→            </div>
+  1029→            <div className="flex gap-2">
+  1030→              <Button variant="outline" size="sm" className="flex-1" onClick={() => setExitDialogOpen(false)} disabled={actionLoading}>
+  1031→                Cancel
+  1032→              </Button>
+  1033→              <Button
+  1034→                size="sm"
+  1035→                className="flex-1 bg-orange-600 hover:bg-orange-700"
+  1036→                onClick={handleExit}
+  1037→                disabled={!exitDate || actionLoading}
+  1038→              >
+  1039→                {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+  1040→                <span className="ml-1">Remove</span>
+  1041→              </Button>
+  1042→            </div>
+  1043→          </div>
+  1044→        </DialogContent>
+  1045→      </Dialog>
+  1046→
+  1047→      {/* ── Transfer Employee Dialog ── */}
+  1048→      <Dialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen}>
+  1049→        <DialogContent className="sm:max-w-sm">
+  1050→          <DialogHeader>
+  1051→            <DialogTitle className="text-sm">Transfer Employee</DialogTitle>
+  1052→          </DialogHeader>
+  1053→          <div className="space-y-4">
+  1054→            <p className="text-sm text-muted-foreground">
+  1055→              Change client/unit for <strong>{selectedEmployee?.full_name}</strong>.
+  1056→            </p>
+  1057→            <div className="space-y-3">
+  1058→              <div className="space-y-1.5">
+  1059→                <Label className="text-xs">Client</Label>
+  1060→                <Select value={transferClient} onValueChange={(v) => { setTransferClient(v); setTransferUnit(''); }}>
+  1061→                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select client" /></SelectTrigger>
+  1062→                  <SelectContent>
+  1063→                    {allClients.map((c) => (
+  1064→                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+  1065→                    ))}
+  1066→                  </SelectContent>
+  1067→                </Select>
+  1068→              </div>
+  1069→              <div className="space-y-1.5">
+  1070→                <Label className="text-xs">Unit</Label>
+  1071→                <Select value={transferUnit} onValueChange={setTransferUnit}>
+  1072→                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select unit" /></SelectTrigger>
+  1073→                  <SelectContent>
+  1074→                    {(transferClient
+  1075→                      ? allUnits.filter((u) => !transferClient || transferClient === 'all_clients' || u.client_id === Number(transferClient))
+  1076→                      : allUnits
+  1077→                    ).map((u) => (
+  1078→                      <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+  1079→                    ))}
+  1080→                  </SelectContent>
+  1081→                </Select>
+  1082→              </div>
+  1083→            </div>
+  1084→            <div className="flex gap-2">
+  1085→              <Button variant="outline" size="sm" className="flex-1" onClick={() => setTransferDialogOpen(false)} disabled={actionLoading}>
+  1086→                Cancel
+  1087→              </Button>
+  1088→              <Button
+  1089→                size="sm"
+  1090→                className="flex-1"
+  1091→                onClick={handleTransfer}
+  1092→                disabled={(!transferClient && !transferUnit) || actionLoading}
+  1093→              >
+  1094→                {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
+  1095→                <span className="ml-1">Transfer</span>
+  1096→              </Button>
+  1097→            </div>
+  1098→          </div>
+  1099→        </DialogContent>
+  1100→      </Dialog>
+  1101→
+  1102→      {/* ── Document Viewer Dialog ── */}
+  1103→      <Dialog open={!!viewingDoc} onOpenChange={() => setViewingDoc(null)}>
+  1104→        <DialogContent className="sm:max-w-lg p-0">
+  1105→          <DialogHeader className="p-3 border-b">
+  1106→            <DialogTitle className="text-sm">{viewingDoc?.title}</DialogTitle>
+  1107→          </DialogHeader>
+  1108→          <div className="p-2">
+  1109→            {viewingDoc?.url && (
+  1110→              <img
+  1111→                src={viewingDoc.url}
+  1112→                alt={viewingDoc.title}
+  1113→                className="w-full rounded-lg"
+  1114→              />
+  1115→            )}
+  1116→          </div>
+  1117→        </DialogContent>
+  1118→      </Dialog>
+  1119→    </div>
+  1120→  );
+  1121→}
+  1122→
+  1123→// ── Profile Section ────────────────────────────────────
+  1124→function ProfileSection({ title, children }: { title: string; children: React.ReactNode }) {
+  1125→  return (
+  1126→    <div className="space-y-2">
+  1127→      <h4 className="text-xs font-semibold text-primary uppercase tracking-wider">{title}</h4>
+  1128→      <div className="space-y-2">{children}</div>
+  1129→    </div>
+  1130→  );
+  1131→}
+  1132→
+  1133→// ── Profile Row ────────────────────────────────────────
+  1134→function ProfileRow({
+  1135→  icon: Icon,
+  1136→  label,
+  1137→  value,
+  1138→}: {
+  1139→  icon: typeof User;
+  1140→  label: string;
+  1141→  value?: string;
+  1142→}) {
+  1143→  return (
+  1144→    <div className="flex items-start gap-3">
+  1145→      <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1146→      <div className="flex flex-col">
+  1147→        <span className="text-xs text-muted-foreground">{label}</span>
+  1148→        <span className={cn("text-sm font-medium", !value && "text-muted-foreground/50 italic")}>
+  1149→          {value || '—'}
+  1150→        </span>
+  1151→      </div>
+  1152→    </div>
+  1153→  );
+  1154→}
+  1155→
+  1156→// ── Sensitive Profile Row (with eye toggle) ──────────
+  1157→function SensitiveProfileRow({
+  1158→  icon: Icon,
+  1159→  label,
+  1160→  value,
+  1161→}: {
+  1162→  icon: typeof User;
+  1163→  label: string;
+  1164→  value?: string | number;
+  1165→}) {
+  1166→  const [revealed, setRevealed] = useState(false);
+  1167→  const displayValue = value != null ? String(value) : '';
+  1168→
+  1169→  if (!displayValue) {
+  1170→    return (
+  1171→      <div className="flex items-start gap-3">
+  1172→        <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1173→        <div className="flex flex-col">
+  1174→          <span className="text-xs text-muted-foreground">{label}</span>
+  1175→          <span className="text-sm font-medium text-muted-foreground/50 italic">—</span>
+  1176→        </div>
+  1177→      </div>
+  1178→    );
+  1179→  }
+  1180→
+  1181→  return (
+  1182→    <div className="flex items-start gap-3">
+  1183→      <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1184→      <div className="flex flex-col flex-1 min-w-0">
+  1185→        <span className="text-xs text-muted-foreground">{label}</span>
+  1186→        <span className="text-sm font-medium font-mono">
+  1187→          {revealed ? displayValue : maskSensitive(displayValue)}
+  1188→        </span>
+  1189→      </div>
+  1190→      <button
+  1191→        type="button"
+  1192→        onClick={() => setRevealed((r) => !r)}
+  1193→        className="mt-0.5 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
+  1194→        aria-label={revealed ? `Hide ${label}` : `Reveal ${label}`}
+  1195→      >
+  1196→        {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+  1197→      </button>
+  1198→    </div>
+  1199→  );
+  1200→}
+  1201→
+  1202→// ── Document Thumbnail ──────────────────────────────────
+  1203→function DocThumbnail({
+  1204→  label,
+  1205→  url,
+  1206→  onClick,
+  1207→}: {
+  1208→  label: string;
+  1209→  url: string;
+  1210→  onClick: () => void;
+  1211→}) {
+  1212→  return (
+  1213→    <button
+  1214→      onClick={onClick}
+  1215→      className="flex items-center gap-3 p-2 rounded-lg border hover:bg-accent/30 transition-colors text-left w-full"
+  1216→    >
+  1217→      <img
+  1218→        src={url}
+  1219→        alt={label}
+  1220→        className="h-10 w-14 rounded object-cover border"
+  1221→      />
+  1222→      <div className="flex-1 min-w-0">
+  1223→        <p className="text-sm font-medium truncate">{label}</p>
+  1224→        <p className="text-xs text-muted-foreground flex items-center gap-1">
+  1225→          <Eye className="h-3 w-3" /> Tap to view
+  1226→        </p>
+  1227→      </div>
+  1228→    </button>
+  1229→  );
+  1230→}
+  1231→
