@@ -1,4 +1,4 @@
-export type FieldEditRule = 'free' | 'admin_approval' | 'readonly';
+export type FieldEditRule = 'free' | 'admin_approval' | 'readonly' | 'free_if_blank';
 
 export interface FieldRule {
   key: string;
@@ -10,7 +10,7 @@ export interface FieldRule {
   masked?: boolean;
 }
 
-// Relationship options — match the employee registration form (php_payroll/modules/employee/add.php)
+// Relationship options — match the employee registration form (hrms/modules/employee/add.php)
 // Emergency contact also includes 'Other'; 'Spouse' added for backward compat with portal form
 const EMERGENCY_RELATIONSHIP_OPTIONS = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Brother', 'Sister', 'Spouse', 'Other'];
 const NOMINEE_RELATIONSHIP_OPTIONS = ['Father', 'Mother', 'Husband', 'Wife', 'Son', 'Daughter', 'Brother', 'Sister', 'Spouse'];
@@ -38,15 +38,52 @@ export const FIELD_RULES: FieldRule[] = [
   { key: 'nominee_relationship', label: 'Relationship', section: 'nominee', rule: 'free', inputType: 'select', options: NOMINEE_RELATIONSHIP_OPTIONS },
   { key: 'nominee_dob', label: 'Nominee DOB', section: 'nominee', rule: 'free', inputType: 'date' },
   { key: 'nominee_contact', label: 'Nominee Contact', section: 'nominee', rule: 'free', inputType: 'tel' },
+
+  // ── SENSITIVE — FILL IF BLANK (manager can fill directly while blank;
+  //    once a value exists, editing ALWAYS requires HR approval) ──
+  { key: 'uan_number', label: 'UAN Number', section: 'sensitive', rule: 'free_if_blank', inputType: 'text' },
+  { key: 'esic_number', label: 'ESIC Number', section: 'sensitive', rule: 'free_if_blank', inputType: 'text' },
+  { key: 'aadhaar_number', label: 'Aadhaar Number', section: 'sensitive', rule: 'free_if_blank', inputType: 'text' },
+  { key: 'bank_name', label: 'Bank Name', section: 'sensitive', rule: 'free_if_blank', inputType: 'text' },
+  { key: 'account_holder_name', label: 'Account Holder Name', section: 'sensitive', rule: 'free_if_blank', inputType: 'text' },
+  { key: 'account_number', label: 'Account Number', section: 'sensitive', rule: 'free_if_blank', inputType: 'text' },
+  { key: 'ifsc_code', label: 'IFSC Code', section: 'sensitive', rule: 'free_if_blank', inputType: 'text' },
 ];
 
-// Only the sections that have editable fields (no bank, no employment, etc.)
+// Only the sections that have editable fields (no employment, etc.)
 export const FIELD_SECTIONS = [
   { key: 'personal', label: 'Personal Details', icon: 'User' },
   { key: 'address', label: 'Address', icon: 'MapPin' },
   { key: 'emergency', label: 'Emergency Contact', icon: 'Phone' },
   { key: 'nominee', label: 'Nominee Details', icon: 'UserCheck' },
+  { key: 'sensitive', label: 'Bank & Statutory Details', icon: 'CreditCard' },
 ];
+
+/**
+ * Resolve the effective edit rule for a field, given the employee's CURRENT value.
+ *
+ * Must be computed per field, per employee (never cached globally) — the same
+ * field can behave differently for two different employees depending on whether
+ * each one's value is set:
+ *   - 'readonly'       → always readonly
+ *   - 'free'           → always saves directly
+ *   - 'free_if_blank'  → blank value saves directly; a filled value ALWAYS
+ *                        requires approval (nothing-to-overwrite = no risk)
+ *   - 'admin_approval' → always requires approval, regardless of blank/filled
+ */
+export function resolveEffectiveRule(
+  rule: FieldEditRule,
+  currentValue: string | null | undefined,
+): 'free' | 'admin_approval' | 'readonly' {
+  if (rule === 'readonly') return 'readonly';
+  const isBlank = !currentValue || currentValue.trim() === '';
+  if (rule === 'free') return 'free';
+  if (rule === 'free_if_blank') {
+    return isBlank ? 'free' : 'admin_approval';
+  }
+  // rule === 'admin_approval' — always needs approval regardless of blank/filled
+  return 'admin_approval';
+}
 
 export function getFieldsBySection(section: string): FieldRule[] {
   return FIELD_RULES.filter(f => f.section === section);

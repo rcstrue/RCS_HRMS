@@ -49,6 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $APPROVAL_FIELDS = [
         'full_name', 'father_name', 'date_of_birth', 'gender',
         'designation', 'department', 'profile_pic_url',
+        // Bank & statutory details — manager/employee change requests for the
+        // ESS Manager Edit flow (see RCS_HRMS_Manager_Edit_Button.md). Sensitive
+        // columns on employees; applied to the employee record on approval.
+        'uan_number', 'esic_number', 'aadhaar_number',
+        'bank_name', 'account_holder_name', 'account_number', 'ifsc_code',
     ];
 
     // ── 1. Approve ─────────────────────────────────────────────
@@ -389,6 +394,13 @@ $fieldLabels = [
     'designation'     => 'Designation',
     'department'      => 'Department',
     'profile_pic_url' => 'Profile Photo',
+    'uan_number'          => 'UAN Number',
+    'esic_number'         => 'ESIC Number',
+    'aadhaar_number'      => 'Aadhaar Number',
+    'bank_name'           => 'Bank Name',
+    'account_holder_name' => 'Account Holder Name',
+    'account_number'      => 'Account Number',
+    'ifsc_code'           => 'IFSC Code',
 ];
 
 // ─── Generate CSRF token for forms ──────────────────────────────────────────

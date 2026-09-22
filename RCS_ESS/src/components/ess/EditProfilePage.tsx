@@ -13,6 +13,7 @@ import {
   Phone,
   UserCheck,
   Briefcase,
+  CreditCard,
   Camera,
   Upload,
   CheckCircle2,
@@ -33,6 +34,7 @@ import {
 import {
   FIELD_RULES,
   FIELD_SECTIONS,
+  resolveEffectiveRule,
   type FieldRule,
 } from '@/lib/field-rules';
 import type { Employee, ChangeRequest } from '@/lib/ess-types';
@@ -58,6 +60,7 @@ const SECTION_ICONS: Record<string, React.ElementType> = {
   address: MapPin,
   emergency: Phone,
   nominee: UserCheck,
+  sensitive: CreditCard,
 };
 
 export default function EditProfilePage({
@@ -89,11 +92,12 @@ export default function EditProfilePage({
     return (val as string) || '';
   };
 
-  // Initialize form with current values for all editable fields (free + admin_approval)
+  // Initialize form with current values for all editable fields
+  // (free, free_if_blank and admin_approval — everything not readonly)
   useEffect(() => {
     const initial: Record<string, string> = {};
     for (const f of FIELD_RULES) {
-      if (f.rule === 'free' || f.rule === 'admin_approval') {
+      if (f.rule !== 'readonly') {
         initial[f.key] = getValue(f.key);
       }
     }
@@ -116,7 +120,14 @@ export default function EditProfilePage({
   const handleSave = async () => {
     setSaving(true);
     try {
-      const freeFields = FIELD_RULES.filter(f => f.rule === 'free');
+      // Fields whose EFFECTIVE rule is 'free' are saved directly.
+      // resolveEffectiveRule is computed per field, per employee: a
+      // 'free_if_blank' field only lands here while its current value is
+      // blank — once filled it resolves to 'admin_approval' and must go
+      // through the per-field Request Change flow instead.
+      const freeFields = FIELD_RULES.filter(
+        f => resolveEffectiveRule(f.rule, getValue(f.key)) === 'free',
+      );
       const changed: Record<string, string | null> = {};
       for (const f of freeFields) {
         const current = getValue(f.key);
@@ -329,6 +340,10 @@ export default function EditProfilePage({
     const isSubmitting = submittingField === field.key;
     const isShowingReason = showReason[field.key];
 
+    // Effective rule — computed per field, per employee, at render time
+    // (e.g. a blank UAN number saves directly; a filled one requires approval).
+    const effectiveRule = resolveEffectiveRule(field.rule, getValue(field.key));
+
     // ── Special: Profile Photo ──
     if (field.inputType === 'photo') {
       const currentPhoto = getValue(field.key);
@@ -454,18 +469,25 @@ export default function EditProfilePage({
       );
     }
 
-    // ── Admin approval field ──
-    if (field.rule === 'admin_approval') {
+    // ── Requires-approval field (admin_approval, or free_if_blank whose current value is filled) ──
+    if (effectiveRule === 'admin_approval') {
       return (
         <div key={field.key} className="space-y-2 border border-amber-100 rounded-lg p-3 bg-amber-50/30">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <Label htmlFor={`approval-${field.key}`} className="text-sm font-medium">{field.label}</Label>
-            {hasPending && (
-              <Badge variant="outline" className="bg-amber-100 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
-                <Clock className="w-3 h-3 mr-0.5" />
-                Pending
-              </Badge>
-            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {field.rule === 'free_if_blank' && (
+                <Badge variant="outline" className="bg-amber-100 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
+                  Requires approval
+                </Badge>
+              )}
+              {hasPending && (
+                <Badge variant="outline" className="bg-amber-100 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
+                  <Clock className="w-3 h-3 mr-0.5" />
+                  Pending
+                </Badge>
+              )}
+            </div>
           </div>
 
           <p className="text-xs text-gray-400">Current: <span className="font-medium text-gray-600">{getValue(field.key) || '—'}</span></p>
@@ -530,10 +552,27 @@ export default function EditProfilePage({
       );
     }
 
-    // ── Free field (directly editable) ──
+    // ── Free field (directly editable — includes free_if_blank while blank) ──
     return (
       <div key={field.key} className="space-y-1.5">
-        <Label htmlFor={`field-${field.key}`}>{field.label}</Label>
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor={`field-${field.key}`}>{field.label}</Label>
+          {(field.rule === 'free_if_blank' || hasPending) && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              {field.rule === 'free_if_blank' && (
+                <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px] px-1.5 py-0">
+                  Fills directly
+                </Badge>
+              )}
+              {hasPending && (
+                <Badge variant="outline" className="bg-amber-100 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
+                  <Clock className="w-3 h-3 mr-0.5" />
+                  Pending
+                </Badge>
+              )}
+            </div>
+          )}
+        </div>
         {renderInput(field, formValues[field.key] || '', (v) => updateField(field.key, v), false)}
       </div>
     );

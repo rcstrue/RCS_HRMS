@@ -161,26 +161,87 @@ if ($method === 'PUT' || $method === 'POST') {
             'nominee_name', 'nominee_relationship', 'nominee_dob', 'nominee_contact',
         );
 
+        // Sensitive "fill-if-blank" fields (UAN, ESIC, Aadhaar, bank details).
+        // Mirrors the client-side 'free_if_blank' rule in RCS_ESS field-rules.ts:
+        // these may be saved directly ONLY while the employee's current value is
+        // blank — there is nothing to overwrite, so no HR approval is needed.
+        // Once a value exists, edits must go through the change-request workflow
+        // (api/ess/change-requests.php + HR approval in
+        // hrms/modules/employee/change-requests.php).
+        $SENSITIVE_FILL_IF_BLANK = array(
+            'uan_number', 'esic_number', 'aadhaar_number',
+            'bank_name', 'account_holder_name', 'account_number', 'ifsc_code',
+        );
+
         $updateParts = array();
         $types = '';
         $params = array();
         $rejected = array();
+        $rejectedFilled = array(); // sensitive fields that already have a value → HR approval required
+        $accepted = array();
+
+        // Fetch current values for requested sensitive fields straight from the
+        // DB (source of truth for the blank check — never trust the client's
+        // old_value). Scoped access was already verified by
+        // requireOwnershipOrRole() above.
+        $requestedSensitive = array_intersect(array_keys($fields), $SENSITIVE_FILL_IF_BLANK);
+        $currentSensitive = array();
+        if (!empty($requestedSensitive)) {
+            $curStmt = $conn->prepare(
+                "SELECT uan_number, esic_number, aadhaar_number,
+                        bank_name, account_holder_name, account_number, ifsc_code
+                 FROM employees WHERE id = ? LIMIT 1"
+            );
+            if (!$curStmt) {
+                jsonOutput(array('success' => false, 'error' => 'Database error'), 500);
+            }
+            $empIdStr = (string)$employeeId;
+            $curStmt->bind_param('s', $empIdStr);
+            $curStmt->execute();
+            $curRow = $curStmt->get_result()->fetch_assoc();
+            $curStmt->close();
+            if ($curRow === null) {
+                jsonOutput(array('success' => false, 'error' => 'Employee not found'), 404);
+            }
+            foreach ($SENSITIVE_FILL_IF_BLANK as $col) {
+                $currentSensitive[$col] = $curRow[$col] ?? null;
+            }
+        }
 
         foreach ($fields as $key => $value) {
             if (in_array($key, $ALLOWED, true)) {
                 $updateParts[] = "`$key` = ?";
                 $types .= 's';
                 $params[] = ($value !== null && $value !== '') ? $value : null;
+                $accepted[] = $key;
+            } elseif (in_array($key, $SENSITIVE_FILL_IF_BLANK, true)) {
+                $currentValue = $currentSensitive[$key] ?? null;
+                $isBlank = ($currentValue === null || trim((string)$currentValue) === '');
+                if ($isBlank) {
+                    // Blank → safe to fill directly (nothing to overwrite)
+                    $updateParts[] = "`$key` = ?";
+                    $types .= 's';
+                    $params[] = ($value !== null && $value !== '') ? $value : null;
+                    $accepted[] = $key;
+                } else {
+                    // Already has a value → must go through the HR approval workflow
+                    $rejectedFilled[] = $key;
+                }
             } else {
                 $rejected[] = $key;
             }
         }
 
         if (empty($updateParts)) {
+            $errorMsg = 'No valid fields to update.';
+            if (!empty($rejectedFilled)) {
+                $errorMsg = 'These fields already have values and require HR approval — please submit a change request instead: '
+                    . implode(', ', $rejectedFilled) . '.';
+            }
             jsonOutput(array(
                 'success' => false,
-                'error' => 'No valid fields to update.',
-                'rejected_fields' => $rejected,
+                'error' => $errorMsg,
+                'rejected_fields' => array_merge($rejected, $rejectedFilled),
             ), 400);
         }
 
@@ -203,9 +264,15 @@ if ($method === 'PUT' || $method === 'POST') {
         $response = array(
             'success' => true,
             'message' => 'Profile updated successfully.',
-            'updated_fields' => array_keys(array_intersect_key($fields, array_flip($ALLOWED))),
+            'updated_fields' => $accepted,
         );
-        if (!empty($rejected)) {
+        if (!empty($rejectedFilled)) {
+            // Partial success: some fields were saved, others already had
+            // values and must go through the change-request workflow.
+            $response['message'] = 'Profile updated. Some fields already had values and were not changed — submit a change request for those.';
+            $response['needs_approval_fields'] = $rejectedFilled;
+            $response['rejected_fields'] = array_merge($rejected, $rejectedFilled);
+        } elseif (!empty($rejected)) {
             $response['rejected_fields'] = $rejected;
         }
         jsonOutput($response);

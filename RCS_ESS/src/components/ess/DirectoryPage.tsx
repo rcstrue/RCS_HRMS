@@ -33,6 +33,7 @@ import {
   Phone,
   MessageCircle,
   FileDown,
+  Pencil,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -47,9 +48,14 @@ import {
   fetchUnits,
   exitEmployee,
   transferEmployee,
+  updateProfile,
+  submitChangeRequest,
+  fetchChangeRequests,
 } from '@/lib/ess-api';
-import type { Employee, ClientOption, UnitOption } from '@/lib/ess-types';
+import type { Employee, ClientOption, UnitOption, ChangeRequest } from '@/lib/ess-types';
 import type { AccessLevel } from '@/lib/access-types';
+
+import EditProfilePage from './EditProfilePage';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -171,6 +177,10 @@ export default function DirectoryPage({
   // Transfer dialog: all clients/units (unrestricted, for destination selection)
   const [allClients, setAllClients] = useState<ClientOption[]>([]);
   const [allUnits, setAllUnits] = useState<UnitOption[]>([]);
+
+  // Manager edit (EditProfilePage overlay — reuse of the self-service edit form)
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [editingRequests, setEditingRequests] = useState<ChangeRequest[]>([]);
 
   // ── Load filter options (filtered by access allocation) ──
   const loadFilters = useCallback(async () => {
@@ -381,6 +391,55 @@ export default function DirectoryPage({
     }
   };
 
+  // ── Manager edit: EditProfilePage on behalf of an employee ──
+  // Load existing change requests for the employee being edited (drives the
+  // "Pending" badges in the edit form)
+  const loadEditingRequests = useCallback(async (empId: number) => {
+    try {
+      const { data } = await fetchChangeRequests(empId);
+      setEditingRequests(Array.isArray(data) ? data : []);
+    } catch (err) {
+      logger.error('Failed to load change requests:', err);
+      setEditingRequests([]);
+    }
+  }, []);
+
+  const openEditor = (em: Employee) => {
+    setEditingEmployee(em);
+    setEditingRequests([]);
+    loadEditingRequests(em.id);
+  };
+
+  // Save free fields directly (blank sensitive fields included — the backend
+  // enforces the same fill-if-blank rule server-side)
+  const saveEmployeeFreeFields = async (employeeId: number, fields: Record<string, string | null>) => {
+    const { error } = await updateProfile({ employee_id: employeeId, fields });
+    if (error) return { success: false, error };
+    // Re-fetch so the detail view reflects saved values immediately
+    try {
+      const { data: fresh } = await fetchEmployeeById(employeeId);
+      if (fresh) {
+        setEditingEmployee((prev) => (prev && prev.id === employeeId ? { ...prev, ...fresh } : prev));
+        setSelectedEmployee((prev) => (prev && prev.id === employeeId ? { ...prev, ...fresh } : prev));
+        setEmployees((prev) => prev.map((e) => (e.id === employeeId ? { ...e, ...fresh } : e)));
+      }
+    } catch (err) {
+      logger.error('Failed to refresh employee after save:', err);
+    }
+    return { success: true };
+  };
+
+  // Submit a change request on behalf of an employee (goes to the HR approval queue)
+  const submitChangeRequestFor = async (
+    employeeId: number,
+    data: { field_name: string; old_value: string; new_value: string; reason?: string },
+  ) => {
+    const { error } = await submitChangeRequest({ employee_id: employeeId, ...data });
+    if (error) return { success: false, error };
+    await loadEditingRequests(employeeId);
+    return { success: true };
+  };
+
   const emp = selectedEmployee;
 
   // Pull-to-refresh wrapper props
@@ -390,6 +449,24 @@ export default function DirectoryPage({
     onTouchMove: pullRefresh.handleTouchMove,
     onTouchEnd: pullRefresh.handleTouchEnd,
   };
+
+  // ── Manager edit overlay ──
+  // Route-swap mount — same conditional-render pattern ESSApp.tsx uses to show
+  // EditProfilePage for the self-service case (one page's content at a time).
+  if (editingEmployee) {
+    const empToEdit = editingEmployee;
+    return (
+      <div className="flex flex-col gap-4 pb-6">
+        <EditProfilePage
+          employee={empToEdit}
+          pendingChangeRequests={editingRequests}
+          onSaveFreeFields={(fields) => saveEmployeeFreeFields(empToEdit.id, fields)}
+          onSubmitChangeRequest={(data) => submitChangeRequestFor(empToEdit.id, data)}
+          onBack={() => setEditingEmployee(null)}
+        />
+      </div>
+    );
+  }
 
   // ── Render ──
   return (
@@ -875,6 +952,13 @@ export default function DirectoryPage({
                         >
                           <FileDown className="h-3.5 w-3.5" /> Registration
                         </button>
+                        <button
+                          type="button"
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-indigo-300 bg-indigo-50 px-3 py-2.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
+                          onClick={() => openEditor(emp)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        </button>
                       </div>
                     )}
 
@@ -903,6 +987,13 @@ export default function DirectoryPage({
                           }}
                         >
                           <FileDown className="h-3.5 w-3.5" /> Registration
+                        </button>
+                        <button
+                          type="button"
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-indigo-300 bg-indigo-50 px-3 py-2.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
+                          onClick={() => openEditor(emp)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Edit
                         </button>
                       </div>
                     )}
