@@ -67,7 +67,7 @@ Build output goes to `dist/` — deploy to web server and serve as static files.
 
 [![View Architecture Map](https://img.shields.io/badge/View-Interactive%20Map-orange?style=for-the-badge&logo=github)](./hrms/repo-map.html)
 
-_Last auto-updated: 23 Sep 2026, 03:27 PM IST by GitHub Action_
+_Last auto-updated: 23 Sep 2026, 03:29 PM IST by GitHub Action_
 
 <details>
 <summary>📁 Quick Structure Snapshot (auto-generated)</summary>
