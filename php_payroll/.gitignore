@@ -1,6 +1,0 @@
-config/config.local.php
-uploads/
-logs/
-tmp_sessions/
-*.log
-vendor/
