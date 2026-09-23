@@ -19,10 +19,8 @@ jobs:
     - name: Generate the sitemap
       uses: cicirello/generate-sitemap@v1
       with:
-        base-url-path: https://join.rcsfacility.com/ # CHANGE THIS TO YOUR REAL DOMAIN
-        # optional: exclude vendor/node_modules etc
-        # path-to-root:.
-        # additional-extensions: html php
+        base-url-path: https://join.rcsfacility.com/
+        exclude-paths: 404.shtml RCS_ESS api
 
     - name: Commit and push
       run: |
