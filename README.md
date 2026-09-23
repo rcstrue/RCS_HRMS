@@ -60,6 +60,30 @@ Build output goes to `dist/` — deploy to web server and serve as static files.
 
 ---
 
+<!-- ARCH-MAP-START -->
+## 🗺️ Interactive Repo Map
+
+> **Live Visual Map:** [Open Full Architecture Diagram](./hrms/repo-map.html)
+
+[![View Architecture Map](https://img.shields.io/badge/View-Interactive%20Map-orange?style=for-the-badge&logo=github)](./hrms/repo-map.html)
+
+_Last auto-updated: 23 Sep 2026, 03:17 PM IST by GitHub Action_
+
+<details>
+<summary>📁 Quick Structure Snapshot (auto-generated)</summary>
+
+```
+- `RCS_ESS/src/` -> 165 files
+- `api/ess/` -> 44 files
+- `hrms/` -> 295 files
+- `.github/workflows/` -> 6 files
+```
+
+</details>
+
+<!-- ARCH-MAP-END -->
+
+
 ## Architecture
 
 ```
