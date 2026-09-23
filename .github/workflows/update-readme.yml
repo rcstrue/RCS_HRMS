@@ -14,13 +14,11 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -37,6 +35,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md sitemap.xml hrms/repo-map.html hrms/update_readme.py || true
+          git add README.md sitemap.xml || true
+          git add hrms/ || true
           git diff --staged --quiet || git commit -m "chore: auto-update README + sitemap"
-          git push
+          git push || echo "No changes"
