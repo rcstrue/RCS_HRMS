@@ -6,7 +6,6 @@ import {
   Loader2,
   Save,
   X,
-  Send,
   Clock,
   User,
   MapPin,
@@ -15,8 +14,8 @@ import {
   Briefcase,
   CreditCard,
   Camera,
-  Upload,
   CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -42,8 +41,18 @@ import { getFileUrl } from '@/lib/api/config';
 import PageHeader from './PageHeader';
 
 // ══════════════════════════════════════════════════════════════
-// EditProfilePage — Only editable fields, grouped by section
+// EditProfilePage — Clean edit form, single Save Changes button
 // ══════════════════════════════════════════════════════════════
+//
+// Design:
+//   - All fields render as simple input fields (no per-field buttons)
+//   - A small badge next to each label shows "Saves directly" (green)
+//     or "Needs approval" (amber) based on resolveEffectiveRule()
+//   - One "Save Changes" button at the bottom handles everything:
+//     → Free fields are saved directly via onSaveFreeFields
+//     → Approval-needed fields are submitted as change requests
+//     → A summary toast tells the user what happened
+//   - Profile photo: upload button (handled by Save for approval)
 
 interface EditProfilePageProps {
   employee: Employee;
@@ -72,9 +81,6 @@ export default function EditProfilePage({
 }: EditProfilePageProps) {
   const [saving, setSaving] = useState(false);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
-  const [reasonForms, setReasonForms] = useState<Record<string, string>>({});
-  const [showReason, setShowReason] = useState<Record<string, boolean>>({});
-  const [submittingField, setSubmittingField] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [pendingPhotoUrl, setPendingPhotoUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -93,7 +99,6 @@ export default function EditProfilePage({
   };
 
   // Initialize form with current values for all editable fields
-  // (free, free_if_blank and admin_approval — everything not readonly)
   useEffect(() => {
     const initial: Record<string, string> = {};
     for (const f of FIELD_RULES) {
@@ -116,82 +121,109 @@ export default function EditProfilePage({
     setFormValues(prev => ({ ...prev, [key]: value }));
   };
 
-  // Save all free fields
+  // Count changes for the save button badge
+  const changedCount = useMemo(() => {
+    let count = 0;
+    for (const f of FIELD_RULES) {
+      if (f.rule === 'readonly') continue;
+      const current = getValue(f.key);
+      const newVal = formValues[f.key] ?? '';
+      if (newVal !== current) count++;
+    }
+    // Photo change
+    const currentPhoto = getValue('profile_pic_url');
+    if (pendingPhotoUrl && pendingPhotoUrl !== currentPhoto) count++;
+    return count;
+  }, [formValues, employee, pendingPhotoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Single Save Changes handler ──
+  // Auto-routes: free fields → direct save, approval fields → change requests
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Fields whose EFFECTIVE rule is 'free' are saved directly.
-      // resolveEffectiveRule is computed per field, per employee: a
-      // 'free_if_blank' field only lands here while its current value is
-      // blank — once filled it resolves to 'admin_approval' and must go
-      // through the per-field Request Change flow instead.
-      const freeFields = FIELD_RULES.filter(
-        f => resolveEffectiveRule(f.rule, getValue(f.key)) === 'free',
-      );
-      const changed: Record<string, string | null> = {};
-      for (const f of freeFields) {
+      const freeChanged: Record<string, string | null> = {};
+      const approvalFields: { field: FieldRule; newVal: string }[] = [];
+
+      for (const f of FIELD_RULES) {
+        if (f.rule === 'readonly') continue;
+        if (f.inputType === 'photo') continue; // handle photo separately
+
         const current = getValue(f.key);
-        const newVal = formValues[f.key] || '';
-        if (newVal !== current) {
-          changed[f.key] = newVal || null;
+        const newVal = formValues[f.key] ?? '';
+        if (newVal === current) continue; // no change
+
+        const effectiveRule = resolveEffectiveRule(f.rule, current);
+
+        if (effectiveRule === 'free') {
+          freeChanged[f.key] = newVal || null;
+        } else if (effectiveRule === 'admin_approval') {
+          if (!newVal) continue; // skip empty values for approval fields
+          approvalFields.push({ field: f, newVal });
         }
       }
 
-      if (Object.keys(changed).length === 0) {
+      // Handle photo (always needs approval)
+      const currentPhoto = getValue('profile_pic_url');
+      if (pendingPhotoUrl && pendingPhotoUrl !== currentPhoto) {
+        approvalFields.push({
+          field: FIELD_RULES.find(f => f.key === 'profile_pic_url')!,
+          newVal: pendingPhotoUrl,
+        });
+      }
+
+      const totalChanges = Object.keys(freeChanged).length + approvalFields.length;
+      if (totalChanges === 0) {
         toast.info('No changes to save.');
         setSaving(false);
         return;
       }
 
-      const result = await onSaveFreeFields(changed);
-      if (result.success) {
-        toast.success('Profile updated successfully');
-        onBack();
-      } else {
-        toast.error(result.error || 'Failed to save changes');
+      // 1. Save free fields directly
+      let savedCount = 0;
+      if (Object.keys(freeChanged).length > 0) {
+        const result = await onSaveFreeFields(freeChanged);
+        if (result.success) {
+          savedCount = Object.keys(freeChanged).length;
+        } else {
+          toast.error(result.error || 'Failed to save some fields');
+          setSaving(false);
+          return;
+        }
       }
+
+      // 2. Submit change requests for approval-needed fields
+      let requestCount = 0;
+      let requestErrors = 0;
+      for (const { field, newVal } of approvalFields) {
+        if (pendingFieldNames.has(field.key)) continue; // already pending
+        const result = await onSubmitChangeRequest({
+          field_name: field.key,
+          old_value: getValue(field.key),
+          new_value: newVal,
+        });
+        if (result.success) {
+          requestCount++;
+        } else {
+          requestErrors++;
+        }
+      }
+
+      // 3. Summary toast
+      if (requestErrors > 0) {
+        toast.error(`Some change requests failed. ${savedCount} field${savedCount !== 1 ? 's' : ''} saved, ${requestCount} request${requestCount !== 1 ? 's' : ''} submitted.`);
+      } else if (savedCount > 0 && requestCount > 0) {
+        toast.success(`${savedCount} field${savedCount !== 1 ? 's' : ''} saved directly, ${requestCount} change request${requestCount !== 1 ? 's' : ''} submitted for approval.`);
+      } else if (savedCount > 0) {
+        toast.success('Profile updated successfully');
+      } else if (requestCount > 0) {
+        toast.success(`${requestCount} change request${requestCount !== 1 ? 's' : ''} submitted for HR approval.`);
+      }
+
+      onBack();
     } catch {
       toast.error('An unexpected error occurred');
     } finally {
       setSaving(false);
-    }
-  };
-
-  // Submit change request for an admin_approval field
-  const handleSubmitRequest = async (field: FieldRule) => {
-    const newVal = formValues[field.key];
-    if (!newVal || newVal === getValue(field.key)) {
-      toast.info('Please enter a different value to request a change.');
-      return;
-    }
-
-    setSubmittingField(field.key);
-    try {
-      const result = await onSubmitChangeRequest({
-        field_name: field.key,
-        old_value: getValue(field.key),
-        new_value: newVal,
-        reason: reasonForms[field.key] || undefined,
-      });
-      if (result.success) {
-        toast.success(`Change request submitted for ${field.label}`);
-        setFormValues(prev => ({ ...prev, [field.key]: getValue(field.key) }));
-        setReasonForms(prev => {
-          const next = { ...prev };
-          delete next[field.key];
-          return next;
-        });
-        setShowReason(prev => ({ ...prev, [field.key]: false }));
-        if (field.key === 'profile_pic_url') {
-          setPendingPhotoUrl(null);
-        }
-      } else {
-        toast.error(result.error || 'Failed to submit change request');
-      }
-    } catch {
-      toast.error('An unexpected error occurred');
-    } finally {
-      setSubmittingField(null);
     }
   };
 
@@ -200,7 +232,6 @@ export default function EditProfilePage({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file
     if (!file.type.startsWith('image/')) {
       toast.error('Please select an image file');
       return;
@@ -230,7 +261,7 @@ export default function EditProfilePage({
       if (json.success && json.data?.url) {
         setPendingPhotoUrl(json.data.url);
         setFormValues(prev => ({ ...prev, profile_pic_url: json.data.url }));
-        toast.success('Photo uploaded. Click "Request Change" to submit for approval.');
+        toast.success('Photo uploaded. Will be submitted for approval when you Save.');
       } else {
         toast.error(json.error || 'Upload failed');
       }
@@ -238,7 +269,6 @@ export default function EditProfilePage({
       toast.error('Upload failed. Please try again.');
     } finally {
       setUploadingPhoto(false);
-      // Reset file input so the same file can be selected again
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -331,40 +361,38 @@ export default function EditProfilePage({
     );
   };
 
-  // Render a single field row
+  // Render a single field row — clean, no per-field buttons
   const renderField = (field: FieldRule) => {
-    // Skip readonly fields entirely
     if (field.rule === 'readonly') return null;
 
     const hasPending = pendingFieldNames.has(field.key);
-    const isSubmitting = submittingField === field.key;
-    const isShowingReason = showReason[field.key];
-
-    // Effective rule — computed per field, per employee, at render time
-    // (e.g. a blank UAN number saves directly; a filled one requires approval).
     const effectiveRule = resolveEffectiveRule(field.rule, getValue(field.key));
+    const current = getValue(field.key);
+    const newVal = formValues[field.key] ?? '';
+    const isChanged = newVal !== current;
 
     // ── Special: Profile Photo ──
     if (field.inputType === 'photo') {
-      const currentPhoto = getValue(field.key);
+      const currentPhoto = current;
       const displayPhoto = pendingPhotoUrl || currentPhoto;
       const photoChanged = !!pendingPhotoUrl && pendingPhotoUrl !== currentPhoto;
 
       return (
-        <div key={field.key} className="space-y-3 border border-amber-100 rounded-lg p-3 bg-amber-50/30">
+        <div key={field.key} className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-sm font-medium">{field.label}</Label>
-            {hasPending && (
-              <Badge variant="outline" className="bg-amber-100 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
-                <Clock className="w-3 h-3 mr-0.5" />
-                Pending
+            {hasPending ? (
+              <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
+                <Clock className="w-3 h-3 mr-0.5" /> Pending
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
+                Needs approval
               </Badge>
             )}
           </div>
-
-          {/* Photo preview */}
           <div className="flex items-center gap-4">
-            <div className="w-20 h-20 rounded-full bg-gray-100 border-2 border-gray-200 overflow-hidden flex-shrink-0">
+            <div className="w-16 h-16 rounded-full bg-gray-100 border-2 border-gray-200 overflow-hidden flex-shrink-0">
               {displayPhoto ? (
                 <img
                   src={getFileUrl(displayPhoto)}
@@ -374,11 +402,11 @@ export default function EditProfilePage({
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-gray-300">
-                  <User className="w-8 h-8" />
+                  <User className="w-7 h-7" />
                 </div>
               )}
             </div>
-            <div className="flex-1 space-y-2">
+            <div className="flex-1 space-y-1.5">
               {!hasPending && (
                 <>
                   <Button
@@ -394,7 +422,7 @@ export default function EditProfilePage({
                     ) : (
                       <Camera className="w-3.5 h-3.5 mr-1.5" />
                     )}
-                    {uploadingPhoto ? 'Uploading...' : 'Choose New Photo'}
+                    {uploadingPhoto ? 'Uploading...' : 'Change Photo'}
                   </Button>
                   <input
                     ref={fileInputRef}
@@ -403,184 +431,61 @@ export default function EditProfilePage({
                     className="hidden"
                     onChange={handlePhotoSelect}
                   />
-                  {photoChanged && (
-                    <p className="text-xs text-emerald-600 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      New photo ready. Submit below.
-                    </p>
-                  )}
                 </>
               )}
+              {photoChanged && (
+                <p className="text-xs text-emerald-600 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> New photo ready
+                </p>
+              )}
             </div>
           </div>
-
-          {/* Submit change request button */}
-          {!hasPending && photoChanged && (
-            !isShowingReason ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full border-amber-200 text-amber-700 hover:bg-amber-100"
-                onClick={() => setShowReason(prev => ({ ...prev, [field.key]: true }))}
-              >
-                <Send className="w-3.5 h-3.5 mr-1.5" />
-                Request Change
-              </Button>
-            ) : (
-              <div className="space-y-2">
-                <Textarea
-                  placeholder="Reason for change (optional)"
-                  value={reasonForms[field.key] || ''}
-                  onChange={e => setReasonForms(prev => ({ ...prev, [field.key]: e.target.value }))}
-                  rows={2}
-                />
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => {
-                      setShowReason(prev => ({ ...prev, [field.key]: false }));
-                      setPendingPhotoUrl(null);
-                      setFormValues(prev => ({ ...prev, profile_pic_url: getValue('profile_pic_url') }));
-                    }}
-                  >
-                    <X className="w-3.5 h-3.5 mr-1" />
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                    onClick={() => handleSubmitRequest(field)}
-                    disabled={isSubmitting || uploadingPhoto}
-                  >
-                    {isSubmitting ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
-                    ) : (
-                      <Send className="w-3.5 h-3.5 mr-1" />
-                    )}
-                    Submit
-                  </Button>
-                </div>
-              </div>
-            )
-          )}
         </div>
       );
     }
 
-    // ── Requires-approval field (admin_approval, or free_if_blank whose current value is filled) ──
-    if (effectiveRule === 'admin_approval') {
-      return (
-        <div key={field.key} className="space-y-2 border border-amber-100 rounded-lg p-3 bg-amber-50/30">
-          <div className="flex items-center justify-between gap-2">
-            <Label htmlFor={`approval-${field.key}`} className="text-sm font-medium">{field.label}</Label>
-            <div className="flex items-center gap-1.5 shrink-0">
-              {field.rule === 'free_if_blank' && (
-                <Badge variant="outline" className="bg-amber-100 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
-                  Requires approval
-                </Badge>
-              )}
-              {hasPending && (
-                <Badge variant="outline" className="bg-amber-100 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
-                  <Clock className="w-3 h-3 mr-0.5" />
-                  Pending
-                </Badge>
-              )}
-            </div>
-          </div>
+    // ── All other fields — clean single input with badge ──
+    const isApproval = effectiveRule === 'admin_approval';
 
-          <p className="text-xs text-gray-400">Current: <span className="font-medium text-gray-600">{getValue(field.key) || '—'}</span></p>
-
-          {renderInput(
-            field,
-            formValues[field.key] || '',
-            (v) => updateField(field.key, v),
-            hasPending,
-          )}
-
-          {!hasPending && (
-            <>
-              {!isShowingReason ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full border-amber-200 text-amber-700 hover:bg-amber-100"
-                  onClick={() => setShowReason(prev => ({ ...prev, [field.key]: true }))}
-                  disabled={!formValues[field.key] || formValues[field.key] === getValue(field.key)}
-                >
-                  <Send className="w-3.5 h-3.5 mr-1.5" />
-                  Request Change
-                </Button>
-              ) : (
-                <div className="space-y-2">
-                  <Textarea
-                    placeholder="Reason for change (optional)"
-                    value={reasonForms[field.key] || ''}
-                    onChange={e => setReasonForms(prev => ({ ...prev, [field.key]: e.target.value }))}
-                    rows={2}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => setShowReason(prev => ({ ...prev, [field.key]: false }))}
-                    >
-                      <X className="w-3.5 h-3.5 mr-1" />
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                      onClick={() => handleSubmitRequest(field)}
-                      disabled={isSubmitting}
-                    >
-                      {isSubmitting ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
-                      ) : (
-                        <Send className="w-3.5 h-3.5 mr-1" />
-                      )}
-                      Submit
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      );
-    }
-
-    // ── Free field (directly editable — includes free_if_blank while blank) ──
     return (
-      <div key={field.key} className="space-y-1.5">
+      <div key={field.key} className="space-y-1">
         <div className="flex items-center justify-between gap-2">
-          <Label htmlFor={`field-${field.key}`}>{field.label}</Label>
-          {(field.rule === 'free_if_blank' || hasPending) && (
-            <div className="flex items-center gap-1.5 shrink-0">
-              {field.rule === 'free_if_blank' && (
-                <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px] px-1.5 py-0">
-                  Fills directly
-                </Badge>
-              )}
-              {hasPending && (
-                <Badge variant="outline" className="bg-amber-100 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
-                  <Clock className="w-3 h-3 mr-0.5" />
-                  Pending
-                </Badge>
-              )}
-            </div>
-          )}
+          <Label htmlFor={`field-${field.key}`} className="text-sm font-medium">{field.label}</Label>
+          <div className="flex items-center gap-1 shrink-0">
+            {hasPending ? (
+              <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
+                <Clock className="w-3 h-3 mr-0.5" /> Pending
+              </Badge>
+            ) : isApproval ? (
+              <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
+                Needs approval
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px] px-1.5 py-0">
+                Saves directly
+              </Badge>
+            )}
+          </div>
         </div>
-        {renderInput(field, formValues[field.key] || '', (v) => updateField(field.key, v), false)}
+        {renderInput(
+          field,
+          formValues[field.key] || '',
+          (v) => updateField(field.key, v),
+          hasPending, // disable input if change is already pending
+        )}
+        {/* Show current value hint for approval fields that already have data */}
+        {isApproval && current && !hasPending && (
+          <p className="text-[11px] text-gray-400">
+            Current: <span className="text-gray-500 font-medium">{current}</span>
+          </p>
+        )}
       </div>
     );
   };
 
   return (
     <div className="space-y-4 pb-6">
-      <PageHeader title="Edit Profile" subtitle="Update your information" onBack={onBack} />
+      <PageHeader title="Edit Profile" subtitle="Update employee information" onBack={onBack} />
 
       {sectionsWithFields.map(section => {
         const Icon = SECTION_ICONS[section.key] || User;
@@ -591,9 +496,6 @@ export default function EditProfilePage({
               <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
                 <Icon className="w-4 h-4" />
                 {section.label}
-                <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px] px-1.5 py-0">
-                  Editable
-                </Badge>
               </h3>
 
               {section.fields.map(field => renderField(field))}
@@ -601,6 +503,15 @@ export default function EditProfilePage({
           </Card>
         );
       })}
+
+      {/* Info box explaining the two save paths */}
+      <div className="flex items-start gap-2.5 px-1 text-xs text-gray-500">
+        <AlertCircle className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
+        <p>
+          Fields marked <span className="text-emerald-600 font-medium">"Saves directly"</span> update immediately.
+          Fields marked <span className="text-amber-600 font-medium">"Needs approval"</span> will be submitted to HR for review — original values stay unchanged until approved.
+        </p>
+      </div>
 
       {/* Bottom Buttons */}
       <div className="flex gap-3 pt-2">
@@ -616,14 +527,19 @@ export default function EditProfilePage({
         <Button
           className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || changedCount === 0}
         >
           {saving ? (
             <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
           ) : (
             <Save className="w-4 h-4 mr-1.5" />
           )}
-          {saving ? 'Saving...' : 'Save Changes'}
+          {saving
+            ? 'Saving...'
+            : changedCount > 0
+              ? `Save Changes (${changedCount})`
+              : 'Save Changes'
+          }
         </Button>
       </div>
     </div>

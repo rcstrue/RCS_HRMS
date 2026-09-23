@@ -213,10 +213,14 @@ function ESSAppInner({ onBackToRegistration }: { onBackToRegistration: () => voi
   const navigate = useCallback((page: string) => {
     if (page === 'logout') { clearSession(); return; }
     if (page === 'new-registration') {
-      localStorage.removeItem('ess_employee');
-      localStorage.removeItem('ess_token');
-      setSession(null);
-      setForcePinSession(null);
+      // Clear only stale registration form data — NOT the auth session.
+      // The manager must stay logged in so they can return to ESS after
+      // registering a new employee without re-authenticating.
+      localStorage.removeItem('registration_form_data');
+      localStorage.removeItem('registration_current_step');
+      localStorage.removeItem('registration_completed_steps');
+      localStorage.removeItem('registration_mobile');
+      localStorage.removeItem('registration_profile_pic');
       window.location.hash = '/';
       return;
     }
