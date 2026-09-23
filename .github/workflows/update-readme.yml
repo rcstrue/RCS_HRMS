@@ -44,6 +44,6 @@ jobs:
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir:./hrms
+          publish_dir: ./hrms
           publish_branch: gh-pages
-          destination_dir:.
+          destination_dir: .
