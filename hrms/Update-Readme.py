@@ -1,5 +1,5 @@
 """
-RCS HRMS - Auto update README
+Auto update README
 Location: hrms/update_readme.py
 Single file version: only hrms/repo-map.html (no docs folder)
 """
