@@ -1,0 +1,63 @@
+name: Update README & Sitemap
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'RCS_ESS/**'
+      - 'api/**'
+      - 'hrms/**'
+      - 'php_payroll/**'
+      - 'database/**'
+      - 'README.md'
+  schedule:
+    - cron: '0 0 * * *' # Daily at midnight
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate the sitemap
+        uses: cicirello/generate-sitemap@v1
+        with:
+          base-url-path: https://join.rcsfacility.com/
+          exclude-paths: 404.shtml RCS_ESS api
+
+      - name: Run README auto-update script from hrms/
+        run: |
+          python hrms/update_readme.py
+          echo "---- Generated files ----"
+          ls -lh sitemap.xml
+          ls -lh hrms/docs/repo-map.html
+          ls -lh hrms/repo-map.html || true
+
+      - name: Commit and push all changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md sitemap.xml hrms/docs/repo-map.html hrms/repo-map.html hrms/update_readme.py || true
+          git diff --staged --quiet || git commit -m "chore: auto-update README map + sitemap [$(date +'%Y-%m-%d')]"
+          git push || echo "No changes to push"
+
+      - name: Deploy hrms/docs to GitHub Pages
+        if: success()
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir:./hrms/docs
+          publish_branch: gh-pages
