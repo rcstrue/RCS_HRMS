@@ -54,6 +54,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         // columns on employees; applied to the employee record on approval.
         'uan_number', 'esic_number', 'aadhaar_number',
         'bank_name', 'account_holder_name', 'account_number', 'ifsc_code',
+        // KYC document image URLs — employee can request replacement/upload of
+        // Aadhaar front, back, and bank passbook images via EditProfilePage.
+        'aadhaar_front_url', 'aadhaar_back_url', 'bank_document_url',
     ];
 
     // ── 1. Approve ─────────────────────────────────────────────
