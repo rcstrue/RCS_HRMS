@@ -4,6 +4,7 @@ on:
   push:
     branches: [ "main", "master" ]
     paths:
+      - 'hrms/**'
       - 'php_payroll/**'
       - 'database/**'
       - 'api/ess/**'
@@ -30,10 +31,10 @@ jobs:
           AFTER="${{ github.event.after }}"
 
           if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            CHANGED=$(git ls-files -- php_payroll/ database/ api/ess/)
-            echo "Manual/first push — deploying all PHP, database & api/ess files"
+            CHANGED=$(git ls-files -- hrms/ php_payroll/ database/ api/ess/)
+            echo "Manual/first push — deploying all HRMS, PHP, database & api/ess files"
           else
-            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" -- php_payroll/ database/ api/ess/)
+            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" -- hrms/ php_payroll/ database/ api/ess/)
             echo "Deploying only changed files"
           fi
 
@@ -75,6 +76,11 @@ jobs:
           while IFS= read -r file; do
             # Determine remote path based on file prefix
             case "$file" in
+              hrms/*)
+                # Strip hrms/ prefix → upload to /hrms/
+                RELATIVE="${file#hrms/}"
+                REMOTE_DIR="/hrms/$(dirname "$RELATIVE")"
+                ;;
               php_payroll/*)
                 # Strip php_payroll/ prefix → upload to /hrms/
                 RELATIVE="${file#php_payroll/}"
