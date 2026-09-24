@@ -7,7 +7,8 @@ if (!isset($db) || !is_object($db)) { header("Location: index.php"); exit; }
  * Allows HR/Admin to view, approve, or reject change requests
  * submitted by employees via the ESS mobile app.
  *
- * Approve: updates the employee record with the new value.
+ * Approve: updates the employee record with the new value
+ * (including KYC document image URLs: aadhaar_front_url, aadhaar_back_url, bank_document_url).
  * Reject: stores rejection reason; employee sees it in ESS.
  * Both actions send email + WhatsApp notification to the employee.
  */
