@@ -17,15 +17,19 @@ require_once __DIR__ . '/security-headers.php';
 // SECURITY: previously only `validateApiKey()` (the shared X-API-KEY, which is
 // shipped in the SPA bundle and therefore public) was required. That allowed
 // anyone to fetch ANY employee's full PII (Aadhaar, bank, IFSC, UAN, nominee)
-// via ?id=N. Require a valid JWT and restrict to admin / regional_manager /
-// manager / supervisor / hr roles. Supervisors can only view employees
-// in their allocated units (user_access table).
+// via ?id=N. Require a valid JWT and restrict to known ESS roles:
+//   - admin / regional_manager / manager / hr — can view any employee
+//   - supervisor — can view employees in their allocated units
+//   - employee — can only view their own record (?id=own_id)
 require_once __DIR__ . '/auth-guard.php';
 
 $authId = requireAuth();
 $conn = getDbConnection();
 $callerRole = strtolower((string)(getEmployeeRole($conn, $authId) ?? ''));
-if (!in_array($callerRole, ESS_GUARD_ROLES_SUPERVISOR, true) && $callerRole !== 'hr') {
+$isElevatedRole = in_array($callerRole, ESS_GUARD_ROLES_SUPERVISOR, true) || $callerRole === 'hr';
+// Employees can access this endpoint ONLY to view their own record (?id=their_own_id).
+// All other roles (supervisor+, hr) have broader access.
+if (!$isElevatedRole && $callerRole !== 'employee') {
     jsonOutput(['success' => false, 'error' => 'Access denied. Insufficient permissions.'], 403);
 }
 
@@ -60,6 +64,13 @@ function getParam($key, $default = '') {
 // GET - Single Employee Detail by ID (full profile with all columns)
 // ============================================================================
 function handleGetById($conn, $targetId, $authId, $callerRole) {
+    global $isElevatedRole;
+
+    // Employees can only view their own record
+    if ($callerRole === 'employee' && (int)$authId !== $targetId) {
+        jsonOutput(['success' => false, 'error' => 'Access denied. You can only view your own profile.'], 403);
+    }
+
     // For supervisors, verify the target employee belongs to an allocated unit
     if ($callerRole === 'supervisor') {
         $allocStmt = $conn->prepare("SELECT access_id FROM user_access WHERE user_id = ? AND access_type = 'unit'");
@@ -176,6 +187,18 @@ function handleGetById($conn, $targetId, $authId, $callerRole) {
 // GET - Search Employees (with role-based filtering)
 // ============================================================================
 function handleGet($conn) {
+    global $callerRole, $authId;
+
+    // Employees can only use self scope in search
+    if ($callerRole === 'employee') {
+        $scope = getParam('scope');
+        if ($scope !== 'self') {
+            jsonOutput(['success' => false, 'error' => 'Access denied. Employees can only search their own records.'], 403);
+        }
+        // Force requester_id to authId for safety
+        $_GET['requester_id'] = $authId;
+    }
+
     $q = getParam('q');
     $unitId = getParam('unit_id');
     $clientId = getParam('client_id');

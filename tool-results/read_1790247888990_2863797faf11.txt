@@ -1,0 +1,708 @@
+     1→import { apiRequest } from '@/lib/api/config';
+     2→const API_BASE_URL = 'https://join.rcsfacility.com';
+     3→import type {
+     4→  LoginResponse, AttendanceRecord, AttendanceSummary,
+     5→  LeaveRequest, LeaveBalance, Task, Expense,
+     6→  HelpdeskTicket, Announcement, PaginatedResponse,
+     7→  ClientOption, UnitOption, Employee, AdvanceAllocation, EmployeeRole, UnitVisit,
+     8→  ChecklistCategory, VisitChecklistItem, VisitDashboardData,
+     9→  ManpowerEntry, ManpowerDashboardData,
+    10→  TeamSummaryResponse, ChangeRequest,
+    11→  DailyAttendanceResponse, DailyAttendanceSaveResponse, DailyAttendanceStatus
+    12→} from './ess-types';
+    13→
+    14→// ══════════════════════════════════════════════════════════════
+    15→// unwrap - PHP wraps responses in { success, message, data }
+    16→// apiRequest gives { data: <PHP envelope>, error }
+    17→// This helper strips the envelope so callers get the actual payload
+    18→// Handles: { success: true, data: ... } → { data: ..., error: null }
+    19→//          { success: false, message/error: "..." } → { data: null, error: "..." }
+    20→//          Raw responses (no envelope) → pass through unchanged
+    21→// ══════════════════════════════════════════════════════════════
+    22→function unwrap<T>(result: Promise<{ data: T | null; error: string | null }>): Promise<{ data: T | null; error: string | null }> {
+    23→  return result.then((res) => {
+    24→    if (res.error) return res;
+    25→    const d = res.data as Record<string, unknown> | null;
+    26→    if (d && typeof d === 'object' && 'success' in d) {
+    27→      // PHP returned a success:false envelope — extract error message
+    28→      if (d.success === false) {
+    29→        const msg = (d.message as string) || (d.error as string) || 'Request failed';
+    30→        return { data: null, error: msg };
+    31→      }
+    32→      // PHP returned a success:true envelope — extract inner data
+    33→      // Guard: data key may exist but be null (e.g. { success: true, data: null })
+    34→      if ('data' in d && d.data != null) {
+    35→        return { data: d.data as T, error: null };
+    36→      }
+    37→      // success:true but data is null/missing → treat as empty result
+    38→      if (d.success === true) {
+    39→        return { data: null, error: null };
+    40→      }
+    41→    }
+    42→    return res;
+    43→  });
+    44→}
+    45→
+    46→// ===== Auth =====
+    47→// Login is special: PHP may return { success: false, is_locked: true, lockout_remaining: ... }
+    48→// alongside the error. We must NOT unwrap success:false into data:null for login,
+    49→// because the caller needs access to is_locked, rate_limit_remaining, etc.
+    50→export async function essLogin(mobileNumber: string, pin: string) {
+    51→  return apiRequest<LoginResponse>('/ess/login', {
+    52→    method: 'POST',
+    53→    body: JSON.stringify({ mobile_number: mobileNumber, pin }),
+    54→  }).then((res) => {
+    55→    if (res.error) return res;
+    56→    const d = res.data as Record<string, unknown> | null;
+    57→    if (d && typeof d === 'object' && 'success' in d) {
+    58→      if (d.success === false) {
+    59→        // Return the FULL envelope as data so LoginScreen can read is_locked, etc.
+    60→        return { data: d as unknown as LoginResponse, error: (d.message as string) || (d.error as string) || 'Login failed' };
+    61→      }
+    62→      if ('data' in d && d.data != null) {
+    63→        return { data: d.data as LoginResponse, error: null };
+    64→      }
+    65→      // success:true but data is null/missing → treat as empty result
+    66→      if (d.success === true) {
+    67→        return { data: null, error: null };
+    68→      }
+    69→    }
+    70→    return res;
+    71→  });
+    72→}
+    73→
+    74→export async function changePin(employee_id: number, current_pin: string, new_pin: string, is_first_login: boolean = false) {
+    75→  return unwrap(apiRequest('/ess/pin', {
+    76→    method: 'POST',
+    77→    body: JSON.stringify({ employee_id, current_pin, new_pin, is_first_login }),
+    78→  }));
+    79→}
+    80→
+    81→// ===== Attendance =====
+    82→export async function fetchAttendance(employee_id: number, month?: string) {
+    83→  const params = new URLSearchParams({ employee_id: String(employee_id) });
+    84→  if (month) params.set('month', month);
+    85→  return unwrap<PaginatedResponse<AttendanceRecord>>(apiRequest<PaginatedResponse<AttendanceRecord>>(`/ess/attendance?${params}`));
+    86→}
+    87→
+    88→export async function checkIn(data: { employee_id: number; latitude?: number; longitude?: number; location?: string }) {
+    89→  return unwrap<AttendanceRecord>(apiRequest<AttendanceRecord>('/ess/attendance', {
+    90→    method: 'POST',
+    91→    body: JSON.stringify(data),
+    92→  }));
+    93→}
+    94→
+    95→export async function checkOut(id: number) {
+    96→  return unwrap<AttendanceRecord>(apiRequest<AttendanceRecord>('/ess/attendance', {
+    97→    method: 'PUT',
+    98→    body: JSON.stringify({ id }),
+    99→  }));
+   100→}
+   101→
+   102→// ===== Leaves =====
+   103→export async function fetchLeaves(employee_id: number, status?: string) {
+   104→  const params = new URLSearchParams({ employee_id: String(employee_id) });
+   105→  if (status) params.set('status', status);
+   106→  return unwrap<PaginatedResponse<LeaveRequest>>(apiRequest<PaginatedResponse<LeaveRequest>>(`/ess/leaves?${params}`));
+   107→}
+   108→
+   109→export async function fetchLeaveBalance(employee_id: number) {
+   110→  return unwrap<LeaveBalance[]>(apiRequest<LeaveBalance[]>(`/ess/leaves?employee_id=${employee_id}&view=balance`));
+   111→}
+   112→
+   113→export async function applyLeave(data: { employee_id: number; type: string; start_date: string; end_date: string; days: number; reason: string }) {
+   114→  return unwrap<LeaveRequest>(apiRequest<LeaveRequest>('/ess/leaves', {
+   115→    method: 'POST',
+   116→    body: JSON.stringify(data),
+   117→  }));
+   118→}
+   119→
+   120→export async function approveLeave(id: number, status: string, approved_by: number, rejection_reason?: string) {
+   121→  return unwrap<LeaveRequest>(apiRequest<LeaveRequest>('/ess/leaves', {
+   122→    method: 'PUT',
+   123→    body: JSON.stringify({ id, status, approved_by, rejection_reason }),
+   124→  }));
+   125→}
+   126→
+   127→// ===== Tasks =====
+   128→export async function fetchTasks(params: { assigned_to?: number; assigned_by?: number; status?: string }) {
+   129→  const searchParams = new URLSearchParams();
+   130→  if (params.assigned_to) searchParams.set('assigned_to', String(params.assigned_to));
+   131→  if (params.assigned_by) searchParams.set('assigned_by', String(params.assigned_by));
+   132→  if (params.status) searchParams.set('status', params.status);
+   133→  return unwrap<PaginatedResponse<Task>>(apiRequest<PaginatedResponse<Task>>(`/ess/tasks?${searchParams}`));
+   134→}
+   135→
+   136→export async function createTask(data: { title: string; description?: string; priority: string; deadline?: string; assigned_to?: number }) {
+   137→  return unwrap<Task>(apiRequest<Task>('/ess/tasks', {
+   138→    method: 'POST',
+   139→    body: JSON.stringify(data),
+   140→  }));
+   141→}
+   142→
+   143→export async function updateTask(id: number, data: Partial<Task>) {
+   144→  return unwrap<Task>(apiRequest<Task>('/ess/tasks', {
+   145→    method: 'PUT',
+   146→    body: JSON.stringify({ id, ...data }),
+   147→  }));
+   148→}
+   149→
+   150→// ===== Expenses =====
+   151→export async function fetchExpenses(employee_id: number, options?: { status?: string; month?: string }) {
+   152→  const params = new URLSearchParams({ employee_id: String(employee_id) });
+   153→  if (options?.status) params.set('status', options.status);
+   154→  if (options?.month) params.set('month', options.month);
+   155→  return unwrap<PaginatedResponse<Expense> & {
+   156→    month_summary?: {
+   157→      advance_received: number;
+   158→      this_month_advance: number;
+   159→      opening_balance: number;
+   160→      approved_expenses: number;
+   161→      closing_balance: number;
+   162→    };
+   163→  }>(
+   164→    apiRequest(`/ess/expenses?${params}`)
+   165→  );
+   166→}
+   167→
+   168→export async function fetchPendingTeamExpenses() {
+   169→  return unwrap<{ items: Expense[] }>(apiRequest<{ items: Expense[] }>('/ess/expenses?view=pending_team'));
+   170→}
+   171→
+   172→export async function fetchExpenseTypes() {
+   173→  return unwrap<{ categories: string[]; types: string[] }>(apiRequest<{ categories: string[]; types: string[] }>('/ess/expenses?view=types'));
+   174→}
+   175→
+   176→export async function fetchAdvanceAllocations(employee_id: number) {
+   177→  return unwrap<{
+   178→    items: AdvanceAllocation[];
+   179→    total_allocated: number;
+   180→    total_used: number;
+   181→    running_balance: number;
+   182→  }>(apiRequest('/ess/expenses?view=advances&employee_id=' + employee_id));
+   183→}
+   184→
+   185→export async function createExpense(data: { employee_id: number; category: string; type: string; amount: number; expense_date: string; description?: string; bill_url?: string; bill_type?: string }) {
+   186→  return unwrap<Expense>(apiRequest<Expense>('/ess/expenses', {
+   187→    method: 'POST',
+   188→    body: JSON.stringify(data),
+   189→  }));
+   190→}
+   191→
+   192→export async function approveExpense(id: number, status: string, approved_by: number, rejection_reason?: string) {
+   193→  return unwrap<Expense>(apiRequest<Expense>('/ess/expenses', {
+   194→    method: 'PUT',
+   195→    body: JSON.stringify({ id, status, approved_by, rejection_reason }),
+   196→  }));
+   197→}
+   198→
+   199→// ===== Helpdesk =====
+   200→export async function fetchHelpdeskTickets(employee_id: number, status?: string) {
+   201→  const params = new URLSearchParams({ employee_id: String(employee_id) });
+   202→  if (status) params.set('status', status);
+   203→  return unwrap<PaginatedResponse<HelpdeskTicket>>(apiRequest<PaginatedResponse<HelpdeskTicket>>(`/ess/helpdesk?${params}`));
+   204→}
+   205→
+   206→export async function createHelpdeskTicket(data: { employee_id: number; category: string; subject: string; description?: string; priority: string }) {
+   207→  return unwrap<HelpdeskTicket>(apiRequest<HelpdeskTicket>('/ess/helpdesk', {
+   208→    method: 'POST',
+   209→    body: JSON.stringify(data),
+   210→  }));
+   211→}
+   212→
+   213→// ===== Announcements =====
+   214→export async function fetchAnnouncements(target_scope?: string, target_id?: number) {
+   215→  const params = new URLSearchParams();
+   216→  if (target_scope) params.set('target_scope', target_scope);
+   217→  if (target_id) params.set('target_id', String(target_id));
+   218→  return unwrap<Announcement[]>(apiRequest<Announcement[]>(`/ess/announcements?${params}`));
+   219→}
+   220→
+   221→export async function createAnnouncement(data: { title: string; content: string; priority: string; target_scope: string; target_id?: number }) {
+   222→  return unwrap<Announcement>(apiRequest<Announcement>('/ess/announcements', {
+   223→    method: 'POST',
+   224→    body: JSON.stringify(data),
+   225→  }));
+   226→}
+   227→
+   228→// ===== Filters =====
+   229→export async function fetchClients(scope?: string, requester_id?: number, unit_ids?: number[]) {
+   230→  const params = new URLSearchParams();
+   231→  if (scope) params.set('scope', scope);
+   232→  if (requester_id) params.set('requester_id', String(requester_id));
+   233→  if (unit_ids?.length) params.set('unit_ids', unit_ids.join(','));
+   234→  return unwrap<ClientOption[]>(apiRequest<ClientOption[]>(`/ess/filters?view=clients&${params}`));
+   235→}
+   236→
+   237→export async function fetchUnits(scope?: string, requester_id?: number, client_id?: number, unit_ids?: number[]) {
+   238→  const params = new URLSearchParams();
+   239→  if (scope) params.set('scope', scope);
+   240→  if (requester_id) params.set('requester_id', String(requester_id));
+   241→  if (client_id) params.set('client_id', String(client_id));
+   242→  if (unit_ids?.length) params.set('unit_ids', unit_ids.join(','));
+   243→  return unwrap<UnitOption[]>(apiRequest<UnitOption[]>(`/ess/filters?view=units&${params}`));
+   244→}
+   245→
+   246→// ===== Employees (Directory) =====
+   247→export async function fetchEmployeeById(employeeId: number) {
+   248→  return unwrap<Employee>(apiRequest<Employee>(`/ess/ess-employees?id=${employeeId}`));
+   249→}
+   250→
+   251→export async function fetchEmployees(params: {
+   252→  scope?: string;
+   253→  requester_id?: number;
+   254→  limit?: number;
+   255→  page?: number;
+   256→  q?: string;
+   257→  client_id?: number;
+   258→  unit_id?: number;
+   259→  unit_ids?: number[];
+   260→}) {
+   261→  const searchParams = new URLSearchParams();
+   262→  if (params.scope) searchParams.set('scope', params.scope);
+   263→  if (params.requester_id) searchParams.set('requester_id', String(params.requester_id));
+   264→  if (params.limit) searchParams.set('limit', String(params.limit));
+   265→  if (params.page) searchParams.set('page', String(params.page));
+   266→  if (params.q) searchParams.set('q', params.q);
+   267→  if (params.client_id) searchParams.set('client_id', String(params.client_id));
+   268→  if (params.unit_id) searchParams.set('unit_id', String(params.unit_id));
+   269→  // Access allocation params (payroll-driven unit filtering)
+   270→  if (params.unit_ids?.length) searchParams.set('unit_ids', params.unit_ids.join(','));
+   271→  return unwrap<PaginatedResponse<Employee>>(apiRequest<PaginatedResponse<Employee>>(`/ess/employees?${searchParams}`));
+   272→}
+   273→
+   274→// ===== Access Allocation (from Payroll) =====
+   275→export async function fetchAccessAllocation() {
+   276→  return unwrap<{
+   277→    user_id: number;
+   278→    role: EmployeeRole;
+   279→    cities: number[];
+   280→    units: number[];
+   281→    cities_detail: { id: number; name: string; state: string }[];
+   282→  }>(apiRequest('/ess/access'));
+   283→}
+   284→
+   285→export async function fetchCities() {
+   286→  return unwrap<{ id: number; name: string; state: string }[]>(
+   287→    apiRequest('/ess/filters?view=cities'),
+   288→  );
+   289→}
+   290→
+   291→// ===== Unit Visits =====
+   292→export async function fetchChecklistCategories(): Promise<{ data: ChecklistCategory[] | null; error: string | null }> {
+   293→  return unwrap<ChecklistCategory[]>(apiRequest<ChecklistCategory[]>('/ess/checklist-master?view=categories'));
+   294→}
+   295→
+   296→export async function fetchUnitVisits(params: {
+   297→  employee_id?: number;
+   298→  /** When true, fetch checklists from ALL managers (not just the caller's own).
+   299→   *  Backend ignores employee_id and returns every manager's visits.
+   300→   *  Only honored for manager+ roles; lower roles are silently scoped to self. */
+   301→  all?: boolean;
+   302→  month?: number;
+   303→  year?: number;
+   304→  unit_id?: number;
+   305→  status?: string;
+   306→  page?: number;
+   307→  limit?: number;
+   308→  include_checklist?: boolean;
+   309→}) {
+   310→  const searchParams = new URLSearchParams();
+   311→  if (params.all) {
+   312→    searchParams.set('all', '1');
+   313→  } else if (params.employee_id != null) {
+   314→    searchParams.set('employee_id', String(params.employee_id));
+   315→  }
+   316→  if (params.month) searchParams.set('month', String(params.month));
+   317→  if (params.year) searchParams.set('year', String(params.year));
+   318→  if (params.unit_id) searchParams.set('unit_id', String(params.unit_id));
+   319→  if (params.status) searchParams.set('status', params.status);
+   320→  if (params.page) searchParams.set('page', String(params.page));
+   321→  if (params.limit) searchParams.set('limit', String(params.limit));
+   322→  if (params.include_checklist) searchParams.set('include_checklist', '1');
+   323→  return unwrap(apiRequest(`/ess/unit-visits?${searchParams}`));
+   324→}
+   325→
+   326→export async function fetchUnitVisitDetail(id: number) {
+   327→  return unwrap<UnitVisit>(apiRequest<UnitVisit>(`/ess/unit-visits?view=detail&id=${id}`));
+   328→}
+   329→
+   330→export async function submitUnitVisit(data: {
+   331→  employee_id: number;
+   332→  unit_id: number;
+   333→  visit_number: 1 | 2;
+   334→  visit_month: number;
+   335→  visit_year: number;
+   336→  document_url: string;
+   337→  document_type: 'image' | 'pdf';
+   338→  notes?: string;
+   339→  checklist_items?: { checklist_item_id: number; status: 'yes' | 'no' | 'na'; remarks?: string; photo_url?: string }[];
+   340→}) {
+   341→  return unwrap<UnitVisit>(apiRequest<UnitVisit>('/ess/unit-visits', {
+   342→    method: 'POST',
+   343→    body: JSON.stringify(data),
+   344→  }));
+   345→}
+   346→
+   347→export async function approveUnitVisit(id: number, approved_by: number) {
+   348→  return unwrap<UnitVisit>(apiRequest<UnitVisit>('/ess/unit-visits', {
+   349→    method: 'PUT',
+   350→    body: JSON.stringify({ id, action: 'approve', approved_by }),
+   351→  }));
+   352→}
+   353→
+   354→export async function rejectUnitVisit(id: number, approved_by: number, rejection_reason: string) {
+   355→  return unwrap<UnitVisit>(apiRequest<UnitVisit>('/ess/unit-visits', {
+   356→    method: 'PUT',
+   357→    body: JSON.stringify({ id, action: 'reject', approved_by, rejection_reason }),
+   358→  }));
+   359→}
+   360→
+   361→export async function deleteUnitVisit(id: number) {
+   362→  return unwrap(apiRequest('/ess/unit-visits', {
+   363→    method: 'DELETE',
+   364→    body: JSON.stringify({ id }),
+   365→  }));
+   366→}
+   367→
+   368→export async function fetchVisitDashboard(employee_id: number) {
+   369→  return unwrap<VisitDashboardData>(apiRequest<VisitDashboardData>(`/ess/unit-visits?view=dashboard&employee_id=${employee_id}`));
+   370→}
+   371→
+   372→export async function sendVisitReportEmail(visit_id: number) {
+   373→  return unwrap(apiRequest('/ess/unit-visits', {
+   374→    method: 'POST',
+   375→    body: JSON.stringify({ action: 'send_email', visit_id }),
+   376→  }));
+   377→}
+   378→
+   379→// ===== Payslip =====
+   380→export async function fetchPayslipPeriods(employee_id: number) {
+   381→  return unwrap(apiRequest(`/ess/payslip?employee_id=${employee_id}`));
+   382→}
+   383→
+   384→export async function fetchPayslipData(employee_id: number, month: number, year: number) {
+   385→  return unwrap(apiRequest(`/ess/payslip?employee_id=${employee_id}&month=${month}&year=${year}`));
+   386→}
+   387→
+   388→// ===== Profile =====
+   389→export async function fetchProfile(employee_id: number) {
+   390→  return unwrap<{ employee: Employee; attendance_summary: AttendanceSummary; leave_balance: LeaveBalance[]; recent_attendance: AttendanceRecord[] }>(
+   391→    apiRequest<{ employee: Employee; attendance_summary: AttendanceSummary; leave_balance: LeaveBalance[]; recent_attendance: AttendanceRecord[] }>(`/ess/filters?view=profile&employee_id=${employee_id}`)
+   392→  );
+   393→}
+   394→
+   395→// ===== Manpower Status =====
+   396→export async function fetchManpowerEntries(params: {
+   397→  date?: string;
+   398→  unit_id?: number;
+   399→  client_id?: number;
+   400→  unit_ids?: number[];
+   401→}) {
+   402→  const searchParams = new URLSearchParams();
+   403→  if (params.date) searchParams.set('date', params.date);
+   404→  if (params.unit_id) searchParams.set('unit_id', String(params.unit_id));
+   405→  if (params.client_id) searchParams.set('client_id', String(params.client_id));
+   406→  if (params.unit_ids?.length) searchParams.set('unit_ids', params.unit_ids.join(','));
+   407→  return unwrap<ManpowerEntry[]>(apiRequest<ManpowerEntry[]>(`/ess/manpower-status?${searchParams}`));
+   408→}
+   409→
+   410→export async function fetchManpowerDashboard(params: {
+   411→  period: 'daily' | 'weekly' | 'monthly' | 'yearly';
+   412→  client_id?: number;
+   413→  unit_ids?: number[];
+   414→  offset?: number;
+   415→}) {
+   416→  const searchParams = new URLSearchParams({ period: params.period });
+   417→  if (params.client_id) searchParams.set('client_id', String(params.client_id));
+   418→  if (params.unit_ids?.length) searchParams.set('unit_ids', params.unit_ids.join(','));
+   419→  if (params.offset) searchParams.set('offset', String(params.offset));
+   420→  return unwrap<ManpowerDashboardData>(apiRequest<ManpowerDashboardData>(`/ess/manpower-status?view=dashboard&${searchParams}`));
+   421→}
+   422→
+   423→export async function saveManpowerStatus(data: {
+   424→  unit_id: number;
+   425→  client_id: number;
+   426→  report_date: string;
+   427→  morning_worker_budget: number;
+   428→  morning_worker_actual: number;
+   429→  morning_supervisor_budget: number;
+   430→  morning_supervisor_actual: number;
+   431→  evening_worker_budget: number;
+   432→  evening_worker_actual: number;
+   433→  evening_supervisor_budget: number;
+   434→  evening_supervisor_actual: number;
+   435→  remarks?: string;
+   436→}) {
+   437→  return unwrap(apiRequest('/ess/manpower-status', {
+   438→    method: 'POST',
+   439→    body: JSON.stringify(data),
+   440→  }));
+   441→}
+   442→
+   443→export async function deleteManpowerStatus(id: number) {
+   444→  return unwrap(apiRequest('/ess/manpower-status', {
+   445→    method: 'DELETE',
+   446→    body: JSON.stringify({ id }),
+   447→  }));
+   448→}
+   449→
+   450→// ===== Team Monthly Summary (Attendance + Advances) =====
+   451→export async function fetchTeamSummary(unitId: number, month: number, year: number) {
+   452→  return unwrap<TeamSummaryResponse>(apiRequest<TeamSummaryResponse>(
+   453→    `/ess/team-summary?unit_id=${unitId}&month=${month}&year=${year}`
+   454→  ));
+   455→}
+   456→
+   457→export async function saveTeamAdvance(data: {
+   458→  employee_id: string;
+   459→  unit_id: number;
+   460→  month: number;
+   461→  year: number;
+   462→  present?: number;
+   463→  wo?: number;
+   464→  adv1: number;
+   465→  office_advance: number;
+   466→  dress_advance: number;
+   467→}) {
+   468→  return unwrap(apiRequest('/ess/team-summary', {
+   469→    method: 'POST',
+   470→    body: JSON.stringify({ ...data, action: 'save_advance' }),
+   471→  }));
+   472→}
+   473→
+   474→export async function addTempEmployee(data: {
+   475→  name: string;
+   476→  unit_id: number;
+   477→  month: number;
+   478→  year: number;
+   479→}) {
+   480→  return unwrap(apiRequest('/ess/team-summary', {
+   481→    method: 'POST',
+   482→    body: JSON.stringify({ ...data, action: 'add_temp' }),
+   483→  }));
+   484→}
+   485→
+   486→export async function deleteTempEmployee(data: {
+   487→  temp_id: number;
+   488→  unit_id: number;
+   489→}) {
+   490→  return unwrap(apiRequest('/ess/team-summary', {
+   491→    method: 'POST',
+   492→    body: JSON.stringify({ ...data, action: 'del_temp' }),
+   493→  }));
+   494→}
+   495→
+   496→export async function removeEmployee(data: {
+   497→  employee_id: number;
+   498→  unit_id: number;
+   499→}) {
+   500→  return unwrap(apiRequest('/ess/team-summary', {
+   501→    method: 'POST',
+   502→    body: JSON.stringify({ ...data, action: 'remove_emp' }),
+   503→  }));
+   504→}
+   505→
+   506→// ===== Manager Employee Actions =====
+   507→export async function exitEmployee(data: {
+   508→  employee_id: number;
+   509→  exit_date: string; // YYYY-MM-DD
+   510→}) {
+   511→  return unwrap(apiRequest('/ess/employee-actions', {
+   512→    method: 'POST',
+   513→    body: JSON.stringify({ ...data, action: 'exit' }),
+   514→  }));
+   515→}
+   516→
+   517→export async function transferEmployee(data: {
+   518→  employee_id: number;
+   519→  client_id?: number;
+   520→  unit_id?: number;
+   521→}) {
+   522→  return unwrap(apiRequest('/ess/employee-actions', {
+   523→    method: 'POST',
+   524→    body: JSON.stringify({ ...data, action: 'transfer' }),
+   525→  }));
+   526→}
+   527→
+   528→// ===== Certificates =====
+   529→
+   530→export interface CertificateInfo {
+   531→  type: string;
+   532→  name: string;
+   533→  description: string;
+   534→  available: boolean;
+   535→}
+   536→
+   537→export interface CertificateListResponse {
+   538→  certificates: CertificateInfo[];
+   539→  employee_status: string;
+   540→}
+   541→
+   542→export interface CertificateData {
+   543→  certificate_type: string;
+   544→  certificate_number: string;
+   545→  date_of_issue: string;
+   546→  verification_code: string;
+   547→  verify_url: string;
+   548→  employee: {
+   549→    employee_code: string;
+   550→    full_name: string;
+   551→    father_name: string;
+   552→    gender: string;
+   553→    designation: string;
+   554→    department: string;
+   555→    date_of_joining: string;
+   556→    probation_period: number;
+   557→    address: string;
+   558→    district: string;
+   559→    state: string;
+   560→    pin_code: string;
+   561→    uan_number: string;
+   562→    esic_number: string;
+   563→  };
+   564→  salary: {
+   565→    basic_da: number;
+   566→    hra: number;
+   567→    washing_allowance: number;
+   568→    gross_salary: number;
+   569→    pf_applicable: boolean;
+   570→    esi_applicable: boolean;
+   571→    pt_applicable: boolean;
+   572→  } | null;
+   573→  payroll: {
+   574→    month: number;
+   575→    year: number;
+   576→    month_name: string;
+   577→    total_days: number;
+   578→    paid_days: number;
+   579→    pf_employee: number;
+   580→    esi_employee: number;
+   581→    professional_tax: number;
+   582→    total_deductions: number;
+   583→    net_pay: number;
+   584→    ctc: number;
+   585→    gross_earnings: number;
+   586→  } | null;
+   587→  tenure: string;
+   588→  company: {
+   589→    name: string;
+   590→    address: string;
+   591→    city: string;
+   592→    state: string;
+   593→    pincode: string;
+   594→    gst: string;
+   595→    pan: string;
+   596→    email: string;
+   597→    phone: string;
+   598→  };
+   599→}
+   600→
+   601→export function fetchCertificateList() {
+   602→  return unwrap(apiRequest<CertificateListResponse>('/ess/certificates'));
+   603→}
+   604→
+   605→export function generateCertificate(type: string) {
+   606→  return unwrap(apiRequest<CertificateData>('/ess/certificates', {
+   607→    method: 'POST',
+   608→    body: JSON.stringify({ type }),
+   609→  }));
+   610→}
+   611→
+   612→export interface VerifyCertificateResponse {
+   613→  certificate_type: string;
+   614→  certificate_number: string;
+   615→  issued_at: string;
+   616→  is_valid: boolean;
+   617→  employee: {
+   618→    employee_code: string;
+   619→    full_name: string;
+   620→    designation: string;
+   621→    department: string;
+   622→    client_name: string;
+   623→    unit_name: string;
+   624→    date_of_joining: string;
+   625→    gender: string;
+   626→  };
+   627→}
+   628→
+   629→export function verifyCertificate(code: string) {
+   630→  // Public endpoint — NO auth token, but X-API-KEY is required by server .htaccess
+   631→  // Direct fetch with cache:'no-store' + timestamp to bypass service worker cache
+   632→  const API_KEY = (import.meta as Record<string, Record<string, string>>).env?.VITE_API_KEY ?? '';
+   633→  const url = `${API_BASE_URL}/api/ess/verify-certificate.php?cert=${encodeURIComponent(code)}&_t=${Date.now()}`;
+   634→  return fetch(url, {
+   635→    method: 'GET',
+   636→    headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
+   637→    cache: 'no-store',
+   638→  }).then(async (resp) => {
+   639→    const text = await resp.text();
+   640→    if (!text.trim()) return { data: null, error: 'Empty response' };
+   641→    try {
+   642→      const json = JSON.parse(text);
+   643→      if (!resp.ok) return { data: null, error: json?.error || json?.message || 'Verification failed' };
+   644→      // Unwrap PHP envelope: { success, data }
+   645→      return { data: (json?.success ? json.data : json) as VerifyCertificateResponse, error: null };
+   646→    } catch {
+   647→      return { data: null, error: 'Invalid response' };
+   648→    }
+   649→  }).catch(() => ({ data: null, error: 'Network error. Please check your connection.' }));
+   650→}
+   651→
+   652→// ===== Full Profile =====
+   653→export async function fetchFullProfile(employee_id: number) {
+   654→  return unwrap(apiRequest<Employee>(`/ess/profile?employee_id=${employee_id}`));
+   655→}
+   656→
+   657→// ===== Profile Update (Free fields only) =====
+   658→export async function updateProfile(data: {
+   659→  employee_id: number;
+   660→  fields: Record<string, string | null>;
+   661→}) {
+   662→  return unwrap(apiRequest<Employee>('/ess/profile', {
+   663→    method: 'PUT',
+   664→    body: JSON.stringify(data),
+   665→  }));
+   666→}
+   667→
+   668→// ===== Change Requests =====
+   669→export async function submitChangeRequest(data: {
+   670→  employee_id: number;
+   671→  field_name: string;
+   672→  old_value: string;
+   673→  new_value: string;
+   674→  reason?: string;
+   675→}) {
+   676→  return unwrap(apiRequest<{ id: number; status: string }>('/ess/change-requests', {
+   677→    method: 'POST',
+   678→    body: JSON.stringify(data),
+   679→  }));
+   680→}
+   681→
+   682→export async function fetchChangeRequests(employee_id: number) {
+   683→  return unwrap(apiRequest<ChangeRequest[]>(`/ess/change-requests?employee_id=${employee_id}`));
+   684→}
+   685→
+   686→// ===== Daily Attendance (Supervisor/Manager) =====
+   687→
+   688→export async function fetchDailyAttendance(unitId: number, date: string) {
+   689→  const params = new URLSearchParams({ unit_id: String(unitId), date });
+   690→  return unwrap<DailyAttendanceResponse>(
+   691→    apiRequest<DailyAttendanceResponse>(`/ess/daily-attendance?${params}`)
+   692→  );
+   693→}
+   694→
+   695→export async function saveDailyAttendance(
+   696→  unitId: number,
+   697→  date: string,
+   698→  records: { employee_id: number; status: DailyAttendanceStatus; note?: string }[]
+   699→) {
+   700→  return unwrap<DailyAttendanceSaveResponse>(
+   701→    apiRequest<DailyAttendanceSaveResponse>('/ess/daily-attendance', {
+   702→      method: 'POST',
+   703→      headers: { 'Content-Type': 'application/json' },
+   704→      body: JSON.stringify({ date, unit_id: unitId, records }),
+   705→    })
+   706→  );
+   707→}
+   708→

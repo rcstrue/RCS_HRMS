@@ -5,9 +5,13 @@ export interface FieldRule {
   label: string;
   section: string;
   rule: FieldEditRule;
-  inputType?: 'text' | 'email' | 'select' | 'date' | 'textarea' | 'tel' | 'photo';
+  inputType?: 'text' | 'email' | 'select' | 'date' | 'textarea' | 'tel' | 'photo' | 'image';
   options?: string[];
   masked?: boolean;
+  /** For image type fields: the upload folder name (e.g. 'aadhaar', 'bank') */
+  uploadFolder?: string;
+  /** For image type fields: the filename to use for upload */
+  uploadFilename?: string;
 }
 
 // Relationship options — match the employee registration form (hrms/modules/employee/add.php)
@@ -48,6 +52,11 @@ export const FIELD_RULES: FieldRule[] = [
   { key: 'account_holder_name', label: 'Account Holder Name', section: 'sensitive', rule: 'free_if_blank', inputType: 'text' },
   { key: 'account_number', label: 'Account Number', section: 'sensitive', rule: 'free_if_blank', inputType: 'text' },
   { key: 'ifsc_code', label: 'IFSC Code', section: 'sensitive', rule: 'free_if_blank', inputType: 'text' },
+
+  // ── KYC DOCUMENTS (image uploads — always need HR approval) ──
+  { key: 'aadhaar_front_url', label: 'Aadhaar Card (Front)', section: 'documents', rule: 'admin_approval', inputType: 'image', uploadFolder: 'aadhaar', uploadFilename: 'aadhaar-front.jpg' },
+  { key: 'aadhaar_back_url', label: 'Aadhaar Card (Back)', section: 'documents', rule: 'admin_approval', inputType: 'image', uploadFolder: 'aadhaar', uploadFilename: 'aadhaar-back.jpg' },
+  { key: 'bank_document_url', label: 'Bank Passbook / Cancelled Cheque', section: 'documents', rule: 'admin_approval', inputType: 'image', uploadFolder: 'bank', uploadFilename: 'bank-document.jpg' },
 ];
 
 // Only the sections that have editable fields (no employment, etc.)
@@ -57,6 +66,7 @@ export const FIELD_SECTIONS = [
   { key: 'emergency', label: 'Emergency Contact', icon: 'Phone' },
   { key: 'nominee', label: 'Nominee Details', icon: 'UserCheck' },
   { key: 'sensitive', label: 'Bank & Statutory Details', icon: 'CreditCard' },
+  { key: 'documents', label: 'KYC Documents', icon: 'FileText' },
 ];
 
 /**

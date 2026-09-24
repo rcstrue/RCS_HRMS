@@ -16,6 +16,9 @@ import {
   Camera,
   CheckCircle2,
   AlertCircle,
+  FileText,
+  Image as ImageIcon,
+  Upload,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -37,7 +40,7 @@ import {
   type FieldRule,
 } from '@/lib/field-rules';
 import type { Employee, ChangeRequest } from '@/lib/ess-types';
-import { getFileUrl } from '@/lib/api/config';
+import { getFileUrl, uploadBase64Image } from '@/lib/api/config';
 import PageHeader from './PageHeader';
 
 // ══════════════════════════════════════════════════════════════
@@ -70,6 +73,7 @@ const SECTION_ICONS: Record<string, React.ElementType> = {
   emergency: Phone,
   nominee: UserCheck,
   sensitive: CreditCard,
+  documents: FileText,
 };
 
 export default function EditProfilePage({
@@ -84,6 +88,12 @@ export default function EditProfilePage({
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [pendingPhotoUrl, setPendingPhotoUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── KYC Document image uploads ──
+  // Track pending uploaded URLs for image fields (aadhaar_front_url, aadhaar_back_url, bank_document_url)
+  const [pendingImageUrls, setPendingImageUrls] = useState<Record<string, string>>({});
+  const [uploadingImageKey, setUploadingImageKey] = useState<string | null>(null);
+  const imageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const pendingFieldNames = useMemo(() => {
     const set = new Set<string>();
@@ -126,6 +136,8 @@ export default function EditProfilePage({
     let count = 0;
     for (const f of FIELD_RULES) {
       if (f.rule === 'readonly') continue;
+      if (f.inputType === 'photo') continue; // handled separately below
+      if (f.inputType === 'image') continue; // handled separately below
       const current = getValue(f.key);
       const newVal = formValues[f.key] ?? '';
       if (newVal !== current) count++;
@@ -133,8 +145,15 @@ export default function EditProfilePage({
     // Photo change
     const currentPhoto = getValue('profile_pic_url');
     if (pendingPhotoUrl && pendingPhotoUrl !== currentPhoto) count++;
+    // Document image changes
+    for (const f of FIELD_RULES) {
+      if (f.inputType !== 'image') continue;
+      const current = getValue(f.key);
+      const pending = pendingImageUrls[f.key];
+      if (pending && pending !== current) count++;
+    }
     return count;
-  }, [formValues, employee, pendingPhotoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [formValues, employee, pendingPhotoUrl, pendingImageUrls]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Single Save Changes handler ──
   // Auto-routes: free fields → direct save, approval fields → change requests
@@ -147,6 +166,7 @@ export default function EditProfilePage({
       for (const f of FIELD_RULES) {
         if (f.rule === 'readonly') continue;
         if (f.inputType === 'photo') continue; // handle photo separately
+        if (f.inputType === 'image') continue; // handle image uploads separately
 
         const current = getValue(f.key);
         const newVal = formValues[f.key] ?? '';
@@ -169,6 +189,16 @@ export default function EditProfilePage({
           field: FIELD_RULES.find(f => f.key === 'profile_pic_url')!,
           newVal: pendingPhotoUrl,
         });
+      }
+
+      // Handle KYC document image uploads (always need approval)
+      for (const f of FIELD_RULES) {
+        if (f.inputType !== 'image') continue;
+        const current = getValue(f.key);
+        const pending = pendingImageUrls[f.key];
+        if (pending && pending !== current) {
+          approvalFields.push({ field: f, newVal: pending });
+        }
       }
 
       const totalChanges = Object.keys(freeChanged).length + approvalFields.length;
@@ -270,6 +300,48 @@ export default function EditProfilePage({
     } finally {
       setUploadingPhoto(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // ── KYC Document Image Upload ──
+  const handleImageSelect = async (fieldKey: string, folder: string, filename: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be less than 5MB');
+      return;
+    }
+
+    setUploadingImageKey(fieldKey);
+    try {
+      // Convert file to base64 for upload-base64 endpoint
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const { url, error } = await uploadBase64Image(base64Data, filename, folder);
+      if (url) {
+        setPendingImageUrls(prev => ({ ...prev, [fieldKey]: url }));
+        setFormValues(prev => ({ ...prev, [fieldKey]: url }));
+        toast.success('Document uploaded. Will be submitted for approval when you Save.');
+      } else {
+        toast.error(error || 'Upload failed');
+      }
+    } catch {
+      toast.error('Upload failed. Please try again.');
+    } finally {
+      setUploadingImageKey(null);
+      // Reset file input
+      const inputRef = imageInputRefs.current[fieldKey];
+      if (inputRef) inputRef.value = '';
     }
   };
 
@@ -436,6 +508,89 @@ export default function EditProfilePage({
               {photoChanged && (
                 <p className="text-xs text-emerald-600 flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3" /> New photo ready
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Special: KYC Document Image ──
+    if (field.inputType === 'image') {
+      const currentUrl = current;
+      const pendingUrl = pendingImageUrls[field.key];
+      const displayUrl = pendingUrl || currentUrl;
+      const imageChanged = !!pendingUrl && pendingUrl !== currentUrl;
+      const isUploading = uploadingImageKey === field.key;
+      const folder = field.uploadFolder || 'documents';
+      const filename = field.uploadFilename || `${field.key}.jpg`;
+
+      return (
+        <div key={field.key} className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-medium">{field.label}</Label>
+            {hasPending ? (
+              <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
+                <Clock className="w-3 h-3 mr-0.5" /> Pending
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
+                Needs approval
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {/* Document thumbnail */}
+            <div className="w-20 h-14 rounded-lg bg-gray-50 border-2 border-dashed border-gray-200 overflow-hidden flex-shrink-0 flex items-center justify-center">
+              {displayUrl ? (
+                <img
+                  src={getFileUrl(displayUrl)}
+                  alt={field.label}
+                  className="w-full h-full object-cover"
+                  onError={e => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.innerHTML = '<div class="w-full h-full flex items-center justify-center text-gray-300"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>'; }}
+                />
+              ) : (
+                <ImageIcon className="w-6 h-6 text-gray-300" />
+              )}
+            </div>
+            <div className="flex-1 space-y-1.5">
+              {!hasPending && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full border-dashed"
+                    onClick={() => imageInputRefs.current[field.key]?.click()}
+                    disabled={isUploading}
+                  >
+                    {isUploading ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                    ) : currentUrl ? (
+                      <Upload className="w-3.5 h-3.5 mr-1.5" />
+                    ) : (
+                      <Camera className="w-3.5 h-3.5 mr-1.5" />
+                    )}
+                    {isUploading ? 'Uploading...' : currentUrl ? 'Replace' : 'Upload'}
+                  </Button>
+                  <input
+                    ref={el => { imageInputRefs.current[field.key] = el; }}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={e => handleImageSelect(field.key, folder, filename, e)}
+                  />
+                </>
+              )}
+              {imageChanged && (
+                <p className="text-xs text-emerald-600 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> New document ready
+                </p>
+              )}
+              {currentUrl && !displayUrl?.startsWith('pending') && (
+                <p className="text-[11px] text-gray-400 truncate">
+                  Current document on file
                 </p>
               )}
             </div>

@@ -1,0 +1,728 @@
+     1→<?php
+     2→if (!isset($db) || !is_object($db)) { header("Location: index.php"); exit; }
+     3→
+     4→/**
+     5→ * RCS HRMS Pro — Employee Change Requests Approval Page
+     6→ *
+     7→ * Allows HR/Admin to view, approve, or reject change requests
+     8→ * submitted by employees via the ESS mobile app.
+     9→ *
+    10→ * Approve: updates the employee record with the new value.
+    11→ * Reject: stores rejection reason; employee sees it in ESS.
+    12→ * Both actions send email + WhatsApp notification to the employee.
+    13→ */
+    14→
+    15→$pageTitle = 'Change Request Approvals';
+    16→
+    17→// ─── In-App Notification Helper (INSERT into ess_notifications) ──────────
+    18→function sendInAppNotification(int $employeeId, string $title, string $message, string $type = 'info', string $link = '') {
+    19→    global $db;
+    20→    try {
+    21→        // Use the same format as ESS notifications.php: employee_id, title, message, type, link, created_at
+    22→        $linkVal = $link ?: '';
+    23→        $sql = "INSERT INTO ess_notifications (employee_id, title, message, type, link, created_at)
+    24→                VALUES (:employee_id, :title, :message, :type, :link, NOW())";
+    25→        $db->exec($sql, [
+    26→            'employee_id' => (string)$employeeId,
+    27→            'title'       => $title,
+    28→            'message'     => $message,
+    29→            'type'        => $type,
+    30→            'link'        => $linkVal,
+    31→        ]);
+    32→    } catch (Exception $e) {
+    33→        error_log('[change-request in-app notif] ' . $e->getMessage());
+    34→    }
+    35→}
+    36→
+    37→// ─── POST Actions ────────────────────────────────────────────────────────────
+    38→
+    39→if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    40→    // CSRF check
+    41→    $csrfToken = $_POST['csrf_token'] ?? '';
+    42→    if (!validateCSRFToken($csrfToken)) {
+    43→        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+    44→        redirect($_SERVER['REQUEST_URI'] ?? 'index.php?page=employee/change-requests');
+    45→    }
+    46→    $action = $_POST['action'] ?? '';
+    47→
+    48→    // ── Whitelist of fields that can be updated on approval ──
+    49→    $APPROVAL_FIELDS = [
+    50→        'full_name', 'father_name', 'date_of_birth', 'gender',
+    51→        'designation', 'department', 'profile_pic_url',
+    52→        // Bank & statutory details — manager/employee change requests for the
+    53→        // ESS Manager Edit flow (see RCS_HRMS_Manager_Edit_Button.md). Sensitive
+    54→        // columns on employees; applied to the employee record on approval.
+    55→        'uan_number', 'esic_number', 'aadhaar_number',
+    56→        'bank_name', 'account_holder_name', 'account_number', 'ifsc_code',
+    57→    ];
+    58→
+    59→    // ── 1. Approve ─────────────────────────────────────────────
+    60→    if ($action === 'approve') {
+    61→        $id = (int) ($_POST['id'] ?? 0);
+    62→        if ($id > 0) {
+    63→            // Fetch request WITHOUT JOIN, then get employee separately
+    64→            $request = $db->fetch(
+    65→                "SELECT * FROM employee_change_requests
+    66→                 WHERE id = :id AND status = 'pending' LIMIT 1",
+    67→                ['id' => $id]
+    68→            );
+    69→
+    70→            if ($request) {
+    71→                // Fetch employee info separately
+    72→                $empInfo = $db->fetch(
+    73→                    "SELECT full_name, email, mobile_number, employee_code, designation
+    74→                     FROM employees WHERE id = :eid LIMIT 1",
+    75→                    ['eid' => (int)$request['employee_id']]
+    76→                );
+    77→                if ($empInfo) {
+    78→                    $request['emp_name']      = $empInfo['full_name'];
+    79→                    $request['email']         = $empInfo['email'];
+    80→                    $request['mobile_number'] = $empInfo['mobile_number'];
+    81→                    $request['employee_code'] = $empInfo['employee_code'];
+    82→                    $request['designation']   = $empInfo['designation'];
+    83→                } else {
+    84→                    $request['emp_name'] = 'Employee #' . $request['employee_id'];
+    85→                }
+    86→                $field = $request['field_name'];
+    87→                $newValue = $request['new_value'];
+    88→
+    89→                // Apply the change to employee record if it's a whitelisted field
+    90→                if (in_array($field, $APPROVAL_FIELDS, true)) {
+    91→                    try {
+    92→                        $db->update(
+    93→                            'employees',
+    94→                            [$field => $newValue],
+    95→                            'id = :id',
+    96→                            ['id' => $request['employee_id']]
+    97→                        );
+    98→                    } catch (Exception $e) {
+    99→                        setFlash('error', 'Failed to update employee record: ' . $e->getMessage());
+   100→                        redirect('index.php?page=employee/change-requests');
+   101→                    }
+   102→                }
+   103→
+   104→                // Mark request as approved
+   105→                $db->update(
+   106→                    'employee_change_requests',
+   107→                    [
+   108→                        'status'      => 'approved',
+   109→                        'reviewed_at' => date('Y-m-d H:i:s'),
+   110→                        'reviewed_by' => $_SESSION['user_id'] ?? null,
+   111→                    ],
+   112→                    'id = :id',
+   113→                    ['id' => $id]
+   114→                );
+   115→
+   116→                // ── In-App Notification to employee ──
+   117→                $fieldLabel = ucfirst(str_replace('_', ' ', $field));
+   118→                sendInAppNotification(
+   119→                    (int)$request['employee_id'],
+   120→                    "Change Request Approved — {$fieldLabel}",
+   121→                    "Your change request for {$fieldLabel} has been APPROVED. New value: {$newValue}",
+   122→                    'success',
+   123→                    '/profile/change-requests'
+   124→                );
+   125→
+   126→                // Audit log
+   127→                if (function_exists('logActivity')) {
+   128→                    logActivity('approve_change_request', 'employee', $request['employee_id'],
+   129→                        "Approved change request #{$id}: {$field} = " . substr($newValue, 0, 50));
+   130→                }
+   131→
+   132→                setFlash('success', 'Change request approved. Employee has been notified.');
+   133→            } else {
+   134→                setFlash('error', 'Request not found or already processed.');
+   135→            }
+   136→        }
+   137→        redirect('index.php?page=employee/change-requests');
+   138→    }
+   139→
+   140→    // ── 2. Reject ──────────────────────────────────────────────
+   141→    if ($action === 'reject') {
+   142→        $id     = (int) ($_POST['id'] ?? 0);
+   143→        $reason = trim($_POST['rejection_reason'] ?? '');
+   144→
+   145→        if ($id > 0 && $reason !== '') {
+   146→            // Fetch request WITHOUT JOIN
+   147→            $request = $db->fetch(
+   148→                "SELECT * FROM employee_change_requests
+   149→                 WHERE id = :id AND status = 'pending' LIMIT 1",
+   150→                ['id' => $id]
+   151→            );
+   152→
+   153→            if ($request) {
+   154→                // Fetch employee info separately
+   155→                $empInfo = $db->fetch(
+   156→                    "SELECT full_name, email, mobile_number, employee_code, designation
+   157→                     FROM employees WHERE id = :eid LIMIT 1",
+   158→                    ['eid' => (int)$request['employee_id']]
+   159→                );
+   160→                if ($empInfo) {
+   161→                    $request['emp_name']      = $empInfo['full_name'];
+   162→                    $request['email']         = $empInfo['email'];
+   163→                    $request['mobile_number'] = $empInfo['mobile_number'];
+   164→                    $request['employee_code'] = $empInfo['employee_code'];
+   165→                    $request['designation']   = $empInfo['designation'];
+   166→                } else {
+   167→                    $request['emp_name'] = 'Employee #' . $request['employee_id'];
+   168→                }
+   169→                $field = $request['field_name'];
+   170→
+   171→                // Mark request as rejected
+   172→                $db->update(
+   173→                    'employee_change_requests',
+   174→                    [
+   175→                        'status'           => 'rejected',
+   176→                        'reviewed_at'      => date('Y-m-d H:i:s'),
+   177→                        'reviewed_by'      => $_SESSION['user_id'] ?? null,
+   178→                        'rejection_reason' => $reason,
+   179→                    ],
+   180→                    'id = :id',
+   181→                    ['id' => $id]
+   182→                );
+   183→
+   184→                // ── In-App Notification to employee ──
+   185→                $fieldLabel = ucfirst(str_replace('_', ' ', $field));
+   186→                sendInAppNotification(
+   187→                    (int)$request['employee_id'],
+   188→                    "Change Request Rejected — {$fieldLabel}",
+   189→                    "Your change request for {$fieldLabel} has been REJECTED. Reason: {$reason}",
+   190→                    'danger',
+   191→                    '/profile/change-requests'
+   192→                );
+   193→
+   194→                if (function_exists('logActivity')) {
+   195→                    logActivity('reject_change_request', 'employee', $request['employee_id'],
+   196→                        "Rejected change request #{$id}: {$field} — " . substr($reason, 0, 50));
+   197→                }
+   198→
+   199→                setFlash('success', 'Change request rejected. Employee has been notified.');
+   200→            } else {
+   201→                setFlash('error', 'Request not found or already processed.');
+   202→            }
+   203→        } elseif ($id > 0 && $reason === '') {
+   204→            setFlash('danger', 'Rejection reason is required.');
+   205→        }
+   206→        redirect('index.php?page=employee/change-requests');
+   207→    }
+   208→
+   209→    // ── 3. Bulk approve ───────────────────────────────────────
+   210→    if ($action === 'bulk_approve') {
+   211→        $ids = $_POST['selected_ids'] ?? [];
+   212→        if (!empty($ids) && is_array($ids)) {
+   213→            $count = 0;
+   214→            $errors = 0;
+   215→
+   216→            foreach ($ids as $id) {
+   217→                $id = (int) $id;
+   218→                if ($id <= 0) continue;
+   219→
+   220→                $request = $db->fetch(
+   221→                    "SELECT * FROM employee_change_requests
+   222→                     WHERE id = :id AND status = 'pending'
+   223→                     LIMIT 1",
+   224→                    ['id' => $id]
+   225→                );
+   226→
+   227→                if (!$request) continue;
+   228→
+   229→                $field = $request['field_name'];
+   230→                $newValue = $request['new_value'];
+   231→
+   232→                if (in_array($field, $APPROVAL_FIELDS, true)) {
+   233→                    try {
+   234→                        $db->update('employees', [$field => $newValue], 'id = :id', ['id' => $request['employee_id']]);
+   235→                    } catch (Exception $e) {
+   236→                        $errors++;
+   237→                        continue;
+   238→                    }
+   239→                }
+   240→
+   241→                $db->update(
+   242→                    'employee_change_requests',
+   243→                    [
+   244→                        'status'      => 'approved',
+   245→                        'reviewed_at' => date('Y-m-d H:i:s'),
+   246→                        'reviewed_by' => $_SESSION['user_id'] ?? null,
+   247→                    ],
+   248→                    'id = :id',
+   249→                    ['id' => $id]
+   250→                );
+   251→                $count++;
+   252→            }
+   253→
+   254→            $msg = "{$count} change request(s) approved.";
+   255→            if ($errors > 0) $msg .= " ({$errors} error(s))";
+   256→            setFlash('success', $msg);
+   257→        } else {
+   258→            setFlash('warning', 'No requests selected.');
+   259→        }
+   260→        redirect('index.php?page=employee/change-requests');
+   261→    }
+   262→}
+   263→
+   264→// ─── GET Filters ────────────────────────────────────────────────────────────
+   265→
+   266→// Raw GET values — do NOT use sanitize() (htmlspecialchars breaks PDO binding)
+   267→$fStatusRaw = trim($_GET['status'] ?? 'all');
+   268→$fSearchRaw = trim($_GET['search'] ?? '');
+   269→
+   270→// Validate status against whitelist
+   271→$fStatus = in_array($fStatusRaw, ['all', 'pending', 'approved', 'rejected'], true) ? $fStatusRaw : 'all';
+   272→$fSearch = substr($fSearchRaw, 0, 100);
+   273→
+   274→// ─── Summary counts (independent query) ────────────────────────────────────
+   275→
+   276→$pendingCount  = 0;
+   277→$approvedCount = 0;
+   278→$rejectedCount = 0;
+   279→try {
+   280→    $pendingCount  = (int)$db->fetchColumn("SELECT COUNT(*) FROM employee_change_requests WHERE status = 'pending'") ?: 0;
+   281→    $approvedCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM employee_change_requests WHERE status = 'approved'") ?: 0;
+   282→    $rejectedCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM employee_change_requests WHERE status = 'rejected'") ?: 0;
+   283→} catch (Exception $e) {
+   284→    error_log('[change-requests] Count queries failed: ' . $e->getMessage());
+   285→}
+   286→
+   287→// ─── Fetch requests — 2-step approach (no JOINs) ──────────────────────────
+   288→
+   289→$requests = [];
+   290→$dbError  = '';
+   291→$diagInfo = '';
+   292→
+   293→try {
+   294→    // Step 1: Fetch change requests WITHOUT any JOINs
+   295→    if ($fStatus !== 'all') {
+   296→        $rawRequests = $db->fetchAll(
+   297→            "SELECT * FROM employee_change_requests WHERE status = :crstatus ORDER BY created_at DESC",
+   298→            ['crstatus' => $fStatus]
+   299→        );
+   300→    } else {
+   301→        $rawRequests = $db->fetchAll(
+   302→            "SELECT * FROM employee_change_requests ORDER BY created_at DESC"
+   303→        );
+   304→    }
+   305→
+   306→    $diagInfo .= 'Step1: fetched ' . count($rawRequests) . ' requests. ';
+   307→
+   308→    // Step 2: Get unique employee IDs and batch-fetch
+   309→    $empIds = [];
+   310→    foreach ($rawRequests as $r) {
+   311→        $eid = (int)$r['employee_id'];
+   312→        if ($eid > 0 && !in_array($eid, $empIds)) {
+   313→            $empIds[] = $eid;
+   314→        }
+   315→    }
+   316→    $empMap = [];
+   317→
+   318→    if (!empty($empIds)) {
+   319→        $idList = implode(',', array_map('intval', $empIds));
+   320→        try {
+   321→            $empRows = $db->fetchAll(
+   322→                "SELECT id, full_name, employee_code, mobile_number, email, designation
+   323→                 FROM employees WHERE id IN ({$idList})"
+   324→            );
+   325→            foreach ($empRows as $emp) {
+   326→                $empMap[$emp['id']] = $emp;
+   327→            }
+   328→        } catch (Exception $e) {
+   329→            $diagInfo .= 'Step2 ERROR: ' . $e->getMessage();
+   330→        }
+   331→    }
+   332→
+   333→    $diagInfo .= 'Step2: found ' . count($empMap) . ' employees. ';
+   334→
+   335→    // Step 3: Merge employee data into requests
+   336→    foreach ($rawRequests as $r) {
+   337→        $eid = (int)$r['employee_id'];
+   338→        $emp = $empMap[$eid] ?? [];
+   339→
+   340→        // Get reviewer name
+   341→        $reviewerName = null;
+   342→        $revId = (int)($r['reviewed_by'] ?? 0);
+   343→        if ($revId > 0) {
+   344→            try {
+   345→                $rev = $db->fetch(
+   346→                    "SELECT full_name FROM employees WHERE id = :rid LIMIT 1",
+   347→                    ['rid' => $revId]
+   348→                );
+   349→                if ($rev) {
+   350→                    $reviewerName = $rev['full_name'];
+   351→                }
+   352→            } catch (Exception $e) {
+   353→                /* ignore */
+   354→            }
+   355→        }
+   356→
+   357→        $requests[] = array_merge($r, [
+   358→            'emp_name'          => $emp['full_name'] ?? ('Employee #' . $eid),
+   359→            'employee_code'     => $emp['employee_code'] ?? '',
+   360→            'mobile_number'     => $emp['mobile_number'] ?? '',
+   361→            'email'             => $emp['email'] ?? '',
+   362→            'emp_designation'   => $emp['designation'] ?? '',
+   363→            'reviewed_by_name'  => $reviewerName,
+   364→        ]);
+   365→    }
+   366→
+   367→} catch (Exception $e) {
+   368→    $dbError = $e->getMessage();
+   369→    error_log('[change-requests] Fetch failed: ' . $dbError);
+   370→    $diagInfo .= 'FATAL: ' . $dbError;
+   371→}
+   372→
+   373→// ─── Apply search filter (post-fetch) ──
+   374→if ($fSearch !== '' && !empty($requests)) {
+   375→    $searchLower = strtolower($fSearch);
+   376→    $filtered = [];
+   377→    foreach ($requests as $r) {
+   378→        if (strpos(strtolower($r['emp_name'] ?? ''), $searchLower) !== false
+   379→            || strpos(strtolower($r['employee_code'] ?? ''), $searchLower) !== false
+   380→            || strpos(strtolower($r['field_name'] ?? ''), $searchLower) !== false) {
+   381→            $filtered[] = $r;
+   382→        }
+   383→    }
+   384→    $requests = $filtered;
+   385→}
+   386→
+   387→// ─── Field label map ────────────────────────────────────────────────────────
+   388→
+   389→$fieldLabels = [
+   390→    'full_name'       => 'Full Name',
+   391→    'father_name'     => "Father's Name",
+   392→    'date_of_birth'   => 'Date of Birth',
+   393→    'gender'          => 'Gender',
+   394→    'designation'     => 'Designation',
+   395→    'department'      => 'Department',
+   396→    'profile_pic_url' => 'Profile Photo',
+   397→    'uan_number'          => 'UAN Number',
+   398→    'esic_number'         => 'ESIC Number',
+   399→    'aadhaar_number'      => 'Aadhaar Number',
+   400→    'bank_name'           => 'Bank Name',
+   401→    'account_holder_name' => 'Account Holder Name',
+   402→    'account_number'      => 'Account Number',
+   403→    'ifsc_code'           => 'IFSC Code',
+   404→];
+   405→
+   406→// ─── Generate CSRF token for forms ──────────────────────────────────────────
+   407→$csrfToken = generateCSRFToken();
+   408→?>
+   409→
+   410→<div class="page-header d-flex justify-content-between align-items-center">
+   411→    <div>
+   412→        <h3 class="page-title">Change Request Approvals</h3>
+   413→        <nav aria-label="breadcrumb">
+   414→            <ol class="breadcrumb">
+   415→                <li class="breadcrumb-item"><a href="index.php?page=employee/index">Employees</a></li>
+   416→                <li class="breadcrumb-item active">Change Requests</li>
+   417→            </ol>
+   418→        </nav>
+   419→    </div>
+   420→    <div>
+   421→        <span class="badge bg-primary-subtle text-primary me-1">Pending: <?= $pendingCount ?></span>
+   422→        <span class="badge bg-success-subtle text-success me-1">Approved: <?= $approvedCount ?></span>
+   423→        <span class="badge bg-danger-subtle text-danger">Rejected: <?= $rejectedCount ?></span>
+   424→    </div>
+   425→</div>
+   426→
+   427→<div class="row">
+   428→    <div class="col-lg-12">
+   429→        <div class="card">
+   430→            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+   431→                <h5 class="card-title mb-0">
+   432→                    <i class="bi bi-arrow-repeat me-1"></i>
+   433→                    Profile Change Requests
+   434→                </h5>
+   435→                <div class="d-flex gap-2 align-items-center flex-wrap">
+   436→                    <!-- Filter: Status -->
+   437→                    <div class="btn-group btn-group-sm">
+   438→                        <a href="?page=employee/change-requests&status=all"
+   439→                           class="btn <?= $fStatus === 'all' ? 'btn-primary' : 'btn-outline-primary' ?>">All (<?= $pendingCount + $approvedCount + $rejectedCount ?>)</a>
+   440→                        <a href="?page=employee/change-requests&status=pending"
+   441→                           class="btn <?= $fStatus === 'pending' ? 'btn-warning' : 'btn-outline-warning' ?>">Pending (<?= $pendingCount ?>)</a>
+   442→                        <a href="?page=employee/change-requests&status=approved"
+   443→                           class="btn <?= $fStatus === 'approved' ? 'btn-success' : 'btn-outline-success' ?>">Approved (<?= $approvedCount ?>)</a>
+   444→                        <a href="?page=employee/change-requests&status=rejected"
+   445→                           class="btn <?= $fStatus === 'rejected' ? 'btn-danger' : 'btn-outline-danger' ?>">Rejected (<?= $rejectedCount ?>)</a>
+   446→                    </div>
+   447→                </div>
+   448→            </div>
+   449→            <div class="card-body">
+   450→                <?php if (!empty($dbError)): ?>
+   451→                <div class="alert alert-danger">
+   452→                    <i class="bi bi-exclamation-triangle me-2"></i>
+   453→                    <strong>Database Error:</strong> Unable to fetch change requests.
+   454→                    Error: <?= htmlspecialchars($dbError) ?>
+   455→                    <br><small>Debug: <?= htmlspecialchars($diagInfo) ?></small>
+   456→                </div>
+   457→                <?php endif; ?>
+   458→
+   459→                <!-- Search -->
+   460→                <form method="GET" class="row g-2 mb-3">
+   461→                    <input type="hidden" name="page" value="employee/change-requests">
+   462→                    <div class="col-auto">
+   463→                        <input type="text" name="search" class="form-control form-control-sm"
+   464→                               placeholder="Search by name, code, or field..."
+   465→                               value="<?= htmlspecialchars($fSearch) ?>"
+   466→                               style="min-width: 250px;">
+   467→                    </div>
+   468→                    <div class="col-auto">
+   469→                        <button type="submit" class="btn btn-sm btn-primary">
+   470→                            <i class="bi bi-search"></i> Search
+   471→                        </button>
+   472→                        <?php if ($fSearch !== '' || $fStatus !== 'all'): ?>
+   473→                        <a href="?page=employee/change-requests&status=all" class="btn btn-sm btn-outline-secondary">Clear</a>
+   474→                        <?php endif; ?>
+   475→                    </div>
+   476→                </form>
+   477→
+   478→                <?php if (empty($requests)): ?>
+   479→                <div class="text-center py-5">
+   480→                    <i class="bi bi-check-circle text-muted" style="font-size: 3rem;"></i>
+   481→                    <p class="text-muted mt-2">
+   482→                        <?php if (!empty($dbError)): ?>
+   483→                            No change requests could be loaded.
+   484→                        <?php elseif ($fStatus !== 'all'): ?>
+   485→                            No <?= htmlspecialchars($fStatus) ?> change requests found.
+   486→                        <?php else: ?>
+   487→                            No change requests found.
+   488→                        <?php endif; ?>
+   489→                    </p>
+   490→                    <?php if (empty($dbError) && ($pendingCount + $approvedCount + $rejectedCount) > 0): ?>
+   491→                    <p class="text-muted small">Debug: <?= htmlspecialchars($diagInfo) ?></p>
+   492→                    <?php endif; ?>
+   493→                </div>
+   494→                <?php else: ?>
+   495→
+   496→                <!-- Bulk actions (only for pending) -->
+   497→                <?php if ($fStatus === 'all' || $fStatus === 'pending'): ?>
+   498→                <form method="POST" id="bulkForm" action="?page=employee/change-requests<?= $fStatus !== 'all' ? '&status=' . $fStatus : '' ?>">
+   499→                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+   500→                    <input type="hidden" name="action" value="bulk_approve">
+   501→                    <div class="d-flex gap-2 mb-3">
+   502→                        <button type="button" class="btn btn-sm btn-success" onclick="bulkApprove()">
+   503→                            <i class="bi bi-check2-all me-1"></i> Approve Selected
+   504→                        </button>
+   505→                        <span class="text-muted align-self-center small" id="selectedCount"></span>
+   506→                    </div>
+   507→                <?php endif; ?>
+   508→
+   509→                <!-- Requests Table -->
+   510→                <div class="table-responsive">
+   511→                    <table class="table table-hover table-sm align-middle" id="changeRequestsTable">
+   512→                        <thead class="table-light">
+   513→                            <tr>
+   514→                                <?php if ($fStatus === 'all' || $fStatus === 'pending'): ?>
+   515→                                <th style="width:30px;"><input type="checkbox" id="selectAll"></th>
+   516→                                <?php endif; ?>
+   517→                                <th>#</th>
+   518→                                <th>Employee</th>
+   519→                                <th>Field</th>
+   520→                                <th>Old Value</th>
+   521→                                <th>New Value</th>
+   522→                                <th>Reason</th>
+   523→                                <th>Status</th>
+   524→                                <th>Requested</th>
+   525→                                <?php if ($fStatus === 'all' || $fStatus === 'approved' || $fStatus === 'rejected'): ?>
+   526→                                <th>Reviewed By</th>
+   527→                                <?php endif; ?>
+   528→                                <?php if ($fStatus === 'rejected'): ?>
+   529→                                <th>Rejection Reason</th>
+   530→                                <?php endif; ?>
+   531→                                <th>Actions</th>
+   532→                            </tr>
+   533→                        </thead>
+   534→                        <tbody>
+   535→                            <?php foreach ($requests as $i => $r): ?>
+   536→                            <tr id="row-<?= $r['id'] ?>">
+   537→                                <?php if ($fStatus === 'all' || $fStatus === 'pending'): ?>
+   538→                                <td>
+   539→                                    <?php if ($r['status'] === 'pending'): ?>
+   540→                                    <input type="checkbox" name="selected_ids[]" value="<?= $r['id'] ?>" class="row-checkbox">
+   541→                                    <?php endif; ?>
+   542→                                </td>
+   543→                                <?php endif; ?>
+   544→                                <td><?= $r['id'] ?></td>
+   545→                                <td>
+   546→                                    <div class="d-flex align-items-center">
+   547→                                        <div>
+   548→                                            <strong><?= htmlspecialchars($r['emp_name']) ?></strong>
+   549→                                            <div class="small text-muted">
+   550→                                                <?= htmlspecialchars($r['employee_code'] ?: 'EMP-' . $r['employee_id']) ?>
+   551→                                            </div>
+   552→                                        </div>
+   553→                                    </div>
+   554→                                </td>
+   555→                                <td>
+   556→                                    <span class="badge bg-info text-info-emphasis">
+   557→                                        <?= htmlspecialchars($fieldLabels[$r['field_name']] ?? ucfirst(str_replace('_', ' ', $r['field_name']))) ?>
+   558→                                    </span>
+   559→                                </td>
+   560→                                <td>
+   561→                                    <?php if ($r['field_name'] === 'profile_pic_url' && $r['old_value']): ?>
+   562→                                        <img src="/uploads/<?= htmlspecialchars($r['old_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="Old">
+   563→                                    <?php else: ?>
+   564→                                        <code><?= htmlspecialchars($r['old_value'] ?: '—') ?></code>
+   565→                                    <?php endif; ?>
+   566→                                </td>
+   567→                                <td>
+   568→                                    <?php if ($r['field_name'] === 'profile_pic_url' && $r['new_value']): ?>
+   569→                                        <img src="/uploads/<?= htmlspecialchars($r['new_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="New">
+   570→                                    <?php else: ?>
+   571→                                        <code class="text-primary"><?= htmlspecialchars($r['new_value']) ?></code>
+   572→                                    <?php endif; ?>
+   573→                                </td>
+   574→                                <td class="small text-muted"><?= htmlspecialchars($r['reason'] ?: '—') ?></td>
+   575→                                <td>
+   576→                                    <?php if ($r['status'] === 'pending'): ?>
+   577→                                        <span class="badge bg-warning text-warning-emphasis">
+   578→                                            <i class="bi bi-clock me-1"></i>Pending
+   579→                                        </span>
+   580→                                    <?php elseif ($r['status'] === 'approved'): ?>
+   581→                                        <span class="badge bg-success text-success-emphasis">
+   582→                                            <i class="bi bi-check-circle me-1"></i>Approved
+   583→                                        </span>
+   584→                                    <?php else: ?>
+   585→                                        <span class="badge bg-danger text-danger-emphasis">
+   586→                                            <i class="bi bi-x-circle me-1"></i>Rejected
+   587→                                        </span>
+   588→                                    <?php endif; ?>
+   589→                                </td>
+   590→                                <td class="small"><?= formatDateTime($r['created_at']) ?></td>
+   591→                                <?php if ($fStatus === 'all' || $fStatus === 'approved' || $fStatus === 'rejected'): ?>
+   592→                                <td class="small text-muted"><?= htmlspecialchars($r['reviewed_by_name'] ?: '—') ?></td>
+   593→                                <?php endif; ?>
+   594→                                <?php if ($fStatus === 'rejected'): ?>
+   595→                                <td class="small text-danger"><?= htmlspecialchars($r['rejection_reason'] ?? '—') ?></td>
+   596→                                <?php endif; ?>
+   597→                                <td>
+   598→                                    <?php if ($r['status'] === 'pending'): ?>
+   599→                                    <div class="btn-group btn-group-sm">
+   600→                                        <button type="button" class="btn btn-success"
+   601→                                                onclick="approveRequest(<?= $r['id'] ?>)"
+   602→                                                title="Approve">
+   603→                                            <i class="bi bi-check-lg"></i>
+   604→                                        </button>
+   605→                                        <button type="button" class="btn btn-danger"
+   606→                                                onclick="showRejectModal(<?= $r['id'] ?>)"
+   607→                                                title="Reject">
+   608→                                            <i class="bi bi-x-lg"></i>
+   609→                                        </button>
+   610→                                    </div>
+   611→                                    <?php else: ?>
+   612→                                    <span class="text-muted small">—</span>
+   613→                                    <?php endif; ?>
+   614→                                </td>
+   615→                            </tr>
+   616→                            <?php endforeach; ?>
+   617→                        </tbody>
+   618→                    </table>
+   619→                </div>
+   620→
+   621→                <?php if ($fStatus === 'all' || $fStatus === 'pending'): ?>
+   622→                </form>
+   623→                <?php endif; ?>
+   624→
+   625→                <?php endif; // end empty check ?>
+   626→            </div>
+   627→        </div>
+   628→    </div>
+   629→</div>
+   630→
+   631→<!-- ── Reject Modal ──────────────────────────────────────────────────────── -->
+   632→<div class="modal fade" id="rejectModal" tabindex="-1" aria-hidden="true">
+   633→    <div class="modal-dialog modal-dialog-centered">
+   634→        <div class="modal-content">
+   635→            <form method="POST" id="rejectForm">
+   636→                <div class="modal-header bg-danger text-white">
+   637→                    <h5 class="modal-title"><i class="bi bi-x-circle me-2"></i>Reject Change Request</h5>
+   638→                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+   639→                </div>
+   640→                <div class="modal-body">
+   641→                    <input type="hidden" name="action" value="reject">
+   642→                    <input type="hidden" name="id" id="rejectId">
+   643→                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+   644→                    <p class="mb-3">Please provide a reason for rejecting this change request. The employee will be notified.</p>
+   645→                    <div class="mb-3">
+   646→                        <label for="rejection_reason" class="form-label fw-bold">Rejection Reason <span class="text-danger">*</span></label>
+   647→                        <textarea class="form-control" id="rejection_reason" name="rejection_reason"
+   648→                                  rows="3" required placeholder="e.g., Documents not verified, incorrect information..."></textarea>
+   649→                    </div>
+   650→                </div>
+   651→                <div class="modal-footer">
+   652→                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+   653→                    <button type="submit" class="btn btn-danger">
+   654→                        <i class="bi bi-x-circle me-1"></i> Reject
+   655→                    </button>
+   656→                </div>
+   657→            </form>
+   658→        </div>
+   659→    </div>
+   660→</div>
+   661→
+   662→<!-- ── Page-specific JS ────────────────────────────────────────────────── -->
+   663→<script>
+   664→(function() {
+   665→    // Select all checkbox
+   666→    const selectAll = document.getElementById('selectAll');
+   667→    if (selectAll) {
+   668→        selectAll.addEventListener('change', function() {
+   669→            document.querySelectorAll('.row-checkbox').forEach(function(cb) { cb.checked = this.checked; }.bind(this));
+   670→            updateSelectedCount();
+   671→        });
+   672→    }
+   673→
+   674→    // Individual checkboxes
+   675→    document.querySelectorAll('.row-checkbox').forEach(function(cb) {
+   676→        cb.addEventListener('change', updateSelectedCount);
+   677→    });
+   678→
+   679→    function updateSelectedCount() {
+   680→        const count = document.querySelectorAll('.row-checkbox:checked').length;
+   681→        const el = document.getElementById('selectedCount');
+   682→        if (el) el.textContent = count > 0 ? count + ' selected' : '';
+   683→    }
+   684→
+   685→    // Approve single request
+   686→    window.approveRequest = function(id) {
+   687→        if (!confirm('Are you sure you want to approve this change request? The employee record will be updated.')) return;
+   688→
+   689→        const form = document.createElement('form');
+   690→        form.method = 'POST';
+   691→        form.action = '?page=employee/change-requests<?= $fStatus !== 'all' ? '&status=' . $fStatus : '' ?>';
+   692→
+   693→        form.appendChild(createInput('action', 'approve'));
+   694→        form.appendChild(createInput('id', id));
+   695→        form.appendChild(createInput('csrf_token', '<?= htmlspecialchars($csrfToken) ?>'));
+   696→
+   697→        document.body.appendChild(form);
+   698→        form.submit();
+   699→    };
+   700→
+   701→    // Show reject modal
+   702→    window.showRejectModal = function(id) {
+   703→        document.getElementById('rejectId').value = id;
+   704→        document.getElementById('rejection_reason').value = '';
+   705→        new bootstrap.Modal(document.getElementById('rejectModal')).show();
+   706→    };
+   707→
+   708→    // Bulk approve
+   709→    window.bulkApprove = function() {
+   710→        const checked = document.querySelectorAll('.row-checkbox:checked');
+   711→        if (checked.length === 0) {
+   712→            alert('Please select at least one request.');
+   713→            return;
+   714→        }
+   715→        if (!confirm('Approve ' + checked.length + ' selected change request(s)? Employee records will be updated.')) return;
+   716→        document.getElementById('bulkForm').submit();
+   717→    };
+   718→
+   719→    function createInput(name, value) {
+   720→        const input = document.createElement('input');
+   721→        input.type = 'hidden';
+   722→        input.name = name;
+   723→        input.value = value;
+   724→        return input;
+   725→    }
+   726→})();
+   727→</script>
+   728→
