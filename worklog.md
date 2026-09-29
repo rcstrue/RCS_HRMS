@@ -26,3 +26,31 @@ Stage Summary:
 - EditProfilePage: New "KYC Documents" section with Aadhaar Front, Aadhaar Back, Bank Passbook image upload/replace
 - All image uploads go through approval workflow (change requests → HR admin approval)
 - HRMS change-requests.php: Updated APPROVAL_FIELDS whitelist to include image URL fields
+---
+Task ID: 1
+Agent: main
+Task: Add camera support and image compression to EditProfilePage KYC document uploads
+
+Work Log:
+- Found existing `compressImageHD` utility at `RCS_ESS/src/lib/image-compress.ts` (WhatsApp HD-like compression: max 1600px, max 1MB output)
+- Found existing `CameraCapture` component with camera + gallery support pattern
+- Updated EditProfilePage.tsx with the following changes:
+  - Imported `compressImageHD` from `@/lib/image-compress`
+  - Imported `ImagePlus` icon from lucide-react
+  - Added `cameraInputRefs` ref for camera input elements
+  - Updated `handleImageSelect()` to compress images via `compressImageHD()` before base64 encoding
+  - Updated `handlePhotoSelect()` to compress profile photo before uploading
+  - Replaced single Upload button with dual Camera + Gallery buttons
+  - Camera button triggers `<input capture="environment">` for direct camera access on mobile
+  - Gallery button triggers `<input type="file" accept="image/*">` for file picker
+  - Both inputs call the same `handleImageSelect` with compression
+- TypeScript type check passed with no errors
+- Committed and pushed to GitHub (df09fb74)
+- deploy-ess.yml workflow will trigger and deploy
+
+Stage Summary:
+- Camera support added via `capture="environment"` attribute on mobile
+- Image compression added using same `compressImageHD` pattern as registration wizard
+- Max 1MB output per image, 1600px max dimension, quality reduction loop
+- Profile photo upload also compressed now
+- Pushed to GitHub, ESS deployment workflow triggered
