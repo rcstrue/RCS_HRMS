@@ -19,6 +19,7 @@ import {
   FileText,
   Image as ImageIcon,
   Upload,
+  ImagePlus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -41,6 +42,7 @@ import {
 } from '@/lib/field-rules';
 import type { Employee, ChangeRequest } from '@/lib/ess-types';
 import { getFileUrl, uploadBase64Image } from '@/lib/api/config';
+import { compressImageHD } from '@/lib/image-compress';
 import PageHeader from './PageHeader';
 
 // ══════════════════════════════════════════════════════════════
@@ -94,6 +96,7 @@ export default function EditProfilePage({
   const [pendingImageUrls, setPendingImageUrls] = useState<Record<string, string>>({});
   const [uploadingImageKey, setUploadingImageKey] = useState<string | null>(null);
   const imageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const cameraInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const pendingFieldNames = useMemo(() => {
     const set = new Set<string>();
@@ -257,7 +260,7 @@ export default function EditProfilePage({
     }
   };
 
-  // ── Profile Photo Upload ──
+  // ── Profile Photo Upload (with compression) ──
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -266,15 +269,18 @@ export default function EditProfilePage({
       toast.error('Please select an image file');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('Image must be less than 5MB');
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image must be less than 10MB');
       return;
     }
 
     setUploadingPhoto(true);
     try {
+      // Compress image using WhatsApp HD-like compression (max 1MB output)
+      const compressedFile = await compressImageHD(file);
+
       const formData = new FormData();
-      formData.append('photo', file);
+      formData.append('photo', compressedFile);
       formData.append('employee_id', String(employee.id));
 
       const API_BASE = (import.meta as Record<string, Record<string, string>>).env?.VITE_API_BASE_URL ?? '';
@@ -303,7 +309,7 @@ export default function EditProfilePage({
     }
   };
 
-  // ── KYC Document Image Upload ──
+  // ── KYC Document Image Upload (with compression & camera support) ──
   const handleImageSelect = async (fieldKey: string, folder: string, filename: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -312,19 +318,22 @@ export default function EditProfilePage({
       toast.error('Please select an image file');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('Image must be less than 5MB');
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image must be less than 10MB');
       return;
     }
 
     setUploadingImageKey(fieldKey);
     try {
-      // Convert file to base64 for upload-base64 endpoint
+      // Compress image using WhatsApp HD-like compression (max 1MB output)
+      const compressedFile = await compressImageHD(file);
+
+      // Convert compressed file to base64 for upload-base64 endpoint
       const base64Data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
         reader.onerror = reject;
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(compressedFile);
       });
 
       const { url, error } = await uploadBase64Image(base64Data, filename, folder);
@@ -339,9 +348,11 @@ export default function EditProfilePage({
       toast.error('Upload failed. Please try again.');
     } finally {
       setUploadingImageKey(null);
-      // Reset file input
-      const inputRef = imageInputRefs.current[fieldKey];
-      if (inputRef) inputRef.value = '';
+      // Reset both file inputs
+      const galleryRef = imageInputRefs.current[fieldKey];
+      if (galleryRef) galleryRef.value = '';
+      const cameraRef = cameraInputRefs.current[fieldKey];
+      if (cameraRef) cameraRef.value = '';
     }
   };
 
@@ -557,23 +568,44 @@ export default function EditProfilePage({
             <div className="flex-1 space-y-1.5">
               {!hasPending && (
                 <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full border-dashed"
-                    onClick={() => imageInputRefs.current[field.key]?.click()}
-                    disabled={isUploading}
-                  >
-                    {isUploading ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                    ) : currentUrl ? (
-                      <Upload className="w-3.5 h-3.5 mr-1.5" />
-                    ) : (
-                      <Camera className="w-3.5 h-3.5 mr-1.5" />
-                    )}
-                    {isUploading ? 'Uploading...' : currentUrl ? 'Replace' : 'Upload'}
-                  </Button>
+                  <div className="flex gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 border-dashed"
+                      onClick={() => cameraInputRefs.current[field.key]?.click()}
+                      disabled={isUploading}
+                    >
+                      {isUploading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                      ) : (
+                        <Camera className="w-3.5 h-3.5 mr-1" />
+                      )}
+                      {isUploading ? '...' : 'Camera'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 border-dashed"
+                      onClick={() => imageInputRefs.current[field.key]?.click()}
+                      disabled={isUploading}
+                    >
+                      <ImagePlus className="w-3.5 h-3.5 mr-1" />
+                      Gallery
+                    </Button>
+                  </div>
+                  {/* Camera input — opens device camera directly on mobile */}
+                  <input
+                    ref={el => { cameraInputRefs.current[field.key] = el; }}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={e => handleImageSelect(field.key, folder, filename, e)}
+                  />
+                  {/* Gallery input — opens file picker / photo gallery */}
                   <input
                     ref={el => { imageInputRefs.current[field.key] = el; }}
                     type="file"
