@@ -54,3 +54,22 @@ Stage Summary:
 - Max 1MB output per image, 1600px max dimension, quality reduction loop
 - Profile photo upload also compressed now
 - Pushed to GitHub, ESS deployment workflow triggered
+---
+Task ID: 2
+Agent: main
+Task: Add camera + gallery dual buttons to profile photo upload in EditProfilePage
+
+Work Log:
+- Added `cameraFileInputRef` for profile photo camera input
+- Replaced single "Change Photo" button with dual Camera + Gallery buttons (same pattern as KYC docs)
+- Camera button uses `<input capture="environment">` for direct camera access on mobile
+- Gallery button uses `<input type="file" accept="image/*">` for file picker
+- Both inputs reset in handlePhotoSelect finally block
+- TypeScript check passed
+- Committed and pushed to GitHub (d9fa3f05)
+- deploy-ess.yml workflow will trigger
+
+Stage Summary:
+- Profile photo upload now has Camera + Gallery dual buttons
+- Same UX pattern as KYC document uploads
+- Pushed to GitHub, ESS deployment workflow triggered
