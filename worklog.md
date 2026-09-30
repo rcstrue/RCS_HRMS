@@ -73,3 +73,22 @@ Stage Summary:
 - Profile photo upload now has Camera + Gallery dual buttons
 - Same UX pattern as KYC document uploads
 - Pushed to GitHub, ESS deployment workflow triggered
+---
+Task ID: 3
+Agent: main
+Task: Auto-approve first-time field fill, approval only for replacement
+
+Work Log:
+- Updated resolveEffectiveRule() in field-rules.ts: admin_approval fields now return 'free' when current value is blank (first-time fill), 'admin_approval' when value exists (replacement)
+- Updated handleSave() in EditProfilePage.tsx: profile photo and KYC document uploads now auto-approve (save directly) when current value is blank
+- Updated badge UI: shows "Saves directly" (green) when field is blank, "Needs approval" (amber) when field already has a value
+- Applies to all admin_approval fields: personal info (full_name, father_name, etc.), profile photo, KYC documents (aadhaar front/back, bank passbook)
+- TypeScript check passed
+- Committed and pushed to GitHub (65fb2f13)
+- deploy-ess.yml workflow will trigger
+
+Stage Summary:
+- First-time fill of any blank field now saves directly without approval
+- Only replacements (changing existing values) need HR approval
+- Badge UI dynamically reflects whether field will save directly or need approval
+- Pushed to GitHub, ESS deployment workflow triggered
