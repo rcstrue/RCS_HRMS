@@ -153,7 +153,7 @@ if ($method === 'PUT' || $method === 'POST') {
         // Ownership: can only update own profile (or manager/admin)
         requireOwnershipOrRole($authId, (string)$employeeId, ESS_GUARD_ROLES_MANAGER, $conn);
 
-        // Whitelist: only freely-editable fields
+        // Whitelist: only freely-editable fields (always allowed, no blank check)
         $ALLOWED = array(
             'email', 'blood_group', 'marital_status', 'profile_pic_url',
             'address', 'pin_code', 'district', 'state',
@@ -161,16 +161,21 @@ if ($method === 'PUT' || $method === 'POST') {
             'nominee_name', 'nominee_relationship', 'nominee_dob', 'nominee_contact',
         );
 
-        // Sensitive "fill-if-blank" fields (UAN, ESIC, Aadhaar, bank details).
-        // Mirrors the client-side 'free_if_blank' rule in RCS_ESS field-rules.ts:
+        // Sensitive "fill-if-blank" fields.
+        // Mirrors the client-side logic in RCS_ESS field-rules.ts:
         // these may be saved directly ONLY while the employee's current value is
         // blank — there is nothing to overwrite, so no HR approval is needed.
-        // Once a value exists, edits must go through the change-request workflow
-        // (api/ess/change-requests.php + HR approval in
-        // hrms/modules/employee/change-requests.php).
+        // Once a value exists, edits must go through the change-request workflow.
+        // Includes: UAN, ESIC, Aadhaar, bank details, personal admin_approval fields,
+        // and KYC document image URLs.
         $SENSITIVE_FILL_IF_BLANK = array(
+            // Sensitive fields (free_if_blank rule)
             'uan_number', 'esic_number', 'aadhaar_number',
             'bank_name', 'account_holder_name', 'account_number', 'ifsc_code',
+            // Personal fields (admin_approval rule — auto-approve when blank)
+            'full_name', 'father_name', 'date_of_birth', 'gender',
+            // KYC document images (admin_approval rule — auto-approve when blank)
+            'aadhaar_front_url', 'aadhaar_back_url', 'bank_document_url',
         );
 
         $updateParts = array();
@@ -189,7 +194,9 @@ if ($method === 'PUT' || $method === 'POST') {
         if (!empty($requestedSensitive)) {
             $curStmt = $conn->prepare(
                 "SELECT uan_number, esic_number, aadhaar_number,
-                        bank_name, account_holder_name, account_number, ifsc_code
+                        bank_name, account_holder_name, account_number, ifsc_code,
+                        full_name, father_name, date_of_birth, gender,
+                        aadhaar_front_url, aadhaar_back_url, bank_document_url
                  FROM employees WHERE id = ? LIMIT 1"
             );
             if (!$curStmt) {
