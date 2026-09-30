@@ -90,6 +90,7 @@ export default function EditProfilePage({
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [pendingPhotoUrl, setPendingPhotoUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraFileInputRef = useRef<HTMLInputElement>(null);
 
   // ── KYC Document image uploads ──
   // Track pending uploaded URLs for image fields (aadhaar_front_url, aadhaar_back_url, bank_document_url)
@@ -306,6 +307,7 @@ export default function EditProfilePage({
     } finally {
       setUploadingPhoto(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (cameraFileInputRef.current) cameraFileInputRef.current.value = '';
     }
   };
 
@@ -492,21 +494,44 @@ export default function EditProfilePage({
             <div className="flex-1 space-y-1.5">
               {!hasPending && (
                 <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full border-dashed"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploadingPhoto}
-                  >
-                    {uploadingPhoto ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                    ) : (
-                      <Camera className="w-3.5 h-3.5 mr-1.5" />
-                    )}
-                    {uploadingPhoto ? 'Uploading...' : 'Change Photo'}
-                  </Button>
+                  <div className="flex gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 border-dashed"
+                      onClick={() => cameraFileInputRef.current?.click()}
+                      disabled={uploadingPhoto}
+                    >
+                      {uploadingPhoto ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                      ) : (
+                        <Camera className="w-3.5 h-3.5 mr-1" />
+                      )}
+                      {uploadingPhoto ? '...' : 'Camera'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 border-dashed"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingPhoto}
+                    >
+                      <ImagePlus className="w-3.5 h-3.5 mr-1" />
+                      Gallery
+                    </Button>
+                  </div>
+                  {/* Camera input — opens device camera directly on mobile */}
+                  <input
+                    ref={cameraFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handlePhotoSelect}
+                  />
+                  {/* Gallery input — opens file picker / photo gallery */}
                   <input
                     ref={fileInputRef}
                     type="file"
