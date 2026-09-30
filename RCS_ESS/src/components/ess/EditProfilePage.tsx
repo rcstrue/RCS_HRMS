@@ -186,22 +186,32 @@ export default function EditProfilePage({
         }
       }
 
-      // Handle photo (always needs approval)
+      // Handle photo: auto-approve if blank (first-time), approval if replacing
       const currentPhoto = getValue('profile_pic_url');
       if (pendingPhotoUrl && pendingPhotoUrl !== currentPhoto) {
-        approvalFields.push({
-          field: FIELD_RULES.find(f => f.key === 'profile_pic_url')!,
-          newVal: pendingPhotoUrl,
-        });
+        const isPhotoBlank = !currentPhoto || currentPhoto.trim() === '';
+        if (isPhotoBlank) {
+          freeChanged['profile_pic_url'] = pendingPhotoUrl;
+        } else {
+          approvalFields.push({
+            field: FIELD_RULES.find(f => f.key === 'profile_pic_url')!,
+            newVal: pendingPhotoUrl,
+          });
+        }
       }
 
-      // Handle KYC document image uploads (always need approval)
+      // Handle KYC document image uploads: auto-approve if blank (first-time), approval if replacing
       for (const f of FIELD_RULES) {
         if (f.inputType !== 'image') continue;
         const current = getValue(f.key);
         const pending = pendingImageUrls[f.key];
         if (pending && pending !== current) {
-          approvalFields.push({ field: f, newVal: pending });
+          const isBlank = !current || current.trim() === '';
+          if (isBlank) {
+            freeChanged[f.key] = pending;
+          } else {
+            approvalFields.push({ field: f, newVal: pending });
+          }
         }
       }
 
@@ -461,6 +471,7 @@ export default function EditProfilePage({
       const currentPhoto = current;
       const displayPhoto = pendingPhotoUrl || currentPhoto;
       const photoChanged = !!pendingPhotoUrl && pendingPhotoUrl !== currentPhoto;
+      const isPhotoBlank = !currentPhoto || currentPhoto.trim() === '';
 
       return (
         <div key={field.key} className="space-y-2">
@@ -469,6 +480,10 @@ export default function EditProfilePage({
             {hasPending ? (
               <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
                 <Clock className="w-3 h-3 mr-0.5" /> Pending
+              </Badge>
+            ) : isPhotoBlank ? (
+              <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px] px-1.5 py-0">
+                Saves directly
               </Badge>
             ) : (
               <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
@@ -561,6 +576,7 @@ export default function EditProfilePage({
       const isUploading = uploadingImageKey === field.key;
       const folder = field.uploadFolder || 'documents';
       const filename = field.uploadFilename || `${field.key}.jpg`;
+      const isDocBlank = !currentUrl || currentUrl.trim() === '';
 
       return (
         <div key={field.key} className="space-y-2">
@@ -569,6 +585,10 @@ export default function EditProfilePage({
             {hasPending ? (
               <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">
                 <Clock className="w-3 h-3 mr-0.5" /> Pending
+              </Badge>
+            ) : isDocBlank ? (
+              <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px] px-1.5 py-0">
+                Saves directly
               </Badge>
             ) : (
               <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[10px] px-1.5 py-0">

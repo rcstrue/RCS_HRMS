@@ -91,8 +91,9 @@ export function resolveEffectiveRule(
   if (rule === 'free_if_blank') {
     return isBlank ? 'free' : 'admin_approval';
   }
-  // rule === 'admin_approval' — always needs approval regardless of blank/filled
-  return 'admin_approval';
+  // rule === 'admin_approval' — if field is blank, allow direct save (first-time fill);
+  // if field already has a value, any change needs HR approval (replacement)
+  return isBlank ? 'free' : 'admin_approval';
 }
 
 export function getFieldsBySection(section: string): FieldRule[] {
