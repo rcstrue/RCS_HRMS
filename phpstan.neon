@@ -1,0 +1,9 @@
+parameters:
+    level: 4
+    paths:
+        - api
+        - hrms
+    ignoreErrors:
+        - '#Call to function#'
+    bootstrapFiles:
+        - phpstan-bootstrap.php

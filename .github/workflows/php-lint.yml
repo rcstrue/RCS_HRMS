@@ -7,10 +7,14 @@ on:
       - 'hrms/**/*.php'
       - 'api/**/*.php'
       - 'phpstan*.neon*'
+      - 'phpstan-bootstrap.php'
       - 'phpcs.xml*'
       - '.github/workflows/php-lint.yml'
   pull_request:
     branches: [ "main", "master" ]
+    paths:
+      - 'hrms/**/*.php'
+      - 'api/**/*.php'
 
 permissions:
   contents: read
