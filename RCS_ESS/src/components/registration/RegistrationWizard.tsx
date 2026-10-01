@@ -21,10 +21,8 @@ import type {
   DocumentImages 
 } from '@/types/registration';
 
-// LocalStorage key for form data persistence
-const REGISTRATION_DATA_KEY = 'registration_form_data';
-const REGISTRATION_STEP_KEY = 'registration_current_step';
-const REGISTRATION_COMPLETED_KEY = 'registration_completed_steps';
+// LocalStorage keys for registration (only profile pic is cached, not draft form data)
+// Draft persistence removed — form always starts fresh to prevent stale data leaking
 
 interface RegistrationWizardProps {
   initialMobile?: string;
@@ -130,53 +128,11 @@ export function RegistrationWizard({
   onComplete, 
   onBack: onBackToMobile 
 }: RegistrationWizardProps) {
-  // Check localStorage for profile pic as backup
-  const localStorageProfilePic = typeof window !== 'undefined' 
-    ? localStorage.getItem('registration_profile_pic') 
-    : null;
-  const effectiveProfilePic = initialProfilePic || localStorageProfilePic || undefined;
+  // Profile pic from prop only (no localStorage draft restore)
+  const effectiveProfilePic = initialProfilePic || undefined;
   
-  // Track if we've restored from localStorage to prevent overwriting
-  const hasRestoredRef = useRef(false);
-  
-  // Function to load saved form data from localStorage
-  // Safety net: compare saved mobile against the current initialMobile prop.
-  // If they don't match (e.g. different entry point skipped Index.tsx's clear),
-  // discard the stale data to prevent old employee's form from leaking in.
-  const loadSavedFormData = (): { data: RegistrationData | null; step: RegistrationStep | null; completedSteps: number[] | null } => {
-    try {
-      const savedMobile = localStorage.getItem('registration_mobile');
-      if (savedMobile && savedMobile !== initialMobile) {
-        // Mobile mismatch — clear stale draft data
-        localStorage.removeItem(REGISTRATION_DATA_KEY);
-        localStorage.removeItem(REGISTRATION_STEP_KEY);
-        localStorage.removeItem(REGISTRATION_COMPLETED_KEY);
-        localStorage.removeItem('registration_profile_pic');
-        return { data: null, step: null, completedSteps: null };
-      }
-
-      const savedData = localStorage.getItem(REGISTRATION_DATA_KEY);
-      const savedStep = localStorage.getItem(REGISTRATION_STEP_KEY);
-      const savedCompleted = localStorage.getItem(REGISTRATION_COMPLETED_KEY);
-      
-      return {
-        data: savedData ? JSON.parse(savedData) : null,
-        step: savedStep ? (parseInt(savedStep) as RegistrationStep) : null,
-        completedSteps: savedCompleted ? JSON.parse(savedCompleted) : null,
-      };
-    } catch (e) {
-      return { data: null, step: null, completedSteps: null };
-    }
-  };
-  
-  // Determine which step to start on based on existing data or saved data
+  // Determine which step to start on based on existing employee data
   const getStartStep = (): RegistrationStep => {
-    // First check if we have saved progress
-    const saved = loadSavedFormData();
-    if (saved.step && saved.data) {
-      return saved.step;
-    }
-    
     if (!existingEmployee) return 2;
     // Check if profile photo is missing - need to capture it
     if (!existingEmployee.profile_pic_url && !effectiveProfilePic) return 2;
@@ -198,11 +154,6 @@ export function RegistrationWizard({
   
   // Mark earlier steps as completed if we're starting ahead
   const getInitialCompletedSteps = (): Set<number> => {
-    const saved = loadSavedFormData();
-    if (saved.completedSteps && saved.completedSteps.length > 0) {
-      return new Set(saved.completedSteps);
-    }
-    
     const initialCompleted = new Set<number>([1]);
     for (let i = 2; i < startStep; i++) initialCompleted.add(i);
     return initialCompleted;
@@ -210,48 +161,14 @@ export function RegistrationWizard({
   
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(getInitialCompletedSteps);
   
-  // Initialize data - either from localStorage, existing employee, or fresh
+  // Initialize data - always fresh (no localStorage draft restore)
   const [data, setData] = useState<RegistrationData>(() => {
-    // Try to restore from localStorage first
-    const saved = loadSavedFormData();
-    if (saved.data && !existingEmployee) {
-      hasRestoredRef.current = true;
-      return saved.data;
-    }
-    
     const initialData = createInitialData(initialMobile, existingEmployee, effectiveProfilePic);
     return initialData;
   });
 
-  // Save form data to localStorage whenever it changes
-  useEffect(() => {
-    // Skip saving if we just restored from localStorage
-    if (hasRestoredRef.current) {
-      hasRestoredRef.current = false;
-      return;
-    }
-    
-    // Only save if we have meaningful data (not just empty initial state)
-    const hasData = data.aadhaarDetails.fullName || 
-                    data.aadhaarDetails.aadhaarNumber || 
-                    data.bankDetails.accountNumber ||
-                    data.documents.profilePic ||
-                    data.documents.aadhaarFront;
-    
-    if (hasData) {
-      localStorage.setItem(REGISTRATION_DATA_KEY, JSON.stringify(data));
-    }
-  }, [data]);
-  
-  // Save current step to localStorage
-  useEffect(() => {
-    localStorage.setItem(REGISTRATION_STEP_KEY, currentStep.toString());
-  }, [currentStep]);
-  
-  // Save completed steps to localStorage
-  useEffect(() => {
-    localStorage.setItem(REGISTRATION_COMPLETED_KEY, JSON.stringify([...completedSteps]));
-  }, [completedSteps]);
+  // No localStorage draft persistence — form always starts fresh
+  // This prevents stale employee data from leaking into new registrations
 
   // Update profilePic when initialProfilePic prop changes (e.g., after photo capture)
   useEffect(() => {
@@ -380,11 +297,8 @@ export function RegistrationWizard({
         }
       }
 
-      // Clear all stored registration data after successful submission
+      // Clear registration profile pic after successful submission
       localStorage.removeItem('registration_profile_pic');
-      localStorage.removeItem(REGISTRATION_DATA_KEY);
-      localStorage.removeItem(REGISTRATION_STEP_KEY);
-      localStorage.removeItem(REGISTRATION_COMPLETED_KEY);
 
       // Don't call onComplete() here - let Step8Review show SuccessPage first
       // onComplete will be called by SuccessPage after WhatsApp redirect

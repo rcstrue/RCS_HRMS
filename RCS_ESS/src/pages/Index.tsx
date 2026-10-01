@@ -37,19 +37,10 @@ const Index = () => {
   const birthYearRef = useRef<HTMLInputElement>(null);
 
   // Check for saved registration progress on mount
+  // Draft persistence removed — always start from mobile entry
   useEffect(() => {
-    if (isLoading) return; // Wait for employee session to load
-
-    const savedData = localStorage.getItem(REGISTRATION_DATA_KEY);
-    const savedMobile = localStorage.getItem(REGISTRATION_MOBILE_KEY);
-
-    // IF localStorage has data → open form directly
-    if (savedData && savedMobile) {
-      setRegistrationMobile(savedMobile);
-      setView('registration');
-    } else {
-      setView('mobile-entry');
-    }
+    if (isLoading) return;
+    setView('mobile-entry');
   }, [isLoading]);
 
   // Show loading while checking session
@@ -62,19 +53,12 @@ const Index = () => {
   }
 
   const handleMobileSubmit = (mobile: string, profilePicUrl?: string) => {
-    const previousMobile = localStorage.getItem(REGISTRATION_MOBILE_KEY);
-
-    // If this is a NEW mobile number (different from whatever draft was in progress),
-    // clear the old draft so stale employee data never carries over.
-    if (previousMobile !== mobile) {
-      localStorage.removeItem(REGISTRATION_DATA_KEY);
-      localStorage.removeItem(REGISTRATION_STEP_KEY);
-      localStorage.removeItem(REGISTRATION_COMPLETED_KEY);
-      localStorage.removeItem('registration_profile_pic');
-    }
-
-    // Save mobile to localStorage for persistence
-    localStorage.setItem(REGISTRATION_MOBILE_KEY, mobile);
+    // Always clear any leftover registration data before starting fresh
+    localStorage.removeItem(REGISTRATION_DATA_KEY);
+    localStorage.removeItem(REGISTRATION_MOBILE_KEY);
+    localStorage.removeItem(REGISTRATION_STEP_KEY);
+    localStorage.removeItem(REGISTRATION_COMPLETED_KEY);
+    localStorage.removeItem('registration_profile_pic');
 
     setRegistrationMobile(mobile);
     setRegistrationProfilePic(profilePicUrl);
