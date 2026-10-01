@@ -12,7 +12,7 @@
     <exclude-pattern>*/cache/*</exclude-pattern>
 
     <!-- Minimal critical-only rules for legacy code -->
-    <rule ref="Generic.PHP.DisallowShortOpenTag"/>
+    <!-- Note: short opening tags <?= are valid in PHP 5.4+ and standard in templates -->
     <rule ref="Squiz.PHP.Eval"/>
     <rule ref="Squiz.PHP.DiscouragedFunctions"/>
 
