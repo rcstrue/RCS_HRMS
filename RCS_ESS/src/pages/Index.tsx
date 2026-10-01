@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 const REGISTRATION_DATA_KEY = 'registration_form_data';
 const REGISTRATION_MOBILE_KEY = 'registration_mobile';
 const REGISTRATION_STEP_KEY = 'registration_current_step';
+const REGISTRATION_COMPLETED_KEY = 'registration_completed_steps';
 
 type AppView = 'loading' | 'mobile-entry' | 'registration' | 'birth-year-login' | 'go-to-ess';
 
@@ -61,6 +62,17 @@ const Index = () => {
   }
 
   const handleMobileSubmit = (mobile: string, profilePicUrl?: string) => {
+    const previousMobile = localStorage.getItem(REGISTRATION_MOBILE_KEY);
+
+    // If this is a NEW mobile number (different from whatever draft was in progress),
+    // clear the old draft so stale employee data never carries over.
+    if (previousMobile !== mobile) {
+      localStorage.removeItem(REGISTRATION_DATA_KEY);
+      localStorage.removeItem(REGISTRATION_STEP_KEY);
+      localStorage.removeItem(REGISTRATION_COMPLETED_KEY);
+      localStorage.removeItem('registration_profile_pic');
+    }
+
     // Save mobile to localStorage for persistence
     localStorage.setItem(REGISTRATION_MOBILE_KEY, mobile);
 
@@ -74,7 +86,7 @@ const Index = () => {
     localStorage.removeItem(REGISTRATION_DATA_KEY);
     localStorage.removeItem(REGISTRATION_MOBILE_KEY);
     localStorage.removeItem(REGISTRATION_STEP_KEY);
-    localStorage.removeItem('registration_completed_steps');
+    localStorage.removeItem(REGISTRATION_COMPLETED_KEY);
     localStorage.removeItem('registration_profile_pic');
 
     // Store the mobile from registration for birth year verification
@@ -135,7 +147,7 @@ const Index = () => {
     localStorage.removeItem(REGISTRATION_DATA_KEY);
     localStorage.removeItem(REGISTRATION_MOBILE_KEY);
     localStorage.removeItem(REGISTRATION_STEP_KEY);
-    localStorage.removeItem('registration_completed_steps');
+    localStorage.removeItem(REGISTRATION_COMPLETED_KEY);
     localStorage.removeItem('registration_profile_pic');
   };
 

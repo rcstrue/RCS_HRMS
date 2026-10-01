@@ -140,8 +140,21 @@ export function RegistrationWizard({
   const hasRestoredRef = useRef(false);
   
   // Function to load saved form data from localStorage
+  // Safety net: compare saved mobile against the current initialMobile prop.
+  // If they don't match (e.g. different entry point skipped Index.tsx's clear),
+  // discard the stale data to prevent old employee's form from leaking in.
   const loadSavedFormData = (): { data: RegistrationData | null; step: RegistrationStep | null; completedSteps: number[] | null } => {
     try {
+      const savedMobile = localStorage.getItem('registration_mobile');
+      if (savedMobile && savedMobile !== initialMobile) {
+        // Mobile mismatch — clear stale draft data
+        localStorage.removeItem(REGISTRATION_DATA_KEY);
+        localStorage.removeItem(REGISTRATION_STEP_KEY);
+        localStorage.removeItem(REGISTRATION_COMPLETED_KEY);
+        localStorage.removeItem('registration_profile_pic');
+        return { data: null, step: null, completedSteps: null };
+      }
+
       const savedData = localStorage.getItem(REGISTRATION_DATA_KEY);
       const savedStep = localStorage.getItem(REGISTRATION_STEP_KEY);
       const savedCompleted = localStorage.getItem(REGISTRATION_COMPLETED_KEY);
