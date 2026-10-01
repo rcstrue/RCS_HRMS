@@ -11,10 +11,8 @@
     <exclude-pattern>*/node_modules/*</exclude-pattern>
     <exclude-pattern>*/cache/*</exclude-pattern>
 
-    <!-- Use a minimal rule set — legacy code wasn't written to PSR-12 standards -->
-    <!-- Only check for critical errors, not style -->
+    <!-- Minimal critical-only rules for legacy code -->
     <rule ref="Generic.PHP.DisallowShortOpenTag"/>
-    <rule ref="Generic.PHP.DisallowMultipleStatementsPerLine"/>
     <rule ref="Squiz.PHP.Eval"/>
     <rule ref="Squiz.PHP.DiscouragedFunctions"/>
 
