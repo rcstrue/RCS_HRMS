@@ -10,6 +10,7 @@ import { Step7ClientUnit } from './steps/Step7ClientUnit';
 import { Step8Review } from './steps/Step8Review';
 import { createEmployee, updateEmployee } from '@/lib/api/employees';
 import { logger } from "@/lib/logger";
+import { useRegistrationPersistence, clearSavedDraft } from '@/hooks/useRegistrationPersistence';
 import type { 
   RegistrationStep, 
   RegistrationData, 
@@ -20,9 +21,6 @@ import type {
   ClientUnitInfo,
   DocumentImages 
 } from '@/types/registration';
-
-// LocalStorage keys for registration (only profile pic is cached, not draft form data)
-// Draft persistence removed — form always starts fresh to prevent stale data leaking
 
 interface RegistrationWizardProps {
   initialMobile?: string;
@@ -63,6 +61,10 @@ interface RegistrationWizardProps {
   } | null;
   onComplete: () => void;
   onBack?: () => void;
+  // Draft restoration props
+  restoredData?: RegistrationData | null;
+  restoredStep?: RegistrationStep | null;
+  restoredCompletedSteps?: number[] | null;
 }
 
 const createInitialData = (
@@ -126,13 +128,19 @@ export function RegistrationWizard({
   existingEmployeeId, 
   existingEmployee, 
   onComplete, 
-  onBack: onBackToMobile 
+  onBack: onBackToMobile,
+  restoredData,
+  restoredStep,
+  restoredCompletedSteps,
 }: RegistrationWizardProps) {
-  // Profile pic from prop only (no localStorage draft restore)
+  // Profile pic from prop or restored draft
   const effectiveProfilePic = initialProfilePic || undefined;
   
-  // Determine which step to start on based on existing employee data
+  // Determine which step to start on based on existing employee data or restored draft
   const getStartStep = (): RegistrationStep => {
+    // If we have a restored step from a draft, use it
+    if (restoredStep) return restoredStep;
+    
     if (!existingEmployee) return 2;
     // Check if profile photo is missing - need to capture it
     if (!existingEmployee.profile_pic_url && !effectiveProfilePic) return 2;
@@ -154,6 +162,10 @@ export function RegistrationWizard({
   
   // Mark earlier steps as completed if we're starting ahead
   const getInitialCompletedSteps = (): Set<number> => {
+    // If we have restored completed steps from a draft, use them
+    if (restoredCompletedSteps && restoredCompletedSteps.length > 0) {
+      return new Set(restoredCompletedSteps);
+    }
     const initialCompleted = new Set<number>([1]);
     for (let i = 2; i < startStep; i++) initialCompleted.add(i);
     return initialCompleted;
@@ -161,14 +173,32 @@ export function RegistrationWizard({
   
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(getInitialCompletedSteps);
   
-  // Initialize data - always fresh (no localStorage draft restore)
+  // Initialize data — from restored draft if available, otherwise fresh
   const [data, setData] = useState<RegistrationData>(() => {
+    if (restoredData) {
+      // Merge restored data with any new props (e.g., fresh profilePic)
+      return {
+        ...restoredData,
+        documents: {
+          ...restoredData.documents,
+          // Use prop profilePic if available, otherwise keep restored
+          profilePic: effectiveProfilePic || restoredData.documents.profilePic,
+        },
+      };
+    }
     const initialData = createInitialData(initialMobile, existingEmployee, effectiveProfilePic);
     return initialData;
   });
 
-  // No localStorage draft persistence — form always starts fresh
-  // This prevents stale employee data from leaking into new registrations
+  // Auto-save draft to localStorage on every change
+  const { immediateSave } = useRegistrationPersistence(
+    data,
+    currentStep,
+    completedSteps,
+    data.basicInfo.mobileNumber || initialMobile || '',
+    data.documents.profilePic || effectiveProfilePic,
+    true // enabled
+  );
 
   // Update profilePic when initialProfilePic prop changes (e.g., after photo capture)
   useEffect(() => {
@@ -229,15 +259,20 @@ export function RegistrationWizard({
   const goToNextStep = useCallback(() => {
     setCompletedSteps(prev => new Set(prev).add(currentStep));
     setCurrentStep(prev => Math.min(prev + 1, 8) as RegistrationStep);
-  }, [currentStep]);
+    // Save immediately on step change so the draft is up-to-date
+    immediateSave();
+  }, [currentStep, immediateSave]);
 
   const goToPreviousStep = useCallback(() => {
     if (currentStep === 2 && onBackToMobile) {
+      // Clear draft when going back to mobile entry
+      clearSavedDraft();
       onBackToMobile();
       return;
     }
     setCurrentStep(prev => Math.max(prev - 1, 2) as RegistrationStep);
-  }, [currentStep, onBackToMobile]);
+    immediateSave();
+  }, [currentStep, onBackToMobile, immediateSave]);
 
   const handleSubmit = useCallback(async () => {
     try {
@@ -291,14 +326,16 @@ export function RegistrationWizard({
         const { data: newEmployee, error } = await createEmployee(employeeData);
         if (error) throw new Error(error);
 
-        // Store session
-        if (newEmployee) {
-          localStorage.setItem('employee_id', newEmployee.id);
-        }
+        // NOTE: We intentionally do NOT set localStorage('employee_id') here.
+        // The employee_id session is set only after birth-year verification
+        // succeeds (see Index.tsx submitBirthYear()). Setting it here would
+        // leak Employee A's ID into Employee B's registration if the same
+        // device is reused without closing the browser.
       }
 
-      // Clear registration profile pic after successful submission
+      // Clear registration draft after successful submission
       localStorage.removeItem('registration_profile_pic');
+      clearSavedDraft();
 
       // Don't call onComplete() here - let Step8Review show SuccessPage first
       // onComplete will be called by SuccessPage after WhatsApp redirect
@@ -350,6 +387,7 @@ export function RegistrationWizard({
               // Skip step 5 (bank verification) and go to step 6
               setCompletedSteps(prev => new Set(prev).add(5));
               setCurrentStep(6);
+              immediateSave();
             }}
           />
         );

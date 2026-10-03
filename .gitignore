@@ -1,48 +1,5 @@
-# ══════════════════════════════════════════════════════════════
-# RCS_HRMS repo — only tracks: api/, hrms/, RCS_ESS/, .github/, config files
-# Everything below is the container's local dev environment — NEVER commit
-# ══════════════════════════════════════════════════════════════
-
-# ── Container / Next.js project (never commit) ──
-/.next/
-/out/
-/build
+# Dependencies
 node_modules
-bun.lock
-package.json
-Caddyfile
-components.json
-db/
-eslint.config.mjs
-examples/
-mini-services/
-next.config.ts
-next-env.d.ts
-postcss.config.mjs
-prisma/
-public/
-src/
-tailwind.config.ts
-tests/
-tsconfig.json
-.zscripts/
-
-# ── Env / secrets ──
-.env*
-*.pem
-
-# ── Logs / debug ──
-*.log
-dev.log
-dev.out.log
-server.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# ── Misc ──
-.DS_Store
-/coverage
 /.pnp
 .pnp.*
 .yarn/*
@@ -50,12 +7,86 @@ yarn-error.log*
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+
+# Testing
+/coverage
+
+# Next.js
+/.next/
+/out/
+
+# Production build
+/build
+/dist/
+
+# Database files (runtime data, not source)
+*.db
+*.sqlite
+*.sqlite3
+/db/
+
+# Misc
+.DS_Store
+*.pem
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+dev.log
+dev.out.log
+server.log
+
+# Environment files
+.env*
+*.local
+
+# Vercel
 .vercel
+
+# TypeScript
 *.tsbuildinfo
-local-*
+next-env.d.ts
+
+# Sandbox / infra internals
 .claude
 .z-ai-config
-test
+.zscripts/
+tool-results/
 prompt
+test
+
+# Skills directory
 /skills/
-/tool-results/
+
+# Mini-services (runtime, not source)
+/mini-services/
+
+# Examples (demo code, not production)
+/examples/
+
+# PHP linting at root (belongs in hrms/ if needed)
+phpcs.xml
+phpstan.neon
+phpstan-bootstrap.php
+phpstan-bootstrap.php
+
+# Uploads and temp files
+upload/
+download/
+screenshot.png
+
+# WhatsApp auth sessions
+.wwebjs_auth/
+
+# Lock files (keep bun.lock for reproducibility)
+package-lock.json
+bun.lockb
+yarn.lock
