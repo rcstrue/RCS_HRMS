@@ -1,92 +1,85 @@
-# Dependencies
+# ─── Dependencies ───
 node_modules
 /.pnp
 .pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
 
-# Testing
-/coverage
-
-# Next.js
+# ─── Build output ───
+/build
+/dist/
 /.next/
 /out/
 
-# Production build
-/build
-/dist/
-
-# Database files (runtime data, not source)
+# ─── Database files (runtime data) ───
 *.db
 *.sqlite
 *.sqlite3
 /db/
 
-# Misc
-.DS_Store
-*.pem
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Debug logs
+# ─── Logs ───
+*.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
 .pnpm-debug.log*
-*.log
-dev.log
-dev.out.log
-server.log
 
-# Environment files
+# ─── Environment ───
 .env*
 *.local
 
-# Vercel
+# ─── OS / Editor ───
+.DS_Store
+*.pem
+*.suo
+*.sw?
+.vscode/
+.idea/
+
+# ─── Vercel ───
 .vercel
 
-# TypeScript
+# ─── TypeScript ───
 *.tsbuildinfo
 next-env.d.ts
 
-# Sandbox / infra internals
+# ─── Sandbox / infra (never commit) ───
 .claude
 .z-ai-config
 .zscripts/
 tool-results/
 prompt
 test
-
-# Skills directory
 /skills/
-
-# Mini-services (runtime, not source)
 /mini-services/
-
-# Examples (demo code, not production)
 /examples/
+src/
+prisma/
+public/
 
-# PHP linting at root (belongs in hrms/ if needed)
+# ─── Next.js scaffold configs (this is a PHP + Vite monorepo) ───
+package.json
+bun.lock
+bun.lockb
+package-lock.json
+yarn.lock
+next.config.ts
+tsconfig.json
+eslint.config.mjs
+postcss.config.mjs
+tailwind.config.ts
+components.json
+Caddyfile
+404.shtml
+sitemap.xml
+
+# ─── PHP linting at root (belongs in hrms/) ───
 phpcs.xml
 phpstan.neon
 phpstan-bootstrap.php
-phpstan-bootstrap.php
 
-# Uploads and temp files
+# ─── Uploads / temp / runtime ───
 upload/
 download/
 screenshot.png
-
-# WhatsApp auth sessions
 .wwebjs_auth/
 
-# Lock files (keep bun.lock for reproducibility)
-package-lock.json
-bun.lockb
-yarn.lock
+# ─── Agent worklogs (not source) ───
+worklog.md
