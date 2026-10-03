@@ -250,7 +250,7 @@ $months = [
                                     <td class="text-muted"><?= $sr++; ?></td>
                                     <td><span class="badge bg-secondary"><?= sanitize($a['employee_code']); ?></span></td>
                                     <td>
-                                        <a href="index.php?page=employee/view&id=<?= $a['employee_id']; ?>" class="text-decoration-none">
+                                        <a href="index.php?page=employee/view&code=<?= urlencode($a['employee_code']); ?>" class="text-decoration-none">
                                             <?= sanitize($a['full_name']); ?>
                                         </a>
                                     </td>

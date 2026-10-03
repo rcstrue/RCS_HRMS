@@ -334,7 +334,7 @@ try {
                             <tr>
                                 <!-- Employee Code - Bold and Larger -->
                                 <td data-column="employee_code" <?php echo $availableColumns['employee_code']['default'] ? '' : 'style="display:none;"'; ?>>
-                                    <a href="index.php?page=employee/view&id=<?php echo $emp['id']; ?>" class="text-decoration-none">
+                                    <a href="index.php?page=employee/view&code=<?php echo urlencode($emp['employee_code']); ?>" class="text-decoration-none">
                                         <span class="fw-bold fs-5 text-primary"><?php echo sanitize($emp['employee_code']); ?></span>
                                     </a>
                                 </td>
@@ -495,11 +495,11 @@ try {
                                             <i class="bi bi-check-circle"></i>
                                         </button>
                                         <?php endif; ?>
-                                        <a href="index.php?page=employee/view&id=<?php echo $emp['id']; ?>" 
+                                        <a href="index.php?page=employee/view&code=<?php echo urlencode($emp['employee_code']); ?>" 
                                            class="btn btn-outline-primary" title="View">
                                             <i class="bi bi-eye"></i>
                                         </a>
-                                        <a href="index.php?page=employee/add&id=<?php echo $emp['id']; ?>" 
+                                        <a href="index.php?page=employee/add&code=<?php echo urlencode($emp['employee_code']); ?>" 
                                            class="btn btn-outline-secondary" title="Edit">
                                             <i class="bi bi-pencil"></i>
                                         </a>

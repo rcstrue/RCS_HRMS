@@ -51,8 +51,14 @@ function addUploadUrl($path) {
     return '/uploads/' . ltrim($path, '/');                     // legacy format
 }
 
-// Check if editing
-if (isset($_GET['id'])) {
+// Check if editing — support both ?code= (preferred) and ?id= (legacy)
+if (isset($_GET['code'])) {
+    $employeeData = $employee->getByCode(trim($_GET['code']));
+    if ($employeeData) {
+        $pageTitle = 'Edit Employee';
+        $isEdit = true;
+    }
+} elseif (isset($_GET['id'])) {
     $employeeData = $employee->getById($_GET['id']);
     if ($employeeData) {
         $pageTitle = 'Edit Employee';
@@ -372,7 +378,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         setFlash('success', $isEdit ? 'Employee updated successfully!' : 'Employee added successfully!');
-        redirect('index.php?page=employee/view&id=' . ($isEdit ? $employeeData['id'] : $result['employee_id']));
+        // Redirect using employee_code for SEO-friendly URLs
+        $savedEmp = $employee->getById($isEdit ? $employeeData['id'] : $result['employee_id']);
+        $redirectCode = $savedEmp ? $savedEmp['employee_code'] : ($isEdit ? $employeeData['id'] : $result['employee_id']);
+        redirect('index.php?page=employee/view&code=' . urlencode($redirectCode));
     } else {
         setFlash('error', $result['message'] ?? 'Failed to save employee');
     }

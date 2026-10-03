@@ -414,6 +414,7 @@
                             'employee/list'     => 'Employee List',
                             'employee/import'   => 'Import Employees',
                             'employee/bulk-edit'=> 'Bulk Edit',
+                            'employee/code-assign'=> 'Code Assignment',
                             'employee/documents'=> 'Documents',
                             'employee/id-card'  => 'ID Card',
                             'employee/id-card-fixed' => 'ID Card',

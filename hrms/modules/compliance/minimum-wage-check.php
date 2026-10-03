@@ -320,7 +320,7 @@ $stats = [
                                     <small>(<?php echo $v['shortfall_percent']; ?>%)</small>
                                 </td>
                                 <td class="text-center">
-                                    <a href="index.php?page=employee/edit&id=<?php echo $v['employee_code']; ?>" 
+                                    <a href="index.php?page=employee/edit&code=<?php echo urlencode($v['employee_code']); ?>" 
                                        class="btn btn-sm btn-outline-primary" title="Edit Salary">
                                         <i class="bi bi-pencil"></i>
                                     </a>
@@ -429,7 +429,7 @@ $stats = [
                                 <td><?php echo sanitize($m['employee_state'] ?? '-'); ?></td>
                                 <td class="text-warning"><?php echo sanitize($m['reason']); ?></td>
                                 <td>
-                                    <a href="index.php?page=employee/edit&id=<?php echo $m['employee_code']; ?>" 
+                                    <a href="index.php?page=employee/edit&code=<?php echo urlencode($m['employee_code']); ?>" 
                                        class="btn btn-sm btn-outline-warning">Update</a>
                                 </td>
                             </tr>

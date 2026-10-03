@@ -957,7 +957,7 @@ class Notification {
             $employeeData['full_name'] ?? 'New Employee',
             $employeeData['employee_code'] ?? 'No Code'
         );
-        $link = 'index.php?page=employee/view&id=' . ($employeeData['id'] ?? '');
+        $link = 'index.php?page=employee/view&code=' . ($employeeData['employee_code'] ?? $employeeData['id'] ?? '');
         
         return $this->createNotification($title, $message, $link, 'warning');
     }

@@ -230,13 +230,13 @@ function docUrl($path) {
                                 <!-- Thumbnail from profile pic -->
                                 <td class="text-center">
                                     <?php if (!empty($emp['profile_pic_url'])): ?>
-                                    <a href="index.php?page=employee/view&id=<?php echo $emp['id']; ?>">
+                                    <a href="index.php?page=employee/view&code=<?php echo urlencode($emp['employee_code']); ?>">
                                         <img src="<?php echo docUrl($emp['profile_pic_url']); ?>" 
                                              class="rounded-circle" style="width:40px;height:40px;object-fit:cover;" 
                                              alt="Photo">
                                     </a>
                                     <?php else: ?>
-                                    <a href="index.php?page=employee/view&id=<?php echo $emp['id']; ?>">
+                                    <a href="index.php?page=employee/view&code=<?php echo urlencode($emp['employee_code']); ?>">
                                         <div class="rounded-circle bg-secondary text-white d-inline-flex align-items-center justify-content-center" 
                                              style="width:40px;height:40px;font-size:14px;">
                                             <?php echo substr($emp['full_name'] ?? 'U', 0, 1); ?>
@@ -247,7 +247,7 @@ function docUrl($path) {
                                 
                                 <!-- Employee Info -->
                                 <td>
-                                    <a href="index.php?page=employee/view&id=<?php echo $emp['id']; ?>" class="text-decoration-none">
+                                    <a href="index.php?page=employee/view&code=<?php echo urlencode($emp['employee_code']); ?>" class="text-decoration-none">
                                         <span class="fw-medium"><?php echo sanitize($emp['full_name']); ?></span>
                                         <br><small class="text-muted"><?php echo sanitize($emp['employee_code']); ?></small>
                                     </a>

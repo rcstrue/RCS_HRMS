@@ -8,7 +8,7 @@
  *
  * Database Schema (Updated):
  * - employees.id: INT(10) UNSIGNED AUTO_INCREMENT
- * - employees.employee_code: INT(10) UNSIGNED UNIQUE
+ * - employees.employee_code: VARCHAR(20) UNIQUE  (supports both numeric and alphanumeric codes like GFLA110001)
  * - employees.full_name: VARCHAR(255) - direct column
  * - employees.father_name: VARCHAR(255) - father's name
  * - employees.client_id: INT(11) FK to clients.id
@@ -256,27 +256,74 @@ class Employee {
         return $employee;
     }
 
-    // Get employee by employee_code
+    // Get employee by employee_code — mirrors getById() with full joins + documents
     public function getByCode($code) {
         $useSalaryTable = $this->checkSalaryTableExists();
+        $baseColumns = $this->getBaseColumns();
         
         if ($useSalaryTable) {
-            return $this->db->fetch(
-                "SELECT e.*, ess.basic_da, ess.hra, ess.leave_encashment, ess.bonus_encashment, ess.washing_allowance, ess.gross_salary, e.id as employee_id
+            $employee = $this->db->fetch(
+                "SELECT $baseColumns,
+                        ess.basic_da, ess.hra, ess.leave_encashment, ess.bonus_encashment,
+                        ess.washing_allowance, ess.gross_salary,
+                        ess.pf_applicable, ess.esi_applicable,
+                        ess.pt_applicable, ess.lwf_applicable,
+                        ess.bonus_applicable, ess.gratuity_applicable,
+                        ess.overtime_applicable,
+                        c.name as client_name_display,
+                        u.name as unit_name_display
                  FROM employees e
                  LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
                     AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
+                 LEFT JOIN clients c ON e.client_id = c.id
+                 LEFT JOIN units u ON e.unit_id = u.id
                  WHERE e.employee_code = :code",
                 ['code' => $code]
             );
         } else {
-            return $this->db->fetch(
-                "SELECT e.*, e.id as employee_id
+            $employee = $this->db->fetch(
+                "SELECT $baseColumns,
+                        c.name as client_name_display,
+                        u.name as unit_name_display
                  FROM employees e
+                 LEFT JOIN clients c ON e.client_id = c.id
+                 LEFT JOIN units u ON e.unit_id = u.id
                  WHERE e.employee_code = :code",
                 ['code' => $code]
             );
         }
+
+        if ($employee) {
+            // Get documents (same as getById)
+            try {
+                $employee['documents'] = $this->db->fetchAll(
+                    "SELECT * FROM employee_documents WHERE employee_id = :id",
+                    ['id' => $employee['id']]
+                );
+            } catch (Exception $e) {
+                $employee['documents'] = [];
+            }
+        }
+
+        return $employee;
+    }
+
+    // Resolve employee by either id (numeric) or code (alphanumeric)
+    // Returns the full employee record or null
+    public function getByIdOrCode($idOrCode) {
+        // If it looks like a numeric id, try getById first
+        if (is_numeric($idOrCode) && (int)$idOrCode > 0) {
+            $emp = $this->getById((int)$idOrCode);
+            if ($emp) return $emp;
+        }
+        // Try as employee_code
+        $emp = $this->getByCode($idOrCode);
+        if ($emp) return $emp;
+        // Last resort: if numeric, could be a code that happens to be numeric
+        if (is_numeric($idOrCode)) {
+            return $this->getByCode((string)$idOrCode);
+        }
+        return null;
     }
 
     // Build salary data array from form data
@@ -426,7 +473,18 @@ class Employee {
 
         // Map form fields to database columns
         $dbData = $this->mapFormDataToDb($data);
-        unset($dbData['id'], $dbData['employee_code'], $dbData['created_at']);
+        unset($dbData['id'], $dbData['created_at']);
+        // employee_code is now mutable — can be changed via update()
+        // Validate uniqueness if code is being changed
+        if (isset($dbData['employee_code']) && $dbData['employee_code'] !== $employee['employee_code']) {
+            $existing = $this->db->fetch(
+                "SELECT id FROM employees WHERE employee_code = :code AND id != :id",
+                ['code' => $dbData['employee_code'], 'id' => $id]
+            );
+            if ($existing) {
+                return ['success' => false, 'message' => 'Employee code already exists. Please use a unique code.'];
+            }
+        }
         $dbData['updated_at'] = date(DATETIME_FORMAT_DB);
 
         // Check if employee_salary_structures table exists
@@ -525,11 +583,12 @@ class Employee {
         return bin2hex(random_bytes(32));
     }
 
-    // Generate employee code
+    // Generate employee code (fallback for units without custom codes)
+    // Generates numeric codes only — alphanumeric codes are assigned manually
     public function generateEmployeeCode() {
-        // Get the max employee code
+        // Get the max numeric employee code (ignore alphanumeric codes)
         $lastCode = $this->db->fetchColumn(
-            "SELECT MAX(employee_code) FROM employees"
+            "SELECT MAX(CAST(employee_code AS UNSIGNED)) FROM employees WHERE employee_code REGEXP '^[0-9]+$'"
         );
 
         if ($lastCode) {
@@ -537,6 +596,82 @@ class Employee {
         }
         
         return DEFAULT_EMPLOYEE_CODE_START;
+    }
+
+    // Update employee code (single employee)
+    public function updateEmployeeCode($id, $newCode) {
+        // Validate uniqueness
+        $existing = $this->db->fetch(
+            "SELECT id FROM employees WHERE employee_code = :code AND id != :id",
+            ['code' => $newCode, 'id' => $id]
+        );
+        if ($existing) {
+            return ['success' => false, 'message' => 'Employee code "' . htmlspecialchars($newCode) . '" already exists.'];
+        }
+
+        try {
+            $this->db->update('employees', 
+                ['employee_code' => $newCode, 'updated_at' => date(DATETIME_FORMAT_DB)],
+                SQL_WHERE_ID, ['id' => $id]
+            );
+            // Also update ess_employee_cache if it exists
+            try {
+                $this->db->query(
+                    "UPDATE ess_employee_cache SET employee_code = ?, updated_at = NOW() WHERE id = ?",
+                    [$newCode, $id]
+                );
+            } catch (Exception $e) {
+                // Cache table may not exist — ignore
+            }
+            return ['success' => true, 'message' => 'Employee code updated successfully.'];
+        } catch (Exception $e) {
+            return ['success' => false, 'message' => 'Failed to update employee code: ' . $e->getMessage()];
+        }
+    }
+
+    // Bulk update employee codes (array of [id => newCode])
+    public function bulkUpdateEmployeeCodes($codeMap) {
+        $results = ['success' => 0, 'failed' => 0, 'errors' => []];
+        
+        $this->db->beginTransaction();
+        try {
+            foreach ($codeMap as $id => $newCode) {
+                $newCode = trim($newCode);
+                if (empty($newCode)) {
+                    $results['failed']++;
+                    $results['errors'][] = "ID {$id}: Empty code";
+                    continue;
+                }
+                // Check uniqueness
+                $existing = $this->db->fetch(
+                    "SELECT id, employee_code FROM employees WHERE employee_code = :code AND id != :id",
+                    ['code' => $newCode, 'id' => $id]
+                );
+                if ($existing) {
+                    $results['failed']++;
+                    $results['errors'][] = "ID {$id}: Code '{$newCode}' already belongs to employee {$existing['employee_code']}";
+                    continue;
+                }
+                $this->db->update('employees',
+                    ['employee_code' => $newCode, 'updated_at' => date(DATETIME_FORMAT_DB)],
+                    SQL_WHERE_ID, ['id' => $id]
+                );
+                // Sync cache
+                try {
+                    $this->db->query(
+                        "UPDATE ess_employee_cache SET employee_code = ?, updated_at = NOW() WHERE id = ?",
+                        [$newCode, $id]
+                    );
+                } catch (Exception $e) {}
+                $results['success']++;
+            }
+            $this->db->commit();
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            $results['errors'][] = 'Transaction failed: ' . $e->getMessage();
+        }
+        
+        return $results;
     }
 
     // Get employee statistics

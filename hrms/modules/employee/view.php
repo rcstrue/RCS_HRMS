@@ -14,22 +14,30 @@ function viewUploadUrl($path) {
     return '/uploads/' . ltrim($path, '/');
 }
 
-// Define constant for employee view URL to avoid duplication
-define('EMPLOYEE_VIEW_URL', 'index.php?page=employee/view&id=');
+// Define constant for employee view URL — uses employee_code for SEO-friendly URLs
+define('EMPLOYEE_VIEW_URL', 'index.php?page=employee/view&code=');
 
-// Get employee ID and validate as numeric to prevent open redirect
+// Resolve employee by either ?code= (preferred) or ?id= (legacy)
+$employeeCode = isset($_GET['code']) ? trim($_GET['code']) : '';
 $employeeId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
-if (!$employeeId) {
-    setFlash('error', 'Employee ID is required');
-    redirect('index.php?page=employee/list');
-}
-
-// Get employee details
-$emp = $employee->getById($employeeId);
-
-if (!$emp) {
-    setFlash('error', 'Employee not found');
+if ($employeeCode) {
+    // Primary path: lookup by employee_code (supports alphanumeric like GFLA110001)
+    $emp = $employee->getByCode($employeeCode);
+    if (!$emp) {
+        setFlash('error', 'Employee not found with code: ' . htmlspecialchars($employeeCode));
+        redirect('index.php?page=employee/list');
+    }
+    $employeeId = (int)$emp['id'];
+} elseif ($employeeId) {
+    // Legacy path: lookup by numeric id (backward compatibility)
+    $emp = $employee->getById($employeeId);
+    if (!$emp) {
+        setFlash('error', 'Employee not found');
+        redirect('index.php?page=employee/list');
+    }
+} else {
+    setFlash('error', 'Employee code or ID is required');
     redirect('index.php?page=employee/list');
 }
 
@@ -57,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $db->prepare("UPDATE employees SET status = 'approved', approved_at = NOW(), approved_by = ? WHERE id = ?");
         $stmt->execute([$_SESSION['user_id'] ?? null, $employeeId]);
         setFlash('success', 'Employee approved successfully!');
-        redirect(EMPLOYEE_VIEW_URL . $employeeId);
+        redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
     }
     
     // Reject employee
@@ -72,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$employeeId]);
         }
         setFlash('success', 'Employee rejected.');
-        redirect(EMPLOYEE_VIEW_URL . $employeeId);
+        redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
     }
     
     // Mark as left
@@ -88,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$dol, $employeeId]);
         }
         setFlash('success', 'Employee marked as left.');
-        redirect(EMPLOYEE_VIEW_URL . $employeeId);
+        redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
     }
     
     // Document upload
@@ -104,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Validate document type against whitelist
         if (!in_array($docType, $allowedDocTypes)) {
             setFlash('error', 'Invalid document type.');
-            redirect(EMPLOYEE_VIEW_URL . $employeeId);
+            redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
         }
         
         // Sanitize document type for filename (alphanumeric and underscore only)
@@ -134,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             if (strpos($resolvedPath, $uploadsBase) !== 0) {
                 setFlash('error', 'Invalid file path.');
-                redirect(EMPLOYEE_VIEW_URL . $employeeId);
+                redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
             }
             
             if (move_uploaded_file($_FILES['document_file']['tmp_name'], APP_ROOT . '/' . $filePath)) {
@@ -142,7 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$employeeId, $docType, $fileName, $filePath, $_FILES['document_file']['size'], $_FILES['document_file']['type'], $_SESSION['user_id'] ?? null]);
                 
                 setFlash('success', 'Document uploaded successfully!');
-                redirect(EMPLOYEE_VIEW_URL . $employeeId);
+                redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
             }
         }
     }
@@ -248,7 +256,7 @@ $statusLabels = [
                     
                     <hr class="my-2">
                     
-                    <a href="index.php?page=employee/add&id=<?php echo sanitize($employeeId); ?>" class="btn btn-outline-primary btn-sm">
+                    <a href="index.php?page=employee/add&code=<?php echo urlencode($emp['employee_code']); ?>" class="btn btn-outline-primary btn-sm">
                         <i class="bi bi-pencil me-2"></i>Edit Employee
                     </a>
                     

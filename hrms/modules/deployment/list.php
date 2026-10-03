@@ -194,7 +194,7 @@ $stats = [
                     ?>
                     <tr>
                         <td>
-                            <a href="index.php?page=employee/view&id=<?php echo $dep['employee_id']; ?>">
+                            <a href="index.php?page=employee/view&code=<?php echo urlencode($dep['employee_code']); ?>">
                                 <strong><?php echo sanitize($dep['full_name']); ?></strong>
                             </a>
                             <div class="small text-muted">
