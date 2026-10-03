@@ -24,3 +24,20 @@ Stage Summary:
 - Legacy &employee_id= still works for backward compatibility
 - Code assign page has prefix toolbar for bulk prefix operations
 - Example flow: Type "GFLA_" in prefix → click "Apply Prefix to All" → codes become GFLA_94025
+---
+Task ID: 2
+Agent: Main
+Task: Fix ID card link on view.php (confirmed already done) + Add Code Assignment button to employee list page
+
+Work Log:
+- Verified view.php line 264 already has &code= in ID card link (was fixed in previous task)
+- Confirmed no employee_id= references remain in any ID card URL across entire HRMS codebase
+- Added "Code Assign" button to employee list page (list.php) header actions
+- Button placed next to Import button, links to ?page=employee/code-assign
+- Code-assign page already exists in navigation sidebar (header.php line 417)
+- Module whitelist already allows employee/code-assign via 'employee' module
+
+Stage Summary:
+- Employee list page now has "Code Assign" button in header actions
+- All ID card links across HRMS now use &code= parameter instead of &employee_id=
+- Users can navigate to code assignment directly from employee list

@@ -214,6 +214,9 @@ try {
                     <a href="index.php?page=employee/import" class="btn btn-outline-primary btn-sm">
                         <i class="bi bi-upload me-1"></i>Import
                     </a>
+                    <a href="index.php?page=employee/code-assign" class="btn btn-outline-warning btn-sm">
+                        <i class="bi bi-upc-scan me-1"></i>Code Assign
+                    </a>
                     <!-- Column Visibility Dropdown -->
                     <div class="btn-group" role="group">
                         <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
