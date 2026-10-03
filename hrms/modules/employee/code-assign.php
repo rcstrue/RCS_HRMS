@@ -121,8 +121,8 @@ $csrfToken = generateCSRFToken();
     <div class="alert alert-info alert-dismissible fade show py-2 mb-3" role="alert">
         <small>
             <i class="bi bi-info-circle me-1"></i>
-            Assign custom employee codes for units that use their own coding system
-            (e.g., <code>GFLA110001</code>, <code>RBL4001</code>, <code>U6001</code>).
+            Assign custom employee codes for units that use their own coding system.
+            Use the <strong>Code Prefix</strong> field to add a prefix like <code>GFLA_</code> — codes become <code>GFLA_94025</code>.
             Existing numeric codes (e.g., <code>1001</code>) continue to work.
         </small>
         <button type="button" class="btn-close" data-bs-dismiss="alert" style="padding: .5rem .75rem;"></button>
@@ -174,6 +174,43 @@ $csrfToken = generateCSRFToken();
     </div>
 
     <?php if (!empty($employees)): ?>
+
+    <!-- Code Prefix Toolbar -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3 col-sm-6">
+                    <label class="form-label mb-1 small fw-medium">
+                        <i class="bi bi-tag me-1"></i>Code Prefix
+                    </label>
+                    <input type="text" id="codePrefix" class="form-control form-control-sm font-monospace"
+                           placeholder="e.g. GFLA_ or RBL_"
+                           maxlength="10"
+                           oninput="updatePrefixPreview()">
+                    <small class="text-muted">Will be prepended to numeric part</small>
+                </div>
+                <div class="col-md-2 col-sm-6">
+                    <label class="form-label mb-1 small fw-medium">Start Number</label>
+                    <input type="number" id="startNumber" class="form-control form-control-sm font-monospace"
+                           placeholder="e.g. 94001" min="1">
+                </div>
+                <div class="col-md-auto col-sm-6">
+                    <button type="button" class="btn btn-outline-primary btn-sm me-1" onclick="applyPrefixToAll()">
+                        <i class="bi bi-tag-plus me-1"></i>Apply Prefix to All
+                    </button>
+                    <button type="button" class="btn btn-outline-success btn-sm me-1" onclick="applySequential()">
+                        <i class="bi bi-sort-numeric-up me-1"></i>Sequential Assign
+                    </button>
+                    <button type="button" class="btn btn-outline-warning btn-sm me-1" onclick="stripPrefixFromAll()">
+                        <i class="bi bi-tag-x me-1"></i>Strip Prefix
+                    </button>
+                </div>
+                <div class="col-md-auto col-sm-6">
+                    <span id="prefixPreview" class="badge bg-light text-dark border font-monospace d-none"></span>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Employee Code Table (editable) -->
     <form method="POST" action="index.php?page=employee/code-assign" id="bulkForm">
@@ -340,5 +377,120 @@ function confirmBulkSave() {
         return false;
     }
     return confirm(`Save ${changedRows.size} employee code change(s)?\n\nThis will permanently update the employee codes.`);
+}
+
+/**
+ * Extract the numeric part from a code string.
+ * E.g., "GFLA_94025" → "94025", "1001" → "1001"
+ */
+function extractNumeric(code) {
+    const match = code.match(/(\d+)$/);
+    return match ? match[1] : '';
+}
+
+/**
+ * Update the prefix preview badge
+ */
+function updatePrefixPreview() {
+    const prefix = document.getElementById('codePrefix').value.trim();
+    const previewEl = document.getElementById('prefixPreview');
+    if (prefix) {
+        const startNum = document.getElementById('startNumber').value || 'XXXXX';
+        previewEl.textContent = prefix + startNum;
+        previewEl.classList.remove('d-none');
+    } else {
+        previewEl.classList.add('d-none');
+    }
+}
+
+/**
+ * Apply Prefix to All: Takes each code's numeric part and prepends the prefix.
+ * E.g., if code is "94025" and prefix is "GFLA_", result is "GFLA_94025"
+ * E.g., if code is "GFLA_94025" and prefix is "RBL_", result is "RBL_94025"
+ */
+function applyPrefixToAll() {
+    const prefix = document.getElementById('codePrefix').value.trim();
+    if (!prefix) {
+        alert('Please enter a prefix first (e.g., GFLA_ or RBL_)');
+        return;
+    }
+
+    const inputs = document.querySelectorAll('#bulkForm input[data-original]');
+    let count = 0;
+    inputs.forEach(input => {
+        const currentCode = input.value.trim();
+        const numPart = extractNumeric(currentCode);
+        if (numPart) {
+            input.value = prefix + numPart;
+            markChanged(input);
+            count++;
+        }
+    });
+
+    if (count === 0) {
+        alert('No codes with numeric parts found to apply prefix to.');
+    } else {
+        const previewEl = document.getElementById('prefixPreview');
+        previewEl.textContent = prefix + extractNumeric(inputs[0]?.value || '');
+        previewEl.classList.remove('d-none');
+    }
+}
+
+/**
+ * Sequential Assign: prefix + startNumber, incrementing by 1 for each row.
+ * E.g., prefix=GFLA_, start=94001 → GFLA_94001, GFLA_94002, GFLA_94003...
+ */
+function applySequential() {
+    const prefix = document.getElementById('codePrefix').value.trim();
+    const startNum = parseInt(document.getElementById('startNumber').value);
+
+    if (!prefix) {
+        alert('Please enter a prefix (e.g., GFLA_) before sequential assign.');
+        return;
+    }
+    if (isNaN(startNum) || startNum < 1) {
+        alert('Please enter a valid start number (e.g., 94001).');
+        return;
+    }
+
+    const inputs = document.querySelectorAll('#bulkForm input[data-original]');
+    if (inputs.length === 0) return;
+
+    if (!confirm(`Assign ${inputs.length} sequential codes starting at ${prefix}${startNum}?\n\nExample: ${prefix}${startNum}, ${prefix}${startNum + 1}, ${prefix}${startNum + 2}...`)) {
+        return;
+    }
+
+    let num = startNum;
+    inputs.forEach(input => {
+        input.value = prefix + num;
+        markChanged(input);
+        num++;
+    });
+
+    const previewEl = document.getElementById('prefixPreview');
+    previewEl.textContent = prefix + startNum + ' → ' + prefix + (num - 1);
+    previewEl.classList.remove('d-none');
+}
+
+/**
+ * Strip Prefix: Removes any non-numeric prefix from codes, keeping just the number.
+ * E.g., "GFLA_94025" → "94025", "94025" → "94025"
+ */
+function stripPrefixFromAll() {
+    const inputs = document.querySelectorAll('#bulkForm input[data-original]');
+    let count = 0;
+    inputs.forEach(input => {
+        const currentCode = input.value.trim();
+        const numPart = extractNumeric(currentCode);
+        if (numPart && numPart !== currentCode) {
+            input.value = numPart;
+            markChanged(input);
+            count++;
+        }
+    });
+
+    if (count === 0) {
+        alert('No codes with prefixes found to strip.');
+    }
 }
 </script>

@@ -33,18 +33,38 @@ function findPhotoFile($photoUrl) {
     return null;
 }
 
+// Resolve employee for preview/generate: ?code= (preferred) or ?employee_id= (legacy)
+function resolveIdCardEmployee($db) {
+    $empCode = isset($_GET['code']) ? trim($_GET['code']) : '';
+    $empId = isset($_GET['employee_id']) ? (int)$_GET['employee_id'] : 0;
+
+    if ($empCode) {
+        $emp = $db->fetch(
+            "SELECT e.*, c.name as client_name, u.name as unit_name, u.city as unit_city
+             FROM employees e
+             LEFT JOIN clients c ON e.client_id = c.id
+             LEFT JOIN units u ON e.unit_id = u.id
+             WHERE e.employee_code = ?",
+            [$empCode]
+        );
+    } elseif ($empId) {
+        $emp = $db->fetch(
+            "SELECT e.*, c.name as client_name, u.name as unit_name, u.city as unit_city
+             FROM employees e
+             LEFT JOIN clients c ON e.client_id = c.id
+             LEFT JOIN units u ON e.unit_id = u.id
+             WHERE e.id = ?",
+            [$empId]
+        );
+    } else {
+        $emp = null;
+    }
+    return $emp;
+}
+
 // Handle ID card preview generation
-if (isset($_GET['preview']) && isset($_GET['employee_id'])) {
-    $empId = (int)$_GET['employee_id'];
-    
-    $emp = $db->fetch(
-        "SELECT e.*, c.name as client_name, u.name as unit_name, u.city as unit_city
-         FROM employees e
-         LEFT JOIN clients c ON e.client_id = c.id
-         LEFT JOIN units u ON e.unit_id = u.id
-         WHERE e.id = ?",
-        [$empId]
-    );
+if (isset($_GET['preview']) && (isset($_GET['code']) || isset($_GET['employee_id']))) {
+    $emp = resolveIdCardEmployee($db);
     
     $bgPath = null;
     $possibleBgPaths = [
@@ -161,30 +181,24 @@ if (isset($_GET['preview']) && isset($_GET['employee_id'])) {
 }
 
 // Handle ID card download
-if (isset($_GET['generate']) && isset($_GET['employee_id'])) {
-    $empId = (int)$_GET['employee_id'];
-    
-    $emp = $db->fetch(
-        "SELECT e.*, c.name as client_name, u.name as unit_name, u.city as unit_city
-         FROM employees e
-         LEFT JOIN clients c ON e.client_id = c.id
-         LEFT JOIN units u ON e.unit_id = u.id
-         WHERE e.id = ?",
-        [$empId]
-    );
+if (isset($_GET['generate']) && (isset($_GET['code']) || isset($_GET['employee_id']))) {
+    $emp = resolveIdCardEmployee($db);
     
     if (!$emp) die('Employee not found');
     
     $photoUrl = $emp['profile_pic_url'] ?? '';
     $photoPath = findPhotoFile($photoUrl);
     
+    $empId = (int)($emp['id'] ?? 0);
+    $empCode = $emp['employee_code'] ?? '';
+
     if (empty($photoPath)) {
         header('Content-Type: text/html');
         echo '<h3>Photo not found</h3>';
         echo '<p>Photo URL in database: ' . htmlspecialchars($photoUrl ?: 'empty') . '</p>';
         echo '<p>Expected path: ' . htmlspecialchars($webRoot . '/' . ltrim($photoUrl, '/')) . '</p>';
         echo '<p>Please upload a profile photo first.</p>';
-        echo '<p><a href="index.php?page=employee/id-card&client_id=' . ($emp['client_id'] ?? 0) . '&unit_id=' . ($emp['unit_id'] ?? 0) . '&employee_id=' . $empId . '">Go back</a></p>';
+        echo '<p><a href="index.php?page=employee/id-card&client_id=' . ($emp['client_id'] ?? 0) . '&unit_id=' . ($emp['unit_id'] ?? 0) . '&code=' . urlencode($empCode) . '">Go back</a></p>';
         exit;
     }
     
@@ -286,6 +300,7 @@ if (isset($_POST['update_details']) && isset($_POST['employee_id'])) {
     $empId = (int)$_POST['employee_id'];
     $clientId = (int)($_POST['client_id'] ?? 0);
     $unitId = (int)($_POST['unit_id'] ?? 0);
+    $empCode = trim($_POST['employee_code_current'] ?? '');
     
     $updateData = [];
     
@@ -306,7 +321,10 @@ if (isset($_POST['update_details']) && isset($_POST['employee_id'])) {
         setFlash('success', 'Details updated successfully!');
     }
     
-    redirect("index.php?page=employee/id-card&client_id={$clientId}&unit_id={$unitId}&employee_id={$empId}");
+    // Re-fetch to get the updated employee_code for the redirect
+    $updatedEmp = $db->fetch("SELECT employee_code FROM employees WHERE id = ?", [$empId]);
+    $empCode = $updatedEmp ? $updatedEmp['employee_code'] : $empCode;
+    redirect("index.php?page=employee/id-card&client_id={$clientId}&unit_id={$unitId}&code=" . urlencode($empCode));
 }
 
 // Handle photo upload - SAME PATH AS EMPLOYEE ADD/EDIT
@@ -314,6 +332,7 @@ if (isset($_POST['upload_photo']) && isset($_POST['employee_id'])) {
     $empId = (int)$_POST['employee_id'];
     $clientId = (int)($_POST['client_id'] ?? 0);
     $unitId = (int)($_POST['unit_id'] ?? 0);
+    $empCode = trim($_POST['employee_code_current'] ?? '');
     
     if (isset($_FILES['profile_photo']) && $_FILES['profile_photo']['error'] === UPLOAD_ERR_OK) {
         $allowedTypes = ['image/jpeg', 'image/png', 'image/jpg'];
@@ -348,14 +367,25 @@ if (isset($_POST['upload_photo']) && isset($_POST['employee_id'])) {
         setFlash('error', 'Please select a photo to upload.');
     }
     
-    redirect("index.php?page=employee/id-card&client_id={$clientId}&unit_id={$unitId}&employee_id={$empId}");
+    // Re-fetch to get the employee_code for the redirect
+    $updatedEmp = $db->fetch("SELECT employee_code FROM employees WHERE id = ?", [$empId]);
+    $empCode = $updatedEmp ? $updatedEmp['employee_code'] : $empCode;
+    redirect("index.php?page=employee/id-card&client_id={$clientId}&unit_id={$unitId}&code=" . urlencode($empCode));
 }
 
 // Get data
 $clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name");
 $selectedClient = getSessionFilter('client_id', 0);
 $selectedUnit = getSessionFilter('unit_id', 0);
-$selectedEmployee = isset($_GET['employee_id']) ? (int)$_GET['employee_id'] : 0;
+// Resolve selected employee by code (preferred) or id (legacy)
+$selectedEmployeeCode = isset($_GET['code']) ? trim($_GET['code']) : '';
+$selectedEmployee = 0;
+if ($selectedEmployeeCode) {
+    $codeEmp = $db->fetch("SELECT id FROM employees WHERE employee_code = ?", [$selectedEmployeeCode]);
+    if ($codeEmp) $selectedEmployee = (int)$codeEmp['id'];
+} else {
+    $selectedEmployee = isset($_GET['employee_id']) ? (int)$_GET['employee_id'] : 0;
+}
 
 $units = [];
 if ($selectedClient) {
@@ -419,10 +449,10 @@ if ($selectedEmp) {
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Employee</label>
-                        <select class="form-select" name="employee_id" id="employeeSelect">
+                        <select class="form-select" name="code" id="employeeSelect">
                             <option value="">Select Employee</option>
                             <?php foreach ($employees as $e): ?>
-                            <option value="<?php echo $e['id']; ?>" <?php echo $selectedEmployee == $e['id'] ? 'selected' : ''; ?>><?php echo sanitize($e['employee_code'] . ' - ' . $e['full_name']); ?></option>
+                            <option value="<?php echo htmlspecialchars($e['employee_code']); ?>" <?php echo $selectedEmployeeCode === $e['employee_code'] ? 'selected' : ''; ?>><?php echo sanitize($e['employee_code'] . ' - ' . $e['full_name']); ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -468,6 +498,7 @@ if ($selectedEmp) {
                                 <!-- Simple Upload Form -->
                                 <form method="POST" enctype="multipart/form-data" id="uploadForm">
                                     <input type="hidden" name="employee_id" value="<?php echo $selectedEmp['id']; ?>">
+                                    <input type="hidden" name="employee_code_current" value="<?php echo htmlspecialchars($selectedEmp['employee_code'] ?? ''); ?>">
                                     <input type="hidden" name="client_id" value="<?php echo $selectedClient; ?>">
                                     <input type="hidden" name="unit_id" value="<?php echo $selectedUnit; ?>">
                                     
@@ -483,7 +514,7 @@ if ($selectedEmp) {
                                 
                                 <?php if ($hasPhoto): ?>
                                 <hr>
-                                <a href="index.php?page=employee/id-card&generate=1&employee_id=<?php echo $selectedEmp['id']; ?>" 
+                                <a href="index.php?page=employee/id-card&generate=1&code=<?php echo urlencode($selectedEmp['employee_code'] ?? ''); ?>" 
                                    class="btn btn-success w-100" target="_blank">
                                     <i class="bi bi-download me-1"></i>Download ID Card
                                 </a>
@@ -503,7 +534,7 @@ if ($selectedEmp) {
                             </div>
                             <div class="card-body text-center">
                                 <img id="idCardPreview" 
-                                     src="index.php?page=employee/id-card&preview=1&employee_id=<?php echo $selectedEmp['id']; ?>&t=<?php echo time(); ?>" 
+                                     src="index.php?page=employee/id-card&preview=1&code=<?php echo urlencode($selectedEmp['employee_code'] ?? ''); ?>&t=<?php echo time(); ?>" 
                                      style="max-width: 100%; max-height: 400px; border: 1px solid #dee2e6; border-radius: 8px;" 
                                      alt="ID Card Preview">
                             </div>
@@ -511,6 +542,7 @@ if ($selectedEmp) {
                                 <form method="POST" id="detailsForm">
                                     <input type="hidden" name="update_details" value="1">
                                     <input type="hidden" name="employee_id" value="<?php echo $selectedEmp['id']; ?>">
+                                    <input type="hidden" name="employee_code_current" value="<?php echo htmlspecialchars($selectedEmp['employee_code'] ?? ''); ?>">
                                     <input type="hidden" name="client_id" value="<?php echo $selectedClient; ?>">
                                     <input type="hidden" name="unit_id" value="<?php echo $selectedUnit; ?>">
                                     
@@ -624,9 +656,9 @@ document.getElementById('employeeSelect')?.addEventListener('change', function()
 
 function refreshPreview() {
     const img = document.getElementById('idCardPreview');
-    const empId = document.querySelector('input[name="employee_id"]')?.value;
-    if (img && empId) {
-        img.src = 'index.php?page=employee/id-card&preview=1&employee_id=' + empId + '&t=' + Date.now();
+    const empCode = document.querySelector('input[name="employee_code_current"]')?.value;
+    if (img && empCode) {
+        img.src = 'index.php?page=employee/id-card&preview=1&code=' + encodeURIComponent(empCode) + '&t=' + Date.now();
     }
 }
 

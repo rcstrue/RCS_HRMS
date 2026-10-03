@@ -1,0 +1,1038 @@
+     1→<?php
+     2→/**
+     3→ * RCS HRMS Pro - Employee View Page
+     4→ * Updated for actual database schema
+     5→ */
+     6→
+     7→$pageTitle = 'Employee Details';
+     8→
+     9→// Helper: build correct upload URL (DB stores relative paths like 'profile/xxx.jpg')
+    10→function viewUploadUrl($path) {
+    11→    if (empty($path)) return '';
+    12→    if (preg_match('#^https?://#i', $path)) return $path;
+    13→    if (strpos($path, '/uploads/') === 0) return $path;
+    14→    return '/uploads/' . ltrim($path, '/');
+    15→}
+    16→
+    17→// Define constant for employee view URL — uses employee_code for SEO-friendly URLs
+    18→define('EMPLOYEE_VIEW_URL', 'index.php?page=employee/view&code=');
+    19→
+    20→// Resolve employee by either ?code= (preferred) or ?id= (legacy)
+    21→$employeeCode = isset($_GET['code']) ? trim($_GET['code']) : '';
+    22→$employeeId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+    23→
+    24→if ($employeeCode) {
+    25→    // Primary path: lookup by employee_code (supports alphanumeric like GFLA110001)
+    26→    $emp = $employee->getByCode($employeeCode);
+    27→    if (!$emp) {
+    28→        setFlash('error', 'Employee not found with code: ' . htmlspecialchars($employeeCode));
+    29→        redirect('index.php?page=employee/list');
+    30→    }
+    31→    $employeeId = (int)$emp['id'];
+    32→} elseif ($employeeId) {
+    33→    // Legacy path: lookup by numeric id (backward compatibility)
+    34→    $emp = $employee->getById($employeeId);
+    35→    if (!$emp) {
+    36→        setFlash('error', 'Employee not found');
+    37→        redirect('index.php?page=employee/list');
+    38→    }
+    39→} else {
+    40→    setFlash('error', 'Employee code or ID is required');
+    41→    redirect('index.php?page=employee/list');
+    42→}
+    43→
+    44→// Get salary structure
+    45→$salaryStmt = $db->prepare("SELECT * FROM employee_salary_structures WHERE employee_id = ? AND (effective_to IS NULL OR effective_to >= CURDATE()) ORDER BY effective_from DESC LIMIT 1");
+    46→$salaryStmt->execute([$employeeId]);
+    47→$salary = $salaryStmt->fetch(PDO::FETCH_ASSOC);
+    48→
+    49→// Get documents from employee_documents table
+    50→$docStmt = $db->prepare("SELECT * FROM employee_documents WHERE employee_id = ? ORDER BY created_at DESC");
+    51→$docStmt->execute([$employeeId]);
+    52→$documents = $docStmt->fetchAll(PDO::FETCH_ASSOC);
+    53→
+    54→// Handle actions
+    55→if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    56→    // CSRF check (Round 9)
+    57→    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+    58→        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+    59→        redirect($_SERVER['REQUEST_URI'] ?? 'index.php');
+    60→    }
+    61→    $action = $_POST['action'] ?? '';
+    62→    
+    63→    // Approve employee
+    64→    if ($action === 'approve' && $emp['status'] === 'pending_hr_verification') {
+    65→        $stmt = $db->prepare("UPDATE employees SET status = 'approved', approved_at = NOW(), approved_by = ? WHERE id = ?");
+    66→        $stmt->execute([$_SESSION['user_id'] ?? null, $employeeId]);
+    67→        setFlash('success', 'Employee approved successfully!');
+    68→        redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
+    69→    }
+    70→    
+    71→    // Reject employee
+    72→    if ($action === 'reject' && $emp['status'] === 'pending_hr_verification') {
+    73→        $reason = sanitize($_POST['reason'] ?? '');
+    74→        // Try to update with leaving_reason if column exists, otherwise just update status
+    75→        try {
+    76→            $stmt = $db->prepare("UPDATE employees SET status = 'inactive', remarks = ? WHERE id = ?");
+    77→            $stmt->execute([$reason, $employeeId]);
+    78→        } catch (Exception $e) {
+    79→            $stmt = $db->prepare("UPDATE employees SET status = 'inactive' WHERE id = ?");
+    80→            $stmt->execute([$employeeId]);
+    81→        }
+    82→        setFlash('success', 'Employee rejected.');
+    83→        redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
+    84→    }
+    85→    
+    86→    // Mark as left
+    87→    if ($action === 'mark_left') {
+    88→        $dol = sanitize($_POST['date_of_leaving'] ?? date('Y-m-d'));
+    89→        $reason = sanitize($_POST['reason'] ?? '');
+    90→        // Try to update with remarks column, fallback to just status and date
+    91→        try {
+    92→            $stmt = $db->prepare("UPDATE employees SET status = 'inactive', date_of_leaving = ?, remarks = ? WHERE id = ?");
+    93→            $stmt->execute([$dol, $reason, $employeeId]);
+    94→        } catch (Exception $e) {
+    95→            $stmt = $db->prepare("UPDATE employees SET status = 'inactive', date_of_leaving = ? WHERE id = ?");
+    96→            $stmt->execute([$dol, $employeeId]);
+    97→        }
+    98→        setFlash('success', 'Employee marked as left.');
+    99→        redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
+   100→    }
+   101→    
+   102→    // Document upload
+   103→    if (isset($_POST['upload_document'])) {
+   104→        // Whitelist allowed document types to prevent path traversal
+   105→        $allowedDocTypes = [
+   106→            'Aadhaar Card', 'PAN Card', 'Bank Passbook', 'Photo',
+   107→            'Police Verification', 'Education Certificate', 'Experience Certificate',
+   108→            'Medical Certificate', 'Other'
+   109→        ];
+   110→        $docType = $_POST['document_type'] ?? '';
+   111→        
+   112→        // Validate document type against whitelist
+   113→        if (!in_array($docType, $allowedDocTypes)) {
+   114→            setFlash('error', 'Invalid document type.');
+   115→            redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
+   116→        }
+   117→        
+   118→        // Sanitize document type for filename (alphanumeric and underscore only)
+   119→        $safeDocType = preg_replace('/[^a-zA-Z0-9_]/', '', str_replace(' ', '_', $docType));
+   120→        
+   121→        if (isset($_FILES['document_file']) && $_FILES['document_file']['error'] === UPLOAD_ERR_OK) {
+   122→            // Use safe employee code for directory (alphanumeric only) - whitelist approach for security
+   123→            $safeCode = preg_replace('/[^a-zA-Z0-9_-]/', '', $emp['employee_code']);
+   124→            $uploadDir = 'uploads/employee_documents/' . $safeCode . '/';
+   125→            
+   126→            if (!is_dir(APP_ROOT . '/' . $uploadDir)) {
+   127→                mkdir(APP_ROOT . '/' . $uploadDir, 0755, true);
+   128→            }
+   129→            
+   130→            // Generate safe filename - prevent path traversal
+   131→            $fileExtension = pathinfo($_FILES['document_file']['name'], PATHINFO_EXTENSION);
+   132→            // Only allow safe file extensions
+   133→            $allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'doc', 'docx'];
+   134→            $fileExtension = in_array(strtolower($fileExtension), $allowedExtensions) ? $fileExtension : 'pdf';
+   135→            
+   136→            $fileName = $safeDocType . '_' . time() . '.' . $fileExtension;
+   137→            $filePath = $uploadDir . $fileName;
+   138→            
+   139→            // Validate the resolved path is within uploads directory
+   140→            $resolvedPath = realpath(APP_ROOT . '/' . $uploadDir) . '/' . $fileName;
+   141→            $uploadsBase = realpath(APP_ROOT . '/uploads');
+   142→            
+   143→            if (strpos($resolvedPath, $uploadsBase) !== 0) {
+   144→                setFlash('error', 'Invalid file path.');
+   145→                redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
+   146→            }
+   147→            
+   148→            if (move_uploaded_file($_FILES['document_file']['tmp_name'], APP_ROOT . '/' . $filePath)) {
+   149→                $stmt = $db->prepare("INSERT INTO employee_documents (employee_id, document_type, document_name, file_path, file_size, file_type, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
+   150→                $stmt->execute([$employeeId, $docType, $fileName, $filePath, $_FILES['document_file']['size'], $_FILES['document_file']['type'], $_SESSION['user_id'] ?? null]);
+   151→                
+   152→                setFlash('success', 'Document uploaded successfully!');
+   153→                redirect(EMPLOYEE_VIEW_URL . urlencode($emp['employee_code']));
+   154→            }
+   155→        }
+   156→    }
+   157→}
+   158→
+   159→// Calculate age
+   160→$age = '';
+   161→if (!empty($emp['date_of_birth'])) {
+   162→    $dob = new DateTime($emp['date_of_birth']);
+   163→    $now = new DateTime();
+   164→    $age = $dob->diff($now)->y;
+   165→}
+   166→
+   167→// Calculate tenure
+   168→$tenure = '';
+   169→if (!empty($emp['date_of_joining'])) {
+   170→    $doj = new DateTime($emp['date_of_joining']);
+   171→    $endDate = !empty($emp['date_of_leaving']) ? new DateTime($emp['date_of_leaving']) : new DateTime();
+   172→    $diff = $doj->diff($endDate);
+   173→    $tenure = $diff->y . ' years, ' . $diff->m . ' months';
+   174→}
+   175→
+   176→// Document types
+   177→$documentTypes = [
+   178→    'Aadhaar Card' => 'Aadhaar Card',
+   179→    'PAN Card' => 'PAN Card',
+   180→    'Bank Passbook' => 'Bank Passbook',
+   181→    'Photo' => 'Photo',
+   182→    'Police Verification' => 'Police Verification',
+   183→    'Education Certificate' => 'Education Certificate',
+   184→    'Experience Certificate' => 'Experience Certificate',
+   185→    'Medical Certificate' => 'Medical Certificate',
+   186→    'Other' => 'Other Document'
+   187→];
+   188→
+   189→// Status colors
+   190→$statusColors = [
+   191→    'approved' => 'success',
+   192→    'pending_hr_verification' => 'warning',
+   193→    'inactive' => 'secondary',
+   194→    'terminated' => 'danger',
+   195→    'removed' => 'danger',
+   196→    'rejected' => 'danger'
+   197→];
+   198→$statusLabels = [
+   199→    'approved' => 'Active',
+   200→    'pending_hr_verification' => 'Pending Verification',
+   201→    'inactive' => 'Inactive',
+   202→    'terminated' => 'Terminated',
+   203→    'removed' => 'Removed',
+   204→    'rejected' => 'Rejected'
+   205→];
+   206→?>
+   207→
+   208→<div class="row">
+   209→    <!-- Sidebar Quick Actions -->
+   210→    <div class="col-lg-3 col-md-4 mb-3">
+   211→        <!-- Employee Photo & Quick Info -->
+   212→        <div class="card mb-3">
+   213→            <div class="card-body text-center">
+   214→                <?php if (!empty($emp['profile_pic_cropped_url'])): ?>
+   215→                <img src="<?php echo viewUploadUrl($emp['profile_pic_cropped_url']); ?>" alt="Employee" class="rounded-circle mb-2" style="width: 100px; height: 100px; object-fit: cover; border: 3px solid #dee2e6;">
+   216→                <?php elseif (!empty($emp['profile_pic_url'])): ?>
+   217→                <img src="<?php echo viewUploadUrl($emp['profile_pic_url']); ?>" alt="Employee" class="rounded-circle mb-2" style="width: 100px; height: 100px; object-fit: cover; border: 3px solid #dee2e6;">
+   218→                <?php else: ?>
+   219→                <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mx-auto mb-2" style="width: 100px; height: 100px; font-size: 36px;">
+   220→                    <?php echo strtoupper(substr($emp['full_name'] ?? 'U', 0, 1)); ?>
+   221→                </div>
+   222→                <?php endif; ?>
+   223→                <h5 class="mb-1"><?php echo sanitize($emp['full_name'] ?? '-'); ?></h5>
+   224→                <p class="text-muted mb-2"><code><?php echo sanitize($emp['employee_code']); ?></code></p>
+   225→                <span class="badge bg-<?php echo $statusColors[$emp['status']] ?? 'secondary'; ?> fs-6">
+   226→                    <?php echo $statusLabels[$emp['status']] ?? sanitize($emp['status']); ?>
+   227→                </span>
+   228→                <?php if ($emp['status'] === 'approved' && !empty($emp['approved_at'])): ?>
+   229→                <br><small class="text-muted">Approved: <?php echo formatDate($emp['approved_at']); ?></small>
+   230→                <?php endif; ?>
+   231→            </div>
+   232→        </div>
+   233→        
+   234→        <!-- Quick Actions -->
+   235→        <div class="card mb-3">
+   236→            <div class="card-header bg-primary text-white">
+   237→                <h6 class="mb-0"><i class="bi bi-lightning-fill me-2"></i>Quick Actions</h6>
+   238→            </div>
+   239→            <div class="card-body p-2">
+   240→                <div class="d-grid gap-2">
+   241→                    <!-- Approve/Reject for pending employees -->
+   242→                    <?php if ($emp['status'] === 'pending_hr_verification'): ?>
+   243→                    <button type="button" class="btn btn-success btn-sm" onclick="approveEmployee()">
+   244→                        <i class="bi bi-check-circle me-2"></i>Approve Employee
+   245→                    </button>
+   246→                    <button type="button" class="btn btn-danger btn-sm" onclick="rejectEmployee()">
+   247→                        <i class="bi bi-x-circle me-2"></i>Reject
+   248→                    </button>
+   249→                    <?php endif; ?>
+   250→                    
+   251→                    <?php if ($emp['status'] === 'approved'): ?>
+   252→                    <button type="button" class="btn btn-warning btn-sm" onclick="markAsLeft()">
+   253→                        <i class="bi bi-person-x me-2"></i>Mark as Left
+   254→                    </button>
+   255→                    <?php endif; ?>
+   256→                    
+   257→                    <hr class="my-2">
+   258→                    
+   259→                    <a href="index.php?page=employee/add&code=<?php echo urlencode($emp['employee_code']); ?>" class="btn btn-outline-primary btn-sm">
+   260→                        <i class="bi bi-pencil me-2"></i>Edit Employee
+   261→                    </a>
+   262→                    
+   263→                    <?php if ($emp['status'] === 'approved'): ?>
+   264→                    <a href="index.php?page=employee/id-card&client_id=<?php echo (int)($emp['client_id'] ?? 0); ?>&unit_id=<?php echo (int)($emp['unit_id'] ?? 0); ?>&employee_id=<?php echo sanitize($employeeId); ?>" class="btn btn-primary btn-sm">
+   265→                        <i class="bi bi-person-badge me-2"></i>ID Card
+   266→                    </a>
+   267→                    <?php endif; ?>
+   268→                    
+   269→                    <hr class="my-2">
+   270→                    
+   271→                    <!-- Forms & Certificates -->
+   272→                    <small class="text-muted fw-bold">FORMS & CERTIFICATES</small>
+   273→                    
+   274→                    <a href="index.php?page=forms/appointment&id=<?php echo sanitize($employeeId); ?>" class="btn btn-outline-success btn-sm" target="_blank">
+   275→                        <i class="bi bi-file-earmark-text me-2"></i>Appointment Letter
+   276→                    </a>
+   277→                    
+   278→                    <a href="index.php?page=forms/relieving&id=<?php echo sanitize($employeeId); ?>" class="btn btn-outline-info btn-sm" target="_blank">
+   279→                        <i class="bi bi-file-earmark-minus me-2"></i>Relieving Letter
+   280→                    </a>
+   281→                    
+   282→                    <a href="index.php?page=forms/service_certificate&id=<?php echo sanitize($employeeId); ?>" class="btn btn-outline-info btn-sm" target="_blank">
+   283→                        <i class="bi bi-award me-2"></i>Service Certificate
+   284→                    </a>
+   285→                    
+   286→                    <a href="index.php?page=forms/experience&id=<?php echo sanitize($employeeId); ?>" class="btn btn-outline-info btn-sm" target="_blank">
+   287→                        <i class="bi bi-briefcase me-2"></i>Experience Certificate
+   288→                    </a>
+   289→                    
+   290→                    <hr class="my-2">
+   291→                    
+   292→                    <small class="text-muted fw-bold">STATUTORY FORMS</small>
+   293→                    
+   294→                    <a href="index.php?page=forms/form-v&id=<?php echo sanitize($employeeId); ?>" class="btn btn-outline-secondary btn-sm" target="_blank">
+   295→                        <i class="bi bi-file-text me-2"></i>Form V
+   296→                    </a>
+   297→                    
+   298→                    <a href="index.php?page=forms/form-xvi&id=<?php echo sanitize($employeeId); ?>" class="btn btn-outline-secondary btn-sm" target="_blank">
+   299→                        <i class="bi bi-file-text me-2"></i>Form XVI
+   300→                    </a>
+   301→                    
+   302→                    <a href="index.php?page=forms/form-xvii&id=<?php echo sanitize($employeeId); ?>" class="btn btn-outline-secondary btn-sm" target="_blank">
+   303→                        <i class="bi bi-file-text me-2"></i>Form XVII
+   304→                    </a>
+   305→                    
+   306→                    <hr class="my-2">
+   307→                    
+   308→                    <small class="text-muted fw-bold">NOMINATIONS</small>
+   309→                    
+   310→                    <a href="index.php?page=forms/nomination_pf&id=<?php echo sanitize($employeeId); ?>" class="btn btn-outline-warning btn-sm" target="_blank">
+   311→                        <i class="bi bi-file-earmark-person me-2"></i>PF Nomination
+   312→                    </a>
+   313→                    
+   314→                    <a href="index.php?page=forms/nomination_esi&id=<?php echo sanitize($employeeId); ?>" class="btn btn-outline-warning btn-sm" target="_blank">
+   315→                        <i class="bi bi-file-earmark-person me-2"></i>ESI Nomination
+   316→                    </a>
+   317→                    
+   318→                    <a href="index.php?page=forms/nomination_gratuity&id=<?php echo sanitize($employeeId); ?>" class="btn btn-outline-warning btn-sm" target="_blank">
+   319→                        <i class="bi bi-file-earmark-person me-2"></i>Gratuity Nomination
+   320→                    </a>
+   321→                    
+   322→                    <?php if ($emp['status'] === 'approved'): ?>
+   323→                    <hr class="my-2">
+   324→                    <a href="index.php?page=payroll/payslips&emp=<?php echo sanitize($emp['employee_code']); ?>" class="btn btn-outline-primary btn-sm">
+   325→                        <i class="bi bi-receipt me-2"></i>View Payslips
+   326→                    </a>
+   327→                    <?php endif; ?>
+   328→                </div>
+   329→            </div>
+   330→        </div>
+   331→        
+   332→        <!-- Salary Summary -->
+   333→        <div class="card">
+   334→            <div class="card-header">
+   335→                <h6 class="mb-0"><i class="bi bi-cash-stack me-2"></i>Salary Info</h6>
+   336→            </div>
+   337→            <div class="card-body p-2">
+   338→                <table class="table table-sm table-borderless mb-0">
+   339→                    <tr>
+   340→                        <td class="text-muted">Gross Salary</td>
+   341→                        <td class="text-end fw-bold text-success"><?php echo formatCurrency($salary['gross_salary'] ?? $emp['gross_salary'] ?? 0); ?></td>
+   342→                    </tr>
+   343→                    <tr>
+   344→                        <td class="text-muted">Basic + DA</td>
+   345→                        <td class="text-end"><?php echo formatCurrency($salary['basic_da'] ?? 0); ?></td>
+   346→                    </tr>
+   347→                    <tr>
+   348→                        <td class="text-muted">HRA</td>
+   349→                        <td class="text-end"><?php echo formatCurrency($salary['hra'] ?? 0); ?></td>
+   350→                    </tr>
+   351→                    <tr>
+   352→                        <td class="text-muted">Washing Allow.</td>
+   353→                        <td class="text-end"><?php echo formatCurrency($salary['washing_allowance'] ?? 0); ?></td>
+   354→                    </tr>
+   355→                </table>
+   356→            </div>
+   357→        </div>
+   358→    </div>
+   359→    
+   360→    <!-- Main Content -->
+   361→    <div class="col-lg-9 col-md-8">
+   362→        <!-- Personal Details -->
+   363→        <div class="card mb-3">
+   364→            <div class="card-header bg-light">
+   365→                <h6 class="mb-0"><i class="bi bi-person me-2"></i>Personal Details</h6>
+   366→            </div>
+   367→            <div class="card-body">
+   368→                <div class="row">
+   369→                    <div class="col-md-4 mb-3">
+   370→                        <label class="text-muted small" id="lbl-fullname">Full Name</label>
+   371→                        <div class="fw-medium" aria-labelledby="lbl-fullname"><?php echo sanitize($emp['full_name'] ?? '-'); ?></div>
+   372→                    </div>
+   373→                    <div class="col-md-4 mb-3">
+   374→                        <label class="text-muted small" id="lbl-fathername">Father's Name</label>
+   375→                        <div aria-labelledby="lbl-fathername"><?php echo sanitize($emp['father_name'] ?? '-'); ?></div>
+   376→                    </div>
+   377→                    <div class="col-md-4 mb-3">
+   378→                        <label class="text-muted small" id="lbl-gender">Gender</label>
+   379→                        <div aria-labelledby="lbl-gender"><?php echo sanitize($emp['gender'] ?? '-'); ?></div>
+   380→                    </div>
+   381→                    <div class="col-md-4 mb-3">
+   382→                        <label class="text-muted small" id="lbl-dob">Date of Birth</label>
+   383→                        <div aria-labelledby="lbl-dob"><?php echo formatDate($emp['date_of_birth']); ?>
+   384→                            <?php if ($age): ?><span class="text-muted">(<?php echo $age; ?> years)</span><?php endif; ?>
+   385→                        </div>
+   386→                    </div>
+   387→                    <div class="col-md-4 mb-3">
+   388→                        <label class="text-muted small" id="lbl-marital">Marital Status</label>
+   389→                        <div aria-labelledby="lbl-marital"><?php echo sanitize($emp['marital_status'] ?? '-'); ?></div>
+   390→                    </div>
+   391→                    <div class="col-md-4 mb-3">
+   392→                        <label class="text-muted small" id="lbl-blood">Blood Group</label>
+   393→                        <div>
+   394→                            <?php if (!empty($emp['blood_group'])): ?>
+   395→                            <span class="badge bg-danger"><?php echo sanitize($emp['blood_group']); ?></span>
+   396→                            <?php else: ?>
+   397→                            <span class="text-muted">-</span>
+   398→                            <?php endif; ?>
+   399→                        </div>
+   400→                    </div>
+   401→                    <div class="col-md-4 mb-3">
+   402→                        <label class="text-muted small" id="lbl-role">Employee Role</label>
+   403→                        <div aria-labelledby="lbl-role"><?php echo ucfirst(sanitize($emp['employee_role'] ?? 'employee')); ?></div>
+   404→                    </div>
+   405→                </div>
+   406→            </div>
+   407→        </div>
+   408→        
+   409→        <!-- Contact Details -->
+   410→        <div class="card mb-3">
+   411→            <div class="card-header bg-light">
+   412→                <h6 class="mb-0"><i class="bi bi-telephone me-2"></i>Contact Details</h6>
+   413→            </div>
+   414→            <div class="card-body">
+   415→                <div class="row">
+   416→                    <div class="col-md-4 mb-3">
+   417→                        <label class="text-muted small">Mobile Number</label>
+   418→                        <div>
+   419→                            <?php if (!empty($emp['mobile_number'])): ?>
+   420→                            <a href="tel:<?php echo sanitize($emp['mobile_number']); ?>"><?php echo sanitize($emp['mobile_number']); ?></a>
+   421→                            <?php else: ?>-<?php endif; ?>
+   422→                        </div>
+   423→                    </div>
+   424→                    <div class="col-md-4 mb-3">
+   425→                        <label class="text-muted small">Alternate Mobile</label>
+   426→                        <div><?php echo sanitize($emp['alternate_mobile'] ?? '-'); ?></div>
+   427→                    </div>
+   428→                    <div class="col-md-4 mb-3">
+   429→                        <label class="text-muted small">Email</label>
+   430→                        <div>
+   431→                            <?php if (!empty($emp['email'])): ?>
+   432→                            <a href="mailto:<?php echo sanitize($emp['email']); ?>"><?php echo sanitize($emp['email']); ?></a>
+   433→                            <?php else: ?>-<?php endif; ?>
+   434→                        </div>
+   435→                    </div>
+   436→                </div>
+   437→            </div>
+   438→        </div>
+   439→        
+   440→        <!-- Address Details -->
+   441→        <div class="card mb-3">
+   442→            <div class="card-header bg-light">
+   443→                <h6 class="mb-0"><i class="bi bi-geo-alt me-2"></i>Address Details</h6>
+   444→            </div>
+   445→            <div class="card-body">
+   446→                <div class="row">
+   447→                    <div class="col-md-12 mb-2">
+   448→                        <label class="text-muted small">Full Address</label>
+   449→                        <div>
+   450→                            <?php
+   451→                            $addr = [];
+   452→                            if (!empty($emp['address'])) {
+   453→                                $addr[] = sanitize($emp['address']);
+   454→                            }
+   455→                            if (!empty($emp['district'])) {
+   456→                                $addr[] = sanitize($emp['district']);
+   457→                            }
+   458→                            if (!empty($emp['state'])) {
+   459→                                $addr[] = sanitize($emp['state']);
+   460→                            }
+   461→                            if (!empty($emp['pin_code'])) {
+   462→                                $addr[] = sanitize($emp['pin_code']);
+   463→                            }
+   464→                            echo !empty($addr) ? implode(', ', $addr) : '-';
+   465→                            ?>
+   466→                        </div>
+   467→                    </div>
+   468→                    <div class="col-md-4">
+   469→                        <label class="text-muted small">State</label>
+   470→                        <div><?php echo sanitize($emp['state'] ?? '-'); ?></div>
+   471→                    </div>
+   472→                    <div class="col-md-4">
+   473→                        <label class="text-muted small">District</label>
+   474→                        <div><?php echo sanitize($emp['district'] ?? '-'); ?></div>
+   475→                    </div>
+   476→                    <div class="col-md-4">
+   477→                        <label class="text-muted small">Pin Code</label>
+   478→                        <div><?php echo sanitize($emp['pin_code'] ?? '-'); ?></div>
+   479→                    </div>
+   480→                </div>
+   481→            </div>
+   482→        </div>
+   483→        
+   484→        <!-- Identity Documents -->
+   485→        <div class="card mb-3">
+   486→            <div class="card-header bg-light">
+   487→                <h6 class="mb-0"><i class="bi bi-card-heading me-2"></i>Identity Documents</h6>
+   488→            </div>
+   489→            <div class="card-body">
+   490→                <div class="row">
+   491→                    <div class="col-md-4 mb-3">
+   492→                        <label class="text-muted small">Aadhaar Number</label>
+   493→                        <div>
+   494→                            <?php if (!empty($emp['aadhaar_number'])): ?>
+   495→                            <!-- NOTE: Aadhaar number is NOT masked as per user requirement - full number visible for HR operations -->
+   496→                            <code><?php echo sanitize($emp['aadhaar_number']); ?></code>
+   497→                            <?php else: ?>-<?php endif; ?>
+   498→                        </div>
+   499→                    </div>
+   500→                    <div class="col-md-4 mb-3">
+   501→                        <label class="text-muted small">UAN Number</label>
+   502→                        <div>
+   503→                            <?php if (!empty($emp['uan_number'])): ?>
+   504→                            <code><?php echo sanitize($emp['uan_number']); ?></code>
+   505→                            <?php else: ?>-<?php endif; ?>
+   506→                        </div>
+   507→                    </div>
+   508→                    <div class="col-md-4 mb-3">
+   509→                        <label class="text-muted small">ESIC Number</label>
+   510→                        <div>
+   511→                            <?php if (!empty($emp['esic_number'])): ?>
+   512→                            <code><?php echo sanitize($emp['esic_number']); ?></code>
+   513→                            <?php else: ?>-<?php endif; ?>
+   514→                        </div>
+   515→                    </div>
+   516→                </div>
+   517→            </div>
+   518→        </div>
+   519→        
+   520→        <!-- Document Images (Aadhaar & Bank) -->
+   521→        <div class="card mb-3">
+   522→            <div class="card-header bg-light">
+   523→                <h6 class="mb-0"><i class="bi bi-image me-2"></i>Document Images</h6>
+   524→            </div>
+   525→            <div class="card-body">
+   526→                <div class="row">
+   527→                    <!-- Profile Photo -->
+   528→                    <div class="col-md-3 mb-3 text-center">
+   529→                        <label class="text-muted small d-block" id="lbl-profile">Profile Photo</label>
+   530→                        <?php if (!empty($emp['profile_pic_cropped_url'])): ?>
+   531→                        <a href="<?php echo viewUploadUrl($emp['profile_pic_cropped_url']); ?>" target="blank">
+   532→                            <img id="doc-profile" src="<?php echo viewUploadUrl($emp['profile_pic_cropped_url']); ?>" data-field="profile_pic_cropped_url" alt="Profile photo of <?php echo sanitize($emp['full_name'] ?? 'Employee'); ?>" class="img-thumbnail" style="max-height: 120px;">
+   533→                        </a>
+   534→                        <button type="button" class="btn btn-xs btn-outline-primary mt-1" onclick="cropDocImage('profile_pic_cropped_url', document.getElementById('doc-profile'))">
+   535→                            <i class="bi bi-crop"></i> Crop
+   536→                        </button>
+   537→                        <?php elseif (!empty($emp['profile_pic_url'])): ?>
+   538→                        <a href="<?php echo viewUploadUrl($emp['profile_pic_url']); ?>" target="_blank">
+   539→                            <img id="doc-profile" src="<?php echo viewUploadUrl($emp['profile_pic_url']); ?>" data-field="profile_pic_url" alt="Profile photo of <?php echo sanitize($emp['full_name'] ?? 'Employee'); ?>" class="img-thumbnail" style="max-height: 120px;">
+   540→                        </a>
+   541→                        <button type="button" class="btn btn-xs btn-outline-primary mt-1" onclick="cropDocImage('profile_pic_url', document.getElementById('doc-profile'))">
+   542→                            <i class="bi bi-crop"></i> Crop
+   543→                        </button>
+   544→                        <?php else: ?>
+   545→                        <div class="img-thumbnail d-flex align-items-center justify-content-center bg-light" style="height: 120px;">
+   546→                            <span class="text-muted">No Photo</span>
+   547→                        </div>
+   548→                        <?php endif; ?>
+   549→                    </div>
+   550→                    
+   551→                    <!-- Aadhaar Front -->
+   552→                    <div class="col-md-3 mb-3 text-center">
+   553→                        <label class="text-muted small d-block" id="lbl-aadhaarfront">Aadhaar Front</label>
+   554→                        <?php if (!empty($emp['aadhaar_front_url'])): ?>
+   555→                        <a href="<?php echo viewUploadUrl($emp['aadhaar_front_url']); ?>" target="_blank">
+   556→                            <img id="doc-aadhaar-front" src="<?php echo viewUploadUrl($emp['aadhaar_front_url']); ?>" data-field="aadhaar_front_url" alt="Aadhaar card front side" class="img-thumbnail" style="max-height: 120px;">
+   557→                        </a>
+   558→                        <button type="button" class="btn btn-xs btn-outline-primary mt-1" onclick="cropDocImage('aadhaar_front_url', document.getElementById('doc-aadhaar-front'))">
+   559→                            <i class="bi bi-crop"></i> Crop
+   560→                        </button>
+   561→                        <?php else: ?>
+   562→                        <div class="img-thumbnail d-flex align-items-center justify-content-center bg-light" style="height: 120px;">
+   563→                            <span class="text-muted">Not Uploaded</span>
+   564→                        </div>
+   565→                        <?php endif; ?>
+   566→                    </div>
+   567→                    
+   568→                    <!-- Aadhaar Back -->
+   569→                    <div class="col-md-3 mb-3 text-center">
+   570→                        <label class="text-muted small d-block" id="lbl-aadhaarback">Aadhaar Back</label>
+   571→                        <?php if (!empty($emp['aadhaar_back_url'])): ?>
+   572→                        <a href="<?php echo viewUploadUrl($emp['aadhaar_back_url']); ?>" target="_blank">
+   573→                            <img id="doc-aadhaar-back" src="<?php echo viewUploadUrl($emp['aadhaar_back_url']); ?>" data-field="aadhaar_back_url" alt="Aadhaar card back side" class="img-thumbnail" style="max-height: 120px;">
+   574→                        </a>
+   575→                        <button type="button" class="btn btn-xs btn-outline-primary mt-1" onclick="cropDocImage('aadhaar_back_url', document.getElementById('doc-aadhaar-back'))">
+   576→                            <i class="bi bi-crop"></i> Crop
+   577→                        </button>
+   578→                        <?php else: ?>
+   579→                        <div class="img-thumbnail d-flex align-items-center justify-content-center bg-light" style="height: 120px;">
+   580→                            <span class="text-muted">Not Uploaded</span>
+   581→                        </div>
+   582→                        <?php endif; ?>
+   583→                    </div>
+   584→                    
+   585→                    <!-- Bank Document -->
+   586→                    <div class="col-md-3 mb-3 text-center">
+   587→                        <label class="text-muted small d-block" id="lbl-bankdoc">Bank Passbook</label>
+   588→                        <?php if (!empty($emp['bank_document_url'])): ?>
+   589→                        <a href="<?php echo viewUploadUrl($emp['bank_document_url']); ?>" target="_blank">
+   590→                            <img id="doc-bank" src="<?php echo viewUploadUrl($emp['bank_document_url']); ?>" data-field="bank_document_url" alt="Bank passbook image" class="img-thumbnail" style="max-height: 120px;">
+   591→                        </a>
+   592→                        <button type="button" class="btn btn-xs btn-outline-primary mt-1" onclick="cropDocImage('bank_document_url', document.getElementById('doc-bank'))">
+   593→                            <i class="bi bi-crop"></i> Crop
+   594→                        </button>
+   595→                        <?php else: ?>
+   596→                        <div class="img-thumbnail d-flex align-items-center justify-content-center bg-light" style="height: 120px;">
+   597→                            <span class="text-muted">Not Uploaded</span>
+   598→                        </div>
+   599→                        <?php endif; ?>
+   600→                    </div>
+   601→                </div>
+   602→            </div>
+   603→        </div>
+   604→        
+   605→        <!-- Bank Details -->
+   606→        <div class="card mb-3">
+   607→            <div class="card-header bg-light">
+   608→                <h6 class="mb-0"><i class="bi bi-bank me-2"></i>Bank Details</h6>
+   609→            </div>
+   610→            <div class="card-body">
+   611→                <div class="row">
+   612→                    <div class="col-md-4 mb-3">
+   613→                        <label class="text-muted small">Bank Name</label>
+   614→                        <div><?php echo sanitize($emp['bank_name'] ?? '-'); ?></div>
+   615→                    </div>
+   616→                    <div class="col-md-4 mb-3">
+   617→                        <label class="text-muted small">Account Number</label>
+   618→                        <div>
+   619→                            <?php if (!empty($emp['account_number'])): ?>
+   620→                            <code><?php echo sanitize($emp['account_number']); ?></code>
+   621→                            <?php else: ?>-<?php endif; ?>
+   622→                        </div>
+   623→                    </div>
+   624→                    <div class="col-md-4 mb-3">
+   625→                        <label class="text-muted small">IFSC Code</label>
+   626→                        <div>
+   627→                            <?php if (!empty($emp['ifsc_code'])): ?>
+   628→                            <code><?php echo sanitize($emp['ifsc_code']); ?></code>
+   629→                            <?php else: ?>-<?php endif; ?>
+   630→                        </div>
+   631→                    </div>
+   632→                    <div class="col-md-6 mb-3">
+   633→                        <label class="text-muted small">Account Holder Name</label>
+   634→                        <div><?php echo sanitize($emp['account_holder_name'] ?? '-'); ?></div>
+   635→                    </div>
+   636→                </div>
+   637→            </div>
+   638→        </div>
+   639→        
+   640→        <!-- Employment Details -->
+   641→        <div class="card mb-3">
+   642→            <div class="card-header bg-light">
+   643→                <h6 class="mb-0"><i class="bi bi-briefcase me-2"></i>Employment Details</h6>
+   644→            </div>
+   645→            <div class="card-body">
+   646→                <div class="row">
+   647→                    <div class="col-md-4 mb-3">
+   648→                        <label class="text-muted small">Client</label>
+   649→                        <div><?php echo sanitize($emp['client_name_display'] ?? '-'); ?></div>
+   650→                    </div>
+   651→                    <div class="col-md-4 mb-3">
+   652→                        <label class="text-muted small">Unit</label>
+   653→                        <div><?php echo sanitize($emp['unit_name_display'] ?? '-'); ?></div>
+   654→                    </div>
+   655→                    <div class="col-md-4 mb-3">
+   656→                        <label class="text-muted small">Designation</label>
+   657→                        <div><?php echo sanitize($emp['designation'] ?? '-'); ?></div>
+   658→                    </div>
+   659→                    <div class="col-md-4 mb-3">
+   660→                        <label class="text-muted small">Department</label>
+   661→                        <div><?php echo sanitize($emp['department'] ?? '-'); ?></div>
+   662→                    </div>
+   663→                    <div class="col-md-4 mb-3">
+   664→                        <label class="text-muted small">Worker Category</label>
+   665→                        <div><span class="badge bg-info"><?php echo sanitize($emp['worker_category'] ?? '-'); ?></span></div>
+   666→                    </div>
+   667→                    <div class="col-md-4 mb-3">
+   668→                        <label class="text-muted small">Employment Type</label>
+   669→                        <div><?php echo sanitize($emp['employment_type'] ?? '-'); ?></div>
+   670→                    </div>
+   671→                    <div class="col-md-4 mb-3">
+   672→                        <label class="text-muted small">Date of Joining</label>
+   673→                        <div><?php echo formatDate($emp['date_of_joining']); ?></div>
+   674→                    </div>
+   675→                    <div class="col-md-4 mb-3">
+   676→                        <label class="text-muted small">Tenure</label>
+   677→                        <div><?php echo $tenure ?: '-'; ?></div>
+   678→                    </div>
+   679→                    <div class="col-md-4 mb-3">
+   680→                        <label class="text-muted small">Probation Period</label>
+   681→                        <div><?php echo !empty($emp['probation_period']) ? $emp['probation_period'] . ' months' : '-'; ?></div>
+   682→                    </div>
+   683→                    <?php if (!empty($emp['date_of_leaving'])): ?>
+   684→                    <div class="col-md-4 mb-3">
+   685→                        <label class="text-muted small">Date of Leaving</label>
+   686→                        <div class="text-danger"><?php echo formatDate($emp['date_of_leaving']); ?></div>
+   687→                    </div>
+   688→                    <?php endif; ?>
+   689→                    <?php if (!empty($emp['confirmation_date'])): ?>
+   690→                    <div class="col-md-4 mb-3">
+   691→                        <label class="text-muted small">Confirmation Date</label>
+   692→                        <div><?php echo formatDate($emp['confirmation_date']); ?></div>
+   693→                    </div>
+   694→                    <?php endif; ?>
+   695→                </div>
+   696→            </div>
+   697→        </div>
+   698→        
+   699→        <!-- Wage Details -->
+   700→        <div class="card mb-3">
+   701→            <div class="card-header bg-light">
+   702→                <h6 class="mb-0"><i class="bi bi-currency-rupee me-2"></i>Wage Details</h6>
+   703→            </div>
+   704→            <div class="card-body">
+   705→                <div class="table-responsive">
+   706→                    <table class="table table-bordered table-sm">
+   707→                        <thead class="table-light">
+   708→                            <tr>
+   709→                                <th scope="col">Basic + DA</th>
+   710→                                <th scope="col">HRA</th>
+   711→                                <th scope="col">Washing</th>
+   712→                                <th scope="col">Leave Enc.</th>
+   713→                                <th scope="col">Bonus Enc.</th>
+   714→                                <th scope="col">Gross</th>
+   715→                            </tr>
+   716→                        </thead>
+   717→                        <tbody>
+   718→                            <tr>
+   719→                                <td><?php echo formatCurrency($salary['basic_da'] ?? 0); ?></td>
+   720→                                <td><?php echo formatCurrency($salary['hra'] ?? 0); ?></td>
+   721→                                <td><?php echo formatCurrency($salary['washing_allowance'] ?? 0); ?></td>
+   722→                                <td><?php echo formatCurrency($salary['leave_encashment'] ?? 0); ?></td>
+   723→                                <td><?php echo formatCurrency($salary['bonus_encashment'] ?? 0); ?></td>
+   724→                                <td class="fw-bold text-success"><?php echo formatCurrency($salary['gross_salary'] ?? 0); ?></td>
+   725→                            </tr>
+   726→                        </tbody>
+   727→                    </table>
+   728→                </div>
+   729→                
+   730→                <!-- Statutory Applicability -->
+   731→                <h6 class="mt-3 mb-2">Statutory Applicability</h6>
+   732→                <div class="row">
+   733→                    <div class="col-md-12">
+   734→                        <table class="table table-sm table-bordered">
+   735→                            <thead class="table-light">
+   736→                                <tr>
+   737→                                    <th scope="col">PF</th>
+   738→                                    <th scope="col">ESI</th>
+   739→                                    <th scope="col">PT</th>
+   740→                                    <th scope="col">LWF</th>
+   741→                                    <th scope="col">Bonus</th>
+   742→                                    <th scope="col">Gratuity</th>
+   743→                                    <th scope="col">Overtime</th>
+   744→                                </tr>
+   745→                            </thead>
+   746→                            <tbody>
+   747→                                <tr>
+   748→                                    <td><?php echo !empty($salary['pf_applicable']) ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'; ?></td>
+   749→                                    <td><?php echo !empty($salary['esi_applicable']) ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'; ?></td>
+   750→                                    <td><?php echo !empty($salary['pt_applicable']) ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'; ?></td>
+   751→                                    <td><?php echo !empty($salary['lwf_applicable']) ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'; ?></td>
+   752→                                    <td><?php echo !empty($salary['bonus_applicable']) ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'; ?></td>
+   753→                                    <td><?php echo !empty($salary['gratuity_applicable']) ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'; ?></td>
+   754→                                    <td><?php echo !empty($salary['overtime_applicable']) ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'; ?></td>
+   755→                                </tr>
+   756→                            </tbody>
+   757→                        </table>
+   758→                    </div>
+   759→                </div>
+   760→            </div>
+   761→        </div>
+   762→        
+   763→        <!-- Nominee & Emergency Contact -->
+   764→        <div class="card mb-3">
+   765→            <div class="card-header bg-light">
+   766→                <h6 class="mb-0"><i class="bi bi-person-lines-fill me-2"></i>Nominee & Emergency Contact</h6>
+   767→            </div>
+   768→            <div class="card-body">
+   769→                <div class="row">
+   770→                    <div class="col-md-6 mb-3">
+   771→                        <h6 class="text-primary"><i class="bi bi-telephone-fill me-1"></i>Emergency Contact</h6>
+   772→                        <table class="table table-sm table-borderless mb-0">
+   773→                            <tr>
+   774→                                <th scope="row" class="text-muted fw-normal">Name:</th>
+   775→                                <td><?php echo sanitize($emp['emergency_contact_name'] ?? '-'); ?></td>
+   776→                            </tr>
+   777→                            <tr>
+   778→                                <th scope="row" class="text-muted fw-normal">Relation:</th>
+   779→                                <td><?php echo sanitize($emp['emergency_contact_relation'] ?? '-'); ?></td>
+   780→                            </tr>
+   781→                            <tr>
+   782→                                <th scope="row" class="text-muted fw-normal">Phone:</th>
+   783→                                <td>
+   784→                                    <?php if (!empty($emp['emergency_contact_number'])): ?>
+   785→                                    <a href="tel:<?php echo sanitize($emp['emergency_contact_number']); ?>"><?php echo sanitize($emp['emergency_contact_number']); ?></a>
+   786→                                    <?php else: ?>-<?php endif; ?>
+   787→                                </td>
+   788→                            </tr>
+   789→                        </table>
+   790→                    </div>
+   791→                    <div class="col-md-6 mb-3">
+   792→                        <h6 class="text-primary"><i class="bi bi-person-check me-1"></i>Nominee</h6>
+   793→                        <table class="table table-sm table-borderless mb-0">
+   794→                            <tr>
+   795→                                <th scope="row" class="text-muted fw-normal">Name:</th>
+   796→                                <td><?php echo sanitize($emp['nominee_name'] ?? '-'); ?></td>
+   797→                            </tr>
+   798→                            <tr>
+   799→                                <th scope="row" class="text-muted fw-normal">Relation:</th>
+   800→                                <td><?php echo sanitize($emp['nominee_relationship'] ?? '-'); ?></td>
+   801→                            </tr>
+   802→                            <tr>
+   803→                                <th scope="row" class="text-muted fw-normal">DOB:</th>
+   804→                                <td><?php echo formatDate($emp['nominee_dob'] ?? null); ?></td>
+   805→                            </tr>
+   806→                            <tr>
+   807→                                <th scope="row" class="text-muted fw-normal">Contact:</th>
+   808→                                <td><?php echo sanitize($emp['nominee_contact'] ?? '-'); ?></td>
+   809→                            </tr>
+   810→                        </table>
+   811→                    </div>
+   812→                </div>
+   813→            </div>
+   814→        </div>
+   815→        
+   816→        <!-- Documents Section -->
+   817→        <div class="card mb-3">
+   818→            <div class="card-header bg-light d-flex justify-content-between align-items-center">
+   819→                <h6 class="mb-0"><i class="bi bi-folder me-2"></i>Uploaded Documents</h6>
+   820→                <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#uploadDocumentModal">
+   821→                    <i class="bi bi-upload me-1"></i>Upload Document
+   822→                </button>
+   823→            </div>
+   824→            <div class="card-body p-0">
+   825→                <div class="table-responsive">
+   826→                    <table class="table table-hover mb-0">
+   827→                        <thead>
+   828→                            <tr>
+   829→                                <th scope="col">Document Type</th>
+   830→                                <th scope="col">File Name</th>
+   831→                                <th scope="col">Uploaded On</th>
+   832→                                <th scope="col">Verified</th>
+   833→                                <th scope="col">Actions</th>
+   834→                            </tr>
+   835→                        </thead>
+   836→                        <tbody>
+   837→                            <?php if (empty($documents)): ?>
+   838→                            <tr>
+   839→                                <td colspan="5" class="text-center py-4 text-muted">No documents uploaded yet</td>
+   840→                            </tr>
+   841→                            <?php else: ?>
+   842→                            <?php foreach ($documents as $doc): ?>
+   843→                            <tr>
+   844→                                <td><?php echo sanitize($doc['document_type']); ?></td>
+   845→                                <td><?php echo sanitize($doc['document_name'] ?? basename($doc['file_path'])); ?></td>
+   846→                                <td><?php echo formatDateTime($doc['created_at']); ?></td>
+   847→                                <td>
+   848→                                    <?php if (!empty($doc['verified'])): ?>
+   849→                                    <span class="badge bg-success">Verified</span>
+   850→                                    <?php else: ?>
+   851→                                    <span class="badge bg-warning">Pending</span>
+   852→                                    <?php endif; ?>
+   853→                                </td>
+   854→                                <td>
+   855→                                    <a href="<?php echo sanitize($doc['file_path']); ?>" class="btn btn-sm btn-outline-primary" target="_blank">
+   856→                                        <i class="bi bi-eye"></i>
+   857→                                    </a>
+   858→                                </td>
+   859→                            </tr>
+   860→                            <?php endforeach; ?>
+   861→                            <?php endif; ?>
+   862→                        </tbody>
+   863→                    </table>
+   864→                </div>
+   865→            </div>
+   866→        </div>
+   867→    </div>
+   868→</div>
+   869→
+   870→<!-- Approve Modal -->
+   871→<div class="modal fade" id="approveModal" tabindex="-1">
+   872→    <div class="modal-dialog modal-sm">
+   873→        <div class="modal-content">
+   874→            <form method="POST">
+   875→            <?php echo getCSRFTokenField(); ?>
+   876→                <input type="hidden" name="action" value="approve">
+   877→                <div class="modal-header">
+   878→                    <h5 class="modal-title">Approve Employee</h5>
+   879→                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+   880→                </div>
+   881→                <div class="modal-body">
+   882→                    <p>Are you sure you want to approve <strong><?php echo sanitize($emp['full_name']); ?></strong>?</p>
+   883→                </div>
+   884→                <div class="modal-footer">
+   885→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   886→                    <button type="submit" class="btn btn-success">Approve</button>
+   887→                </div>
+   888→            </form>
+   889→        </div>
+   890→    </div>
+   891→</div>
+   892→
+   893→<!-- Reject Modal -->
+   894→<div class="modal fade" id="rejectModal" tabindex="-1">
+   895→    <div class="modal-dialog">
+   896→        <div class="modal-content">
+   897→            <form method="POST">
+   898→            <?php echo getCSRFTokenField(); ?>
+   899→                <input type="hidden" name="action" value="reject">
+   900→                <div class="modal-header">
+   901→                    <h5 class="modal-title">Reject Employee</h5>
+   902→                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+   903→                </div>
+   904→                <div class="modal-body">
+   905→                    <div class="mb-3">
+   906→                        <label for="reject-reason" class="form-label">Reason for Rejection</label>
+   907→                        <textarea id="reject-reason" class="form-control" name="reason" rows="3" required></textarea>
+   908→                    </div>
+   909→                </div>
+   910→                <div class="modal-footer">
+   911→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   912→                    <button type="submit" class="btn btn-danger">Reject</button>
+   913→                </div>
+   914→            </form>
+   915→        </div>
+   916→    </div>
+   917→</div>
+   918→
+   919→<!-- Mark as Left Modal -->
+   920→<div class="modal fade" id="leftModal" tabindex="-1">
+   921→    <div class="modal-dialog">
+   922→        <div class="modal-content">
+   923→            <form method="POST">
+   924→            <?php echo getCSRFTokenField(); ?>
+   925→                <input type="hidden" name="action" value="mark_left">
+   926→                <div class="modal-header">
+   927→                    <h5 class="modal-title">Mark Employee as Left</h5>
+   928→                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+   929→                </div>
+   930→                <div class="modal-body">
+   931→                    <div class="mb-3">
+   932→                        <label for="date-of-leaving" class="form-label">Date of Leaving</label>
+   933→                        <input type="date" id="date-of-leaving" class="form-control" name="date_of_leaving" value="<?php echo date('Y-m-d'); ?>" required>
+   934→                    </div>
+   935→                    <div class="mb-3">
+   936→                        <label for="leaving-reason" class="form-label">Reason</label>
+   937→                        <textarea id="leaving-reason" class="form-control" name="reason" rows="3"></textarea>
+   938→                    </div>
+   939→                </div>
+   940→                <div class="modal-footer">
+   941→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   942→                    <button type="submit" class="btn btn-warning">Mark as Left</button>
+   943→                </div>
+   944→            </form>
+   945→        </div>
+   946→    </div>
+   947→</div>
+   948→
+   949→<!-- Upload Document Modal -->
+   950→<div class="modal fade" id="uploadDocumentModal" tabindex="-1">
+   951→    <div class="modal-dialog">
+   952→        <div class="modal-content">
+   953→            <form method="POST" enctype="multipart/form-data">
+   954→            <?php echo getCSRFTokenField(); ?>
+   955→                <input type="hidden" name="upload_document" value="1">
+   956→                <div class="modal-header">
+   957→                    <h5 class="modal-title">Upload Document</h5>
+   958→                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+   959→                </div>
+   960→                <div class="modal-body">
+   961→                    <div class="mb-3">
+   962→                        <label for="document-type" class="form-label">Document Type</label>
+   963→                        <select id="document-type" class="form-select" name="document_type" required>
+   964→                            <option value="">Select Type</option>
+   965→                            <?php foreach ($documentTypes as $type): ?>
+   966→                            <option value="<?php echo $type; ?>"><?php echo $type; ?></option>
+   967→                            <?php endforeach; ?>
+   968→                        </select>
+   969→                    </div>
+   970→                    <div class="mb-3">
+   971→                        <label for="document-file" class="form-label">File</label>
+   972→                        <input type="file" id="document-file" class="form-control" name="document_file" required>
+   973→                    </div>
+   974→                </div>
+   975→                <div class="modal-footer">
+   976→                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+   977→                    <button type="submit" class="btn btn-primary">Upload</button>
+   978→                </div>
+   979→            </form>
+   980→        </div>
+   981→    </div>
+   982→</div>
+   983→
+   984→<script>
+   985→function approveEmployee() {
+   986→    new bootstrap.Modal('#approveModal').show();
+   987→}
+   988→
+   989→function rejectEmployee() {
+   990→    new bootstrap.Modal('#rejectModal').show();
+   991→}
+   992→
+   993→function markAsLeft() {
+   994→    new bootstrap.Modal('#leftModal').show();
+   995→}
+   996→
+   997→// Crop document image (Aadhaar / Bank / Profile)
+   998→function cropDocImage(field, imgEl) {
+   999→    if (!imgEl) return;
+  1000→    var empId = <?php echo (int)$employeeId; ?>;
+  1001→    var currentUrl = imgEl.getAttribute('src');
+  1002→    if (!currentUrl) return;
+  1003→
+  1004→    openLiteEditor(currentUrl, function(base64DataUrl) {
+  1005→        var formData = new FormData();
+  1006→        formData.append('action', 'crop_save_doc');
+  1007→        formData.append('employee_id', empId);
+  1008→        formData.append('field', field);
+  1009→        formData.append('image_data', base64DataUrl);
+  1010→        formData.append('original_url', currentUrl);
+  1011→
+  1012→        fetch(window.location.pathname + '?page=api/crop-save', {
+  1013→            method: 'POST',
+  1014→            body: formData
+  1015→        })
+  1016→        .then(function(r) { return r.json(); })
+  1017→        .then(function(res) {
+  1018→            if (res.ok) {
+  1019→                imgEl.src = res.url + '?t=' + Date.now();
+  1020→                var link = imgEl.closest('a');
+  1021→                if (link) link.href = res.url;
+  1022→                // Also update the sidebar profile photo if it was the profile pic
+  1023→                if (field.indexOf('profile_pic') !== -1) {
+  1024→                    var sidePhoto = document.querySelector('.card-body.text-center img.rounded-circle');
+  1025→                    if (sidePhoto) sidePhoto.src = res.url + '?t=' + Date.now();
+  1026→                }
+  1027→                alert('Image saved successfully!');
+  1028→            } else {
+  1029→                alert('Save failed: ' + (res.msg || 'Unknown error'));
+  1030→            }
+  1031→        })
+  1032→        .catch(function(err) { alert('Error: ' + err.message); });
+  1033→    });
+  1034→}
+  1035→</script>
+  1036→
+  1037→<?php include_once 'modules/settings/image-tool-lite.php'; ?>
+  1038→

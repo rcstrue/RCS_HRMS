@@ -413,7 +413,7 @@ if (strpos($page, '/delete') !== false && $isLoggedIn) {
 }
 
 // Handle ID Card generation and preview (before header is included to avoid "headers already sent" errors)
-if ($page === 'employee/id-card' && $isLoggedIn && (isset($_GET['generate']) || isset($_GET['preview']))) {
+if (($page === 'employee/id-card' || $page === 'employee/id-card-fixed') && $isLoggedIn && (isset($_GET['generate']) || isset($_GET['preview']))) {
     $idCardPath = getSafeModulePath($page);
     if ($idCardPath !== null) {
         $isIdCardGeneration = true;

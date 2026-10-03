@@ -261,7 +261,7 @@ $statusLabels = [
                     </a>
                     
                     <?php if ($emp['status'] === 'approved'): ?>
-                    <a href="index.php?page=employee/id-card&client_id=<?php echo (int)($emp['client_id'] ?? 0); ?>&unit_id=<?php echo (int)($emp['unit_id'] ?? 0); ?>&employee_id=<?php echo sanitize($employeeId); ?>" class="btn btn-primary btn-sm">
+                    <a href="index.php?page=employee/id-card&client_id=<?php echo (int)($emp['client_id'] ?? 0); ?>&unit_id=<?php echo (int)($emp['unit_id'] ?? 0); ?>&code=<?php echo urlencode($emp['employee_code'] ?? ''); ?>" class="btn btn-primary btn-sm">
                         <i class="bi bi-person-badge me-2"></i>ID Card
                     </a>
                     <?php endif; ?>

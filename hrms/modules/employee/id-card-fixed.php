@@ -43,23 +43,37 @@ if (isset($_POST['upload_photo']) && isset($_POST['employee_id'])) {
             setFlash('error', 'Only JPG and PNG files are allowed.');
         }
     }
-    redirect("index.php?page=employee/id-card&client_id={$clientId}&unit_id={$unitId}&employee_id={$empId}");
+    $empCode = trim($_POST['employee_code_current'] ?? '');
+    // Re-fetch to get the employee_code for redirect
+    $updatedEmp = $db->fetch("SELECT employee_code FROM employees WHERE id = ?", [$empId]);
+    $empCode = $updatedEmp ? $updatedEmp['employee_code'] : $empCode;
+    redirect("index.php?page=employee/id-card&client_id={$clientId}&unit_id={$unitId}&code=" . urlencode($empCode));
 }
 
 // Handle ID card generation (can be called before header for direct download)
-if (isset($_GET['generate']) && isset($_GET['employee_id'])) {
-    $empId = (int)$_GET['employee_id'];
-    
-    $emp = $db->fetch(
-        "SELECT e.*, 
-                c.name as client_name, 
-                u.name as unit_name
-         FROM employees e
-         LEFT JOIN clients c ON e.client_id = c.id
-         LEFT JOIN units u ON e.unit_id = u.id
-         WHERE e.id = ?",
-        [$empId]
-    );
+if (isset($_GET['generate']) && (isset($_GET['code']) || isset($_GET['employee_id']))) {
+    $empCode = isset($_GET['code']) ? trim($_GET['code']) : '';
+    $empId = isset($_GET['employee_id']) ? (int)$_GET['employee_id'] : 0;
+
+    if ($empCode) {
+        $emp = $db->fetch(
+            "SELECT e.*, c.name as client_name, u.name as unit_name
+             FROM employees e
+             LEFT JOIN clients c ON e.client_id = c.id
+             LEFT JOIN units u ON e.unit_id = u.id
+             WHERE e.employee_code = ?",
+            [$empCode]
+        );
+    } else {
+        $emp = $db->fetch(
+            "SELECT e.*, c.name as client_name, u.name as unit_name
+             FROM employees e
+             LEFT JOIN clients c ON e.client_id = c.id
+             LEFT JOIN units u ON e.unit_id = u.id
+             WHERE e.id = ?",
+            [$empId]
+        );
+    }
     
     if (!$emp) {
         setFlash('error', 'Employee not found');
@@ -82,7 +96,7 @@ if (isset($_GET['generate']) && isset($_GET['employee_id'])) {
     
     if (empty($photoPath)) {
         setFlash('error', 'Please upload a profile photo first.');
-        redirect('index.php?page=employee/id-card&client_id=' . ($emp['client_id'] ?? 0) . '&unit_id=' . ($emp['unit_id'] ?? 0) . '&employee_id=' . $empId);
+        redirect('index.php?page=employee/id-card&client_id=' . ($emp['client_id'] ?? 0) . '&unit_id=' . ($emp['unit_id'] ?? 0) . '&code=' . urlencode($emp['employee_code'] ?? ''));
     }
     
     // Load background image - look in web root
@@ -220,7 +234,15 @@ $clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER
 // Get selected filters
 $selectedClient = getSessionFilter('client_id', 0);
 $selectedUnit = getSessionFilter('unit_id', 0);
-$selectedEmployee = isset($_GET['employee_id']) ? (int)$_GET['employee_id'] : 0;
+// Resolve selected employee by code (preferred) or id (legacy)
+$selectedEmployeeCode = isset($_GET['code']) ? trim($_GET['code']) : '';
+$selectedEmployee = 0;
+if ($selectedEmployeeCode) {
+    $codeEmp = $db->fetch("SELECT id FROM employees WHERE employee_code = ?", [$selectedEmployeeCode]);
+    if ($codeEmp) $selectedEmployee = (int)$codeEmp['id'];
+} else {
+    $selectedEmployee = isset($_GET['employee_id']) ? (int)$_GET['employee_id'] : 0;
+}
 
 // Get units based on client
 $units = [];
@@ -298,10 +320,10 @@ $templatePath = '/upload/Id card format.jpeg';
                     
                     <div class="col-md-4">
                         <label class="form-label">Employee</label>
-                        <select class="form-select" name="employee_id" id="employeeSelect">
+                        <select class="form-select" name="code" id="employeeSelect">
                             <option value="">Select Employee</option>
                             <?php foreach ($employees as $e): ?>
-                            <option value="<?php echo $e['id']; ?>" <?php echo $selectedEmployee == $e['id'] ? 'selected' : ''; ?>>
+                            <option value="<?php echo htmlspecialchars($e['employee_code']); ?>" <?php echo $selectedEmployeeCode === $e['employee_code'] ? 'selected' : ''; ?>>
                                 <?php echo sanitize($e['employee_code'] . ' - ' . $e['full_name']); ?>
                             </option>
                             <?php endforeach; ?>
@@ -343,6 +365,7 @@ $templatePath = '/upload/Id card format.jpeg';
                                 <p class="text-danger small">Profile photo required for ID card</p>
                                 <form method="POST" enctype="multipart/form-data">
                                     <input type="hidden" name="employee_id" value="<?php echo $selectedEmp['id']; ?>">
+                                    <input type="hidden" name="employee_code_current" value="<?php echo htmlspecialchars($selectedEmp['employee_code'] ?? ''); ?>">
                                     <input type="hidden" name="client_id" value="<?php echo $selectedClient; ?>">
                                     <input type="hidden" name="unit_id" value="<?php echo $selectedUnit; ?>">
                                     <div class="mb-2">
@@ -355,7 +378,7 @@ $templatePath = '/upload/Id card format.jpeg';
                                 </form>
                                 <?php else: ?>
                                 <hr>
-                                <a href="index.php?page=employee/id-card&generate=1&employee_id=<?php echo $selectedEmp['id']; ?>" class="btn btn-primary">
+                                <a href="index.php?page=employee/id-card&generate=1&code=<?php echo urlencode($selectedEmp['employee_code'] ?? ''); ?>" class="btn btn-primary">
                                     <i class="bi bi-download me-1"></i>Download ID Card
                                 </a>
                                 <?php endif; ?>
