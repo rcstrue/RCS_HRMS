@@ -117,6 +117,18 @@ try {
                 </div>
             </a>
         </div>
+        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
+            <a href="index.php?page=employee/code-assign" class="text-decoration-none">
+                <div class="card module-card h-100">
+                    <div class="card-body">
+                        <div class="mod-icon bg-pink-soft"><i class="bi bi-upc-scan"></i></div>
+                        <div class="mod-title">Code Assignment</div>
+                        <div class="mod-desc">Assign custom employee codes (GFLA_, RBL_)</div>
+                    </div>
+                    <i class="bi bi-arrow-right mod-arrow"></i>
+                </div>
+            </a>
+        </div>
         <?php if (in_array($roleCode ?? '', ['admin','hr','hr_executive'])): ?>
         <div class="col-lg-3 col-md-4 col-sm-6 col-6">
             <a href="index.php?page=employee/esic-import" class="text-decoration-none">
