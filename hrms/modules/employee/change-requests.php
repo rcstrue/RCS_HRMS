@@ -19,20 +19,36 @@ $pageTitle = 'Change Request Approvals';
 function sendInAppNotification(int $employeeId, string $title, string $message, string $type = 'info', string $link = '') {
     global $db;
     try {
-        // Use the same format as ESS notifications.php: employee_id, title, message, type, link, created_at
-        $linkVal = $link ?: '';
-        $sql = "INSERT INTO ess_notifications (employee_id, title, message, type, link, created_at)
-                VALUES (:employee_id, :title, :message, :type, :link, NOW())";
-        $db->exec($sql, [
+        // Must go through $db->insert(): Database::exec() accepts no bind params,
+        // so the previous $db->exec($sql, [...]) silently discarded them. PDO then
+        // sent the raw SQL containing ":employee_id" placeholders, which threw and
+        // was swallowed below — the employee was never actually notified.
+        // Format matches ESS notifications.php / cron-auto-notifications.php.
+        $db->insert('ess_notifications', [
             'employee_id' => (string)$employeeId,
             'title'       => $title,
             'message'     => $message,
             'type'        => $type,
-            'link'        => $linkVal,
+            'link'        => $link ?: null,
+            'is_read'     => 0,
+            'created_at'  => date('Y-m-d H:i:s'),
         ]);
     } catch (Exception $e) {
         error_log('[change-request in-app notif] ' . $e->getMessage());
     }
+}
+
+// ─── Upload URL Helper ──────────────────────────────────────────────────────
+// Mirrors viewUploadUrl() in modules/employee/view.php. Stored values are
+// inconsistent: the ESS upload endpoints (api/ess/upload-base64.php) and the
+// fix-upload-paths.php migration may already include the "/uploads/" prefix,
+// while older rows store a bare "profile/xxx.jpg". Naively prefixing "/uploads/"
+// produced "/uploads//uploads/..." and a broken thumbnail.
+function crUploadUrl($path) {
+    if (empty($path)) return '';
+    if (preg_match('#^https?://#i', $path)) return $path;
+    if (strpos($path, '/uploads/') === 0) return $path;
+    return '/uploads/' . ltrim($path, '/');
 }
 
 // ─── POST Actions ────────────────────────────────────────────────────────────
@@ -341,17 +357,23 @@ try {
         $eid = (int)$r['employee_id'];
         $emp = $empMap[$eid] ?? [];
 
-        // Get reviewer name
+        // Get reviewer name.
+        // reviewed_by stores a USERS id — $_SESSION['user_id'] is users.id (see
+        // Auth::login()), not an employees id. Resolving it against `employees`
+        // showed '—' or an unrelated employee's name whose id coincided.
         $reviewerName = null;
         $revId = (int)($r['reviewed_by'] ?? 0);
         if ($revId > 0) {
             try {
                 $rev = $db->fetch(
-                    "SELECT full_name FROM employees WHERE id = :rid LIMIT 1",
+                    "SELECT first_name, last_name, username FROM users WHERE id = :rid LIMIT 1",
                     ['rid' => $revId]
                 );
                 if ($rev) {
-                    $reviewerName = $rev['full_name'];
+                    $reviewerName = trim(($rev['first_name'] ?? '') . ' ' . ($rev['last_name'] ?? ''));
+                    if ($reviewerName === '') {
+                        $reviewerName = $rev['username'] ?? null;
+                    }
                 }
             } catch (Exception $e) {
                 /* ignore */
@@ -463,6 +485,7 @@ $csrfToken = generateCSRFToken();
                 <!-- Search -->
                 <form method="GET" class="row g-2 mb-3">
                     <input type="hidden" name="page" value="employee/change-requests">
+                    <input type="hidden" name="status" value="<?= htmlspecialchars($fStatus) ?>">
                     <div class="col-auto">
                         <input type="text" name="search" class="form-control form-control-sm"
                                placeholder="Search by name, code, or field..."
@@ -563,14 +586,14 @@ $csrfToken = generateCSRFToken();
                                 </td>
                                 <td>
                                     <?php if ($r['field_name'] === 'profile_pic_url' && $r['old_value']): ?>
-                                        <img src="/uploads/<?= htmlspecialchars($r['old_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="Old">
+                                        <img src="<?= htmlspecialchars(crUploadUrl($r['old_value'])) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="Old">
                                     <?php else: ?>
                                         <code><?= htmlspecialchars($r['old_value'] ?: '—') ?></code>
                                     <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if ($r['field_name'] === 'profile_pic_url' && $r['new_value']): ?>
-                                        <img src="/uploads/<?= htmlspecialchars($r['new_value']) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="New">
+                                        <img src="<?= htmlspecialchars(crUploadUrl($r['new_value'])) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="New">
                                     <?php else: ?>
                                         <code class="text-primary"><?= htmlspecialchars($r['new_value']) ?></code>
                                     <?php endif; ?>
