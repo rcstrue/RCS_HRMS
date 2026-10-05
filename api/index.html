@@ -1,43 +1,1303 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<?php
+/**
+ * RCS Facility - Employee Registration API
+ * Backend for join.rcsfacility.com
+ * 
+ * Database Schema: rcsfaxhz_bolt
+ * - employees: int AUTO_INCREMENT
+ * - admin_users: int AUTO_INCREMENT  
+ * - clients: int AUTO_INCREMENT
+ * - units: int AUTO_INCREMENT
+ */
 
-    <!-- ── Content Security Policy (Round 5, fixed R11) ──────────────────── -->
-    <!-- Single-line: backslash continuations are invalid in HTML attributes. -->
-    <!-- style-src 'unsafe-inline' is required because React + shadcn inject  -->
-    <!-- inline styles. fonts.googleapis.com is used for the Inter font.       -->
-    <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';" />
+// ============================================================
+// CONFIGURATION
+// ============================================================
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
 
-    <title>RCS ESS — Employee Self Service</title>
-    <meta name="description" content="RCS True Facilities — Employee Self Service Portal" />
-    <meta name="author" content="RCS True Facilities Pvt Ltd" />
+header('Content-Type: application/json');
 
-    <meta property="og:title" content="RCS ESS — Employee Self Service" />
-    <meta property="og:description" content="RCS True Facilities — Employee Self Service Portal" />
-    <meta property="og:type" content="website" />
+// CORS - restrict to allowed origins
+$ALLOWED_ORIGINS = [
+    'https://join.rcsfacility.com',
+    'https://sid.rcsfacility.com',
+];
 
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@RCSFacility" />
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if (in_array($origin, $ALLOWED_ORIGINS)) {
+    header("Access-Control-Allow-Origin: $origin");
+} else {
+    // Allow localhost for development
+    if (strpos($origin, 'localhost') !== false || strpos($origin, '127.0.0.1') !== false) {
+        header("Access-Control-Allow-Origin: $origin");
+    }
+}
 
-    <meta name="theme-color" content="#059669" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="RCS ESS" />
+header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Client-Info, X-API-KEY, apikey');
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="manifest" href="/manifest.json" />
-    <script type="module" crossorigin src="/assets/index-BjTJqwOt.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/vendor-viRqxWsp.js">
-    <link rel="modulepreload" crossorigin href="/assets/ui-B5_7jP7n.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-BxsSb0G-.css">
-  </head>
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
 
-  <body>
-    <div id="root"></div>
-  </body>
-</html>
+// API Key
+define('API_KEY', 'RCS_HRMS_SECURE_KEY_982374982374');
+
+// Database config - UPDATE THESE ON PRODUCTION
+$DB_HOST = 'localhost';
+$DB_USER = 'rcsfaxhz_bolt';
+$DB_PASS = 'rcsfaxhz_bolt';       // <-- UPDATE THIS
+$DB_NAME = 'rcsfaxhz_bolt';
+
+// JWT Secret
+$JWT_SECRET = 'your_jwt_secret_key_here'; // <-- UPDATE THIS
+
+// Upload directory - files should be accessible at https://join.rcsfacility.com/uploads/
+$UPLOAD_DIR = dirname(__DIR__) . '/uploads/';
+
+// ============================================================
+// RATE LIMITING (60 requests per minute per IP)
+// ============================================================
+$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+$rateLimitFile = sys_get_temp_dir() . "/api_rate_" . md5($ip);
+$rateCountFile = sys_get_temp_dir() . "/api_count_" . md5($ip);
+
+$currentTime = time();
+$lastReset = @file_get_contents($rateLimitFile);
+$requestCount = (int)@file_get_contents($rateCountFile);
+
+// Reset counter every minute
+if (!$lastReset || ($currentTime - (int)$lastReset) >= 60) {
+    $requestCount = 0;
+    file_put_contents($rateLimitFile, $currentTime);
+}
+
+// Allow 60 requests per minute
+if ($requestCount >= 60) {
+    http_response_code(429);
+    echo json_encode(['error' => 'Too many requests. Please wait a minute.']);
+    exit;
+}
+
+file_put_contents($rateCountFile, $requestCount + 1);
+
+// ============================================================
+// API KEY VALIDATION
+// ============================================================
+$headers = getallheaders();
+$apiKey = $headers['X-API-KEY'] ?? $headers['x-api-key'] ?? $_SERVER['HTTP_X_API_KEY'] ?? ($_GET['key'] ?? '');
+
+if ($apiKey !== API_KEY) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Unauthorized: Invalid API key']);
+    exit;
+}
+
+// ============================================================
+// DATABASE CONNECTION
+// ============================================================
+$conn = new mysqli($DB_HOST, $DB_USER, $DB_PASS, $DB_NAME);
+if ($conn->connect_error) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Database connection failed']);
+    exit;
+}
+$conn->set_charset('utf8mb4');
+
+// ============================================================
+// HELPERS
+// ============================================================
+function getJsonBody() {
+    return json_decode(file_get_contents('php://input'), true) ?: [];
+}
+
+function sendJson($data, $code = 200) {
+    http_response_code($code);
+    echo json_encode($data);
+    exit;
+}
+
+function sendError($message, $code = 400) {
+    http_response_code($code);
+    echo json_encode(['error' => $message]);
+    exit;
+}
+
+// Simple JWT encode
+function jwtEncode($payload, $secret) {
+    $header = base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
+    $payload = base64_encode(json_encode($payload));
+    $signature = base64_encode(hash_hmac('sha256', "$header.$payload", $secret, true));
+    return "$header.$payload.$signature";
+}
+
+// Simple JWT decode
+function jwtDecode($token, $secret) {
+    $parts = explode('.', $token);
+    if (count($parts) !== 3) return null;
+    
+    $signature = base64_encode(hash_hmac('sha256', "$parts[0].$parts[1]", $secret, true));
+    if ($signature !== $parts[2]) return null;
+    
+    return json_decode(base64_decode($parts[1]), true);
+}
+
+// Get authenticated user from Bearer token
+function getAuthUser($conn, $secret) {
+    $headers = getallheaders();
+    $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+    
+    if (!preg_match('/Bearer\s+(.+)/', $authHeader, $matches)) {
+        return null;
+    }
+    
+    $payload = jwtDecode($matches[1], $secret);
+    if (!$payload || !isset($payload['user_id'])) return null;
+    
+    return $payload;
+}
+
+// Get next employee code
+function getNextEmployeeCode($conn) {
+    $result = $conn->query("
+        SELECT MAX(CAST(employee_code AS UNSIGNED)) AS max_code
+        FROM employees
+        WHERE employee_code REGEXP '^[0-9]+$'
+    ");
+
+    $row = $result->fetch_assoc();
+
+    return ((int)($row['max_code'] ?? 4999)) + 1;
+}
+
+// Field selection for employee list (reduces bandwidth)
+// Note: client_name and unit_name come from JOINs, not employees table
+$EMPLOYEE_LIST_FIELDS = 'e.id, e.employee_code, e.mobile_number, e.full_name, e.date_of_birth, e.gender, e.email, e.client_id, e.unit_id, c.name as client_name, u.name as unit_name, e.status, e.profile_pic_url, e.profile_completion, e.employee_role, e.created_at, e.updated_at';
+
+// ============================================================
+// ROUTING
+// ============================================================
+$method = $_SERVER['REQUEST_METHOD'];
+$uri = $_SERVER['REQUEST_URI'];
+$path = parse_url($uri, PHP_URL_PATH);
+
+// Remove /api prefix
+$path = preg_replace('#^/api#', '', $path);
+
+// Debug endpoint - remove in production
+if ($method === 'GET' && $path === '/debug-request') {
+    sendJson([
+        'method' => $method,
+        'uri' => $uri,
+        'path' => $path,
+        'headers' => getallheaders(),
+        'body' => file_get_contents('php://input')
+    ]);
+}
+
+// Debug PUT test - remove in production
+if ($method === 'PUT' && $path === '/debug-put') {
+    sendJson([
+        'success' => true,
+        'message' => 'PUT request received',
+        'method' => $method,
+        'path' => $path,
+        'body' => getJsonBody()
+    ]);
+}
+
+// ============================================================
+// AUTH ROUTES
+// ============================================================
+
+// POST /auth/login
+if ($method === 'POST' && $path === '/auth/login') {
+    $body = getJsonBody();
+    $email = $body['email'] ?? '';
+    $password = $body['password'] ?? '';
+    
+    if (!$email || !$password) {
+        sendError('Email and password are required');
+    }
+    
+    $stmt = $conn->prepare("SELECT id, email, password, role, created_at FROM admin_users WHERE email = ?");
+    $stmt->bind_param('s', $email);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $user = $result->fetch_assoc();
+    
+    if (!$user || !password_verify($password, $user['password'])) {
+        sendError('Invalid email or password', 401);
+    }
+    
+    $token = jwtEncode([
+        'user_id' => $user['id'],
+        'email' => $user['email'],
+        'role' => $user['role'],
+        'exp' => time() + (24 * 60 * 60)
+    ], $JWT_SECRET);
+    
+    sendJson([
+        'user' => [
+            'id' => $user['id'],
+            'email' => $user['email'],
+            'role' => $user['role'],
+            'created_at' => $user['created_at']
+        ],
+        'token' => $token
+    ]);
+}
+
+// POST /auth/signup
+if ($method === 'POST' && $path === '/auth/signup') {
+    $body = getJsonBody();
+    $email = $body['email'] ?? '';
+    $password = $body['password'] ?? '';
+    
+    if (!$email || !$password) {
+        sendError('Email and password are required');
+    }
+    
+    // Check if user exists
+    $stmt = $conn->prepare("SELECT id FROM admin_users WHERE email = ?");
+    $stmt->bind_param('s', $email);
+    $stmt->execute();
+    if ($stmt->get_result()->num_rows > 0) {
+        sendError('Email already registered');
+    }
+    
+    $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+    
+    $stmt = $conn->prepare("INSERT INTO admin_users (email, password, role) VALUES (?, ?, 'admin')");
+    $stmt->bind_param('ss', $email, $hashedPassword);
+    
+    if ($stmt->execute()) {
+        sendJson(['success' => true, 'message' => 'Account created successfully']);
+    } else {
+        sendError('Failed to create account', 500);
+    }
+}
+
+// GET /auth/verify
+if ($method === 'GET' && $path === '/auth/verify') {
+    $user = getAuthUser($conn, $JWT_SECRET);
+    if (!$user) {
+        sendJson(['valid' => false], 401);
+    }
+    sendJson(['valid' => true, 'user' => $user]);
+}
+
+// ============================================================
+// ADMIN USERS ROUTES
+// ============================================================
+
+// GET /admin-users
+if ($method === 'GET' && $path === '/admin-users') {
+    $authUser = getAuthUser($conn, $JWT_SECRET);
+    if (!$authUser || $authUser['role'] !== 'admin') {
+        sendError('Unauthorized', 403);
+    }
+    
+    $result = $conn->query("SELECT id, email, role, created_at FROM admin_users ORDER BY created_at DESC");
+    $users = [];
+    while ($row = $result->fetch_assoc()) {
+        $users[] = $row;
+    }
+    sendJson($users);
+}
+
+// POST /admin-users
+if ($method === 'POST' && $path === '/admin-users') {
+    $authUser = getAuthUser($conn, $JWT_SECRET);
+    if (!$authUser || $authUser['role'] !== 'admin') {
+        sendError('Unauthorized', 403);
+    }
+    
+    $body = getJsonBody();
+    $email = trim($body['email'] ?? '');
+    $password = $body['password'] ?? '';
+    $role = $body['role'] ?? 'manager';
+    
+    if (!$email || !$password) {
+        sendError('Email and password are required');
+    }
+    
+    if (!in_array($role, ['admin', 'manager'])) {
+        sendError('Invalid role');
+    }
+    
+    // Check if email exists
+    $checkStmt = $conn->prepare("SELECT id FROM admin_users WHERE email = ?");
+    $checkStmt->bind_param('s', $email);
+    $checkStmt->execute();
+    if ($checkStmt->get_result()->num_rows > 0) {
+        sendError('Email already registered');
+    }
+    
+    $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+    
+    $stmt = $conn->prepare("INSERT INTO admin_users (email, password, role) VALUES (?, ?, ?)");
+    $stmt->bind_param('sss', $email, $hashedPassword, $role);
+    
+    if ($stmt->execute()) {
+        $newId = $conn->insert_id;
+        sendJson([
+            'id' => $newId,
+            'email' => $email,
+            'role' => $role,
+            'created_at' => date('Y-m-d H:i:s')
+        ], 201);
+    } else {
+        sendError('Failed to create user', 500);
+    }
+}
+
+// DELETE /admin-users/:id
+if ($method === 'DELETE' && preg_match('#^/admin-users/(\d+)$#', $path, $matches)) {
+    $authUser = getAuthUser($conn, $JWT_SECRET);
+    if (!$authUser || $authUser['role'] !== 'admin') {
+        sendError('Unauthorized', 403);
+    }
+    
+    $userId = (int)$matches[1];
+    
+    // Prevent deleting yourself
+    if ($userId === (int)$authUser['user_id']) {
+        sendError('Cannot delete your own account');
+    }
+    
+    $stmt = $conn->prepare("DELETE FROM admin_users WHERE id = ?");
+    $stmt->bind_param('i', $userId);
+    $stmt->execute();
+    
+    if ($stmt->affected_rows > 0) {
+        sendJson(['success' => true]);
+    } else {
+        sendError('User not found', 404);
+    }
+}
+
+// ============================================================
+// EMPLOYEE ROUTES
+// ============================================================
+
+// POST /employees/login
+if ($method === 'POST' && $path === '/employees/login') {
+    $body = getJsonBody();
+    $mobileNumber = $body['mobileNumber'] ?? '';
+    $dateOfBirth = $body['dateOfBirth'] ?? '';
+    
+    if (!$mobileNumber || !$dateOfBirth) {
+        sendError('Mobile number and date of birth are required');
+    }
+    
+    // Normalize DOB to Y-m-d
+    $dobDate = date('Y-m-d', strtotime($dateOfBirth));
+    
+    // Use JOIN to get client_name and unit_name from related tables
+    $stmt = $conn->prepare("SELECT e.*, c.name as client_name, u.name as unit_name FROM employees e LEFT JOIN clients c ON e.client_id = c.id LEFT JOIN units u ON e.unit_id = u.id WHERE e.mobile_number = ?");
+    $stmt->bind_param('s', $mobileNumber);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $employee = $result->fetch_assoc();
+    
+    if (!$employee) {
+        sendJson(['success' => false, 'error' => 'Employee not found']);
+    }
+    
+    // Compare dates
+    $storedDob = date('Y-m-d', strtotime($employee['date_of_birth']));
+    
+    if ($storedDob !== $dobDate) {
+        sendJson(['success' => false, 'error' => 'Date of birth does not match']);
+    }
+    
+    sendJson(['success' => true, 'employee' => $employee]);
+}
+
+// GET /employees/check-mobile/:mobile
+if ($method === 'GET' && preg_match('#^/employees/check-mobile/(\d+)$#', $path, $matches)) {
+    $mobile = $matches[1];
+    
+    $stmt = $conn->prepare("SELECT id FROM employees WHERE mobile_number = ?");
+    $stmt->bind_param('s', $mobile);
+    $stmt->execute();
+    $exists = $stmt->get_result()->num_rows > 0;
+    
+    sendJson(['exists' => $exists]);
+}
+
+// GET /employees/mobile/:mobile
+if ($method === 'GET' && preg_match('#^/employees/mobile/(\d+)$#', $path, $matches)) {
+    $mobile = $matches[1];
+    
+    $stmt = $conn->prepare("SELECT * FROM employees WHERE mobile_number = ?");
+    $stmt->bind_param('s', $mobile);
+    $stmt->execute();
+    $employee = $stmt->get_result()->fetch_assoc();
+    
+    if (!$employee) {
+        sendError('Employee not found', 404);
+    }
+    
+    sendJson($employee);
+}
+
+// GET /employees/export
+if ($method === 'GET' && $path === '/employees/export') {
+    $user = getAuthUser($conn, $JWT_SECRET);
+    if (!$user) {
+        sendError('Authentication required', 401);
+    }
+    
+    $result = $conn->query("SELECT * FROM employees ORDER BY created_at DESC");
+    
+    header('Content-Type: text/csv');
+    header('Content-Disposition: attachment; filename="employees_export_' . date('Y-m-d') . '.csv"');
+    
+    $output = fopen('php://output', 'w');
+    $headerWritten = false;
+    
+    while ($row = $result->fetch_assoc()) {
+        if (!$headerWritten) {
+            fputcsv($output, array_keys($row));
+            $headerWritten = true;
+        }
+        fputcsv($output, $row);
+    }
+    
+    fclose($output);
+    exit;
+}
+
+// POST /employees/:id/approve
+if ($method === 'POST' && preg_match('#^/employees/(\d+)/approve$#', $path, $matches)) {
+    $employeeId = (int)$matches[1];
+    $body = getJsonBody();
+    $approvedBy = $body['approvedBy'] ?? 'admin';
+    
+    $stmt = $conn->prepare("UPDATE employees SET status = 'approved', approved_by = ?, approved_at = NOW(), updated_at = NOW() WHERE id = ?");
+    $stmt->bind_param('si', $approvedBy, $employeeId);
+    $stmt->execute();
+    
+    if ($stmt->affected_rows === 0) {
+        sendError('Employee not found', 404);
+    }
+    
+    $stmt2 = $conn->prepare("SELECT * FROM employees WHERE id = ?");
+    $stmt2->bind_param('i', $employeeId);
+    $stmt2->execute();
+    sendJson($stmt2->get_result()->fetch_assoc());
+}
+
+// POST /employees/:id/reject
+if ($method === 'POST' && preg_match('#^/employees/(\d+)/reject$#', $path, $matches)) {
+    $employeeId = (int)$matches[1];
+    
+    $stmt = $conn->prepare("UPDATE employees SET status = 'rejected', updated_at = NOW() WHERE id = ?");
+    $stmt->bind_param('i', $employeeId);
+    $stmt->execute();
+    
+    if ($stmt->affected_rows === 0) {
+        sendError('Employee not found', 404);
+    }
+    
+    $stmt2 = $conn->prepare("SELECT * FROM employees WHERE id = ?");
+    $stmt2->bind_param('i', $employeeId);
+    $stmt2->execute();
+    sendJson($stmt2->get_result()->fetch_assoc());
+}
+
+// PUT /employees/:id/role
+if ($method === 'PUT' && preg_match('#^/employees/(\d+)/role$#', $path, $matches)) {
+    $employeeId = (int)$matches[1];
+    $body = getJsonBody();
+    $role = $body['role'] ?? '';
+    
+    if (!in_array($role, ['admin', 'manager', 'employee'])) {
+        sendError('Invalid role');
+    }
+    
+    $stmt = $conn->prepare("UPDATE employees SET employee_role = ?, updated_at = NOW() WHERE id = ?");
+    $stmt->bind_param('si', $role, $employeeId);
+    $stmt->execute();
+    
+    $stmt2 = $conn->prepare("SELECT * FROM employees WHERE id = ?");
+    $stmt2->bind_param('i', $employeeId);
+    $stmt2->execute();
+    sendJson($stmt2->get_result()->fetch_assoc());
+}
+
+// GET /employees (list all - WITH PAGINATION)
+if ($method === 'GET' && $path === '/employees') {
+    global $EMPLOYEE_LIST_FIELDS;
+    
+    $page = max(1, intval($_GET['page'] ?? 1));
+    $limit = min(100, max(1, intval($_GET['limit'] ?? 50)));
+    $offset = ($page - 1) * $limit;
+    $search = $_GET['search'] ?? '';
+    $status = $_GET['status'] ?? '';
+    
+    $where = '1=1';
+    $params = [];
+    $types = '';
+    
+    if ($search) {
+        $where .= " AND (e.full_name LIKE ? OR e.mobile_number LIKE ? OR e.employee_code LIKE ?)";
+        $searchParam = "%$search%";
+        $params[] = $searchParam;
+        $params[] = $searchParam;
+        $params[] = $searchParam;
+        $types .= 'sss';
+    }
+    
+    if ($status) {
+        $where .= " AND e.status = ?";
+        $params[] = $status;
+        $types .= 's';
+    }
+    
+    // Get total count
+    $countSql = "SELECT COUNT(*) as total FROM employees e WHERE $where";
+    if ($params) {
+        $countStmt = $conn->prepare($countSql);
+        $countStmt->bind_param($types, ...$params);
+        $countStmt->execute();
+        $total = $countStmt->get_result()->fetch_assoc()['total'];
+    } else {
+        $total = $conn->query($countSql)->fetch_assoc()['total'];
+    }
+    
+    // Get paginated data with JOINs for client_name and unit_name
+    $sql = "SELECT $EMPLOYEE_LIST_FIELDS FROM employees e LEFT JOIN clients c ON e.client_id = c.id LEFT JOIN units u ON e.unit_id = u.id WHERE $where ORDER BY e.created_at DESC LIMIT ? OFFSET ?";
+    $params[] = $limit;
+    $params[] = $offset;
+    $types .= 'ii';
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    $employees = [];
+    while ($row = $result->fetch_assoc()) {
+        $employees[] = $row;
+    }
+    
+    sendJson([
+        'data' => $employees,
+        'pagination' => [
+            'page' => $page,
+            'limit' => $limit,
+            'total' => (int)$total,
+            'totalPages' => ceil($total / $limit)
+        ]
+    ]);
+}
+
+// POST /employees (create)
+if ($method === 'POST' && $path === '/employees') {
+    $body = getJsonBody();
+    
+    if (empty($body['mobile_number'])) {
+        sendError('Mobile number is required');
+    }
+    
+    // Check if mobile already exists
+    $checkStmt = $conn->prepare("SELECT id FROM employees WHERE mobile_number = ?");
+    $checkStmt->bind_param('s', $body['mobile_number']);
+    $checkStmt->execute();
+    if ($checkStmt->get_result()->num_rows > 0) {
+        sendError('Mobile number already registered');
+    }
+    
+    $employeeCode = getNextEmployeeCode($conn);
+    $now = date('Y-m-d H:i:s');
+    
+    // Allowed fields for employee table
+    $allowedFields = [
+        'mobile_number', 'alternate_mobile', 'full_name', 'father_name', 
+        'date_of_birth', 'gender', 'aadhaar_number', 'email',
+        'uan_number', 'esic_number', 'marital_status', 'blood_group',
+        'address', 'pin_code', 'state', 'district',
+        'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
+         'client_id',  'unit_id',
+        'date_of_joining', 'designation', 'department', 'employment_type', 'worker_category',
+        'profile_pic_url', 'profile_pic_cropped_url',
+        'aadhaar_front_url', 'aadhaar_back_url', 'bank_document_url',
+        'nominee_name', 'nominee_relationship', 'nominee_dob', 'nominee_contact',
+        'emergency_contact_name', 'emergency_contact_relation'
+    ];
+    
+    $fields = ['employee_code', 'status', 'profile_completion', 'created_at', 'updated_at'];
+    $values = [$employeeCode, 'pending_hr_verification', 0, $now, $now];
+    $types = 'isiss';  // employee_code(int), status(str), profile_completion(int), created_at(str), updated_at(str)
+    
+    foreach ($allowedFields as $field) {
+        if (isset($body[$field])) {
+            $fields[] = $field;
+            $values[] = $body[$field];
+            $types .= 's';
+        }
+    }
+    
+    // CRITICAL: designation is NOT NULL in DB, must have a default
+    if (!in_array('designation', $fields)) {
+        $fields[] = 'designation';
+        $values[] = $body['designation'] ?? 'Employee';
+        $types .= 's';
+    }
+    
+    // Set date_of_joining to current date if not provided
+    if (!in_array('date_of_joining', $fields)) {
+        $fields[] = 'date_of_joining';
+        $values[] = date('Y-m-d');  // Current date
+        $types .= 's';
+    }
+    
+    $placeholders = implode(',', array_fill(0, count($fields), '?'));
+    $fieldNames = implode(',', $fields);
+    
+    $sql = "INSERT INTO employees ($fieldNames) VALUES ($placeholders)";
+    $stmt = $conn->prepare($sql);
+    
+    if (!$stmt) {
+        sendError('Database prepare error: ' . $conn->error, 500);
+    }
+    
+    $stmt->bind_param($types, ...$values);
+    
+    if ($stmt->execute()) {
+        $newId = $conn->insert_id;
+        $stmt2 = $conn->prepare("SELECT * FROM employees WHERE id = ?");
+        $stmt2->bind_param('i', $newId);
+        $stmt2->execute();
+        sendJson($stmt2->get_result()->fetch_assoc(), 201);
+    } else {
+        sendError('Failed to create employee: ' . $stmt->error, 500);
+    }
+}
+
+// PUT /employees/:id (update)
+if ($method === 'PUT' && preg_match('#^/employees/(\d+)$#', $path, $matches)) {
+    $employeeId = (int)$matches[1];
+    $body = getJsonBody();
+    
+    if (empty($body)) {
+        sendError('No data provided');
+    }
+    
+    $allowedFields = [
+        'mobile_number', 'alternate_mobile', 'full_name', 'father_name',
+        'date_of_birth', 'gender', 'aadhaar_number', 'email',
+        'uan_number', 'esic_number', 'marital_status', 'blood_group',
+        'address', 'pin_code', 'state', 'district',
+        'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
+         'client_id', 'unit_id',
+        'date_of_joining', 'confirmation_date', 'probation_period', 'date_of_leaving',
+        'designation', 'department', 'employment_type', 'worker_category',
+        'profile_pic_url', 'profile_pic_cropped_url',
+        'aadhaar_front_url', 'aadhaar_back_url', 'bank_document_url',
+        'nominee_name', 'nominee_relationship', 'nominee_dob', 'nominee_contact',
+        'emergency_contact_name', 'emergency_contact_relation',
+        'status', 'profile_completion', 'employee_role',
+        'manager_edits_pending', 'approved_by', 'approved_at'
+    ];
+    
+    $setParts = [];
+    $types = '';
+    $values = [];
+    
+    foreach ($body as $key => $value) {
+        if (in_array($key, $allowedFields)) {
+            $setParts[] = "$key = ?";
+            $types .= 's';
+            $values[] = $value;
+        }
+    }
+    
+    if (empty($setParts)) {
+        sendError('No valid fields to update');
+    }
+    
+    $setParts[] = "updated_at = NOW()";
+    $sql = "UPDATE employees SET " . implode(', ', $setParts) . " WHERE id = ?";
+    $types .= 'i';
+    $values[] = $employeeId;
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$values);
+    $stmt->execute();
+    
+    $stmt2 = $conn->prepare("SELECT * FROM employees WHERE id = ?");
+    $stmt2->bind_param('i', $employeeId);
+    $stmt2->execute();
+    $updated = $stmt2->get_result()->fetch_assoc();
+    
+    if (!$updated) {
+        sendError('Employee not found', 404);
+    }
+    
+    sendJson($updated);
+}
+
+// GET /employees/:id (single - full details)
+if ($method === 'GET' && preg_match('#^/employees/(\d+)$#', $path, $matches)) {
+    $employeeId = (int)$matches[1];
+    
+    // Use JOIN to get client_name and unit_name from related tables
+    $stmt = $conn->prepare("SELECT e.*, c.name as client_name, u.name as unit_name FROM employees e LEFT JOIN clients c ON e.client_id = c.id LEFT JOIN units u ON e.unit_id = u.id WHERE e.id = ?");
+    $stmt->bind_param('i', $employeeId);
+    $stmt->execute();
+    $employee = $stmt->get_result()->fetch_assoc();
+    
+    if (!$employee) {
+        sendError('Employee not found', 404);
+    }
+    
+    sendJson($employee);
+}
+
+// ============================================================
+// CLIENT ROUTES
+// ============================================================
+
+// GET /clients (with units)
+if ($method === 'GET' && $path === '/clients') {
+    $result = $conn->query("SELECT * FROM clients WHERE is_active = 1 ORDER BY name ASC");
+    $clients = [];
+    $clientIds = [];
+    while ($row = $result->fetch_assoc()) {
+        $row['units'] = [];
+        $clients[$row['id']] = $row;
+        $clientIds[] = $row['id'];
+    }
+    
+    // Batch fetch all units
+    if ($clientIds) {
+        $placeholders = implode(',', array_fill(0, count($clientIds), '?'));
+        $types = str_repeat('i', count($clientIds));
+        $stmt = $conn->prepare("SELECT * FROM units WHERE client_id IN ($placeholders) AND is_active = 1 ORDER BY name ASC");
+        $stmt->bind_param($types, ...$clientIds);
+        $stmt->execute();
+        $unitsResult = $stmt->get_result();
+        while ($unit = $unitsResult->fetch_assoc()) {
+            $clients[$unit['client_id']]['units'][] = $unit;
+        }
+    }
+    
+    sendJson(array_values($clients));
+}
+
+// POST /clients
+if ($method === 'POST' && $path === '/clients') {
+    $body = getJsonBody();
+    $name = $body['name'] ?? '';
+    
+    if (!$name) {
+        sendError('Client name is required');
+    }
+    
+    // Generate client code
+    $result = $conn->query("SELECT MAX(id) as max_id FROM clients");
+    $maxId = $result->fetch_assoc()['max_id'] ?? 0;
+    $clientCode = 'CL' . str_pad($maxId + 1, 4, '0', STR_PAD_LEFT);
+    
+    $now = date('Y-m-d H:i:s');
+    
+    $stmt = $conn->prepare("INSERT INTO clients (client_code, name, created_at, updated_at) VALUES (?, ?, ?, ?)");
+    $stmt->bind_param('ssss', $clientCode, $name, $now, $now);
+    
+    if ($stmt->execute()) {
+        $newId = $conn->insert_id;
+        sendJson(['id' => $newId, 'client_code' => $clientCode, 'name' => $name, 'units' => [], 'created_at' => $now, 'updated_at' => $now], 201);
+    } else {
+        sendError('Failed to create client', 500);
+    }
+}
+
+// DELETE /clients/:id
+if ($method === 'DELETE' && preg_match('#^/clients/(\d+)$#', $path, $matches)) {
+    $clientId = (int)$matches[1];
+    
+    // Soft delete units
+    $stmt = $conn->prepare("UPDATE units SET is_active = 0 WHERE client_id = ?");
+    $stmt->bind_param('i', $clientId);
+    $stmt->execute();
+    
+    // Soft delete client
+    $stmt2 = $conn->prepare("UPDATE clients SET is_active = 0 WHERE id = ?");
+    $stmt2->bind_param('i', $clientId);
+    $stmt2->execute();
+    
+    if ($stmt2->affected_rows > 0) {
+        sendJson(['success' => true]);
+    } else {
+        sendError('Client not found', 404);
+    }
+}
+
+// GET /clients/:id
+if ($method === 'GET' && preg_match('#^/clients/(\d+)$#', $path, $matches)) {
+    $clientId = (int)$matches[1];
+    
+    $stmt = $conn->prepare("SELECT * FROM clients WHERE id = ?");
+    $stmt->bind_param('i', $clientId);
+    $stmt->execute();
+    $client = $stmt->get_result()->fetch_assoc();
+    
+    if (!$client) {
+        sendError('Client not found', 404);
+    }
+    
+    $stmt2 = $conn->prepare("SELECT * FROM units WHERE client_id = ? AND is_active = 1");
+    $stmt2->bind_param('i', $clientId);
+    $stmt2->execute();
+    $units = [];
+    while ($unit = $stmt2->get_result()->fetch_assoc()) {
+        $units[] = $unit;
+    }
+    $client['units'] = $units;
+    
+    sendJson($client);
+}
+
+// ============================================================
+// UNIT ROUTES
+// ============================================================
+
+// GET /units
+if ($method === 'GET' && $path === '/units') {
+    $result = $conn->query("SELECT * FROM units WHERE is_active = 1 ORDER BY name ASC");
+    $units = [];
+    while ($row = $result->fetch_assoc()) {
+        $units[] = $row;
+    }
+    sendJson($units);
+}
+
+// POST /units
+if ($method === 'POST' && $path === '/units') {
+    $body = getJsonBody();
+    $clientId = (int)($body['clientId'] ?? 0);
+    $name = $body['name'] ?? '';
+    
+    if (!$clientId || !$name) {
+        sendError('Client ID and unit name are required');
+    }
+    
+    // Generate unit code
+    $result = $conn->query("SELECT MAX(id) as max_id FROM units");
+    $maxId = $result->fetch_assoc()['max_id'] ?? 0;
+    $unitCode = 'UN' . str_pad($maxId + 1, 4, '0', STR_PAD_LEFT);
+    
+    $now = date('Y-m-d H:i:s');
+    
+    $stmt = $conn->prepare("INSERT INTO units (client_id, unit_code, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
+    $stmt->bind_param('issss', $clientId, $unitCode, $name, $now, $now);
+    
+    if ($stmt->execute()) {
+        $newId = $conn->insert_id;
+        sendJson(['id' => $newId, 'client_id' => $clientId, 'unit_code' => $unitCode, 'name' => $name, 'created_at' => $now, 'updated_at' => $now], 201);
+    } else {
+        sendError('Failed to create unit', 500);
+    }
+}
+
+// DELETE /units/:id
+if ($method === 'DELETE' && preg_match('#^/units/(\d+)$#', $path, $matches)) {
+    $unitId = (int)$matches[1];
+    
+    $stmt = $conn->prepare("UPDATE units SET is_active = 0 WHERE id = ?");
+    $stmt->bind_param('i', $unitId);
+    $stmt->execute();
+    
+    if ($stmt->affected_rows > 0) {
+        sendJson(['success' => true]);
+    } else {
+        sendError('Unit not found', 404);
+    }
+}
+
+// ============================================================
+// UPLOAD ROUTES
+// ============================================================
+
+// POST /upload/base64
+if ($method === 'POST' && $path === '/upload/base64') {
+    $body = getJsonBody();
+    $base64Data = $body['base64Data'] ?? '';
+    $filename = $body['filename'] ?? 'upload.jpg';
+    $folder = $body['folder'] ?? 'documents';
+    
+    if (!$base64Data) {
+        sendError('No image data provided');
+    }
+    
+    // Remove data URI prefix if present
+    $base64Clean = preg_replace('#^data:image/\w+;base64,#', '', $base64Data);
+    $imageData = base64_decode($base64Clean);
+    
+    if (!$imageData) {
+        sendError('Invalid base64 data');
+    }
+    
+    // Limit file size to 5MB
+    if (strlen($imageData) > 5 * 1024 * 1024) {
+        sendError('File too large. Max 5MB.');
+    }
+    
+    // Create folder if not exists
+    $uploadPath = $UPLOAD_DIR . $folder . '/';
+    if (!is_dir($uploadPath)) {
+        mkdir($uploadPath, 0755, true);
+    }
+    
+    // Generate unique filename
+    $ext = pathinfo($filename, PATHINFO_EXTENSION) ?: 'jpg';
+    $allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'];
+    if (!in_array(strtolower($ext), $allowedExts)) {
+        sendError('Invalid file type');
+    }
+    
+    $uniqueName = uniqid() . '_' . time() . '.' . $ext;
+    $filePath = $uploadPath . $uniqueName;
+    
+    if (file_put_contents($filePath, $imageData)) {
+        $url = '/uploads/' . $folder . '/' . $uniqueName;
+        sendJson(['url' => $url]);
+    } else {
+        sendError('Failed to save file', 500);
+    }
+}
+
+// ============================================================
+// OCR ROUTES (placeholder)
+// ============================================================
+
+// POST /ocr/aadhaar-front
+if ($method === 'POST' && $path === '/ocr/aadhaar-front') {
+    $body = getJsonBody();
+    sendJson([
+        'success' => true,
+        'data' => [
+            'fullName' => '',
+            'fatherHusbandName' => '',
+            'dateOfBirth' => '',
+            'gender' => '',
+            'aadhaarNumber' => ''
+        ]
+    ]);
+}
+
+// POST /ocr/aadhaar-back
+if ($method === 'POST' && $path === '/ocr/aadhaar-back') {
+    $body = getJsonBody();
+    sendJson([
+        'success' => true,
+        'data' => [
+            'address' => '',
+            'pinCode' => '',
+            'state' => '',
+            'district' => ''
+        ]
+    ]);
+}
+
+// POST /ocr/bank-document
+if ($method === 'POST' && $path === '/ocr/bank-document') {
+    $body = getJsonBody();
+    sendJson([
+        'success' => true,
+        'data' => [
+            'bankName' => '',
+            'accountNumber' => '',
+            'ifscCode' => '',
+            'accountHolderName' => ''
+        ]
+    ]);
+}
+
+// POST /ocr/crop-profile
+if ($method === 'POST' && $path === '/ocr/crop-profile') {
+    $body = getJsonBody();
+    sendJson([
+        'success' => false,
+        'croppedImage' => null
+    ]);
+}
+
+// ============================================================
+// EMPLOYEES PDF / PRINT ROUTE
+// ============================================================
+
+// GET /employees/:id/pdf
+if ($method === 'GET' && preg_match('#^/employees/(\d+)/pdf$#', $path, $matches)) {
+    $employeeId = (int)$matches[1];
+    
+    $stmt = $conn->prepare("SELECT * FROM employees WHERE id = ?");
+    $stmt->bind_param('i', $employeeId);
+    $stmt->execute();
+    $emp = $stmt->get_result()->fetch_assoc();
+    
+    if (!$emp) {
+        sendError('Employee not found', 404);
+    }
+    
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!DOCTYPE html><html><head><title>Employee Registration - ' . htmlspecialchars($emp['full_name'] ?? '') . '</title>';
+    echo '<style>body{font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px}';
+    echo 'h1{color:#333;border-bottom:2px solid #007bff;padding-bottom:10px}';
+    echo '.section{margin:20px 0;padding:15px;border:1px solid #ddd;border-radius:8px}';
+    echo '.section h2{color:#007bff;margin-top:0}';
+    echo '.field{display:flex;margin:8px 0}.field label{font-weight:bold;width:200px;color:#555}';
+    echo '.field span{flex:1}';
+    echo '.photo{width:120px;height:150px;object-fit:cover;border:2px solid #ddd;border-radius:8px}';
+    echo '@media print{body{padding:0}.section{break-inside:avoid}}</style></head><body>';
+    echo '<h1>Employee Registration Form</h1>';
+    
+    echo '<div class="section"><h2>Personal Details</h2>';
+    if ($emp['profile_pic_url']) {
+        $profileUrl = $emp['profile_pic_url'];
+        if (!str_starts_with($profileUrl, 'http')) {
+            $profileUrl = 'https://join.rcsfacility.com' . $profileUrl;
+        }
+        echo '<img src="' . htmlspecialchars($profileUrl) . '" class="photo" />';
+    }
+    echo '<div class="field"><label>Full Name:</label><span>' . htmlspecialchars($emp['full_name'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>Employee Code:</label><span>' . htmlspecialchars($emp['employee_code'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>Mobile:</label><span>' . htmlspecialchars($emp['mobile_number'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>Date of Birth:</label><span>' . htmlspecialchars($emp['date_of_birth'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>Gender:</label><span>' . htmlspecialchars($emp['gender'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>Aadhaar:</label><span>' . htmlspecialchars($emp['aadhaar_number'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>Email:</label><span>' . htmlspecialchars($emp['email'] ?? 'N/A') . '</span></div>';
+    echo '</div>';
+    
+    echo '<div class="section"><h2>Address</h2>';
+    echo '<div class="field"><label>Address:</label><span>' . htmlspecialchars($emp['address'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>PIN Code:</label><span>' . htmlspecialchars($emp['pin_code'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>District:</label><span>' . htmlspecialchars($emp['district'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>State:</label><span>' . htmlspecialchars($emp['state'] ?? 'N/A') . '</span></div>';
+    echo '</div>';
+    
+    echo '<div class="section"><h2>Bank Details</h2>';
+    echo '<div class="field"><label>Bank Name:</label><span>' . htmlspecialchars($emp['bank_name'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>Account Number:</label><span>' . htmlspecialchars($emp['account_number'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>IFSC Code:</label><span>' . htmlspecialchars($emp['ifsc_code'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>Account Holder:</label><span>' . htmlspecialchars($emp['account_holder_name'] ?? 'N/A') . '</span></div>';
+    echo '</div>';
+    
+    echo '<div class="section"><h2>Assignment</h2>';
+    echo '<div class="field"><label>Client:</label><span>' . htmlspecialchars($emp['client_name'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>Unit:</label><span>' . htmlspecialchars($emp['unit_name'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>Designation:</label><span>' . htmlspecialchars($emp['designation'] ?? 'N/A') . '</span></div>';
+    echo '<div class="field"><label>Status:</label><span>' . htmlspecialchars($emp['status'] ?? 'N/A') . '</span></div>';
+    echo '</div>';
+    
+    echo '<p style="text-align:center;color:#999;margin-top:30px">Generated on ' . date('d/m/Y H:i') . '</p>';
+    echo '</body></html>';
+    exit;
+}
+
+// ============================================================
+// PINCODE LOOKUP
+// ============================================================
+
+// GET /pincode/:code
+if ($method === 'GET' && preg_match('#^/pincode/(\d{6})$#', $path, $matches)) {
+    $pincode = $matches[1];
+    
+    $response = @file_get_contents("https://api.postalpincode.in/pincode/$pincode");
+    if ($response) {
+        $data = json_decode($response, true);
+        sendJson($data);
+    } else {
+        sendError('Failed to fetch pincode data', 500);
+    }
+}
+
+// ============================================================
+// DESIGNATION ROUTES
+// ============================================================
+
+// GET /designations
+if ($method === 'GET' && $path === '/designations') {
+    $result = $conn->query("SELECT * FROM designations ORDER BY name ASC");
+    $designations = [];
+    while ($row = $result->fetch_assoc()) {
+        // Add desi_view default if not exists (for backward compatibility)
+        if (!isset($row['desi_view'])) {
+            $row['desi_view'] = 1;
+        }
+        $designations[] = $row;
+    }
+    sendJson($designations);
+}
+
+// GET /designations/active (only those with desi_view = 1)
+if ($method === 'GET' && $path === '/designations/active') {
+    // Check if desi_view column exists
+    $checkCol = $conn->query("SHOW COLUMNS FROM designations LIKE 'desi_view'");
+    if ($checkCol->num_rows > 0) {
+        $result = $conn->query("SELECT * FROM designations WHERE desi_view = 1 ORDER BY name ASC");
+    } else {
+        $result = $conn->query("SELECT * FROM designations ORDER BY name ASC");
+    }
+    $designations = [];
+    while ($row = $result->fetch_assoc()) {
+        if (!isset($row['desi_view'])) {
+            $row['desi_view'] = 1;
+        }
+        $designations[] = $row;
+    }
+    sendJson($designations);
+}
+
+// POST /designations
+if ($method === 'POST' && $path === '/designations') {
+    $body = getJsonBody();
+    $name = trim($body['name'] ?? '');
+    $desiView = isset($body['desi_view']) ? (int)$body['desi_view'] : 1;
+    
+    if (!$name) {
+        sendError('Designation name is required');
+    }
+    
+    // Check if exists
+    $checkStmt = $conn->prepare("SELECT id FROM designations WHERE name = ?");
+    $checkStmt->bind_param('s', $name);
+    $checkStmt->execute();
+    if ($checkStmt->get_result()->num_rows > 0) {
+        sendError('Designation already exists');
+    }
+    
+    // Check if desi_view column exists, if not add it
+    $checkCol = $conn->query("SHOW COLUMNS FROM designations LIKE 'desi_view'");
+    if ($checkCol->num_rows === 0) {
+        $conn->query("ALTER TABLE designations ADD COLUMN desi_view TINYINT(1) DEFAULT 1");
+    }
+    
+    $stmt = $conn->prepare("INSERT INTO designations (name, desi_view) VALUES (?, ?)");
+    $stmt->bind_param('si', $name, $desiView);
+    
+    if ($stmt->execute()) {
+        $newId = $conn->insert_id;
+        sendJson(['id' => $newId, 'name' => $name, 'desi_view' => $desiView, 'created_at' => date('Y-m-d H:i:s')], 201);
+    } else {
+        sendError('Failed to create designation', 500);
+    }
+}
+
+// PUT /designations/:id
+if ($method === 'PUT' && preg_match('#^/designations/(\d+)$#', $path, $matches)) {
+    $designationId = (int)$matches[1];
+    $body = getJsonBody();
+    
+    $name = isset($body['name']) ? trim($body['name']) : '';
+    $desiView = array_key_exists('desi_view', $body) ? (int)$body['desi_view'] : null;
+    
+    // Check if desi_view column exists, if not add it
+    $checkCol = $conn->query("SHOW COLUMNS FROM designations LIKE 'desi_view'");
+    $hasDesiView = $checkCol->num_rows > 0;
+    if (!$hasDesiView) {
+        $conn->query("ALTER TABLE designations ADD COLUMN desi_view TINYINT(1) DEFAULT 1");
+        $hasDesiView = true;
+    }
+    
+    $updates = [];
+    $types = '';
+    $values = [];
+    
+    if ($name !== '') {
+        // Check if name exists for another designation
+        $checkStmt = $conn->prepare("SELECT id FROM designations WHERE name = ? AND id != ?");
+        $checkStmt->bind_param('si', $name, $designationId);
+        $checkStmt->execute();
+        if ($checkStmt->get_result()->num_rows > 0) {
+            sendError('Designation name already exists');
+        }
+        $updates[] = 'name = ?';
+        $types .= 's';
+        $values[] = $name;
+    }
+    
+    // Always include desi_view if provided (even if it's 0)
+    if ($desiView !== null) {
+        $updates[] = 'desi_view = ?';
+        $types .= 'i';
+        $values[] = $desiView;
+    }
+    
+    // If no updates, just return the current record
+    if (empty($updates)) {
+        $stmt = $conn->prepare("SELECT * FROM designations WHERE id = ?");
+        $stmt->bind_param('i', $designationId);
+        $stmt->execute();
+        $existing = $stmt->get_result()->fetch_assoc();
+        if (!$existing) {
+            sendError('Designation not found', 404);
+        }
+        if (!isset($existing['desi_view'])) {
+            $existing['desi_view'] = 1;
+        }
+        sendJson($existing);
+    }
+    
+    $types .= 'i';
+    $values[] = $designationId;
+    
+    $sql = "UPDATE designations SET " . implode(', ', $updates) . " WHERE id = ?";
+    $stmt = $conn->prepare($sql);
+    
+    if (!$stmt) {
+        sendError('Database prepare error: ' . $conn->error, 500);
+    }
+    
+    $stmt->bind_param($types, ...$values);
+    
+    if (!$stmt->execute()) {
+        sendError('Failed to update: ' . $stmt->error, 500);
+    }
+    
+    // Fetch updated record
+    $stmt2 = $conn->prepare("SELECT * FROM designations WHERE id = ?");
+    $stmt2->bind_param('i', $designationId);
+    $stmt2->execute();
+    $updated = $stmt2->get_result()->fetch_assoc();
+    
+    if (!$updated) {
+        sendError('Designation not found after update', 404);
+    }
+    
+    // Add default desi_view if not present
+    if (!isset($updated['desi_view'])) {
+        $updated['desi_view'] = 1;
+    }
+    
+    sendJson($updated);
+}
+
+// DELETE /designations/:id
+if ($method === 'DELETE' && preg_match('#^/designations/(\d+)$#', $path, $matches)) {
+    $designationId = (int)$matches[1];
+    
+    $stmt = $conn->prepare("DELETE FROM designations WHERE id = ?");
+    $stmt->bind_param('i', $designationId);
+    $stmt->execute();
+    
+    if ($stmt->affected_rows > 0) {
+        sendJson(['success' => true]);
+    } else {
+        sendError('Designation not found', 404);
+    }
+}
+
+// ============================================================
+// 404 - No route matched
+// ============================================================
+sendError('Not found', 404);
+
+$conn->close();
