@@ -10,13 +10,22 @@ if (!isset($db) || !is_object($db)) { header("Location: index.php"); exit; }
  * Approve: updates the employee record with the new value
  * (including KYC document image URLs: aadhaar_front_url, aadhaar_back_url, bank_document_url).
  * Reject: stores rejection reason; employee sees it in ESS.
- * Both actions send email + WhatsApp notification to the employee.
+ *
+ * Notifications: both actions write an in-app row to ess_notifications, which is
+ * what the employee sees in the ESS app. No email or WhatsApp message is sent —
+ * this docblock used to claim otherwise; if out-of-app delivery is wanted,
+ * Notification::sendEmail() / sendWhatsApp() (includes/class.notification.php)
+ * would need to be called here, and the push queue in
+ * scripts/cron-auto-notifications.php is not used by this page either.
  */
 
 $pageTitle = 'Change Request Approvals';
 
 // ─── In-App Notification Helper (INSERT into ess_notifications) ──────────
-function sendInAppNotification(int $employeeId, string $title, string $message, string $type = 'info', string $link = '') {
+// No $link is written: the ESS notification list does not consume the `link`
+// column, so the '/profile/change-requests' value this used to store was inert
+// (and not a real ESS route). Add it back only when the app can act on it.
+function sendInAppNotification(int $employeeId, string $title, string $message, string $type = 'info') {
     global $db;
     try {
         // Must go through $db->insert(): Database::exec() accepts no bind params,
@@ -29,7 +38,6 @@ function sendInAppNotification(int $employeeId, string $title, string $message, 
             'title'       => $title,
             'message'     => $message,
             'type'        => $type,
-            'link'        => $link ?: null,
             'is_read'     => 0,
             'created_at'  => date('Y-m-d H:i:s'),
         ]);
@@ -170,8 +178,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     (int)$request['employee_id'],
                     "Change Request Approved — {$fieldLabel}",
                     "Your change request for {$fieldLabel} has been APPROVED. New value: {$newValue}",
-                    'success',
-                    '/profile/change-requests'
+                    'success'
                 );
 
                 // Audit log
@@ -238,8 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     (int)$request['employee_id'],
                     "Change Request Rejected — {$fieldLabel}",
                     "Your change request for {$fieldLabel} has been REJECTED. Reason: {$reason}",
-                    'danger',
-                    '/profile/change-requests'
+                    'danger'
                 );
 
                 if (function_exists('logActivity')) {
@@ -321,8 +327,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         (int)$request['employee_id'],
                         "Change Request Approved — {$fieldLabel}",
                         "Your change request for {$fieldLabel} has been APPROVED. New value: {$newValue}",
-                        'success',
-                        '/profile/change-requests'
+                        'success'
                     );
 
                     // ── Audit log (same action name as single approve) ──
@@ -371,6 +376,9 @@ $fSearch = substr($fSearchRaw, 0, 100);
 // (same convention as modules/notifications/whatsapp.php).
 $perPage = defined('RECORDS_PER_PAGE') ? (int)RECORDS_PER_PAGE : 50;
 $pageNum = max(1, (int)($_GET['page_num'] ?? 1));
+
+// Raw SQL error text and internal diagnostics are only shown to admins
+$showDiagnostics = (($_SESSION['role_code'] ?? '') === 'admin');
 
 // ─── Summary counts (independent query) ────────────────────────────────────
 
@@ -542,6 +550,10 @@ $fieldLabels = [
     'account_holder_name' => 'Account Holder Name',
     'account_number'      => 'Account Number',
     'ifsc_code'           => 'IFSC Code',
+    // KYC document images — labels match RCS_ESS/src/lib/field-rules.ts
+    'aadhaar_front_url'   => 'Aadhaar Card (Front)',
+    'aadhaar_back_url'    => 'Aadhaar Card (Back)',
+    'bank_document_url'   => 'Bank Passbook / Cheque',
 ];
 
 // ─── Generate CSRF token for forms ──────────────────────────────────────────
@@ -592,8 +604,12 @@ $csrfToken = generateCSRFToken();
                 <div class="alert alert-danger">
                     <i class="bi bi-exclamation-triangle me-2"></i>
                     <strong>Database Error:</strong> Unable to fetch change requests.
+                    <?php if ($showDiagnostics): ?>
                     Error: <?= htmlspecialchars($dbError) ?>
                     <br><small>Debug: <?= htmlspecialchars($diagInfo) ?></small>
+                    <?php else: ?>
+                    Please try again, or ask an administrator to check the error log.
+                    <?php endif; ?>
                 </div>
                 <?php endif; ?>
 
@@ -631,7 +647,7 @@ $csrfToken = generateCSRFToken();
                             No change requests found.
                         <?php endif; ?>
                     </p>
-                    <?php if (empty($dbError) && ($pendingCount + $approvedCount + $rejectedCount) > 0): ?>
+                    <?php if (empty($dbError) && $showDiagnostics && ($pendingCount + $approvedCount + $rejectedCount) > 0): ?>
                     <p class="text-muted small">Debug: <?= htmlspecialchars($diagInfo) ?></p>
                     <?php endif; ?>
                 </div>
@@ -685,7 +701,7 @@ $csrfToken = generateCSRFToken();
                                     <?php endif; ?>
                                 </td>
                                 <?php endif; ?>
-                                <td><?= $r['id'] ?></td>
+                                <td><?= $offset + $i + 1 ?></td>
                                 <td>
                                     <div class="d-flex align-items-center">
                                         <div>
