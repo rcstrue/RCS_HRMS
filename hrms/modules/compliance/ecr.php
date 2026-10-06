@@ -33,19 +33,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $wageYear = intval($_POST['wage_year']);
         $returnType = sanitize($_POST['return_type']); // regular, new_joiners, exits
         
-        // Get employees with PF applicable
+        // Get employees with PF applicable (joining salary structures to check flags correctly)
         $employees = $db->fetchAll(
             "SELECT e.id, e.employee_code, e.uan_number, e.full_name, e.father_name, 
-                    e.date_of_joining, e.date_of_leaving, e.is_pf_restricted, e.is_pension_member,
+                    e.date_of_joining, e.date_of_leaving,
                     c.name as client_name,
-                    p.basic_da, p.pf_employee, p.pf_employer, p.edli_employee, p.edli_employer,
-                    p.present_days, p.paid_days
+                    p.basic_da, p.pf_employee, p.pf_employer, p.eps_employer, p.edlis_employer,
+                    p.paid_days, p.unpaid_days
              FROM payroll p
              JOIN employees e ON p.employee_id = e.employee_code
+             JOIN employee_salary_structures ess ON e.id = ess.employee_id 
+                AND (ess.effective_to IS NULL OR ess.effective_to >= LAST_DAY(CONCAT(:year, '-', :month, '-01')))
+                AND ess.effective_from <= LAST_DAY(CONCAT(:year, '-', :month, '-01'))
              LEFT JOIN clients c ON e.client_id = c.id
              WHERE p.month = :month AND p.year = :year
-                AND e.is_pf_applicable = 1
+                AND ess.pf_applicable = 1
                 AND e.uan_number IS NOT NULL AND e.uan_number != ''
+             GROUP BY e.id
              ORDER BY e.employee_code",
             ['month' => $wageMonth, 'year' => $wageYear]
         );
@@ -69,19 +73,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $fatherName = strtoupper(substr(preg_replace('/[^a-zA-Z\s]/', '', $emp['father_name'] ?? ''), 0, 50));
             $relation = 'F'; // Father
             
-            // Wage details
+            // Wage details (EPF and EPS are capped at 15000 by standard, matching payroll logic)
             $wages = floatval($emp['basic_da']);
-            $pfWages = $emp['is_pf_restricted'] ? min($wages, 15000) : $wages;
-            $epsWages = min($pfWages, 15000);
-            $edliWages = min($pfWages, 15000);
+            $pfWages = min($wages, 15000); 
+            $epsWages = min($wages, 15000);
+            $edliWages = min($wages, 15000);
             
-            // Contributions
-            $eeContribution = round($pfWages * 0.12, 2);
-            $erContribution = round($epsWages * 0.0833, 2); // EPS
-            $erPFContribution = $eeContribution - $erContribution; // Difference goes to PF
+            // Use stored payroll contributions for accuracy
+            $eeContribution = floatval($emp['pf_employee']);
+            $erContribution = floatval($emp['eps_employer']); // EPS (8.33%)
+            $erPFContribution = floatval($emp['pf_employer']); // PF (3.67%)
             
-            // NCP days (Non Contributory Period - days not worked)
-            $ncpDays = intval($emp['present_days'] ?? 30) - intval($emp['paid_days'] ?? 30);
+            // NCP days (Non Contributory Period - unpaid days)
+            $ncpDays = intval($emp['unpaid_days'] ?? 0);
             $ncpDays = max(0, $ncpDays);
             
             // Date of joining/exit
