@@ -238,42 +238,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $count = 0;
             $errors = 0;
 
-            foreach ($ids as $id) {
-                $id = (int) $id;
-                if ($id <= 0) continue;
+            // The whole batch runs in one transaction: if anything unexpected
+            // fails part-way through, nothing is left half-applied — each
+            // employee record and its request row stay in step, and no employee
+            // is told about a change that was rolled back.
+            $db->beginTransaction();
+            try {
+                foreach ($ids as $id) {
+                    $id = (int) $id;
+                    if ($id <= 0) continue;
 
-                $request = $db->fetch(
-                    "SELECT * FROM employee_change_requests
-                     WHERE id = :id AND status = 'pending'
-                     LIMIT 1",
-                    ['id' => $id]
-                );
+                    $request = $db->fetch(
+                        "SELECT * FROM employee_change_requests
+                         WHERE id = :id AND status = 'pending'
+                         LIMIT 1",
+                        ['id' => $id]
+                    );
 
-                if (!$request) continue;
+                    if (!$request) continue;
 
-                $field = $request['field_name'];
-                $newValue = $request['new_value'];
+                    $field = $request['field_name'];
+                    $newValue = $request['new_value'];
 
-                if (in_array($field, $APPROVAL_FIELDS, true)) {
-                    try {
-                        $db->update('employees', [$field => $newValue], 'id = :id', ['id' => $request['employee_id']]);
-                    } catch (Exception $e) {
-                        $errors++;
-                        continue;
+                    if (in_array($field, $APPROVAL_FIELDS, true)) {
+                        try {
+                            $db->update('employees', [$field => $newValue], 'id = :id', ['id' => $request['employee_id']]);
+                        } catch (Exception $e) {
+                            $errors++;
+                            continue;
+                        }
+                    }
+
+                    $db->update(
+                        'employee_change_requests',
+                        [
+                            'status'      => 'approved',
+                            'reviewed_at' => date('Y-m-d H:i:s'),
+                            'reviewed_by' => $_SESSION['user_id'] ?? null,
+                        ],
+                        'id = :id',
+                        ['id' => $id]
+                    );
+                    $count++;
+
+                    // ── In-App Notification to employee (same as single approve) ──
+                    $fieldLabel = ucfirst(str_replace('_', ' ', $field));
+                    sendInAppNotification(
+                        (int)$request['employee_id'],
+                        "Change Request Approved — {$fieldLabel}",
+                        "Your change request for {$fieldLabel} has been APPROVED. New value: {$newValue}",
+                        'success',
+                        '/profile/change-requests'
+                    );
+
+                    // ── Audit log (same action name as single approve) ──
+                    // Guarded separately so an audit_log problem cannot abort the batch.
+                    if (function_exists('logActivity')) {
+                        try {
+                            logActivity('approve_change_request', 'employee', $request['employee_id'],
+                                "Approved change request #{$id}: {$field} = " . substr($newValue, 0, 50));
+                        } catch (Exception $e) {
+                            error_log('[change-requests] bulk approve audit log failed: ' . $e->getMessage());
+                        }
                     }
                 }
-
-                $db->update(
-                    'employee_change_requests',
-                    [
-                        'status'      => 'approved',
-                        'reviewed_at' => date('Y-m-d H:i:s'),
-                        'reviewed_by' => $_SESSION['user_id'] ?? null,
-                    ],
-                    'id = :id',
-                    ['id' => $id]
-                );
-                $count++;
+                $db->commit();
+            } catch (Exception $e) {
+                try { $db->rollBack(); } catch (Exception $ignored) { /* transaction already closed */ }
+                error_log('[change-requests] Bulk approve failed, rolled back: ' . $e->getMessage());
+                setFlash('error', 'Bulk approve failed and was rolled back. No changes were saved.');
+                redirect('index.php?page=employee/change-requests');
             }
 
             $msg = "{$count} change request(s) approved.";
