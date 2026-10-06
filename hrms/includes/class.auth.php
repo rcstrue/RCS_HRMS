@@ -430,6 +430,9 @@ class Auth {
                 'settings_roles' => ['label' => 'Roles', 'url' => 'settings/roles'],
                 'settings_payslip_templates' => ['label' => 'Payslip Templates', 'url' => 'settings/payslip-templates'],
                 'settings_statutory' => ['label' => 'Statutory Rates', 'url' => 'settings/statutory'],
+                'settings_holidays' => ['label' => 'Holidays', 'url' => 'settings/holidays'],
+                'settings_manager_allocation' => ['label' => 'Manager Allocation', 'url' => 'settings/manager-allocation'],
+                'settings_notifications' => ['label' => 'Notification Settings', 'url' => 'settings/notifications'],
                 'settings_image_tool' => ['label' => 'Image Tool', 'url' => 'settings/image-tool'],
             ]],
         ];
