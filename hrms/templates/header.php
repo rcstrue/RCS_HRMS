@@ -101,7 +101,7 @@
                 $employeeModules = ['employee'];
                 $clientModules = ['client','unit'];
                 $helpdeskModules = ['helpdesk','feedback'];
-                $settingsModules = ['settings','assets','audit','announcement','notifications'];
+                $settingsModules = ['settings','assets','audit','announcement'];
                 ?>
 
                 <!-- CLIENTS -->
@@ -255,38 +255,16 @@
                 </li>
                 <?php endif; ?>
 
-                <!-- SETTINGS (admin only) -->
+                <!-- SETTINGS (admin only) — single entry point. The individual
+                     settings screens are reached as cards on the Settings hub
+                     (settings/index), which already contained cards for Assets,
+                     WhatsApp, Audit Log and Announcements, so the duplicate
+                     submenu was removed. -->
                 <?php if (showMenu($auth, 'settings') && $_SESSION['role_code'] === 'admin'): ?>
-                <li class="sidebar-item has-submenu <?php echo in_array($pageRoot, $settingsModules) ? 'open' : ''; ?>">
-                    <a href="#" class="sidebar-link">
+                <li class="sidebar-item <?php echo in_array($pageRoot, $settingsModules) ? 'active' : ''; ?>">
+                    <a href="index.php?page=settings/index" class="sidebar-link">
                         <i class="bi bi-gear"></i><span>Settings</span>
-                        <i class="bi bi-chevron-down ms-auto sub-arrow"></i>
                     </a>
-                    <ul class="sidebar-submenu">
-                        <li><a href="index.php?page=settings/index" class="<?php echo strpos($page,'settings') === 0 ? 'active' : ''; ?>">
-                            <i class="bi bi-gear me-1"></i>Settings Hub
-                        </a></li>
-                        <?php if (showMenu($auth, 'assets')): ?>
-                        <li><a href="index.php?page=assets/index" class="<?php echo strpos($page,'assets') === 0 ? 'active' : ''; ?>">
-                            <i class="bi bi-box-seam me-1"></i>Assets
-                        </a></li>
-                        <?php endif; ?>
-                        <?php if (showMenu($auth, 'settings')): ?>
-                        <li><a href="index.php?page=notifications/whatsapp" class="<?php echo $page === 'notifications/whatsapp' ? 'active' : ''; ?>">
-                            <i class="bi bi-whatsapp text-success me-1"></i>WhatsApp
-                        </a></li>
-                        <?php endif; ?>
-                        <?php if (showMenu($auth, 'settings')): ?>
-                        <li><a href="index.php?page=audit/list" class="<?php echo strpos($page,'audit') === 0 ? 'active' : ''; ?>">
-                            <i class="bi bi-journal-text me-1"></i>Audit Log
-                        </a></li>
-                        <?php endif; ?>
-                        <?php if (showMenu($auth, 'settings')): ?>
-                        <li><a href="index.php?page=announcement/list" class="<?php echo strpos($page,'announcement') === 0 ? 'active' : ''; ?>">
-                            <i class="bi bi-megaphone me-1"></i>Announcements
-                        </a></li>
-                        <?php endif; ?>
-                    </ul>
                 </li>
                 <?php endif; ?>
             </ul>

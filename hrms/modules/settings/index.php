@@ -42,18 +42,6 @@
             </a>
         </div>
         <div class="col-lg-3 col-md-4 col-sm-6 col-6">
-            <a href="index.php?page=settings/roles" class="text-decoration-none">
-                <div class="card module-card h-100">
-                    <div class="card-body">
-                        <div class="mod-icon bg-info-soft"><i class="bi bi-check2-square"></i></div>
-                        <div class="mod-title">Menu Permissions</div>
-                        <div class="mod-desc">Menu access permissions</div>
-                    </div>
-                    <i class="bi bi-arrow-right mod-arrow"></i>
-                </div>
-            </a>
-        </div>
-        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
             <a href="index.php?page=settings/payslip-templates" class="text-decoration-none">
                 <div class="card module-card h-100">
                     <div class="card-body">
