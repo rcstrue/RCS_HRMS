@@ -843,7 +843,7 @@
                                 <i class="bi bi-megaphone me-1"></i>All Announcements (<?php echo $annUnreadTop; ?>)
                             </a>
                             <?php endif; ?>
-                            <a href="index.php?page=notifications" class="dropdown-item text-center text-primary flex-grow-1">
+                            <a href="index.php?page=notifications/center" class="dropdown-item text-center text-primary flex-grow-1">
                                 <i class="bi bi-eye me-1"></i>View All
                             </a>
                         </div>

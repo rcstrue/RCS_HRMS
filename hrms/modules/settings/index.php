@@ -126,12 +126,36 @@
             </a>
         </div>
         <div class="col-lg-3 col-md-4 col-sm-6 col-6">
-            <a href="index.php?page=announcement/list" class="text-decoration-none">
+            <a href="index.php?page=notifications/announcements" class="text-decoration-none">
                 <div class="card module-card h-100">
                     <div class="card-body">
                         <div class="mod-icon bg-pink-soft"><i class="bi bi-megaphone"></i></div>
                         <div class="mod-title">Announcements</div>
                         <div class="mod-desc">Manage company announcements</div>
+                    </div>
+                    <i class="bi bi-arrow-right mod-arrow"></i>
+                </div>
+            </a>
+        </div>
+        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
+            <a href="index.php?page=settings/notifications" class="text-decoration-none">
+                <div class="card module-card h-100">
+                    <div class="card-body">
+                        <div class="mod-icon bg-info-soft"><i class="bi bi-bell"></i></div>
+                        <div class="mod-title">Notification Settings</div>
+                        <div class="mod-desc">Bot URL, API key and alerts</div>
+                    </div>
+                    <i class="bi bi-arrow-right mod-arrow"></i>
+                </div>
+            </a>
+        </div>
+        <div class="col-lg-3 col-md-4 col-sm-6 col-6">
+            <a href="index.php?page=settings/image-tool" class="text-decoration-none">
+                <div class="card module-card h-100">
+                    <div class="card-body">
+                        <div class="mod-icon bg-cyan-soft"><i class="bi bi-image"></i></div>
+                        <div class="mod-title">Image Editor</div>
+                        <div class="mod-desc">Crop, rotate and edit employee photos</div>
                     </div>
                     <i class="bi bi-arrow-right mod-arrow"></i>
                 </div>
