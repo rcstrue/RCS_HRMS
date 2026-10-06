@@ -31,6 +31,8 @@ class StubDb
     public array $updates  = [];
     public array $queries  = [];
     public array $prepared = [];
+    public array $txLog    = [];
+    public ?string $failOnTable = null;
 
     private array $requests;
     private array $employees = [
@@ -101,8 +103,21 @@ class StubDb
 
     public function prepare($sql) { $this->queries[] = $sql; return new StubStatement($this); }
     public function insert($table, $data) { $this->inserts[] = ['table' => $table, 'data' => $data]; return 1; }
-    public function update($t, $d, $w, $p = []) { $this->updates[] = ['table' => $t, 'data' => $d, 'where_params' => $p]; return 1; }
+    public function update($t, $d, $w, $p = [])
+    {
+        if ($this->failOnTable === $t) {
+            throw new Exception("simulated DB failure updating {$t}");
+        }
+        $this->updates[] = ['table' => $t, 'data' => $d, 'where_params' => $p];
+        return 1;
+    }
     public function exec($sql) { $this->execs[] = $sql; return 1; }
+
+    // Transaction support — bulk approve wraps its batch (the real Database class
+    // delegates these to PDO; here we only record that they were called).
+    public function beginTransaction() { $this->txLog[] = 'begin'; return true; }
+    public function commit() { $this->txLog[] = 'commit'; return true; }
+    public function rollBack() { $this->txLog[] = 'rollback'; return true; }
 
     public function updatesFor(string $table): array
     {
@@ -151,7 +166,7 @@ if ($scenario === 'notif') {
 }
 
 // ── POST scenarios ──────────────────────────────────────────────────────────
-if (in_array($scenario, ['approve', 'reject', 'reject-noreason', 'bulk', 'csrf-bad'], true)) {
+if (in_array($scenario, ['approve', 'reject', 'reject-noreason', 'bulk', 'bulk-fail', 'csrf-bad'], true)) {
     $_SERVER['REQUEST_METHOD']  = 'POST';
     $_SERVER['REQUEST_URI']     = '/hrms/index.php?page=employee/change-requests';
     $_SERVER['REMOTE_ADDR']     = '127.0.0.1';
@@ -167,9 +182,13 @@ if (in_array($scenario, ['approve', 'reject', 'reject-noreason', 'bulk', 'csrf-b
         $_POST['action'] = 'reject';
         $_POST['id']     = 104;   // pending, bank_name, employee 99 (missing row -> fallback)
         $_POST['rejection_reason'] = 'Wrong details';
-    } elseif ($scenario === 'bulk') {
+    } elseif ($scenario === 'bulk' || $scenario === 'bulk-fail') {
         $_POST['action'] = 'bulk_approve';
         $_POST['selected_ids'] = ['101', '104'];   // both pending
+        if ($scenario === 'bulk-fail') {
+            // Inject a failure on the request-row update to exercise rollback
+            $db->failOnTable = 'employee_change_requests';
+        }
     } elseif ($scenario === 'csrf-bad') {
         $_POST['action'] = 'approve';
         $_POST['id']     = 101;
@@ -217,14 +236,24 @@ if (in_array($scenario, ['approve', 'reject', 'reject-noreason', 'bulk', 'csrf-b
             $emp   = $db->updatesFor('employees');
             $cr    = $db->updatesFor('employee_change_requests');
             $notes = $db->insertsFor('ess_notifications');
-            report('bulk approve (POST) — known gap #3', [
+            $audits = array_filter($db->queries, fn($q) => stripos($q, 'INSERT INTO audit_log') !== false);
+            report('bulk approve (POST) — fix #3', [
                 'both employee records updated'          => count($emp) === 2,
                 'profile photo applied to employee 7'    => (bool)array_filter($emp, fn($u) => ($u['data']['profile_pic_url'] ?? null) === 'profile/new.jpg'),
                 'bank name applied'                      => (bool)array_filter($emp, fn($u) => ($u['data']['bank_name'] ?? null) === 'SBI'),
                 'both requests marked approved'          => count($cr) === 2 && !array_filter($cr, fn($u) => ($u['data']['status'] ?? '') !== 'approved'),
-                'GAP: notifications sent to employees'   => count($notes) > 0,
-                'GAP: audit log written for bulk'        => (bool)array_filter($db->queries, fn($q) => stripos($q, 'INSERT INTO audit_log') !== false),
+                'notifications sent to both employees'   => count($notes) === 2 && count(array_filter($notes, fn($n) => ($n['data']['type'] ?? '') === 'success')) === 2,
+                'notifications name the fields'          => count(array_filter($notes, fn($n) => stripos($n['data']['title'] ?? '', 'Profile pic url') !== false || stripos($n['data']['title'] ?? '', 'Bank name') !== false)) === 2,
+                'audit rows written for both'            => count($audits) === 2,
+                'batch wrapped in a transaction'         => $db->txLog === ['begin', 'commit'],
                 'success flash set'                      => ($_SESSION['flash']['type'] ?? '') === 'success',
+                'raw exec() never used'                  => $db->execs === [],
+            ], $ERRORS, $html);
+        } elseif ($scenario === 'bulk-fail') {
+            report('bulk approve rollback (injected failure)', [
+                'batch rolled back'                      => $db->txLog === ['begin', 'rollback'],
+                'commit never called'                    => !in_array('commit', $db->txLog, true),
+                'error flash set'                        => ($_SESSION['flash']['type'] ?? '') === 'error',
             ], $ERRORS, $html);
         } elseif ($scenario === 'csrf-bad') {
             report('CSRF rejection (POST with bad token)', [
