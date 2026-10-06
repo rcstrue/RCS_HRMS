@@ -127,7 +127,26 @@ $checks['hub renders']                           = $hub !== '';
 $checks['hub has no duplicate card targets']     = $hubDupes === [];
 $checks['duplicate "Menu Permissions" card gone'] = strpos($hub, 'Menu Permissions') === false;
 $checks['hub still links Roles']                 = strpos($hub, 'page=settings/roles') !== false;
-$checks['hub card count is 11']                  = count($hubHrefs) === 11;
+$checks['hub no longer links legacy announcement/list'] = strpos($hub, 'page=announcement/list') === false;
+$checks['hub links the live announcements page']  = strpos($hub, 'page=notifications/announcements') !== false;
+$checks['hub links notification settings']        = strpos($hub, 'page=settings/notifications') !== false;
+$checks['hub links the image editor']             = strpos($hub, 'page=settings/image-tool') !== false;
+$checks['hub card count is 13']                   = count($hubHrefs) === 13;
+
+// ── Notifications hub + bell dropdown: the dead page=notifications target ───
+ob_start();
+include __DIR__ . '/../hrms/modules/notifications/index.php';
+$nHub = ob_get_clean();
+
+preg_match_all('/href="([^"]+)"/', $nHub, $nm);
+$nHubHrefs  = array_values(array_filter($nm[1], fn($h) => $h !== '#'));
+$nHubDupes  = array_filter(array_count_values($nHubHrefs), fn($n) => $n > 1);
+
+$checks['notifications hub renders']              = $nHub !== '';
+$checks['notifications hub has no dead link']      = strpos($nHub, 'page=notifications"') === false;
+$checks['notifications hub has no duplicate target'] = $nHubDupes === [];
+$checks['header has no dead page=notifications link'] = strpos($html, 'page=notifications"') === false;
+$checks['bell "View All" points at the centre']    = strpos($html, 'page=notifications/center') !== false;
 
 $fail = 0;
 echo "── sidebar / Settings hub structure ──\n";
