@@ -30,9 +30,21 @@ $clients = $db->query(
      ORDER BY client_name"
 )->fetchAll(PDO::FETCH_ASSOC);
 
-// Build query for ESI data
-$where = "p.month = :month AND p.year = :year AND ess.esi_applicable = 1";
-$params = [':month' => $month, ':year' => $year];
+// Build query for ESI data (ceiling sourced from esi_rates, falling back to statutory 21000)
+$esiCeilingSql = "COALESCE((SELECT wage_ceiling FROM esi_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1), 21000)";
+$periodEnd = date('Y-m-t', strtotime("{$year}-{$month}-01"));
+$where = "p.month = :month AND p.year = :year AND EXISTS (
+              SELECT 1 FROM employee_salary_structures ess
+              WHERE ess.employee_id = e.id AND ess.esi_applicable = 1
+                AND ess.effective_from <= :period_end_from
+                AND (ess.effective_to IS NULL OR ess.effective_to >= :period_end_to)
+          ) AND p.gross_salary <= {$esiCeilingSql}";
+$params = [
+    ':month' => $month,
+    ':year' => $year,
+    ':period_end_from' => $periodEnd,
+    ':period_end_to' => $periodEnd,
+];
 
 if ($clientFilter) {
     $where .= " AND c.name = :client";
@@ -49,16 +61,14 @@ $sql = "SELECT
             e.gender,
             e.date_of_birth,
             e.date_of_joining,
-            p.basic_da as esi_wages,
+            p.gross_salary as esi_wages,
             p.esi_employee,
             p.esi_employer,
-            p.present_days,
+            p.paid_days,
             c.name as client_name
         FROM payroll p
         JOIN employees e ON p.employee_id = e.employee_code
         LEFT JOIN clients c ON e.client_id = c.id
-        LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
-            AND ess.esi_applicable = 1
         
         WHERE {$where}
         ORDER BY e.employee_code";

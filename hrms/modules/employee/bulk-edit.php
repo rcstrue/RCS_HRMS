@@ -12,7 +12,7 @@ $allColumns = [
         'label' => 'Personal Info',
         'icon' => 'bi-person',
         'fields' => [
-            'employee_code' => ['label' => 'Emp Code', 'type' => 'readonly', 'default' => true],
+            'employee_code' => ['label' => 'Emp Code', 'type' => 'text', 'default' => true],
             'full_name' => ['label' => 'Full Name', 'type' => 'text', 'default' => true, 'required' => true],
             'father_name' => ['label' => 'Father Name', 'type' => 'text', 'default' => false],
             'gender' => ['label' => 'Gender', 'type' => 'select', 'options' => ['Male' => 'Male', 'Female' => 'Female', 'Other' => 'Other'], 'default' => false],

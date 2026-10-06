@@ -88,7 +88,7 @@ try {
         
         // Employee table columns
         $empColumns = [
-            'full_name', 'father_name', 'mobile_number', 'alternate_mobile',
+            'employee_code', 'full_name', 'father_name', 'mobile_number', 'alternate_mobile',
             'email', 'gender', 'date_of_birth', 'marital_status', 'blood_group',
             'aadhaar_number', 'uan_number', 'esic_number',
             'address', 'pin_code', 'state', 'district',
@@ -153,6 +153,48 @@ try {
                         $errors[] = "Employee ID {$id}: Invalid date format for {$key}";
                         continue 2;
                     }
+                }
+                // employee_code: format + uniqueness, and it must cascade to payroll/ESS cache
+                if ($key === 'employee_code') {
+                    $newCode = trim((string)$value);
+                    if ($newCode === '') {
+                        $errors[] = "Employee ID {$id}: Employee code cannot be empty";
+                        continue 2;
+                    }
+                    if (strlen($newCode) > 20) {
+                        $errors[] = "Employee ID {$id}: Employee code must be 20 characters or fewer";
+                        continue 2;
+                    }
+                    if ($newCode === $existingMap[$id]['employee_code']) {
+                        continue 2; // unchanged — skip
+                    }
+                    $dup = $db->fetch(
+                        "SELECT id, employee_code FROM employees WHERE employee_code = :code AND id != :id",
+                        ['code' => $newCode, 'id' => $id]
+                    );
+                    if ($dup) {
+                        $errors[] = "Employee ID {$id}: Code '{$newCode}' already belongs to employee {$dup['employee_code']}";
+                        continue 2;
+                    }
+                    $oldCode = $existingMap[$id]['employee_code'];
+                    $empFields['employee_code'] = $newCode;
+                    // Cascade to historical payroll rows (payroll.employee_id = employee_code)
+                    $db->query("UPDATE payroll SET employee_id = ? WHERE employee_id = ?", [$newCode, $oldCode]);
+                    // Cascade to loan logs / advances keyed by code if any (guarded)
+                    foreach (['loan_emi_log', 'employee_arrears', 'employee_bonus'] as $tbl) {
+                        try {
+                            $db->query("UPDATE {$tbl} SET employee_id = ? WHERE employee_id = ?", [$newCode, $oldCode]);
+                        } catch (Exception $e) {
+                            // table/column may not exist — ignore
+                        }
+                    }
+                    // Sync ESS cache (keyed by employees.id → employee_id column)
+                    try {
+                        $db->query("UPDATE ess_employee_cache SET employee_code = ?, updated_at = NOW() WHERE employee_id = ?", [$newCode, $id]);
+                    } catch (Exception $e) {
+                        // cache table may not exist — ignore
+                    }
+                    continue; // field already handled — skip generic assignment below
                 }
                 $empFields[$key] = $value;
             } elseif (in_array($key, $salaryColumns)) {

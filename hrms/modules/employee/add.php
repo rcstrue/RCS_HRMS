@@ -257,6 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         setFlash('error', implode('<br>', $validationErrors));
     } else {
     $data = [
+        'employee_code' => trim(sanitize($_POST['employee_code'] ?? '')),
         'full_name' => sanitize($_POST['full_name']),
         'father_name' => sanitize($_POST['father_name'] ?? ''),
         'mobile_number' => sanitize($_POST['mobile_number'] ?? ''),
@@ -504,6 +505,16 @@ $appRoles = [
                             <h6 class="text-primary border-bottom pb-2 mb-3">
                                 <i class="bi bi-person me-2"></i>Personal Information
                             </h6>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="employee_code" class="form-label">Employee Code</label>
+                            <input type="text" class="form-control" id="employee_code" name="employee_code" 
+                                   value="<?php echo sanitize($employeeData['employee_code'] ?? ''); ?>" 
+                                   maxlength="20"
+                                   <?php echo $isEdit ? '' : 'placeholder="Auto"'; ?>>
+                            <?php if ($isEdit): ?>
+                            <div class="form-text text-muted">Changing the code updates payroll history and ESS cache.</div>
+                            <?php endif; ?>
                         </div>
                         <div class="col-md-3 mb-3">
                             <label for="full_name" class="form-label">Full Name <span class="text-danger">*</span></label>

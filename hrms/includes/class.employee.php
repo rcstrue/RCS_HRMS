@@ -474,6 +474,10 @@ class Employee {
         // Map form fields to database columns
         $dbData = $this->mapFormDataToDb($data);
         unset($dbData['id'], $dbData['created_at']);
+        // An empty posted code means "leave unchanged" — never blank an existing code
+        if (array_key_exists('employee_code', $dbData) && trim((string)$dbData['employee_code']) === '') {
+            unset($dbData['employee_code']);
+        }
         // employee_code is now mutable — can be changed via update()
         // Validate uniqueness if code is being changed
         if (isset($dbData['employee_code']) && $dbData['employee_code'] !== $employee['employee_code']) {
@@ -524,6 +528,29 @@ class Employee {
             
             // Update employee
             $this->db->update('employees', $dbData, SQL_WHERE_ID, ['id' => $id]);
+
+            // Cascade employee_code change to dependent tables
+            // (payroll.employee_id = employee_code; ess_employee_cache.employee_id = employees.id)
+            $newCode = $dbData['employee_code'] ?? null;
+            if ($newCode !== null && $newCode !== $employee['employee_code']) {
+                $oldCode = $employee['employee_code'];
+                // Historical payroll rows keyed by code
+                $this->db->query("UPDATE payroll SET employee_id = ? WHERE employee_id = ?", [$newCode, $oldCode]);
+                // Loan logs / arrears / bonus keyed by code (guarded — columns may not exist everywhere)
+                foreach (['loan_emi_log', 'employee_arrears', 'employee_bonus'] as $tbl) {
+                    try {
+                        $this->db->query("UPDATE {$tbl} SET employee_id = ? WHERE employee_id = ?", [$newCode, $oldCode]);
+                    } catch (Exception $e) {
+                        // table/column may not exist — ignore
+                    }
+                }
+                // ESS cache keyed by employees.id → employee_id column
+                try {
+                    $this->db->query("UPDATE ess_employee_cache SET employee_code = ?, updated_at = NOW() WHERE employee_id = ?", [$newCode, $id]);
+                } catch (Exception $e) {
+                    // cache table may not exist — ignore
+                }
+            }
             
             // Update salary structure if provided and table exists (with versioning)
             if (!empty($salaryData)) {

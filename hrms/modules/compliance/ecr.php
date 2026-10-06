@@ -33,7 +33,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $wageYear = intval($_POST['wage_year']);
         $returnType = sanitize($_POST['return_type']); // regular, new_joiners, exits
         
-        // Get employees with PF applicable (joining salary structures to check flags correctly)
+        // Get employees with PF applicable (salary-structure flag, period-scoped)
+        $periodEndEcr = date('Y-m-t', strtotime(sprintf('%04d-%02d-01', $wageYear, $wageMonth)));
         $employees = $db->fetchAll(
             "SELECT e.id, e.employee_code, e.uan_number, e.full_name, e.father_name, 
                     e.date_of_joining, e.date_of_leaving,
@@ -42,16 +43,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     p.paid_days, p.unpaid_days
              FROM payroll p
              JOIN employees e ON p.employee_id = e.employee_code
-             JOIN employee_salary_structures ess ON e.id = ess.employee_id 
-                AND (ess.effective_to IS NULL OR ess.effective_to >= LAST_DAY(CONCAT(:year, '-', :month, '-01')))
-                AND ess.effective_from <= LAST_DAY(CONCAT(:year, '-', :month, '-01'))
              LEFT JOIN clients c ON e.client_id = c.id
              WHERE p.month = :month AND p.year = :year
-                AND ess.pf_applicable = 1
                 AND e.uan_number IS NOT NULL AND e.uan_number != ''
-             GROUP BY e.id
+                AND EXISTS (
+                    SELECT 1 FROM employee_salary_structures ess
+                    WHERE ess.employee_id = e.id AND ess.pf_applicable = 1
+                      AND ess.effective_from <= :ess_from
+                      AND (ess.effective_to IS NULL OR ess.effective_to >= :ess_to)
+                )
              ORDER BY e.employee_code",
-            ['month' => $wageMonth, 'year' => $wageYear]
+            [
+                'month' => $wageMonth,
+                'year' => $wageYear,
+                'ess_from' => $periodEndEcr,
+                'ess_to' => $periodEndEcr,
+            ]
         );
         
         if (empty($employees)) {
@@ -65,6 +72,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $totalEE = 0;
         $totalER = 0;
         $totalNCP = 0; // Non Contributory Period days
+
+        // PF wage ceiling from pf_rates (same source as the payroll engine)
+        $pfCeiling = floatval($db->fetchColumn(
+            "SELECT wage_ceiling FROM pf_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1"
+        ));
+        if ($pfCeiling <= 0) {
+            $pfCeiling = 15000;
+        }
         
         foreach ($employees as $emp) {
             // ECR format fields
@@ -73,11 +88,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $fatherName = strtoupper(substr(preg_replace('/[^a-zA-Z\s]/', '', $emp['father_name'] ?? ''), 0, 50));
             $relation = 'F'; // Father
             
-            // Wage details (EPF and EPS are capped at 15000 by standard, matching payroll logic)
+            // Wage details — EPF/EPS/EDLI wages are capped at the PF wage ceiling
             $wages = floatval($emp['basic_da']);
-            $pfWages = min($wages, 15000); 
-            $epsWages = min($wages, 15000);
-            $edliWages = min($wages, 15000);
+            $pfWages = min($wages, $pfCeiling);
+            $epsWages = min($wages, $pfCeiling);
+            $edliWages = min($wages, $pfCeiling);
             
             // Use stored payroll contributions for accuracy
             $eeContribution = floatval($emp['pf_employee']);

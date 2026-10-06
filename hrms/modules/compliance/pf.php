@@ -30,9 +30,22 @@ $clients = $db->query(
      ORDER BY c.name"
 )->fetchAll(PDO::FETCH_ASSOC);
 
-// Build query for PF data
-$where = "p.month = :month AND p.year = :year AND ess.pf_applicable = 1";
-$params = [':month' => $month, ':year' => $year];
+$periodEnd = date('Y-m-t', strtotime("{$year}-{$month}-01"));
+
+// Build query for PF data (Wage ceiling sourced from pf_rates, falling back to statutory 15000)
+$pfCeilingSql = "COALESCE((SELECT wage_ceiling FROM pf_rates WHERE is_active = 1 ORDER BY effective_from DESC LIMIT 1), 15000)";
+$where = "p.month = :month AND p.year = :year AND EXISTS (
+              SELECT 1 FROM employee_salary_structures ess
+              WHERE ess.employee_id = e.id AND ess.pf_applicable = 1
+                AND ess.effective_from <= :period_end_from
+                AND (ess.effective_to IS NULL OR ess.effective_to >= :period_end_to)
+          )";
+$params = [
+    ':month' => $month,
+    ':year' => $year,
+    ':period_end_from' => $periodEnd,
+    ':period_end_to' => $periodEnd,
+];
 
 if ($clientFilter) {
     $where .= " AND c.name = :client";
@@ -51,19 +64,17 @@ $sql = "SELECT
             e.date_of_joining,
             e.date_of_joining as pf_joining_date,
             p.basic_da,
-            p.basic_da as epf_wages,
-            p.basic_da as eps_wages,
+            LEAST(p.basic_da, {$pfCeilingSql}) as epf_wages,
+            LEAST(p.basic_da, {$pfCeilingSql}) as eps_wages,
             p.pf_employee,
             p.pf_employer,
-            p.pf_employer as eps_contribution,
-            0 as edli_wages,
-            0 as edli_contribution,
+            p.eps_employer as eps_contribution,
+            LEAST(p.basic_da, {$pfCeilingSql}) as edli_wages,
+            p.edlis_employer as edli_contribution,
             c.name as client_name
         FROM payroll p
         JOIN employees e ON p.employee_id = e.employee_code
         LEFT JOIN clients c ON e.client_id = c.id
-        LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id 
-            AND ess.pf_applicable = 1
         
         WHERE {$where}
         ORDER BY e.employee_code";

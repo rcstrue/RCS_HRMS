@@ -145,7 +145,7 @@ class Compliance {
             return $this->db->fetch(
                 "SELECT
                     COUNT(*) as member_count,
-                    SUM(basic + da) as total_wages,
+                    SUM(basic_da) as total_wages,
                     SUM(pf_employee) as employee_contribution,
                     SUM(pf_employer) as employer_pf_contribution,
                     SUM(eps_employer) as employer_eps_contribution,
