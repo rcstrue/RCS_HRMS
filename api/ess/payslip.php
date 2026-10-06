@@ -127,7 +127,8 @@ function _getPayslipData(mysqli $conn, string $employeeId, int $month, int $year
         jsonOutput(['success' => false, 'error' => 'Employee not found'], 404);
     }
 
-    // Get payroll data directly by month/year
+    // Get payroll data directly by month/year (p.employee_id matches employee_code)
+    $empCode = $employee['employee_code'];
     $pStmt = $conn->prepare('
         SELECT p.*
         FROM payroll p
@@ -135,7 +136,7 @@ function _getPayslipData(mysqli $conn, string $employeeId, int $month, int $year
           AND p.status NOT IN ("Draft", "Cancelled")
         LIMIT 1
     ');
-    $pStmt->bind_param('sii', $employeeId, $month, $year);
+    $pStmt->bind_param('sii', $empCode, $month, $year);
     $pStmt->execute();
     $payroll = $pStmt->get_result()->fetch_assoc();
     $pStmt->close();

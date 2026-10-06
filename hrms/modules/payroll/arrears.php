@@ -179,31 +179,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $periodId = $period['id'];
         }
         
-        // Add arrear to payroll
+        // Add arrear to payroll (resolve employee_code from id first)
+        $empCode = $db->fetchColumn(
+            "SELECT employee_code FROM employees WHERE id = ?",
+            [$arrear['employee_id']]
+        );
         $existingPayroll = $db->fetch(
             "SELECT * FROM payroll WHERE month = :month AND year = :year AND employee_id = :emp_id",
-            ['month' => $paymentMonth, 'year' => $paymentYear, 'emp' => $arrear['employee_id']]
+            ['month' => $paymentMonth, 'year' => $paymentYear, 'emp_id' => $empCode]
         );
         
         if ($existingPayroll) {
-            // Update existing payroll
+            // Update existing payroll (fold arrear into extra_days_amount)
             $db->update('payroll', [
-                'arrears' => $existingPayroll['arrears'] + $arrear['gross_arrear'],
-                'pf_employee' => $existingPayroll['pf_employee'] + $arrear['pf_arrear'],
-                'esi_employee' => $existingPayroll['esi_employee'] + $arrear['esi_arrear'],
-                'net_salary' => $existingPayroll['net_salary'] + $arrear['net_arrear'],
+                'extra_days_amount' => ($existingPayroll['extra_days_amount'] ?? 0) + $arrear['gross_arrear'],
+                'pf_employee' => ($existingPayroll['pf_employee'] ?? 0) + $arrear['pf_arrear'],
+                'esi_employee' => ($existingPayroll['esi_employee'] ?? 0) + $arrear['esi_arrear'],
+                'total_deductions' => ($existingPayroll['total_deductions'] ?? 0) + $arrear['pf_arrear'] + $arrear['esi_arrear'],
+                'net_pay' => ($existingPayroll['net_pay'] ?? 0) + $arrear['net_arrear'],
                 'updated_at' => date(DATETIME_FORMAT_DB)
             ], 'id = :id', ['id' => $existingPayroll['id']]);
         } else {
-            // Create new payroll record with arrear
+            // Create new payroll record with arrear (resolve employee/unit info)
+            $empInfo = $db->fetch(
+                "SELECT employee_code, unit_id FROM employees WHERE id = ?",
+                [$arrear['employee_id']]
+            );
             $db->insert('payroll', [
+                'employee_id' => $empInfo['employee_code'],
+                'unit_id' => $empInfo['unit_id'],
                 'month' => $paymentMonth,
                 'year' => $paymentYear,
-                'arrears' => $arrear['gross_arrear'],
+                'extra_days_amount' => $arrear['gross_arrear'],
                 'pf_employee' => $arrear['pf_arrear'],
                 'esi_employee' => $arrear['esi_arrear'],
-                'net_salary' => $arrear['net_arrear'],
+                'total_deductions' => $arrear['pf_arrear'] + $arrear['esi_arrear'],
+                'net_pay' => $arrear['net_arrear'],
+                'payment_mode' => 'Bank Transfer',
                 'payment_status' => 'pending',
+                'status' => 'Processed',
                 'created_at' => date(DATETIME_FORMAT_DB)
             ]);
         }

@@ -12,6 +12,8 @@
  * Routed through index.php - no need to re-include config/database
  */
 
+define('BONUS_PAGE_URL', 'index.php?page=payroll/bonus');
+
 $pageTitle = 'Bonus Calculation';
 
 // Get settings

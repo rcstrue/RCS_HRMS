@@ -445,7 +445,6 @@ class Payroll {
                     $paidDays = min($paidDays, $totalDays);
                     $unpaidDays = max(0, $totalDays - $paidDays);
 
-                    $unpaidDays = max(0, $totalDays - $paidDays);
                     $overtimeHours = floatval($attendance['overtime_hours'] ?? 0);
 
                     // Calculate earnings (pro-rated) - using basic_da as combined column
@@ -593,6 +592,19 @@ class Payroll {
 
                     // Net pay (always round off)
                     $netPay = round($grossWithOT - $totalDeductions); // Round to nearest ₹.00
+
+                    // Guard: deductions should not exceed gross (P0-4)
+                    if ($netPay < 0) {
+                        $exceptions[] = [
+                            'employee_id'   => $emp['employee_code'],
+                            'employee_name' => $emp['full_name'],
+                            'type'          => 'Net Pay Negative',
+                            'message'       => 'Deductions ₹' . number_format($totalDeductions, 2)
+                                             . ' exceed earnings ₹' . number_format($grossWithOT, 2)
+                                             . ' — net payable set to ₹0.00. Review advance/loan.',
+                        ];
+                        $netPay = 0;
+                    }
 
                     // Employer contributions
                     $employerContribution = round($pfEmployer + $epsEmployer + $edlisEmployer + $epfAdmin + $esiEmployer + $lwfEmployer, 2);

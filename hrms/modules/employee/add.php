@@ -785,6 +785,10 @@ $appRoles = [
                             </div>
                         </div>
                     </div>
+                    <!-- Hidden fields to preserve statutory flags on edit -->
+                    <input type="hidden" name="lwf_applicable"        value="<?php echo (int)($employeeData['lwf_applicable'] ?? 0); ?>">
+                    <input type="hidden" name="gratuity_applicable"   value="<?php echo (int)($employeeData['gratuity_applicable'] ?? 0); ?>">
+                    <input type="hidden" name="overtime_applicable"   value="<?php echo (int)($employeeData['overtime_applicable'] ?? 0); ?>">
                     
                     <!-- Bank Details -->
                     <div class="row mb-4">
