@@ -84,9 +84,9 @@ try {
 
         $rows = $db->fetchAll(
             "SELECT r.*,
-                    reviewer.full_name AS reviewed_by_name
+                    COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''), u.username) AS reviewed_by_name
              FROM employee_change_requests r
-             LEFT JOIN employees reviewer ON r.reviewed_by = reviewer.id
+             LEFT JOIN users u ON r.reviewed_by = u.id
              $where
              ORDER BY r.created_at DESC",
             $params
