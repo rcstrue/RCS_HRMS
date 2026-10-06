@@ -2,10 +2,16 @@
 /**
  * Verification harness for hrms/modules/employee/change-requests.php
  * Drives the REAL page file against a stub $db (no MySQL available locally).
- * Usage: php verify-cr.php [notif|all|pending|approve|reject|reject-noreason]
+ * Usage: php verify-cr.php [scenario] [role_code]
+ *   scenarios: notif|all|pending|manager|approve|reject|reject-noreason|csrf-bad
+ *              bulk|bulk-fail|approve-sens|bulk-mixed|bulk-blocked
+ *   role_code: defaults to admin (use manager/supervisor for policy checks)
  */
 define('RCS_HRMS', true);
 $scenario = $argv[1] ?? 'all';
+$role     = $argv[2] ?? 'admin';
+// Mirrors $SENSITIVE_APPROVER_ROLES in the page
+$roleMayApproveSensitive = in_array($role, ['admin', 'hr_executive', 'hr'], true);
 
 require_once __DIR__ . '/../hrms/config/config.php';
 
@@ -166,12 +172,12 @@ if ($scenario === 'notif') {
 }
 
 // ── POST scenarios ──────────────────────────────────────────────────────────
-if (in_array($scenario, ['approve', 'reject', 'reject-noreason', 'bulk', 'bulk-fail', 'csrf-bad'], true)) {
+if (in_array($scenario, ['approve', 'reject', 'reject-noreason', 'bulk', 'bulk-fail', 'csrf-bad', 'approve-sens', 'bulk-mixed', 'bulk-blocked'], true)) {
     $_SERVER['REQUEST_METHOD']  = 'POST';
     $_SERVER['REQUEST_URI']     = '/hrms/index.php?page=employee/change-requests';
     $_SERVER['REMOTE_ADDR']     = '127.0.0.1';
     $_SESSION['user_id']        = 5;
-    $_SESSION['role_code']      = 'admin';
+    $_SESSION['role_code']      = $role;
     $_SESSION['csrf_token']     = 'testtoken';
     $_POST = ['csrf_token' => 'testtoken'];
 
@@ -189,6 +195,13 @@ if (in_array($scenario, ['approve', 'reject', 'reject-noreason', 'bulk', 'bulk-f
             // Inject a failure on the request-row update to exercise rollback
             $db->failOnTable = 'employee_change_requests';
         }
+    } elseif ($scenario === 'approve-sens') {
+        $_POST['action'] = 'approve';
+        $_POST['id']     = 104;   // pending, bank_name -> sensitive field
+    } elseif ($scenario === 'bulk-mixed' || $scenario === 'bulk-blocked') {
+        $_POST['action'] = 'bulk_approve';
+        // 101 = profile_pic_url (not sensitive), 104 = bank_name (sensitive)
+        $_POST['selected_ids'] = $scenario === 'bulk-blocked' ? ['104'] : ['101', '104'];
     } elseif ($scenario === 'csrf-bad') {
         $_POST['action'] = 'approve';
         $_POST['id']     = 101;
@@ -200,7 +213,7 @@ if (in_array($scenario, ['approve', 'reject', 'reject-noreason', 'bulk', 'bulk-f
     }
 
     ob_start();
-    register_shutdown_function(function () use ($scenario, $db, &$ERRORS) {
+    register_shutdown_function(function () use ($scenario, $db, &$ERRORS, $role, $roleMayApproveSensitive) {
         $html = ob_get_clean();
 
         if ($scenario === 'approve') {
@@ -255,6 +268,43 @@ if (in_array($scenario, ['approve', 'reject', 'reject-noreason', 'bulk', 'bulk-f
                 'commit never called'                    => !in_array('commit', $db->txLog, true),
                 'error flash set'                        => ($_SESSION['flash']['type'] ?? '') === 'error',
             ], $ERRORS, $html);
+        } elseif ($scenario === 'approve-sens') {
+            if ($roleMayApproveSensitive) {
+                $emp   = $db->updatesFor('employees');
+                $cr    = $db->updatesFor('employee_change_requests');
+                report("approve sensitive field as {$role} (policy #9)", [
+                    'employee record updated'                => count($emp) === 1 && ($emp[0]['data']['bank_name'] ?? null) === 'SBI',
+                    'request marked approved'                => count($cr) === 1 && ($cr[0]['data']['status'] ?? '') === 'approved',
+                    'notification sent'                      => count($db->insertsFor('ess_notifications')) === 1,
+                    'success flash set'                      => ($_SESSION['flash']['type'] ?? '') === 'success',
+                ], $ERRORS, $html);
+            } else {
+                report("approve sensitive field as {$role} (policy #9)", [
+                    'employee record NOT updated'            => $db->updatesFor('employees') === [],
+                    'request NOT marked approved'            => $db->updatesFor('employee_change_requests') === [],
+                    'no notification sent'                   => $db->insertsFor('ess_notifications') === [],
+                    'error flash set'                        => ($_SESSION['flash']['type'] ?? '') === 'error',
+                ], $ERRORS, $html);
+            }
+        } elseif ($scenario === 'bulk-mixed') {
+            $emp   = $db->updatesFor('employees');
+            $cr    = $db->updatesFor('employee_change_requests');
+            $notes = $db->insertsFor('ess_notifications');
+            report("bulk approve mixed as {$role} (policy #9)", [
+                'only the non-sensitive record updated'   => count($emp) === 1 && ($emp[0]['data']['profile_pic_url'] ?? null) === 'profile/new.jpg',
+                'only the non-sensitive request approved' => count($cr) === 1 && ($cr[0]['where_params']['id'] ?? null) === 101,
+                'only one notification sent'              => count($notes) === 1 && ($notes[0]['data']['employee_id'] ?? null) === '7',
+                'flash reports the skip'                  => ($_SESSION['flash']['type'] ?? '') === 'success' && stripos($_SESSION['flash']['message'] ?? '', 'skipped') !== false,
+                'batch still transactional'               => $db->txLog === ['begin', 'commit'],
+            ], $ERRORS, $html);
+        } elseif ($scenario === 'bulk-blocked') {
+            report("bulk approve all-sensitive as {$role} (policy #9)", [
+                'nothing written at all'                  => $db->updatesFor('employees') === []
+                                                            && $db->updatesFor('employee_change_requests') === []
+                                                            && $db->insertsFor('ess_notifications') === [],
+                'flash is a warning, not a success'       => ($_SESSION['flash']['type'] ?? '') === 'warning',
+                'flash reports the skip'                  => stripos($_SESSION['flash']['message'] ?? '', 'skipped') !== false,
+            ], $ERRORS, $html);
         } elseif ($scenario === 'csrf-bad') {
             report('CSRF rejection (POST with bad token)', [
                 'no database writes at all'              => $db->updates === [] && $db->inserts === [] && $db->execs === [],
@@ -271,11 +321,11 @@ if (in_array($scenario, ['approve', 'reject', 'reject-noreason', 'bulk', 'bulk-f
     exit(0);
 }
 
-// ── GET render scenarios (fixes #2, #4, #7) ─────────────────────────────────
+// ── GET render scenarios (fixes #2, #4, #7 + sensitive-approval policy #9) ──
 $_SERVER['REQUEST_METHOD'] = 'GET';
 $_SERVER['REQUEST_URI']    = '/hrms/index.php?page=employee/change-requests';
 $_SESSION['user_id']       = 5;
-$_SESSION['role_code']     = 'admin';
+$_SESSION['role_code']     = $role;
 $_GET = ['page' => 'employee/change-requests'];
 if ($scenario === 'pending') $_GET['status'] = 'pending';
 
@@ -288,7 +338,16 @@ $pendingOnly  = $expectStatus === 'pending';
 $usedUsers = (bool)array_filter($db->queries, fn($q) => stripos($q, 'SELECT first_name, last_name, username FROM users') !== false);
 $usedEmployeesForReviewer = (bool)array_filter($db->queries, fn($q) => preg_match('/FROM employees WHERE id = :rid/i', $q));
 
-report("render ({$scenario})", [
+// Sensitive-approval policy: row 101 = profile_pic_url (approvable by all),
+// row 104 = bank_name (sensitive -> Admin/HR only)
+$rowHasApproveButton = function (int $id) use ($html): bool {
+    return (bool)preg_match('/onclick="approveRequest\(' . $id . '\)"/', $html);
+};
+$rowHasCheckbox = function (int $id) use ($html): bool {
+    return (bool)preg_match('/name="selected_ids\[\]" value="' . $id . '"/', $html);
+};
+
+$reportChecks = [
     'no PHP fatal/warning/notice in output'   => !preg_match('/Fatal error|Warning:|Deprecated:|Notice:/', $html),
     'no /uploads//uploads/ double prefix'     => strpos($html, '/uploads//uploads/') === false,
     'prefixed old_value -> single prefix'     => !$pendingOnly || strpos($html, 'src="/uploads/profile/old.jpg"') !== false,
@@ -303,4 +362,19 @@ report("render ({$scenario})", [
     'approved rows excluded when filtered'    => !$pendingOnly || strpos($html, 'Sita Devi') === false,
     'bulk approve control present'            => strpos($html, 'Approve Selected') !== false,
     'raw exec() never used'                   => $db->execs === [],
-], $ERRORS, $html);
+];
+
+// Policy #9: bank/statutory/KYC rows are admin/HR-approvable only
+if ($roleMayApproveSensitive) {
+    $reportChecks["{$role}: sensitive row still has approve button"] = $rowHasApproveButton(104);
+    $reportChecks["{$role}: sensitive row still selectable"]         = $rowHasCheckbox(104);
+    $reportChecks["{$role}: no 'Admin/HR only' badge shown"]         = strpos($html, 'Admin/HR only') === false;
+} else {
+    $reportChecks["{$role}: sensitive row has NO approve button"]    = !$rowHasApproveButton(104);
+    $reportChecks["{$role}: sensitive row NOT selectable"]           = !$rowHasCheckbox(104);
+    $reportChecks["{$role}: 'Admin/HR only' badge shown"]            = strpos($html, 'Admin/HR only') !== false;
+    $reportChecks["{$role}: sensitive row can still be rejected"]    = (bool)preg_match('/onclick="showRejectModal\(104\)"/', $html);
+    $reportChecks["{$role}: normal row still approvable"]            = $rowHasApproveButton(101) && $rowHasCheckbox(101);
+}
+
+report("render ({$scenario} as {$role})", $reportChecks, $ERRORS, $html);
