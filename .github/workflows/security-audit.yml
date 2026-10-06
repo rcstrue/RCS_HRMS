@@ -65,46 +65,68 @@ jobs:
       - name: Grep for dangerous patterns
         run: |
           echo "=== Checking for dangerous PHP patterns ==="
-          ERRORS=0
+          # Scans the application source (hrms/ + api/). It used to scan
+          # php_payroll/, which does not exist in this repository, so grep errored
+          # out on it and the entire 300+ file HRMS app went unchecked.
+          #
+          # The checks below FAIL the job. The superglobal heuristic only warns —
+          # see the note on it further down.
+          FAIL=0
+          WARN=0
 
-          # eval() — code injection risk
-          MATCHES=$(grep -rn '\beval\s*(' php_payroll/ api/ --include="*.php" 2>/dev/null || true)
+          # eval() — code injection risk. The (?<!->) / (?<!::) lookbehinds keep
+          # method calls out: without them $db->exec() and PDO::exec() matched the
+          # exec-family check below (22 false positives).
+          MATCHES=$(grep -rnP '(?<!->)(?<!::)\beval\s*\(' hrms/ api/ --include="*.php" || true)
           if [ -n "$MATCHES" ]; then
-            echo "::warning::Found eval() usage (code injection risk):"
+            echo "::error::Found eval() usage (code injection risk):"
             echo "$MATCHES"
-            ERRORS=$((ERRORS + 1))
+            FAIL=$((FAIL + 1))
           fi
 
           # exec() / system() / passthru() / shell_exec() / popen() / proc_open()
-          MATCHES=$(grep -rn '\b\(exec\|system\|passthru\|shell_exec\|popen\|proc_open\)\s*(' php_payroll/ api/ --include="*.php" 2>/dev/null || true)
+          MATCHES=$(grep -rnP '(?<!->)(?<!::)\b(exec|system|passthru|shell_exec|popen|proc_open)\s*\(' hrms/ api/ --include="*.php" || true)
           if [ -n "$MATCHES" ]; then
-            echo "::warning::Found shell execution functions:"
+            echo "::error::Found shell execution functions:"
             echo "$MATCHES"
-            ERRORS=$((ERRORS + 1))
+            FAIL=$((FAIL + 1))
           fi
 
-          # $_GET / $_POST / $_REQUEST used directly in SQL (not via prepared statements)
-          MATCHES=$(grep -rn '\$_\(GET\|POST\|REQUEST\)' php_payroll/ api/ --include="*.php" | grep -iv 'sanitize\|htmlspecialchars\|filter_var\|prepare\|bind_param\|intval\|floatval\|strval\|trim' 2>/dev/null || true)
+          # var_dump / print_r — debug output
+          MATCHES=$(grep -rnP '(?<!->)(?<!::)\b(var_dump|print_r)\s*\(' hrms/ api/ --include="*.php" || true)
           if [ -n "$MATCHES" ]; then
-            echo "::warning::Found unsanitized superglobals (possible SQLi/XSS):"
+            echo "::error::Found debug output functions (remove before production):"
             echo "$MATCHES"
-            ERRORS=$((ERRORS + 1))
-          fi
-
-          # var_dump / print_r / echo with $_
-          MATCHES=$(grep -rn '\b\(var_dump\|print_r\)\s*(' php_payroll/ api/ --include="*.php" 2>/dev/null || true)
-          if [ -n "$MATCHES" ]; then
-            echo "::warning::Found debug output functions (remove before production):"
-            echo "$MATCHES"
-            ERRORS=$((ERRORS + 1))
+            FAIL=$((FAIL + 1))
           fi
 
           # Hardcoded passwords / secrets
-          MATCHES=$(grep -rni '\(password\s*=\s*["\x27][^"\x27]\{4,\}\|secret\s*=\s*["\x27][^"\x27]\{4,\}\|api_key\s*=\s*["\x27][^"\x27]\{4,\}\)' php_payroll/ api/ --include="*.php" | grep -v 'example\.' | grep -v 'config\.local' | grep -v 'placeholder' | grep -iv 'your_' 2>/dev/null || true)
+          MATCHES=$(grep -rniP '(password|secret|api_key)\s*=\s*["\x27][^"\x27]{4,}["\x27]' hrms/ api/ --include="*.php" \
+                    | grep -v 'example\.' | grep -v 'config\.local' | grep -v 'placeholder' | grep -iv 'your_' || true)
           if [ -n "$MATCHES" ]; then
-            echo "::warning::Possible hardcoded secrets found:"
+            echo "::error::Possible hardcoded secrets found:"
             echo "$MATCHES"
-            ERRORS=$((ERRORS + 1))
+            FAIL=$((FAIL + 1))
           fi
 
-          echo "=== Scan complete. Warnings: ${ERRORS} ==="
+          # $_GET / $_POST / $_REQUEST without an obvious sanitiser — WARNING ONLY,
+          # deliberately. Measured on this codebase this reports 1042 lines, nearly
+          # all false positives ((int)$_GET[...] casts, isset() guards, values
+          # handed to helpers). Blocking on it would leave the build permanently
+          # red, which is worse than no check at all. Tighten the pattern (for
+          # example to superglobals interpolated straight into SQL) before making
+          # it fail.
+          MATCHES=$(grep -rn '\$_\(GET\|POST\|REQUEST\)' hrms/ api/ --include="*.php" \
+                    | grep -iv 'sanitize\|htmlspecialchars\|filter_var\|prepare\|bind_param\|intval\|floatval\|strval\|trim' || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::warning::Superglobals without an obvious sanitiser (heuristic — review manually):"
+            echo "$MATCHES" | head -50
+            WARN=$((WARN + 1))
+          fi
+
+          echo "=== Scan complete. Blocking findings: ${FAIL}, warnings: ${WARN} ==="
+          if [ "$FAIL" -gt 0 ]; then
+            echo "::error::PHP security scan failed with ${FAIL} blocking finding(s)."
+            exit 1
+          fi
+          echo "No blocking findings."

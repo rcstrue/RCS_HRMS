@@ -1,14 +1,22 @@
 name: PHP Lint (PHPStan + PHPCS)
 
+# The tools this workflow installs are PINNED on purpose:
+#   - phpstan-baseline.neon was generated with phpstan 2.2.17 and baselines are
+#     version sensitive — a different analyser version reports different messages
+#     and silently invalidates the baseline.
+#   - phpcs 4.0.4 is the version the PSR-12 report was verified against.
+# Regenerate the baseline after intentionally fixing baselined code:
+#   vendor/bin/phpstan analyse --configuration=phpstan.neon --generate-baseline
+
 on:
   push:
     branches: [ "main", "master" ]
     paths:
       - 'hrms/**/*.php'
       - 'api/**/*.php'
-      - 'phpstan*.neon*'
-      - 'phpstan-bootstrap.php'
-      - 'phpcs.xml*'
+      - 'phpstan.neon'
+      - 'phpstan-baseline.neon'
+      - '.phpcs.xml'
       - '.github/workflows/php-lint.yml'
   pull_request:
     branches: [ "main", "master" ]
@@ -21,7 +29,7 @@ permissions:
 
 jobs:
   phpstan:
-    name: PHPStan (Level 4)
+    name: PHPStan (Level 4, baselined)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,22 +38,64 @@ jobs:
         with:
           php-version: '8.2'
           coverage: none
-          tools: phpstan
+          tools: phpstan:2.2.17
 
+      # Paths and level come from phpstan.neon; the 1445 findings that existed
+      # when the config was introduced are frozen in phpstan-baseline.neon, so a
+      # red build here means a NEW level-4 problem.
       - name: Run PHPStan
-        run: phpstan analyse --no-progress --error-format=table
+        run: phpstan analyse --configuration=phpstan.neon --no-progress --error-format=table
 
   phpcs:
-    name: PHPCS (PSR-12)
+    name: PHPCS (security sniffs; PSR-12 report)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # the PSR-12 report diffs against the previous commit
+          fetch-depth: 0
 
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
           coverage: none
-          tools: phpcs
+          tools: phpcs:4.0.4
 
-      - name: Run PHPCS
-        run: phpcs --report=full -n
+      # Blocking. ForbiddenFunctions flags eval/exec/system/shell_exec/passthru/
+      # popen/proc_open and Squiz.PHP.Eval flags eval(); both parse the file, so
+      # database calls like $db->exec() are not false positives. Verified clean
+      # across hrms/ and api/ when this was added.
+      - name: Security sniffs (blocking)
+        run: |
+          phpcs --standard=Generic \
+                --sniffs=Generic.PHP.ForbiddenFunctions,Squiz.PHP.Eval \
+                -n --report=full hrms api
+
+      # Informational. The existing code is not PSR-12 clean (hrms/includes alone
+      # has 1200+ violations) and PHP_CodeSniffer has no baseline mechanism, so
+      # gating here would fail every push. This reports drift on the files this
+      # push touched without blocking. Use .phpcs.xml + phpcbf locally to clean up.
+      - name: PSR-12 on changed files (report only)
+        continue-on-error: true
+        run: |
+          BASE="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          fi
+
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "No base commit to diff against (first push) — skipping PSR-12 report."
+            exit 0
+          fi
+
+          FILES=$(git diff --name-only --diff-filter=ACMR "$BASE" "${{ github.sha }}" \
+                    -- hrms api | grep -E '\.php$' || true)
+
+          if [ -z "$FILES" ]; then
+            echo "No PHP files changed between ${BASE} and ${{ github.sha }}."
+            exit 0
+          fi
+
+          echo "Reporting PSR-12 findings for:"
+          echo "$FILES"
+          echo "$FILES" | xargs phpcs --standard=.phpcs.xml -n --report=full || true

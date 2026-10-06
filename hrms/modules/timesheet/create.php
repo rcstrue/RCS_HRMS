@@ -103,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             
             $db->commit();
             
-            logActivity('timesheet_created', "Created timesheet $timesheetCode");
+            logActivity('timesheet_created', 'timesheet', $timesheetId, "Created timesheet $timesheetCode");
             setFlash('success', "Timesheet created successfully. Code: $timesheetCode");
             redirect("index.php?page=timesheet/list");
             

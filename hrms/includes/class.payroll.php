@@ -410,31 +410,40 @@ class Payroll {
                             break;
                     }
                     
-                    // Use total_paid_days from attendance_summary if available, otherwise calculate
-                    $preCalcPaidDays = floatval($attendance['total_paid_days'] ?? 0);
-                    if ($preCalcPaidDays > 0) {
-                        $paidDays = $preCalcPaidDays;
-                    } else {
-                        // Fallback: calculate from individual components
-                        $paidDays = floatval($attendance['total_present'] ?? 0);
-                        $paidDays += floatval($attendance['weekly_offs'] ?? 0);
-                        $paidDays += floatval($attendance['total_extra'] ?? 0);
-                    }
-                    
-                    // Check if attendance record exists (must check is_array first to avoid warnings)
-                    // NOTE: SQL aliases total_present → present_days, total_wo → weekly_offs
-                    $hasAttendance = is_array($attendance) && array_key_exists('present_days', $attendance) && $attendance['present_days'] !== null;
+                    // ── Paid days: authoritative source is present + WO + extra ─────────────────────
+                    // attendance_summary.total_paid_days is NOT maintained by every writer
+                    // (ESS team-summary, overtime-entry leave it 0), so we compute it.
+                    // SQL aliases: total_present → present_days, total_wo → weekly_offs
+                    $attPresent = floatval($attendance['present_days']  ?? 0);  // was total_present
+                    $attWo      = floatval($attendance['weekly_offs']   ?? 0);  // was total_wo
+                    $attExtra   = floatval($attendance['total_extra']   ?? 0);
+                    $paidSum    = $attPresent + $attWo + $attExtra;
 
-                    // Check for missing attendance — SKIP employee, do NOT assume full month
+                    // Prefer stored total_paid_days if it matches the component sum
+                    $storedPaid = floatval($attendance['total_paid_days'] ?? 0);
+                    if ($storedPaid > 0 && abs($storedPaid - $paidSum) > 0.001) {
+                        // Mismatch → trust the components (writers may have updated one but not the other)
+                        $paidDays = $paidSum;
+                    } else {
+                        $paidDays = $storedPaid > 0 ? $storedPaid : $paidSum;
+                    }
+
+                    // No attendance data at all → skip the employee
+                    // (prevents negative net pay from zero gross minus deductions)
+                    $hasAttendance = is_array($attendance) && $paidSum > 0;
                     if (!$hasAttendance) {
                         $exceptions[] = [
-                            'employee_id' => $emp['employee_code'],
+                            'employee_id'   => $emp['employee_code'],
                             'employee_name' => $emp['full_name'],
-                            'type' => 'Missing Attendance',
-                            'message' => 'No attendance data found — employee skipped. Upload attendance first.'
+                            'type'          => 'Missing Attendance',
+                            'message'       => 'No attendance days found — employee skipped.'
                         ];
-                        continue; // Skip this employee entirely
+                        continue;
                     }
+
+                    // Never pro-rate above the month's own day count
+                    $paidDays = min($paidDays, $totalDays);
+                    $unpaidDays = max(0, $totalDays - $paidDays);
 
                     $unpaidDays = max(0, $totalDays - $paidDays);
                     $overtimeHours = floatval($attendance['overtime_hours'] ?? 0);

@@ -50,6 +50,19 @@ function _handleGet(): void
 
 function _getAvailablePeriods(mysqli $conn, string $employeeId): void
 {
+    // Resolve employee_code from employee_id (payroll.employee_id = employee_code)
+    $codeStmt = $conn->prepare('SELECT employee_code FROM employees WHERE id = ? LIMIT 1');
+    $codeStmt->bind_param('s', $employeeId);
+    $codeStmt->execute();
+    $codeRow = $codeStmt->get_result()->fetch_assoc();
+    $codeStmt->close();
+
+    if (!$codeRow) {
+        jsonOutput(['success' => false, 'error' => 'Employee not found'], 404);
+        return;
+    }
+    $empCode = $codeRow['employee_code'];
+
     $stmt = $conn->prepare('
         SELECT DISTINCT month, year
         FROM payroll
@@ -57,7 +70,7 @@ function _getAvailablePeriods(mysqli $conn, string $employeeId): void
         ORDER BY year DESC, month DESC
         LIMIT 24
     ');
-    $stmt->bind_param('s', $employeeId);
+    $stmt->bind_param('s', $empCode);
     $stmt->execute();
     $result = $stmt->get_result();
 
