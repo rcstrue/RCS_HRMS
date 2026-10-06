@@ -16,6 +16,40 @@ require_once __DIR__ . '/../hrms/config/config.php';
 $mode = $argv[1] ?? 'structure';
 $page = $argv[2] ?? 'dashboard';
 
+// ── registry mode: audit class.auth.php getAllMenus() URLs against the filesystem ──
+// Runs before anything else and exits. Auth::getAllMenus() is pure, but Auth's
+// constructor calls Database::getInstance(), so stub that one class (this is why
+// it must be declared before Auth is autoloaded).
+if ($mode === 'registry') {
+    // Declared unconditionally: class_exists() would itself trigger the autoloader
+    // and pull in the real Database class (which then tries to connect to MySQL).
+    class Database
+    {
+        public static function getInstance() { static $i = null; return $i ??= new self(); }
+    }
+    $authObj = new Auth();
+    $menus = $authObj->getAllMenus();
+
+    $dead = [];
+    $total = 0;
+    foreach ($menus as $mKey => $m) {
+        foreach (($m['submenus'] ?? []) as $sKey => $s) {
+            $url = $s['url'] ?? '';
+            if ($url === '') continue;
+            $total++;
+            $file = __DIR__ . '/../hrms/modules/' . $url . '.php';
+            if (!is_file($file)) {
+                $dead[] = sprintf('%s → %s  "%s"  url=%s', $mKey, $sKey, $s['label'] ?? '?', $url);
+            }
+        }
+    }
+    echo "registered top-level menus: " . count($menus) . "\n";
+    echo "registered submenu URLs:    {$total}\n";
+    echo "dead URLs (no module file): " . count($dead) . "\n";
+    foreach ($dead as $d) echo "  DEAD  $d\n";
+    exit(0);
+}
+
 $ERRORS = [];
 error_reporting(E_ALL);          // config.php sets 0 in production mode; we want to see problems
 ini_set('display_errors', '1');
