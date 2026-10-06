@@ -366,6 +366,12 @@ $fSearchRaw = trim($_GET['search'] ?? '');
 $fStatus = in_array($fStatusRaw, ['all', 'pending', 'approved', 'rejected'], true) ? $fStatusRaw : 'all';
 $fSearch = substr($fSearchRaw, 0, 100);
 
+// ─── Pagination ─────────────────────────────────────────────────────────────
+// "page" is the route parameter, so the page number uses "page_num" instead
+// (same convention as modules/notifications/whatsapp.php).
+$perPage = defined('RECORDS_PER_PAGE') ? (int)RECORDS_PER_PAGE : 50;
+$pageNum = max(1, (int)($_GET['page_num'] ?? 1));
+
 // ─── Summary counts (independent query) ────────────────────────────────────
 
 $pendingCount  = 0;
@@ -381,24 +387,63 @@ try {
 
 // ─── Fetch requests — 2-step approach (no JOINs) ──────────────────────────
 
-$requests = [];
-$dbError  = '';
-$diagInfo = '';
+$requests   = [];
+$dbError    = '';
+$diagInfo   = '';
+$totalRows  = 0;
+$totalPages = 1;
+$offset     = 0;
 
 try {
-    // Step 1: Fetch change requests WITHOUT any JOINs
+    // ── Shared WHERE clause for the count and the page query ──
+    // Search moved into SQL so it composes with LIMIT/OFFSET: filtering after the
+    // fetch (the old behaviour) would have paginated the unfiltered result set.
+    $whereParts  = [];
+    $whereParams = [];
+
     if ($fStatus !== 'all') {
-        $rawRequests = $db->fetchAll(
-            "SELECT * FROM employee_change_requests WHERE status = :crstatus ORDER BY created_at DESC",
-            ['crstatus' => $fStatus]
-        );
-    } else {
-        $rawRequests = $db->fetchAll(
-            "SELECT * FROM employee_change_requests ORDER BY created_at DESC"
-        );
+        $whereParts[] = 'status = :crstatus';
+        $whereParams['crstatus'] = $fStatus;
     }
 
-    $diagInfo .= 'Step1: fetched ' . count($rawRequests) . ' requests. ';
+    if ($fSearch !== '') {
+        // Step 1 stays JOIN-free, so employees matching the search are resolved
+        // first and matched by employee_id.
+        $orParts = ['field_name LIKE :cr_field'];
+        $whereParams['cr_field'] = '%' . $fSearch . '%';
+
+        $like = '%' . $fSearch . '%';
+        $empMatches = $db->fetchAll(
+            "SELECT id FROM employees WHERE full_name LIKE :s1 OR employee_code LIKE :s2 LIMIT 200",
+            ['s1' => $like, 's2' => $like]
+        );
+        $searchEmpIds = [];
+        foreach ($empMatches as $em) {
+            $searchEmpIds[] = (int)$em['id'];
+        }
+        if (!empty($searchEmpIds)) {
+            $orParts[] = 'employee_id IN (' . implode(',', $searchEmpIds) . ')';
+        }
+        $whereParts[] = '(' . implode(' OR ', $orParts) . ')';
+    }
+
+    $whereSql = !empty($whereParts) ? ('WHERE ' . implode(' AND ', $whereParts)) : '';
+
+    // Total rows for the current filter + search, then exactly one page of them
+    $totalRows  = (int)$db->fetchColumn("SELECT COUNT(*) FROM employee_change_requests {$whereSql}", $whereParams);
+    $totalPages = max(1, (int)ceil($totalRows / $perPage));
+    if ($pageNum > $totalPages) {
+        $pageNum = $totalPages;
+    }
+    $offset = ($pageNum - 1) * $perPage;
+
+    // Step 1: Fetch one page of change requests WITHOUT any JOINs
+    $rawRequests = $db->fetchAll(
+        "SELECT * FROM employee_change_requests {$whereSql} ORDER BY created_at DESC LIMIT {$perPage} OFFSET {$offset}",
+        $whereParams
+    );
+
+    $diagInfo .= 'Step1: fetched ' . count($rawRequests) . ' of ' . $totalRows . ' requests (page ' . $pageNum . '). ';
 
     // Step 2: Get unique employee IDs and batch-fetch
     $empIds = [];
@@ -427,33 +472,42 @@ try {
 
     $diagInfo .= 'Step2: found ' . count($empMap) . ' employees. ';
 
+    // Step 2b: batch-resolve reviewer names (reviewed_by holds a users id).
+    // One query for the whole page instead of one per row.
+    $revIds = [];
+    foreach ($rawRequests as $r) {
+        $rid = (int)($r['reviewed_by'] ?? 0);
+        if ($rid > 0 && !in_array($rid, $revIds, true)) {
+            $revIds[] = $rid;
+        }
+    }
+    $revMap = [];
+    if (!empty($revIds)) {
+        try {
+            $revRows = $db->fetchAll(
+                "SELECT id, first_name, last_name, username
+                 FROM users WHERE id IN (" . implode(',', array_map('intval', $revIds)) . ")"
+            );
+            foreach ($revRows as $u) {
+                $name = trim(($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? ''));
+                $revMap[(int)$u['id']] = $name !== '' ? $name : ($u['username'] ?? null);
+            }
+        } catch (Exception $e) {
+            $diagInfo .= 'Step2b ERROR: ' . $e->getMessage();
+        }
+    }
+
     // Step 3: Merge employee data into requests
     foreach ($rawRequests as $r) {
         $eid = (int)$r['employee_id'];
         $emp = $empMap[$eid] ?? [];
 
-        // Get reviewer name.
+        // Reviewer name — already batch-resolved in Step 2b.
         // reviewed_by stores a USERS id — $_SESSION['user_id'] is users.id (see
         // Auth::login()), not an employees id. Resolving it against `employees`
         // showed '—' or an unrelated employee's name whose id coincided.
-        $reviewerName = null;
         $revId = (int)($r['reviewed_by'] ?? 0);
-        if ($revId > 0) {
-            try {
-                $rev = $db->fetch(
-                    "SELECT first_name, last_name, username FROM users WHERE id = :rid LIMIT 1",
-                    ['rid' => $revId]
-                );
-                if ($rev) {
-                    $reviewerName = trim(($rev['first_name'] ?? '') . ' ' . ($rev['last_name'] ?? ''));
-                    if ($reviewerName === '') {
-                        $reviewerName = $rev['username'] ?? null;
-                    }
-                }
-            } catch (Exception $e) {
-                /* ignore */
-            }
-        }
+        $reviewerName = $revId > 0 ? ($revMap[$revId] ?? null) : null;
 
         $requests[] = array_merge($r, [
             'emp_name'          => $emp['full_name'] ?? ('Employee #' . $eid),
@@ -469,20 +523,6 @@ try {
     $dbError = $e->getMessage();
     error_log('[change-requests] Fetch failed: ' . $dbError);
     $diagInfo .= 'FATAL: ' . $dbError;
-}
-
-// ─── Apply search filter (post-fetch) ──
-if ($fSearch !== '' && !empty($requests)) {
-    $searchLower = strtolower($fSearch);
-    $filtered = [];
-    foreach ($requests as $r) {
-        if (strpos(strtolower($r['emp_name'] ?? ''), $searchLower) !== false
-            || strpos(strtolower($r['employee_code'] ?? ''), $searchLower) !== false
-            || strpos(strtolower($r['field_name'] ?? ''), $searchLower) !== false) {
-            $filtered[] = $r;
-        }
-    }
-    $requests = $filtered;
 }
 
 // ─── Field label map ────────────────────────────────────────────────────────
@@ -583,6 +623,8 @@ $csrfToken = generateCSRFToken();
                     <p class="text-muted mt-2">
                         <?php if (!empty($dbError)): ?>
                             No change requests could be loaded.
+                        <?php elseif ($fSearch !== ''): ?>
+                            No change requests match "<?= htmlspecialchars($fSearch) ?>"<?= $fStatus !== 'all' ? ' with status ' . htmlspecialchars($fStatus) : '' ?>.
                         <?php elseif ($fStatus !== 'all'): ?>
                             No <?= htmlspecialchars($fStatus) ?> change requests found.
                         <?php else: ?>
@@ -732,6 +774,51 @@ $csrfToken = generateCSRFToken();
                             <?php endforeach; ?>
                         </tbody>
                     </table>
+                </div>
+
+                <!-- Result summary + pagination -->
+                <?php
+                $showingFrom = $totalRows > 0 ? $offset + 1 : 0;
+                $showingTo   = min($offset + count($requests), $totalRows);
+                $pageQs      = http_build_query(array_filter([
+                    'status' => $fStatus !== 'all' ? $fStatus : null,
+                    'search' => $fSearch !== '' ? $fSearch : null,
+                ]));
+                $pageBase    = '?page=employee/change-requests' . ($pageQs !== '' ? '&' . $pageQs : '');
+                ?>
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2">
+                    <small class="text-muted">
+                        Showing <?= $showingFrom ?>–<?= $showingTo ?> of <?= $totalRows ?> request(s)
+                    </small>
+                    <?php if ($totalPages > 1): ?>
+                    <nav>
+                        <ul class="pagination pagination-sm mb-0">
+                            <?php
+                            $maxVisible = 5;
+                            $startPage  = max(1, $pageNum - (int)floor($maxVisible / 2));
+                            $endPage    = min($totalPages, $startPage + $maxVisible - 1);
+                            if ($endPage - $startPage < $maxVisible - 1) {
+                                $startPage = max(1, $endPage - $maxVisible + 1);
+                            }
+                            ?>
+                            <?php if ($pageNum > 1): ?>
+                            <li class="page-item">
+                                <a class="page-link" href="<?= htmlspecialchars($pageBase) ?>&page_num=<?= $pageNum - 1 ?>">&laquo;</a>
+                            </li>
+                            <?php endif; ?>
+                            <?php for ($i = $startPage; $i <= $endPage; $i++): ?>
+                            <li class="page-item <?= $i === $pageNum ? 'active' : '' ?>">
+                                <a class="page-link" href="<?= htmlspecialchars($pageBase) ?>&page_num=<?= $i ?>"><?= $i ?></a>
+                            </li>
+                            <?php endfor; ?>
+                            <?php if ($pageNum < $totalPages): ?>
+                            <li class="page-item">
+                                <a class="page-link" href="<?= htmlspecialchars($pageBase) ?>&page_num=<?= $pageNum + 1 ?>">&raquo;</a>
+                            </li>
+                            <?php endif; ?>
+                        </ul>
+                    </nav>
+                    <?php endif; ?>
                 </div>
 
                 <?php if ($fStatus === 'all' || $fStatus === 'pending'): ?>
