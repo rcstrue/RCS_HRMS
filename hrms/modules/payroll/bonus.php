@@ -214,27 +214,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $periodId = $period['id'];
         }
         
-        // Add bonus to payroll
+        // Add bonus to payroll.
+        // employee_bonus.employee_id = employees.id; payroll.employee_id = employee CODE
+        $bonusEmpCode = $db->fetchColumn(
+            "SELECT employee_code FROM employees WHERE id = ?",
+            [$bonus['employee_id']]
+        );
         $existingPayroll = $db->fetch(
             "SELECT * FROM payroll WHERE month = :month AND year = :year AND employee_id = :emp_id",
-            ['month' => $paymentMonth, 'year' => $paymentYear, 'emp_id' => $bonus['employee_id']]
+            ['month' => $paymentMonth, 'year' => $paymentYear, 'emp_id' => $bonusEmpCode]
         );
-        
+
         if ($existingPayroll) {
+            // Fold bonus into gross so net_pay reflects it; bonus_encashment is the display line item
+            $newGrossEarn = floatval($existingPayroll['gross_earnings'] ?? 0) + $bonus['bonus_amount'];
+            $newGrossSal  = floatval($existingPayroll['gross_salary'] ?? 0) + $bonus['bonus_amount'];
+            $newBonusEnc  = floatval($existingPayroll['bonus_encashment'] ?? 0) + $bonus['bonus_amount'];
+            $newDed       = floatval($existingPayroll['total_deductions'] ?? 0);
+            $newNet       = round($newGrossEarn - $newDed);
             $db->update('payroll', [
-                'bonus' => $existingPayroll['bonus'] + $bonus['bonus_amount'],
-                'net_salary' => $existingPayroll['net_salary'] + $bonus['bonus_amount'],
-                'updated_at' => date(DATETIME_FORMAT_DB)
+                'bonus_encashment' => $newBonusEnc,
+                'gross_earnings'   => $newGrossEarn,
+                'gross_salary'     => $newGrossSal,
+                'total_deductions' => $newDed,
+                'net_pay'          => $newNet,
+                'updated_at'       => date(DATETIME_FORMAT_DB)
             ], SQL_WHERE_ID, ['id' => $existingPayroll['id']]);
         } else {
+            // Create a minimal payroll row carrying the bonus (full engine rows are rebuilt on re-process)
+            $empInfo = $db->fetch(
+                "SELECT employee_code, unit_id FROM employees WHERE id = ?",
+                [$bonus['employee_id']]
+            );
+            $newNet = round($bonus['bonus_amount']);
             $db->insert('payroll', [
-                'employee_id' => $bonus['employee_id'],
-                'month' => $paymentMonth,
-                'year' => $paymentYear,
-                'bonus' => $bonus['bonus_amount'],
-                'net_salary' => $bonus['bonus_amount'],
-                'payment_status' => 'pending',
-                'created_at' => date(DATETIME_FORMAT_DB)
+                'employee_id'      => $empInfo['employee_code'],
+                'unit_id'          => $empInfo['unit_id'],
+                'month'            => $paymentMonth,
+                'year'             => $paymentYear,
+                'bonus_encashment' => $bonus['bonus_amount'],
+                'gross_earnings'   => $bonus['bonus_amount'],
+                'gross_salary'     => $bonus['bonus_amount'],
+                'total_deductions' => 0,
+                'net_pay'          => $newNet,
+                'payment_mode'     => 'Bank Transfer',
+                'payment_status'   => 'pending',
+                'status'           => 'Processed',
+                'created_at'       => date(DATETIME_FORMAT_DB)
             ]);
         }
         

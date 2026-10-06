@@ -190,14 +190,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         );
         
         if ($existingPayroll) {
-            // Update existing payroll (fold arrear into extra_days_amount)
+            // Update existing payroll — fold arrear into gross (so net_pay reflects it).
+            // extra_days_amount is a display line item (not in gross); gross_earnings is
+            // the authoritative gross, so net_pay is recomputed from the two totals.
+            $newGrossEarn = floatval($existingPayroll['gross_earnings'] ?? 0) + $arrear['gross_arrear'];
+            $newGrossSal  = floatval($existingPayroll['gross_salary'] ?? 0) + $arrear['gross_arrear'];
+            $newExtraDays = floatval($existingPayroll['extra_days_amount'] ?? 0) + $arrear['gross_arrear'];
+            $newPf        = floatval($existingPayroll['pf_employee'] ?? 0) + $arrear['pf_arrear'];
+            $newEsi       = floatval($existingPayroll['esi_employee'] ?? 0) + $arrear['esi_arrear'];
+            $newDed       = floatval($existingPayroll['total_deductions'] ?? 0) + $arrear['pf_arrear'] + $arrear['esi_arrear'];
+            $newNet       = round($newGrossEarn - $newDed);
             $db->update('payroll', [
-                'extra_days_amount' => ($existingPayroll['extra_days_amount'] ?? 0) + $arrear['gross_arrear'],
-                'pf_employee' => ($existingPayroll['pf_employee'] ?? 0) + $arrear['pf_arrear'],
-                'esi_employee' => ($existingPayroll['esi_employee'] ?? 0) + $arrear['esi_arrear'],
-                'total_deductions' => ($existingPayroll['total_deductions'] ?? 0) + $arrear['pf_arrear'] + $arrear['esi_arrear'],
-                'net_pay' => ($existingPayroll['net_pay'] ?? 0) + $arrear['net_arrear'],
-                'updated_at' => date(DATETIME_FORMAT_DB)
+                'extra_days_amount' => $newExtraDays,
+                'gross_earnings'    => $newGrossEarn,
+                'gross_salary'      => $newGrossSal,
+                'pf_employee'       => $newPf,
+                'esi_employee'      => $newEsi,
+                'total_deductions'  => $newDed,
+                'net_pay'           => $newNet,
+                'updated_at'        => date(DATETIME_FORMAT_DB)
             ], 'id = :id', ['id' => $existingPayroll['id']]);
         } else {
             // Create new payroll record with arrear (resolve employee/unit info)
@@ -206,17 +217,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 [$arrear['employee_id']]
             );
             $db->insert('payroll', [
-                'employee_id' => $empInfo['employee_code'],
-                'unit_id' => $empInfo['unit_id'],
-                'month' => $paymentMonth,
-                'year' => $paymentYear,
+                'employee_id'       => $empInfo['employee_code'],
+                'unit_id'           => $empInfo['unit_id'],
+                'month'             => $paymentMonth,
+                'year'              => $paymentYear,
                 'extra_days_amount' => $arrear['gross_arrear'],
-                'pf_employee' => $arrear['pf_arrear'],
-                'esi_employee' => $arrear['esi_arrear'],
-                'total_deductions' => $arrear['pf_arrear'] + $arrear['esi_arrear'],
-                'net_pay' => $arrear['net_arrear'],
-                'payment_mode' => 'Bank Transfer',
-                'payment_status' => 'pending',
+                'gross_earnings'    => $arrear['gross_arrear'],
+                'gross_salary'      => $arrear['gross_arrear'],
+                'pf_employee'       => $arrear['pf_arrear'],
+                'esi_employee'      => $arrear['esi_arrear'],
+                'total_deductions'  => $arrear['pf_arrear'] + $arrear['esi_arrear'],
+                'net_pay'           => $arrear['net_arrear'],
+                'payment_mode'      => 'Bank Transfer',
+                'payment_status'    => 'pending',
                 'status' => 'Processed',
                 'created_at' => date(DATETIME_FORMAT_DB)
             ]);
