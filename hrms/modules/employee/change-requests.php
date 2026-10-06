@@ -39,16 +39,21 @@ function sendInAppNotification(int $employeeId, string $title, string $message, 
 }
 
 // ─── Upload URL Helper ──────────────────────────────────────────────────────
-// Mirrors viewUploadUrl() in modules/employee/view.php. Stored values are
-// inconsistent: the ESS upload endpoints (api/ess/upload-base64.php) and the
-// fix-upload-paths.php migration may already include the "/uploads/" prefix,
-// while older rows store a bare "profile/xxx.jpg". Naively prefixing "/uploads/"
-// produced "/uploads//uploads/..." and a broken thumbnail.
-function crUploadUrl($path) {
-    if (empty($path)) return '';
-    if (preg_match('#^https?://#i', $path)) return $path;
-    if (strpos($path, '/uploads/') === 0) return $path;
-    return '/uploads/' . ltrim($path, '/');
+// Reuses the project's existing viewUploadUrl() normalizer (byte-identical to the
+// definition in modules/employee/view.php:10-15). That file is a page controller,
+// so it cannot be required from here without executing the whole employee-view
+// page — the function is therefore declared only if it is not already loaded.
+// Needed because stored values are inconsistent: the ESS upload endpoints
+// (api/ess/upload-base64.php) and the fix-upload-paths.php migration may already
+// include the "/uploads/" prefix, while older rows store a bare "profile/xxx.jpg".
+// Naively prefixing produced "/uploads//uploads/..." and a broken thumbnail.
+if (!function_exists('viewUploadUrl')) {
+    function viewUploadUrl($path) {
+        if (empty($path)) return '';
+        if (preg_match('#^https?://#i', $path)) return $path;
+        if (strpos($path, '/uploads/') === 0) return $path;
+        return '/uploads/' . ltrim($path, '/');
+    }
 }
 
 // ─── POST Actions ────────────────────────────────────────────────────────────
@@ -586,14 +591,14 @@ $csrfToken = generateCSRFToken();
                                 </td>
                                 <td>
                                     <?php if ($r['field_name'] === 'profile_pic_url' && $r['old_value']): ?>
-                                        <img src="<?= htmlspecialchars(crUploadUrl($r['old_value'])) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="Old">
+                                        <img src="<?= htmlspecialchars(viewUploadUrl($r['old_value'])) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="Old">
                                     <?php else: ?>
                                         <code><?= htmlspecialchars($r['old_value'] ?: '—') ?></code>
                                     <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if ($r['field_name'] === 'profile_pic_url' && $r['new_value']): ?>
-                                        <img src="<?= htmlspecialchars(crUploadUrl($r['new_value'])) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="New">
+                                        <img src="<?= htmlspecialchars(viewUploadUrl($r['new_value'])) ?>" style="max-height:40px;border-radius:6px;border:1px solid #e5e7eb;" alt="New">
                                     <?php else: ?>
                                         <code class="text-primary"><?= htmlspecialchars($r['new_value']) ?></code>
                                     <?php endif; ?>
