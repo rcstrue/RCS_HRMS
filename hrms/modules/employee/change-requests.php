@@ -56,6 +56,26 @@ if (!function_exists('viewUploadUrl')) {
     }
 }
 
+// ─── Sensitive-approval policy ──────────────────────────────────────────────
+// Bank, statutory and KYC-document changes can divert salary payments or swap
+// identity documents, so only Admin/HR may APPROVE them. Managers and
+// supervisors can still see such a request and REJECT it — rejection changes no
+// employee data. Declared outside the POST block because the table below uses it
+// to hide the approve control and the bulk checkbox too.
+$SENSITIVE_APPROVAL_FIELDS = [
+    'aadhaar_number', 'uan_number', 'esic_number',
+    'bank_name', 'account_holder_name', 'account_number', 'ifsc_code',
+    'aadhaar_front_url', 'aadhaar_back_url', 'bank_document_url',
+];
+$SENSITIVE_APPROVER_ROLES = ['admin', 'hr_executive', 'hr'];
+$canApproveSensitive      = in_array($_SESSION['role_code'] ?? '', $SENSITIVE_APPROVER_ROLES, true);
+
+// True when the current user may not approve this particular request.
+function isSensitiveApprovalBlocked($request, array $sensitiveFields, $canApproveSensitive) {
+    return !$canApproveSensitive
+        && in_array($request['field_name'] ?? '', $sensitiveFields, true);
+}
+
 // ─── POST Actions ────────────────────────────────────────────────────────────
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -110,6 +130,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 $field = $request['field_name'];
                 $newValue = $request['new_value'];
+
+                // Bank / statutory / KYC requests can only be approved by Admin or HR
+                if (isSensitiveApprovalBlocked($request, $SENSITIVE_APPROVAL_FIELDS, $canApproveSensitive)) {
+                    setFlash('error', 'Only Admin or HR can approve bank, statutory or KYC document changes.');
+                    redirect('index.php?page=employee/change-requests');
+                }
 
                 // Apply the change to employee record if it's a whitelisted field
                 if (in_array($field, $APPROVAL_FIELDS, true)) {
@@ -237,6 +263,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if (!empty($ids) && is_array($ids)) {
             $count = 0;
             $errors = 0;
+            $skipped = 0;
 
             // The whole batch runs in one transaction: if anything unexpected
             // fails part-way through, nothing is left half-applied — each
@@ -259,6 +286,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
                     $field = $request['field_name'];
                     $newValue = $request['new_value'];
+
+                    // Bank / statutory / KYC requests can only be approved by Admin or HR:
+                    // leave them pending rather than failing the whole batch.
+                    if (isSensitiveApprovalBlocked($request, $SENSITIVE_APPROVAL_FIELDS, $canApproveSensitive)) {
+                        $skipped++;
+                        continue;
+                    }
 
                     if (in_array($field, $APPROVAL_FIELDS, true)) {
                         try {
@@ -312,7 +346,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             $msg = "{$count} change request(s) approved.";
             if ($errors > 0) $msg .= " ({$errors} error(s))";
-            setFlash('success', $msg);
+            if ($skipped > 0) $msg .= " ({$skipped} skipped — Admin/HR approval required)";
+            // Only blocked-and-nothing-approved is a warning, not a success
+            setFlash(($count === 0 && $skipped > 0) ? 'warning' : 'success', $msg);
         } else {
             setFlash('warning', 'No requests selected.');
         }
@@ -602,7 +638,7 @@ $csrfToken = generateCSRFToken();
                             <tr id="row-<?= $r['id'] ?>">
                                 <?php if ($fStatus === 'all' || $fStatus === 'pending'): ?>
                                 <td>
-                                    <?php if ($r['status'] === 'pending'): ?>
+                                    <?php if ($r['status'] === 'pending' && !isSensitiveApprovalBlocked($r, $SENSITIVE_APPROVAL_FIELDS, $canApproveSensitive)): ?>
                                     <input type="checkbox" name="selected_ids[]" value="<?= $r['id'] ?>" class="row-checkbox">
                                     <?php endif; ?>
                                 </td>
@@ -662,18 +698,32 @@ $csrfToken = generateCSRFToken();
                                 <?php endif; ?>
                                 <td>
                                     <?php if ($r['status'] === 'pending'): ?>
-                                    <div class="btn-group btn-group-sm">
-                                        <button type="button" class="btn btn-success"
-                                                onclick="approveRequest(<?= $r['id'] ?>)"
-                                                title="Approve">
-                                            <i class="bi bi-check-lg"></i>
-                                        </button>
-                                        <button type="button" class="btn btn-danger"
-                                                onclick="showRejectModal(<?= $r['id'] ?>)"
-                                                title="Reject">
-                                            <i class="bi bi-x-lg"></i>
-                                        </button>
-                                    </div>
+                                        <?php if (isSensitiveApprovalBlocked($r, $SENSITIVE_APPROVAL_FIELDS, $canApproveSensitive)): ?>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-danger"
+                                                    onclick="showRejectModal(<?= $r['id'] ?>)"
+                                                    title="Reject">
+                                                <i class="bi bi-x-lg"></i>
+                                            </button>
+                                        </div>
+                                        <span class="badge bg-secondary-subtle text-secondary ms-1"
+                                              title="Bank, statutory and KYC document changes can only be approved by Admin or HR">
+                                            <i class="bi bi-lock me-1"></i>Admin/HR only
+                                        </span>
+                                        <?php else: ?>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-success"
+                                                    onclick="approveRequest(<?= $r['id'] ?>)"
+                                                    title="Approve">
+                                                <i class="bi bi-check-lg"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-danger"
+                                                    onclick="showRejectModal(<?= $r['id'] ?>)"
+                                                    title="Reject">
+                                                <i class="bi bi-x-lg"></i>
+                                            </button>
+                                        </div>
+                                        <?php endif; ?>
                                     <?php else: ?>
                                     <span class="text-muted small">—</span>
                                     <?php endif; ?>
