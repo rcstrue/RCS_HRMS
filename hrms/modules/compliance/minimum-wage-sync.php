@@ -256,6 +256,7 @@ try {
                         <th>State</th>
                         <th class="text-center">Status</th>
                         <th class="text-center">Added</th>
+                        <th class="text-center">Updated</th>
                         <th class="text-center">Skipped</th>
                         <th>Error</th>
                     </tr>
@@ -263,7 +264,7 @@ try {
                 <tbody>
                     <?php if (empty($logs)): ?>
                     <tr>
-                        <td colspan="6" class="text-center py-4 text-muted">No sync history yet. Click "Run Sync" above.</td>
+                        <td colspan="7" class="text-center py-4 text-muted">No sync history yet. Click "Run Sync" above.</td>
                     </tr>
                     <?php else: ?>
                     <?php foreach ($logs as $l): ?>
@@ -279,8 +280,9 @@ try {
                             <span class="badge bg-danger">Error</span>
                             <?php endif; ?>
                         </td>
-                        <td class="text-center"><strong><?php echo $l['records_added']; ?></strong></td>
-                        <td class="text-center text-muted"><?php echo $l['records_skipped']; ?></td>
+                        <td class="text-center"><strong><?php echo (int)$l['records_added']; ?></strong></td>
+                        <td class="text-center text-info"><strong><?php echo (int)($l['records_updated'] ?? 0); ?></strong></td>
+                        <td class="text-center text-muted"><?php echo (int)$l['records_skipped']; ?></td>
                         <td>
                             <?php if ($l['error_message']): ?>
                             <small class="text-danger" title="<?php echo htmlspecialchars($l['error_message']); ?>">
@@ -303,131 +305,322 @@ try {
 $syncNonce = hash('sha256', session_id() . '|' . floor(time() / 300));
 $extraJS = <<<JS
 <script>
-const SYNC_NONCE = '{$syncNonce}';
-const SYNC_API = 'index.php?page=api/minimum-wage-sync';
+/*
+ * Minimum Wage Sync UI
+ * --------------------
+ * "Run Sync (All States)" used to fire ONE request that walked every state on
+ * the server. With ~36 states that request ran for minutes and was killed by
+ * the web-server / proxy timeout, so the browser received an HTML error page
+ * and .json() threw "Unexpected token '<'" — after some states had already been
+ * written. The run is now driven from here: one state per request, progress and
+ * results rendered as they arrive, and a Stop button. Each request stays well
+ * inside any gateway timeout.
+ */
+var SYNC_NONCE = '{$syncNonce}';
+var SYNC_API = 'index.php?page=api/minimum-wage-sync';
 
-function runSync(state, dryRun) {
-    var resultsDiv = document.getElementById('syncResults');
-    var progressDiv = document.getElementById('syncProgress');
-    var progressText = document.getElementById('syncProgressText');
-    var btnAll = document.getElementById('btnSyncAll');
-    var btnDry = document.getElementById('btnSyncDryRun');
+var syncRunning = false;
+var syncStop = false;
+var syncTotals = { added: 0, updated: 0, skipped: 0, processed: 0, failed: 0 };
 
-    resultsDiv.classList.remove('d-none');
-    resultsDiv.innerHTML = '<div class="alert alert-info mb-0"><div class="spinner-border spinner-border-sm me-2"></div>Fetching from Simpliance.in — this may take a minute per state...</div>';
-    progressDiv.classList.remove('d-none');
-    progressText.textContent = state === 'all' ? 'Syncing all states...' : 'Syncing ' + state + '...';
+/* POST helper: rolls the nonce forward and never lets a non-JSON body surface
+   as "Unexpected token '<'". */
+function mwPost(payload) {
+    var params = new URLSearchParams(payload);
+    params.set('sync_nonce', SYNC_NONCE);
 
-    if (btnAll) btnAll.disabled = true;
-    if (btnDry) btnDry.disabled = true;
-
-    var params = new URLSearchParams({
-        ajax_action: 'run-sync',
-        sync_nonce: SYNC_NONCE
-    });
-    if (state !== 'all') params.set('state', state);
-    if (dryRun) params.set('dry_run', '1');
-
-    fetch(SYNC_API, {
+    return fetch(SYNC_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        credentials: 'same-origin',
         body: params.toString()
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (btnAll) btnAll.disabled = false;
-        if (btnDry) btnDry.disabled = false;
-        progressDiv.classList.add('d-none');
+    }).then(function (r) {
+        return r.text().then(function (text) {
+            var data = null;
+            try { data = JSON.parse(text); } catch (e) { data = null; }
 
-        if (data.success && data.results) {
-            var hasChanges = (data.total_added > 0 || data.total_updated > 0);
-            var alertClass = hasChanges ? 'alert-success' : 'alert-warning';
-            var title = dryRun ? 'Dry Run Complete' : 'Minimum Wage Sync Completed';
-
-            var html = '<div class="alert ' + alertClass + ' mb-0">';
-            html += '<h6 class="alert-heading">' + title + '</h6>';
-            html += '<div class="row mb-2">';
-            html += '<div class="col-auto"><strong>States Processed:</strong> ' + data.results.length + '</div>';
-            html += '<div class="col-auto"><strong>Added:</strong> ' + data.total_added + '</div>';
-            html += '<div class="col-auto"><strong>Updated:</strong> ' + data.total_updated + '</div>';
-            html += '<div class="col-auto"><strong>Skipped:</strong> ' + data.total_skipped + '</div>';
-            html += '</div>';
-
-            html += '<table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr>';
-            html += '<th>State</th><th class="text-center">Status</th><th class="text-center">Added</th><th class="text-center">Updated</th><th class="text-center">Skipped</th><th>Error</th>';
-            html += '</tr></thead><tbody>';
-
-            data.results.forEach(function(r) {
-                var icon, badge;
-                if (r.status === 'success') {
-                    icon = '<i class="bi bi-check-circle-fill text-success me-1"></i>';
-                } else {
-                    icon = '<i class="bi bi-x-circle-fill text-danger me-1"></i>';
+            if (!data) {
+                var note = '';
+                if (r.status === 502 || r.status === 503 || r.status === 504) {
+                    note = ' The server timed out on this request.';
+                } else if (r.status === 403) {
+                    note = ' Access was refused.';
                 }
-                html += '<tr>';
-                html += '<td>' + icon + r.state + '</td>';
-                html += '<td class="text-center">' + (r.status === 'success' ? '<span class="badge bg-success">OK</span>' : '<span class="badge bg-danger">Error</span>') + '</td>';
-                html += '<td class="text-center"><strong>' + (r.records_added||0) + '</strong></td>';
-                html += '<td class="text-center text-info">' + (r.records_updated||0) + '</td>';
-                html += '<td class="text-center text-muted">' + (r.records_skipped||0) + '</td>';
-                html += '<td class="text-danger small">' + (r.error_message || '-') + '</td>';
-                html += '</tr>';
-            });
-
-            html += '</tbody></table>';
-            html += '<div class="mt-2 text-muted small">Last Sync: ' + (data.timestamp || '-') + '</div>';
-            html += '</div>';
-            resultsDiv.innerHTML = html;
-
-            if (!dryRun && hasChanges) {
-                setTimeout(function() { location.reload(); }, 4000);
+                throw new Error('Server returned HTTP ' + r.status
+                    + ' with a non-JSON response.' + note
+                    + ' First bytes: ' + text.slice(0, 140).replace(/\\s+/g, ' '));
             }
-        } else {
-            resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Failed:</strong> ' + (data.message || 'Unknown error') + '</div>';
+            if (data.nonce) { SYNC_NONCE = data.nonce; }
+            return data;
+        });
+    });
+}
+
+function mwEl(id) { return document.getElementById(id); }
+
+function mwSetProgress(text) {
+    var box = mwEl('syncProgress');
+    var label = mwEl('syncProgressText');
+    if (box) box.classList.remove('d-none');
+    if (label) label.textContent = text;
+}
+
+function mwHideProgress() {
+    var box = mwEl('syncProgress');
+    if (box) box.classList.add('d-none');
+}
+
+function mwResultsPanel(title, cls) {
+    var box = mwEl('syncResults');
+    box.classList.remove('d-none');
+    box.innerHTML =
+        '<div class="alert ' + (cls || 'alert-info') + ' mb-0" id="syncAlertBox">' +
+          '<div class="d-flex align-items-center justify-content-between mb-2">' +
+            '<h6 class="alert-heading mb-0" id="syncAlertTitle">' + title + '</h6>' +
+            '<button type="button" class="btn btn-sm btn-outline-danger d-none" id="btnSyncStop">' +
+              '<i class="bi bi-stop-circle me-1"></i>Stop' +
+            '</button>' +
+          '</div>' +
+          '<div class="small mb-2" id="syncSummary"></div>' +
+          '<div class="table-responsive">' +
+            '<table class="table table-sm table-bordered mb-0">' +
+              '<thead class="table-light"><tr>' +
+                '<th>State</th><th class="text-center">Status</th>' +
+                '<th class="text-center">Added</th><th class="text-center">Updated</th>' +
+                '<th class="text-center">Skipped</th><th>Notes</th>' +
+              '</tr></thead>' +
+              '<tbody id="syncRows"></tbody>' +
+            '</table>' +
+          '</div>' +
+          '<div class="mt-2 text-muted small" id="syncFooter"></div>' +
+        '</div>';
+
+    var stop = mwEl('btnSyncStop');
+    if (stop) {
+        stop.addEventListener('click', function () {
+            syncStop = true;
+            stop.disabled = true;
+            stop.innerHTML = 'Stopping…';
+        });
+    }
+}
+
+function mwRenderSummary() {
+    var s = mwEl('syncSummary');
+    if (!s) return;
+    s.innerHTML = '<strong>States processed:</strong> ' + syncTotals.processed +
+        ' &nbsp; <strong>Added:</strong> ' + syncTotals.added +
+        ' &nbsp; <strong>Updated:</strong> ' + syncTotals.updated +
+        ' &nbsp; <strong>Skipped:</strong> ' + syncTotals.skipped +
+        (syncTotals.failed ? ' &nbsp; <strong class="text-danger">Errors:</strong> ' + syncTotals.failed : '');
+}
+
+function mwAppendRow(r, dryRun) {
+    var tbody = mwEl('syncRows');
+    if (!tbody) return;
+
+    var status = r.status || 'error';
+    var badge = status === 'success'
+        ? '<span class="badge bg-success">OK</span>'
+        : (status === 'partial'
+            ? '<span class="badge bg-warning text-dark">Partial</span>'
+            : '<span class="badge bg-danger">Error</span>');
+
+    // error_message already carries the "No HRMS category for: …" hint built
+    // server-side (so it also reaches the sync log); no need to repeat it here.
+    var notes = (r.error_message || '');
+    if (dryRun) { notes += (notes ? ' ' : '') + '[dry run — nothing written]'; }
+    if (r.fallback_mapped) {
+        notes += (notes ? ' — ' : '') + r.fallback_mapped +
+            ' row(s) matched a secondary field (source gave no skill level)';
+    }
+
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+        '<td>' + (status === 'success'
+            ? '<i class="bi bi-check-circle-fill text-success me-1"></i>'
+            : '<i class="bi bi-exclamation-triangle-fill text-warning me-1"></i>') +
+        mwEscape(r.state || '') + '</td>' +
+        '<td class="text-center">' + badge + '</td>' +
+        '<td class="text-center"><strong>' + (r.records_added || 0) + '</strong></td>' +
+        '<td class="text-center text-info">' + (r.records_updated || 0) + '</td>' +
+        '<td class="text-center text-muted">' + (r.records_skipped || 0) + '</td>' +
+        '<td class="text-danger small">' + mwEscape(notes || '-') + '</td>';
+    tbody.appendChild(tr);
+}
+
+function mwEscape(s) {
+    return String(s === null || s === undefined ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function mwAccumulate(data) {
+    if (!data || !data.results) return;
+    data.results.forEach(function (r) {
+        syncTotals.processed++;
+        syncTotals.added += (r.records_added || 0);
+        syncTotals.updated += (r.records_updated || 0);
+        syncTotals.skipped += (r.records_skipped || 0);
+        if (r.status === 'error') syncTotals.failed++;
+    });
+}
+
+function mwSetBusy(busy) {
+    syncRunning = busy;
+    ['btnSyncAll', 'btnSyncDryRun'].forEach(function (id) {
+        var b = mwEl(id);
+        if (b) b.disabled = busy;
+    });
+    var stop = mwEl('btnSyncStop');
+    if (stop) stop.classList.toggle('d-none', !busy);
+}
+
+/* Sync one state — one HTTP request. */
+function mwSyncOne(slug, dryRun) {
+    var payload = { ajax_action: 'run-sync' };
+    if (slug) payload.state = slug;
+    if (dryRun) payload.dry_run = '1';
+
+    return mwPost(payload).then(function (data) {
+        if (!data.success || !data.results) {
+            throw new Error(data.message || 'Sync failed.');
         }
-    })
-    .catch(function(err) {
-        if (btnAll) btnAll.disabled = false;
-        if (btnDry) btnDry.disabled = false;
-        progressDiv.classList.add('d-none');
-        resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Request Failed:</strong> ' + err.message + '</div>';
+        mwAccumulate(data);
+        data.results.forEach(function (r) { mwAppendRow(r, dryRun); });
+        mwRenderSummary();
+        return data;
+    });
+}
+
+/* Walk the queue one state at a time, sequentially. */
+function mwWalk(queue, dryRun, total) {
+    if (syncStop || queue.length === 0) {
+        return Promise.resolve({ stopped: syncStop });
+    }
+    var slug = queue.shift();
+    var done = total - queue.length;
+
+    mwSetProgress('Syncing ' + done + ' / ' + total + ' — ' + slug + '…');
+
+    return mwSyncOne(slug, dryRun).then(function () {
+        // Let the browser paint the new row before the next request.
+        return new Promise(function (resolve) { setTimeout(resolve, 600); });
+    }).catch(function (err) {
+        mwAppendRow({ state: slug, status: 'error', error_message: err.message }, dryRun);
+        syncTotals.processed++;
+        syncTotals.failed++;
+        mwRenderSummary();
+    }).then(function () {
+        return mwWalk(queue, dryRun, total);
+    });
+}
+
+/* Finish the run: restore buttons, colour the panel, optionally reload. */
+function mwFinish(dryRun, footer, hardFail) {
+    mwHideProgress();
+    mwSetBusy(false);
+
+    var box = mwEl('syncAlertBox');
+    var stop = mwEl('btnSyncStop');
+    if (stop) stop.classList.add('d-none');
+    if (box) {
+        box.className = 'alert mb-0 ' + (hardFail
+            ? 'alert-danger'
+            : (syncTotals.failed ? 'alert-warning' : 'alert-success'));
+    }
+
+    var title = mwEl('syncAlertTitle');
+    if (title) {
+        title.textContent = hardFail
+            ? 'Sync could not run'
+            : (dryRun
+                ? 'Dry Run Complete (nothing was written)'
+                : (syncTotals.failed ? 'Minimum Wage Sync Finished With Errors' : 'Minimum Wage Sync Completed'));
+    }
+
+    mwRenderSummary();
+    var f = mwEl('syncFooter');
+    if (f) f.textContent = footer || ('Finished: ' + new Date().toLocaleString());
+
+    if (!dryRun && !hardFail && !syncTotals.failed && (syncTotals.added + syncTotals.updated) > 0) {
+        setTimeout(function () { location.reload(); }, 6000);
+    }
+}
+
+function runSync(state, dryRun) {
+    if (syncRunning) return;
+    if (!state) state = 'all';
+
+    syncStop = false;
+    syncTotals = { added: 0, updated: 0, skipped: 0, processed: 0, failed: 0 };
+
+    mwResultsPanel(dryRun ? 'Dry Run (preview only)' : 'Minimum Wage Sync');
+    mwSetBusy(true);
+    mwSetProgress(state === 'all' ? 'Preparing…' : 'Syncing ' + state + '…');
+
+    if (state !== 'all') {
+        mwWalk([state], dryRun, 1).then(function () {
+            mwFinish(dryRun, 'Single-state sync finished.');
+        }).catch(function (err) {
+            mwAppendRow({ state: state, status: 'error', error_message: err.message }, dryRun);
+            mwFinish(dryRun, 'Error: ' + err.message, true);
+        });
+        return;
+    }
+
+    // All states: ask the server which slugs to walk, then go one by one.
+    mwPost({ ajax_action: 'list-states' }).then(function (data) {
+        if (!data.success || !data.states || !data.states.length) {
+            throw new Error(data.message || 'No states with a Simpliance slug are configured.');
+        }
+        var queue = data.states.map(function (s) { return s.slug; });
+        return mwWalk(queue, dryRun, queue.length).then(function (res) {
+            mwFinish(dryRun, res && res.stopped
+                ? 'Stopped early — the states already listed were synced; run again to continue.'
+                : 'All ' + syncTotals.processed + ' state(s) processed.');
+        });
+    }).catch(function (err) {
+        mwAppendRow({ state: 'All states', status: 'error', error_message: err.message }, dryRun);
+        mwFinish(dryRun, 'Error: ' + err.message, true);
     });
 }
 
 function setupSlugs() {
-    var resultsDiv = document.getElementById('syncResults');
+    var resultsDiv = mwEl('syncResults');
     resultsDiv.classList.remove('d-none');
     resultsDiv.innerHTML = '<div class="alert alert-info mb-0"><div class="spinner-border spinner-border-sm me-2"></div>Setting up slugs...</div>';
 
-    var params = new URLSearchParams({
-        ajax_action: 'run-slug-setup',
-        sync_nonce: SYNC_NONCE
-    });
-
-    fetch(SYNC_API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString()
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    mwPost({ ajax_action: 'run-slug-setup' })
+    .then(function (data) {
         if (data.success) {
-            resultsDiv.innerHTML = '<div class="alert alert-success mb-0"><strong>Slug setup complete!</strong><pre class="mb-0 mt-2 small">' + (data.output || '') + '</pre>Refreshing...</div>';
-            setTimeout(function() { location.reload(); }, 2000);
+            resultsDiv.innerHTML = '<div class="alert alert-success mb-0"><strong>Slug setup complete!</strong><pre class="mb-0 mt-2 small">' + mwEscape(data.output || '') + '</pre>Refreshing...</div>';
+            setTimeout(function () { location.reload(); }, 2000);
         } else {
-            resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Slug setup failed:</strong> ' + (data.message || data.error || 'Unknown error') + '</div>';
+            resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Slug setup failed:</strong> ' + mwEscape(data.message || data.error || 'Unknown error') + '</div>';
         }
     })
-    .catch(function(err) {
-        resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Request Failed:</strong> ' + err.message + '</div>';
+    .catch(function (err) {
+        resultsDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong>Request Failed:</strong> ' + mwEscape(err.message) + '</div>';
     });
 }
 
+/* Warn before navigating away mid-run — the run is resumable but not automatic. */
+window.addEventListener('beforeunload', function (e) {
+    if (syncRunning) {
+        e.preventDefault();
+        e.returnValue = 'A minimum-wage sync is still running.';
+        return e.returnValue;
+    }
+});
+
 $(document).ready(function() {
-    $('#syncLogTable').DataTable({
-        order: [[0, 'desc']],
-        pageLength: 25
-    });
+    if ($.fn.DataTable) {
+        $('#syncLogTable').DataTable({
+            order: [[0, 'desc']],
+            pageLength: 25
+        });
+    }
 });
 </script>
 JS;

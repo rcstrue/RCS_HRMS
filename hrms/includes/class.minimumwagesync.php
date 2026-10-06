@@ -18,8 +18,18 @@ class MinimumWageSync {
 
     const BASE_URL   = 'https://www.simpliance.in/minimum-wages';
     const AJAX_URL   = 'https://www.simpliance.in/minimum-wages/ajax';
-    const MAX_RETRIES = 3;  // retries on 403/5xx
-    const RETRY_DELAY = 5;  // seconds (doubles each retry)
+    // Retries on 403/5xx. Kept deliberately low: an unknown stateId/version pair
+    // answers 403 immediately, and the old 3 retries @ 5/10/20s burned 35s per
+    // state — long enough to blow the web-server timeout on a 36-state run.
+    const MAX_RETRIES = 2;
+    const RETRY_DELAY = 3;  // seconds (doubles each retry → 3s, 6s)
+
+    // Safety valve for a single HTTP request. "Run Sync (All States)" walks the
+    // state list until this many seconds have elapsed and then returns the
+    // remaining states so the browser can continue in a fresh request. Without
+    // it the whole run lived in one request and was killed by the gateway
+    // (504 / HTML error page) before it could ever emit JSON.
+    const REQUEST_TIME_BUDGET = 20;
 
     // Simpliance state name → URL slug
     const STATE_SLUG_MAP = [
@@ -66,6 +76,9 @@ class MinimumWageSync {
 
     // Simpliance class_of_employment → HRMS worker_category ENUM
     // Must match ENUM('Unskilled','Semi-Skilled','Skilled','Highly Skilled','Supervisor','Clerical')
+    // NOTE: kept for backward compatibility only — Simpliance actually sends
+    // strings like "Unskilled (peon etc)" / "Semi-skilled (Assistant etc)", which
+    // an exact-match table can never hit. See CATEGORY_ALIASES + mapCategory().
     const CATEGORY_MAP = [
         'unskilled'      => 'Unskilled',
         'semi-skilled'   => 'Semi-Skilled',
@@ -79,8 +92,45 @@ class MinimumWageSync {
         'sweeper'        => 'Unskilled',
     ];
 
+    /**
+     * Normalised keyword → HRMS worker_category.
+     *
+     * Keys are lowercase with every non-alphanumeric character removed, so
+     * "Semi-skilled (Assistant etc)" → "semiskilled". Matching runs in three
+     * passes: exact, then prefix, then substring — always longest key first so
+     * "unskilled"/"semiskilled"/"highlyskilled" win over the bare "skilled"
+     * they contain.
+     */
+    const CATEGORY_ALIASES = [
+        'highlyskilled' => 'Highly Skilled',
+        'semiskilled'   => 'Semi-Skilled',
+        'supervisory'   => 'Supervisor',
+        'supervisor'    => 'Supervisor',
+        'unskilled'     => 'Unskilled',
+        'clerical'      => 'Clerical',
+        'skilled'       => 'Skilled',
+        'clerk'         => 'Clerical',
+        'watchman'      => 'Unskilled',
+        'watchmen'      => 'Unskilled',
+        'chowkidar'     => 'Unskilled',
+        'sweeper'       => 'Unskilled',
+        'safai'         => 'Unskilled',
+        'scavenger'     => 'Unskilled',
+        'peon'          => 'Unskilled',
+        'mazdoor'       => 'Unskilled',
+        'helper'        => 'Unskilled',
+        'khalasi'       => 'Unskilled',
+        'attender'      => 'Unskilled',
+        'attendant'     => 'Unskilled',
+        'waterboy'      => 'Unskilled',
+        'messenger'     => 'Unskilled',
+        'officeboy'     => 'Unskilled',
+        'cleaner'       => 'Unskilled',
+    ];
+
     private $db;
-    private $mwColumns = null; // cached column list for minimum_wages table
+    private $mwColumns = null;      // cached column list for minimum_wages table
+    private $logHasUpdated = null;  // cached: does minimum_wage_sync_log have records_updated?
 
     // Column mapping: Simpliance JSON key → possible DB column names (checked in order)
     const COLUMN_MAP = [
@@ -172,9 +222,163 @@ class MinimumWageSync {
         return round(floatval($val), 2);
     }
 
+    /**
+     * Flatten either generation of the Simpliance payload into wage rows.
+     *
+     * BOTH shapes are still served in production:
+     *   older (up to ~version 20): {"data":{"<industryId>":[ {row}, ... ]}}
+     *   newer (version 21+):       {"data":[ {row}, {row}, ... ]}
+     *
+     * The previous code only understood the first, so the newest (i.e. current)
+     * notifications parsed to zero rows and the state imported nothing.
+     */
+    private function collectRows(array $data) {
+        $allRows = [];
+        $first   = reset($data);
+        $isFlat  = is_array($first)
+            && (isset($first['class_of_employment']) || isset($first['effective_date']) || isset($first['total_per_day']));
+
+        if ($isFlat) {
+            foreach ($data as $row) {
+                if (is_array($row)) $allRows[] = $row;
+            }
+        } else {
+            foreach ($data as $rows) {
+                if (is_array($rows)) {
+                    foreach ($rows as $row) {
+                        if (is_array($row)) $allRows[] = $row;
+                    }
+                }
+            }
+        }
+
+        return $allRows;
+    }
+
+    /**
+     * Pull the Simpliance stateId and notification version out of a state page.
+     *
+     * The page used to expose `let stateId = 19; let version = 23;`. The patterns
+     * here tolerate quotes, colons and case drift, and fall back to the version
+     * <select> if the inline assignment is gone. `version` stays case-sensitive
+     * on purpose: a case-insensitive match would happily latch onto unrelated
+     * identifiers such as `bootstrapVersion` and silently import ancient wages.
+     *
+     * @return array{0:int|null,1:int|null} [stateId, version]
+     */
+    private function extractStateIdVersion($html) {
+        $stateId = null;
+        $version = null;
+
+        if (preg_match('/stateId\s*[:=]\s*["\']?(\d{1,6})/i', $html, $m)) {
+            $stateId = (int)$m[1];
+        }
+
+        if (preg_match('/(?<![A-Za-z0-9_$])version\s*[:=]\s*["\']?(\d{1,6})/', $html, $m)) {
+            $version = (int)$m[1];
+        }
+
+        // Fallback: the notification dropdown on the state page. Its first entry
+        // is the newest published version. A truthy preg_match_all guarantees at
+        // least one match, so $opts[1][0] is always set here.
+        if (!$version
+            && preg_match('/<select[^>]*id=["\']version["\'][^>]*>(.*?)<\/select>/is', $html, $sel)
+            && preg_match_all('/<option[^>]*value=["\']?(\d{1,6})/i', $sel[1], $opts)) {
+            $version = (int)$opts[1][0];
+        }
+
+        return [$stateId, $version];
+    }
+
+    /**
+     * Map a wage row onto an HRMS worker_category.
+     *
+     * `class_of_employment` is only a skill level for roughly half of India's
+     * notifications. It is "-" for whole states (Haryana, Kerala), a job title
+     * for others (Tamil Nadu, Puducherry, Sikkim), a salary class (Chandigarh
+     * "Class-I (Staff)"), a grade (Karnataka "Group II", Nagaland "Skilled
+     * Grade-I") or an industry (Manipur "Furniture"). So when the primary field
+     * does not map, the remaining descriptive fields are tried in turn.
+     *
+     * @return array{0:string|null,1:string|null} [HRMS category, field that matched]
+     */
+    private function mapRowCategory(array $row) {
+        $fields = ['class_of_employment', 'category', 'grade', 'sub_category', 'designation', 'class_of_workers'];
+
+        foreach ($fields as $field) {
+            if (!isset($row[$field])) continue;
+            $value = trim((string)$row[$field]);
+            if ($value === '' || $value === '-') continue;
+
+            $category = $this->mapCategory($value);
+            if ($category !== null) {
+                return [$category, $field];
+            }
+        }
+
+        return [null, null];
+    }
+
+    /**
+     * Map a Simpliance `class_of_employment` value onto the HRMS
+     * `minimum_wages.worker_category` ENUM.
+     *
+     * Real Simpliance values are decorated and inconsistent:
+     *   "Unskilled (peon etc)", "Semi-skilled (Assistant etc)",
+     *   "Skilled (Clerk etc)", "Highly Skilled (Manager etc)",
+     *   "Unskilled", "Highly skilled", "Semi Skilled", "Class-I (Staff)"
+     *
+     * The previous implementation lowercased the raw string and looked it up in
+     * an exact-match table, so "unskilled (peon etc)" missed and EVERY row of
+     * EVERY state was discarded as "skipped" — the sync reported success while
+     * writing nothing. Matching is now fuzzy-but-conservative:
+     *   1. strip bracketed qualifiers, punctuation and case
+     *   2. exact keyword match
+     *   3. prefix match
+     *   4. substring match
+     * Longest keyword first, so "unskilled"/"semiskilled"/"highlyskilled" are
+     * never shadowed by the "skilled" they contain.
+     *
+     * @return string|null HRMS category, or null when the value is genuinely
+     *                     unrecognised (caller counts and reports it).
+     */
     private function mapCategory($raw) {
-        $lower = strtolower(trim($raw ?: ''));
-        return self::CATEGORY_MAP[$lower] ?? $raw;
+        $s = strtolower(trim((string)$raw));
+        if ($s === '' || $s === '-') return null;
+
+        // Drop qualifiers: "unskilled (peon etc)" → "unskilled"
+        $s = preg_replace('/\([^)]*\)/', ' ', $s);
+        $s = preg_replace('/\[[^\]]*\]/', ' ', $s);
+        $s = str_replace('&', ' and ', $s);
+
+        // Normalise: letters and digits only ("semi-skilled" → "semiskilled")
+        $norm = preg_replace('/[^a-z0-9]/', '', $s);
+        if ($norm === '') return null;
+
+        // 1. exact
+        if (isset(self::CATEGORY_ALIASES[$norm])) {
+            return self::CATEGORY_ALIASES[$norm];
+        }
+
+        // Longest keyword first so contained keywords can't win
+        $keys = array_keys(self::CATEGORY_ALIASES);
+        usort($keys, function ($a, $b) { return strlen($b) - strlen($a); });
+
+        // 2. prefix — "unskilledworker", "skilledlabour"
+        foreach ($keys as $k) {
+            if (strpos($norm, $k) === 0) {
+                return self::CATEGORY_ALIASES[$k];
+            }
+        }
+
+        // 3. substring — "classiii skilled staff"
+        foreach ($keys as $k) {
+            if (strpos($norm, $k) !== false) {
+                return self::CATEGORY_ALIASES[$k];
+            }
+        }
+
+        return null;
     }
 
     private function slugifyState($stateName) {
@@ -286,25 +490,21 @@ class MinimumWageSync {
             'records_skipped' => 0,
             'error_message'   => null,
         ];
+        // Raw Simpliance category strings that could not be mapped, so the user
+        // sees WHY a state imported nothing instead of a silent "skipped".
+        $unmapped = [];
 
         try {
             // ── Step 1: GET state page → extract stateId + version ──
             $html = $this->fetchPage($pageUrl);
 
-            // Extract stateId from JS: "let stateId = 19;"
-            $stateId = null;
-            if (preg_match('/stateId\s*=\s*(\d+)/', $html, $m)) {
-                $stateId = $m[1];
-            }
-
-            // Extract version from JS: "let version = 23;"
-            $version = null;
-            if (preg_match('/version\s*=\s*(\d+)/', $html, $m)) {
-                $version = $m[1];
-            }
+            list($stateId, $version) = $this->extractStateIdVersion($html);
 
             if (!$stateId || !$version) {
-                $result['error_message'] = "Could not extract stateId/version from page (stateId=$stateId, version=$version)";
+                $result['error_message'] = "Could not extract stateId/version from page (stateId="
+                    . var_export($stateId, true) . ", version=" . var_export($version, true)
+                    . ", page=" . strlen($html) . " bytes). Raw HTML dumped to "
+                    . sys_get_temp_dir() . "/simpliance_debug_{$slug}.html";
                 @file_put_contents(sys_get_temp_dir() . "/simpliance_debug_{$slug}.html", $html);
                 return $result;
             }
@@ -314,28 +514,22 @@ class MinimumWageSync {
             $jsonRaw = $this->fetchUrl($apiUrl);
             $apiData = json_decode($jsonRaw, true);
 
-            if (!$apiData || empty($apiData['data'])) {
+            if (!is_array($apiData) || !isset($apiData['data']) || !is_array($apiData['data'])) {
                 $result['error_message'] = 'Invalid or empty JSON from API: ' . $apiUrl;
                 return $result;
             }
 
-            // ── Step 3: Collect all rows across all industries ──
-            $allRows = [];
-            foreach ($apiData['data'] as $industryId => $rows) {
-                if (is_array($rows)) {
-                    foreach ($rows as $row) {
-                        $allRows[] = $row;
-                    }
-                }
-            }
+            // ── Step 3: Collect all rows ──
+            $allRows = $this->collectRows($apiData['data']);
 
             if (empty($allRows)) {
-                $result['error_message'] = 'API returned 0 wage rows';
+                $result['error_message'] = 'API returned 0 wage rows for version ' . $version;
                 return $result;
             }
 
             // ── Step 4: Parse and INSERT or UPDATE ──
-            $effectiveDate = null;
+            $effectiveDate  = null;
+            $fallbackMapped = 0;
             $validCategories = ['Unskilled', 'Semi-Skilled', 'Skilled', 'Highly Skilled', 'Supervisor', 'Clerical'];
 
             foreach ($allRows as $r) {
@@ -344,12 +538,25 @@ class MinimumWageSync {
                     $effectiveDate = $r['effective_date'];
                 }
 
-                $workerCategory = $this->mapCategory($r['class_of_employment'] ?? '');
+                list($workerCategory, $mappedFrom) = $this->mapRowCategory($r);
 
-                // Skip if category doesn't match ENUM
-                if (!in_array($workerCategory, $validCategories)) {
+                // Skip if the row cannot be expressed in the HRMS ENUM — remember
+                // the raw value so the user can see what the source called it.
+                if ($workerCategory === null || !in_array($workerCategory, $validCategories, true)) {
+                    $rawLabel = trim((string)($r['class_of_employment'] ?? ''));
+                    if ($rawLabel === '' || $rawLabel === '-') {
+                        $rawLabel = trim((string)($r['category'] ?? $r['grade'] ?? $r['designation'] ?? ''));
+                    }
+                    if ($rawLabel === '') $rawLabel = '(empty)';
+                    $unmapped[$rawLabel] = ($unmapped[$rawLabel] ?? 0) + 1;
                     $result['records_skipped']++;
                     continue;
+                }
+
+                if ($mappedFrom !== null && $mappedFrom !== 'class_of_employment') {
+                    // Source did not name a skill level in class_of_employment;
+                    // the match came from a secondary descriptive field.
+                    $fallbackMapped++;
                 }
 
                 // Parse amounts (JSON API uses numeric or '-' for missing)
@@ -381,8 +588,12 @@ class MinimumWageSync {
                 // Notification name
                 $notificationName = trim($r['name'] ?? '');
 
-                // Resolve zone (direct name, not FK)
+                // Resolve zone (direct name, not FK). Some notifications use
+                // `area` for the same concept (e.g. Arunachal Pradesh "Area I").
                 $zone = $this->resolveZone($r['zone'] ?? '-');
+                if ($zone === null) {
+                    $zone = $this->resolveZone($r['area'] ?? '-');
+                }
 
                 if (!$effectiveDate) continue;
 
@@ -416,10 +627,21 @@ class MinimumWageSync {
 
                 if (!$dryRun) {
                     $existingId = !empty($existing) ? $existing[0]['id'] : null;
-                    $this->upsertWage(
-                        $state['id'], $workerCategory, $effectiveDate,
-                        $wageData, $version, $notificationName, $existingId, $zone
-                    );
+                    try {
+                        $this->upsertWage(
+                            $state['id'], $workerCategory, $effectiveDate,
+                            $wageData, $version, $notificationName, $existingId, $zone
+                        );
+                    } catch (Exception $rowError) {
+                        // One bad row (e.g. a legacy UNIQUE KEY that does not
+                        // include `zone`) must not abandon the remaining rows of
+                        // this state — that used to abort the whole state.
+                        $result['records_skipped']++;
+                        if (!$result['error_message']) {
+                            $result['error_message'] = 'Row error: ' . mb_substr($rowError->getMessage(), 0, 200);
+                        }
+                        continue;
+                    }
                     if ($existingId) {
                         $result['records_updated']++;
                     } else {
@@ -434,7 +656,42 @@ class MinimumWageSync {
                 }
             }
 
-            $result['status'] = 'success';
+            // Nothing usable came out of this state → "partial", not "success".
+            // Reporting success with 0 added / 0 updated is what made the button
+            // look like it worked while the wage table stayed empty.
+            if (($result['records_added'] + $result['records_updated']) === 0) {
+                $result['status'] = 'partial';
+                if (empty($unmapped) && !$result['error_message']) {
+                    $result['error_message'] = 'Source returned ' . count($allRows)
+                        . ' row(s) but none could be imported.';
+                }
+            } else {
+                $result['status'] = 'success';
+            }
+
+            if (!empty($unmapped)) {
+                $result['unmapped_categories'] = $unmapped;
+                $labelList = [];
+                foreach ($unmapped as $label => $n) {
+                    $labelList[] = $label . ' (' . $n . ')';
+                }
+                $hint = 'No HRMS category for: ' . implode(', ', array_slice($labelList, 0, 4));
+                if (count($labelList) > 4) $hint .= ' …';
+                $result['error_message'] = $result['error_message']
+                    ? $result['error_message'] . ' | ' . $hint
+                    : $hint;
+            }
+
+            if ($fallbackMapped > 0) {
+                $result['fallback_mapped'] = $fallbackMapped;
+            }
+
+            // Some rows landed but the state still has something to report
+            // (unmapped categories, a row that failed, …) → partial, not success.
+            if (!empty($result['error_message'])
+                && ($result['records_added'] + $result['records_updated']) > 0) {
+                $result['status'] = 'partial';
+            }
 
             // Update last_scraped_at (silent fail if column missing)
             if (!$dryRun) {
@@ -540,8 +797,51 @@ class MinimumWageSync {
         return true;
     }
 
+    // ── List the states that would be synced (for chunked runs) ─────
+    /**
+     * Public wrapper around getSyncStates() so the browser can walk the list one
+     * state per request instead of holding a single multi-minute connection open.
+     *
+     * @return array { success, states:[{state, slug}], count }
+     */
+    public function listStates($stateFilter = null) {
+        $this->ensureSlugs();
+
+        $states = [];
+        foreach ($this->getSyncStates($stateFilter) as $s) {
+            $states[] = [
+                'state' => $s['state_name'],
+                'slug'  => $s['simpliance_slug'],
+            ];
+        }
+
+        $payload = [
+            'success' => true,
+            'states'  => $states,
+            'count'   => count($states),
+        ];
+        if (empty($states)) {
+            $payload['message'] = $stateFilter
+                ? "No state found matching '$stateFilter' with a valid Simpliance slug."
+                : 'No active states with slugs configured. Click "Auto-Setup Slugs" first.';
+        }
+        return $payload;
+    }
+
     // ── Run full sync ───────────────────────────────────────────────
-    public function runSync($stateFilter = null, $dryRun = false) {
+    /**
+     * Sync one state, or a bounded slice of the state list.
+     *
+     * $stateFilter null means "all states", but the run is capped at
+     * self::REQUEST_TIME_BUDGET seconds so the HTTP response always comes back
+     * before the web server / proxy kills the connection. The caller resumes
+     * with the slugs returned in `remaining`.
+     *
+     * @param string|null $stateFilter  slug, partial state name, or null for all
+     * @param bool        $dryRun       preview only, nothing written
+     * @param int|null    $timeBudget   seconds; null uses the class default
+     */
+    public function runSync($stateFilter = null, $dryRun = false, $timeBudget = null) {
         $this->ensureSlugs();
         $this->ensureZoneColumn();
 
@@ -564,27 +864,38 @@ class MinimumWageSync {
         $totalAdded   = 0;
         $totalUpdated = 0;
         $totalSkipped = 0;
+        $remaining    = [];
 
-        foreach ($states as $state) {
+        $budget   = $timeBudget === null ? self::REQUEST_TIME_BUDGET : (int)$timeBudget;
+        $started  = microtime(true);
+        $isBulk   = ($stateFilter === null);
+        $logReady = !$dryRun && $this->ensureSyncLog();
+
+        foreach ($states as $index => $state) {
+            // Time budget only applies to a bulk run — a single named state must
+            // always be allowed to finish.
+            if ($isBulk && $budget > 0 && (microtime(true) - $started) >= $budget) {
+                for ($i = $index; $i < count($states); $i++) {
+                    $remaining[] = $states[$i]['simpliance_slug'];
+                }
+                break;
+            }
+
             $result = $this->fetchState($state, $dryRun);
             $results[]      = $result;
             $totalAdded   += $result['records_added'];
             $totalUpdated += $result['records_updated'];
             $totalSkipped += $result['records_skipped'];
 
-            if (!$dryRun) {
-                try {
-                    $this->db->query(
-                        "INSERT INTO minimum_wage_sync_log (state, state_id, status, records_added, records_skipped, error_message)
-                         VALUES (?, ?, ?, ?, ?, ?)",
-                        [$result['state'], $result['state_id'], $result['status'], $result['records_added'], $result['records_skipped'], $result['error_message']]
-                    );
-                } catch (Exception $e) {}
+            if ($logReady) {
+                $this->writeSyncLog($result);
             }
 
             if (count($states) > 1) {
-                // Random 2–4s delay to avoid rate-limit patterns
-                usleep(rand(2000000, 4000000));
+                // Small, randomised pause so the run does not look like a bot
+                // sweep. Was 2–4s per state, which alone added ~90s to a
+                // 36-state run; the chunked caller now paces itself instead.
+                usleep(rand(400000, 900000));
             }
         }
 
@@ -595,7 +906,100 @@ class MinimumWageSync {
             'total_updated' => $totalUpdated,
             'total_skipped' => $totalSkipped,
             'dry_run'       => $dryRun,
+            'done'          => empty($remaining),
+            'remaining'     => $remaining,
             'timestamp'     => date('Y-m-d H:i:s'),
         ];
+    }
+
+    // ── Sync-log helpers ────────────────────────────────────────────
+
+    /**
+     * Make sure minimum_wage_sync_log exists and can record updates.
+     *
+     * The history table was created without `records_updated`, so a re-sync that
+     * only refreshed existing rows logged "Added 0" and looked like nothing
+     * happened. The column is added once, additively.
+     *
+     * @return bool true when the table is usable for logging
+     */
+    private function ensureSyncLog() {
+        try {
+            $tables = $this->db->fetchAll(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'minimum_wage_sync_log'"
+            );
+            if (empty($tables)) return false;
+
+            $cols = $this->db->fetchAll(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'minimum_wage_sync_log'
+                   AND COLUMN_NAME = 'records_updated'"
+            );
+
+            if (empty($cols)) {
+                try {
+                    $this->db->query(
+                        "ALTER TABLE minimum_wage_sync_log
+                         ADD COLUMN records_updated INT NOT NULL DEFAULT 0 AFTER records_added"
+                    );
+                    $this->logHasUpdated = true;
+                } catch (Exception $e) {
+                    // No ALTER privilege — keep logging without the update count
+                    // rather than not logging at all.
+                    $this->logHasUpdated = false;
+                }
+            } else {
+                $this->logHasUpdated = true;
+            }
+
+            return true;
+        } catch (Exception $e) {
+            // Logging is best-effort — never let it break a sync.
+            $this->logHasUpdated = false;
+            return false;
+        }
+    }
+
+    /**
+     * Append one row to minimum_wage_sync_log.
+     */
+    private function writeSyncLog(array $result) {
+        try {
+            if ($this->logHasUpdated === null) {
+                $cols = $this->db->fetchAll(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'minimum_wage_sync_log'
+                       AND COLUMN_NAME = 'records_updated'"
+                );
+                $this->logHasUpdated = !empty($cols);
+            }
+
+            if ($this->logHasUpdated) {
+                $this->db->query(
+                    "INSERT INTO minimum_wage_sync_log
+                        (state, state_id, status, records_added, records_updated, records_skipped, error_message)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        $result['state'], $result['state_id'], $result['status'],
+                        $result['records_added'], $result['records_updated'],
+                        $result['records_skipped'], $result['error_message'],
+                    ]
+                );
+            } else {
+                $this->db->query(
+                    "INSERT INTO minimum_wage_sync_log
+                        (state, state_id, status, records_added, records_skipped, error_message)
+                     VALUES (?, ?, ?, ?, ?, ?)",
+                    [
+                        $result['state'], $result['state_id'], $result['status'],
+                        $result['records_added'], $result['records_skipped'],
+                        $result['error_message'],
+                    ]
+                );
+            }
+        } catch (Exception $e) {
+            // Table shape may differ on older installs — skip logging, keep syncing.
+        }
     }
 }
