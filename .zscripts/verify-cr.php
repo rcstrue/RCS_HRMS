@@ -45,6 +45,9 @@ class StubDb
         7 => ['id' => 7, 'full_name' => 'Ramesh Kumar', 'employee_code' => 'GFLA110007', 'mobile_number' => '9000000007', 'email' => 'r@x.com', 'designation' => 'Guard'],
         8 => ['id' => 8, 'full_name' => 'Sita Devi',    'employee_code' => 'GFLA110008', 'mobile_number' => '9000000008', 'email' => 's@x.com', 'designation' => 'Cook'],
     ];
+    private array $users = [
+        5 => ['first_name' => 'Shailesh', 'last_name' => 'Patel', 'username' => 'shailesh'],
+    ];
 
     public function __construct()
     {
@@ -65,6 +68,58 @@ class StubDb
     {
         if ($status === null) return $this->requests;
         return array_values(array_filter($this->requests, fn($r) => $r['status'] === $status));
+    }
+
+    /** Emulate the page's WHERE (status + search) and LIMIT/OFFSET. */
+    private function queryRequests(string $sql, array $params): array
+    {
+        $rows = $this->requests;
+
+        if (isset($params['crstatus'])) {
+            $status = (string)$params['crstatus'];
+            $rows = array_values(array_filter($rows, fn($r) => $r['status'] === $status));
+        }
+
+        if (isset($params['cr_field'])) {
+            $term = strtolower(trim((string)$params['cr_field'], '%'));
+            $ids  = [];
+            if (preg_match('/employee_id IN \(([0-9,\s]*)\)/', $sql, $mm)) {
+                $ids = array_map('intval', array_filter(array_map('trim', explode(',', $mm[1])), fn($x) => $x !== ''));
+            }
+            $rows = array_values(array_filter($rows, function ($r) use ($term, $ids) {
+                return strpos(strtolower((string)$r['field_name']), $term) !== false
+                    || in_array((int)$r['employee_id'], $ids, true);
+            }));
+        }
+
+        if (preg_match('/LIMIT (\d+)(?:\s+OFFSET (\d+))?/i', $sql, $lm)) {
+            $rows = array_slice($rows, isset($lm[2]) ? (int)$lm[2] : 0, (int)$lm[1]);
+        }
+
+        return $rows;
+    }
+
+    /** Replace fixtures with $n pending rows, to exercise real pagination. */
+    public function expandRequests(int $n): void
+    {
+        $this->requests = [];
+        for ($i = 0; $i < $n; $i++) {
+            $id = 200 + $i;
+            $this->requests[] = [
+                'id' => $id,
+                'employee_id' => ($i % 2 === 0) ? 7 : 8,
+                'field_name' => ($i % 2 === 0) ? 'bank_name' : 'full_name',
+                'old_value' => 'old-' . $id,
+                'new_value' => 'new-' . $id,
+                'reason' => 'bulk fixture',
+                'status' => 'pending',
+                'created_at' => date('Y-m-d H:i:s', 1790000000 - $i),
+                'reviewed_at' => null,
+                // every third row carries a reviewer, to exercise the batched lookup
+                'reviewed_by' => ($i % 3 === 0) ? 5 : null,
+                'rejection_reason' => null,
+            ];
+        }
     }
 
     public function fetch($sql, $params = [])
@@ -92,17 +147,43 @@ class StubDb
     {
         $this->queries[] = $sql;
         if (stripos($sql, 'FROM employee_change_requests') !== false) {
-            return $this->filtered(isset($params['crstatus']) ? (string)$params['crstatus'] : null);
+            return $this->queryRequests($sql, $params);
         }
-        if (stripos($sql, 'FROM employees') !== false) return array_values($this->employees);
+        if (stripos($sql, 'FROM users') !== false) {
+            $ids = [];
+            if (preg_match('/id IN \(([0-9,\s]*)\)/', $sql, $mm)) {
+                $ids = array_map('intval', array_filter(array_map('trim', explode(',', $mm[1])), fn($x) => $x !== ''));
+            }
+            $out = [];
+            foreach ($ids as $id) {
+                if (isset($this->users[$id])) {
+                    $out[] = array_merge(['id' => $id], $this->users[$id]);
+                }
+            }
+            return $out;
+        }
+        if (stripos($sql, 'FROM employees') !== false) {
+            if (stripos($sql, 'full_name LIKE') !== false) {
+                $term = strtolower(trim((string)($params['s1'] ?? ''), '%'));
+                return array_values(array_filter($this->employees, fn($e) =>
+                    strpos(strtolower($e['full_name']), $term) !== false
+                    || strpos(strtolower($e['employee_code']), $term) !== false));
+            }
+            return array_values($this->employees);
+        }
         return [];
     }
 
     public function fetchColumn($sql, $params = [])
     {
         $this->queries[] = $sql;
+        // Badge counts use a literal status
         foreach (['pending', 'approved', 'rejected'] as $s) {
             if (stripos($sql, "status = '{$s}'") !== false) return count($this->filtered($s));
+        }
+        // Paged total: COUNT(*) with bound params -> same filter as the page query
+        if (stripos($sql, 'COUNT(*)') !== false && stripos($sql, 'employee_change_requests') !== false) {
+            return count($this->queryRequests($sql, $params));
         }
         return 0;
     }
@@ -328,6 +409,15 @@ $_SESSION['user_id']       = 5;
 $_SESSION['role_code']     = $role;
 $_GET = ['page' => 'employee/change-requests'];
 if ($scenario === 'pending') $_GET['status'] = 'pending';
+if ($scenario === 'search-field')    $_GET['search'] = 'Bank';
+if ($scenario === 'search-employee') $_GET['search'] = 'Ramesh';
+if ($scenario === 'search-none')     $_GET['search'] = 'zzzznomatch';
+
+// 'paged' renders page 2 of 120 pending requests to exercise real LIMIT/OFFSET
+if ($scenario === 'paged') {
+    $db->expandRequests(120);
+    $_GET['page_num'] = 2;
+}
 
 ob_start();
 require __DIR__ . '/../hrms/modules/employee/change-requests.php';
@@ -335,8 +425,55 @@ $html = ob_get_clean();
 
 $expectStatus = $scenario === 'pending' ? 'pending' : 'all';
 $pendingOnly  = $expectStatus === 'pending';
-$usedUsers = (bool)array_filter($db->queries, fn($q) => stripos($q, 'SELECT first_name, last_name, username FROM users') !== false);
+// The reviewer lookup is now one batched IN (...) query instead of one per row
+$usersQueries     = array_values(array_filter($db->queries, fn($q) => stripos($q, 'FROM users') !== false));
+$reviewerBatchSql = (bool)array_filter($db->queries, fn($q) => stripos($q, 'FROM users WHERE id IN') !== false);
 $usedEmployeesForReviewer = (bool)array_filter($db->queries, fn($q) => preg_match('/FROM employees WHERE id = :rid/i', $q));
+$listQuery = '';
+foreach ($db->queries as $q) {
+    if (stripos($q, 'FROM employee_change_requests') !== false && stripos($q, 'LIMIT') !== false) {
+        $listQuery = $q;
+    }
+}
+$renderedRows = substr_count($html, '<tr id="row-');
+
+// ── Search scenarios: search moved out of PHP and into SQL ──────────────────
+if (strpos($scenario, 'search-') === 0) {
+    $sqlSearchQuery = (bool)array_filter($db->queries, fn($q) =>
+        stripos($q, 'FROM employee_change_requests') !== false && stripos($q, 'LIKE') !== false);
+    $empLikeQuery   = (bool)array_filter($db->queries, fn($q) =>
+        stripos($q, 'FROM employees') !== false && stripos($q, 'full_name LIKE') !== false);
+
+    $searchChecks = [
+        'no PHP fatal/warning/notice in output'   => !preg_match('/Fatal error|Warning:|Deprecated:|Notice:/', $html),
+        'search is applied in SQL, not post-fetch'=> $sqlSearchQuery,
+        'list query still paginated'              => $listQuery !== '',
+        // no rows -> the empty state renders instead of the table/summary
+        'result summary rendered'                 => $renderedRows === 0 ? true : strpos($html, 'Showing ') !== false,
+    ];
+
+    if ($scenario === 'search-field') {
+        // "Bank" matches field_name bank_name (row 104) only
+        $searchChecks['field search returns 1 row']       = $renderedRows === 1 && strpos($html, 'row-104') !== false;
+        $searchChecks['field search excludes row 101']    = strpos($html, 'row-101') === false;
+        $searchChecks['summary reads 1-1 of 1']           = (bool)preg_match('/Showing 1\D{0,4}1 of 1\b/', $html);
+    } elseif ($scenario === 'search-employee') {
+        // "Ramesh" resolves to employee 7 -> rows 101 and 103
+        $searchChecks['employee LIKE query issued']       = $empLikeQuery;
+        $searchChecks['employee search returns 2 rows']   = $renderedRows === 2
+                                                            && strpos($html, 'row-101') !== false
+                                                            && strpos($html, 'row-103') !== false;
+        $searchChecks['summary reads 1-2 of 2']           = (bool)preg_match('/Showing 1\D{0,4}2 of 2\b/', $html);
+    } else {
+        // no matches -> empty state naming the term, no rows
+        $searchChecks['no rows rendered']                 = $renderedRows === 0;
+        $searchChecks['empty state names the search term']= strpos($html, 'No change requests match') !== false
+                                                            && strpos($html, 'zzzznomatch') !== false;
+    }
+
+    report("search ({$scenario} as {$role})", $searchChecks, $ERRORS, $html);
+    exit(0);
+}
 
 // Sensitive-approval policy: row 101 = profile_pic_url (approvable by all),
 // row 104 = bank_name (sensitive -> Admin/HR only)
@@ -355,26 +492,45 @@ $reportChecks = [
     'status filter kept in search form'       => strpos($html, 'name="status" value="' . $expectStatus . '"') !== false,
     'csrf token in both HTML forms'           => substr_count($html, 'name="csrf_token"') === 2,
     'csrf token injected into JS form'        => strpos($html, "createInput('csrf_token'") !== false,
-    'reviewer resolved via users table'       => $pendingOnly ? !$usedUsers && !$usedEmployeesForReviewer : $usedUsers && !$usedEmployeesForReviewer,
-    'reviewer name rendered for reviewed rows'=> $pendingOnly ? true : substr_count($html, 'Shailesh Patel') === 2,
+    'reviewer resolved via users table'       => $pendingOnly ? $usersQueries === [] && !$usedEmployeesForReviewer : $reviewerBatchSql && !$usedEmployeesForReviewer,
+    'reviewer lookup batched (no N+1)'        => count($usersQueries) <= 1,
+    'reviewer name rendered for reviewed rows'=> $pendingOnly
+                                                  ? true
+                                                  : ($scenario === 'paged'
+                                                      ? substr_count($html, 'Shailesh Patel') > 0
+                                                      : substr_count($html, 'Shailesh Patel') === 2),
     'pending rows present'                    => strpos($html, 'Ramesh Kumar') !== false,
     'missing-employee fallback label'         => !$pendingOnly || strpos($html, 'Employee #99') !== false,
     'approved rows excluded when filtered'    => !$pendingOnly || strpos($html, 'Sita Devi') === false,
     'bulk approve control present'            => strpos($html, 'Approve Selected') !== false,
+    'list query is paginated (LIMIT/OFFSET)'  => $listQuery !== '' && stripos($listQuery, 'LIMIT') !== false && stripos($listQuery, 'OFFSET') !== false,
+    'result summary rendered'                 => strpos($html, 'Showing ') !== false,
     'raw exec() never used'                   => $db->execs === [],
 ];
 
-// Policy #9: bank/statutory/KYC rows are admin/HR-approvable only
-if ($roleMayApproveSensitive) {
-    $reportChecks["{$role}: sensitive row still has approve button"] = $rowHasApproveButton(104);
-    $reportChecks["{$role}: sensitive row still selectable"]         = $rowHasCheckbox(104);
-    $reportChecks["{$role}: no 'Admin/HR only' badge shown"]         = strpos($html, 'Admin/HR only') === false;
-} else {
-    $reportChecks["{$role}: sensitive row has NO approve button"]    = !$rowHasApproveButton(104);
-    $reportChecks["{$role}: sensitive row NOT selectable"]           = !$rowHasCheckbox(104);
-    $reportChecks["{$role}: 'Admin/HR only' badge shown"]            = strpos($html, 'Admin/HR only') !== false;
-    $reportChecks["{$role}: sensitive row can still be rejected"]    = (bool)preg_match('/onclick="showRejectModal\(104\)"/', $html);
-    $reportChecks["{$role}: normal row still approvable"]            = $rowHasApproveButton(101) && $rowHasCheckbox(101);
+// Policy #9: bank/statutory/KYC rows are admin/HR-approvable only.
+// Rows 101/104 only exist in the default fixture set, not the 120-row one.
+if ($scenario !== 'paged') {
+    if ($roleMayApproveSensitive) {
+        $reportChecks["{$role}: sensitive row still has approve button"] = $rowHasApproveButton(104);
+        $reportChecks["{$role}: sensitive row still selectable"]         = $rowHasCheckbox(104);
+        $reportChecks["{$role}: no 'Admin/HR only' badge shown"]         = strpos($html, 'Admin/HR only') === false;
+    } else {
+        $reportChecks["{$role}: sensitive row has NO approve button"]    = !$rowHasApproveButton(104);
+        $reportChecks["{$role}: sensitive row NOT selectable"]           = !$rowHasCheckbox(104);
+        $reportChecks["{$role}: 'Admin/HR only' badge shown"]            = strpos($html, 'Admin/HR only') !== false;
+        $reportChecks["{$role}: sensitive row can still be rejected"]    = (bool)preg_match('/onclick="showRejectModal\(104\)"/', $html);
+        $reportChecks["{$role}: normal row still approvable"]            = $rowHasApproveButton(101) && $rowHasCheckbox(101);
+    }
+}
+
+// Pagination: page 2 of 120 pending rows
+if ($scenario === 'paged') {
+    $reportChecks['paged: list query uses LIMIT 50 OFFSET 50'] = (bool)preg_match('/LIMIT 50\s+OFFSET 50/i', $listQuery);
+    $reportChecks['paged: exactly 50 rows rendered']           = $renderedRows === 50;
+    $reportChecks['paged: summary reads 51-100 of 120']        = (bool)preg_match('/Showing 51\D{0,4}100 of 120/', $html);
+    $reportChecks['paged: page 2 is the active page']          = (bool)preg_match('/<li class="page-item active">\s*<a class="page-link"[^>]*>2<\/a>/s', $html);
+    $reportChecks['paged: prev/next links present']            = strpos($html, 'page_num=1') !== false && strpos($html, 'page_num=3') !== false;
 }
 
 report("render ({$scenario} as {$role})", $reportChecks, $ERRORS, $html);
