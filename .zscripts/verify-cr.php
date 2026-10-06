@@ -39,6 +39,7 @@ class StubDb
     public array $prepared = [];
     public array $txLog    = [];
     public ?string $failOnTable = null;
+    public bool $failOnRequestsFetch = false;
 
     private array $requests;
     private array $employees = [
@@ -147,6 +148,9 @@ class StubDb
     {
         $this->queries[] = $sql;
         if (stripos($sql, 'FROM employee_change_requests') !== false) {
+            if ($this->failOnRequestsFetch) {
+                throw new Exception("simulated SQL error: Unknown column 'foo' in 'field list'");
+            }
             return $this->queryRequests($sql, $params);
         }
         if (stripos($sql, 'FROM users') !== false) {
@@ -239,7 +243,7 @@ function report(string $scenario, array $checks, array $errors, string $html = '
 // ── Scenario 1: notification helper (fix #1) ────────────────────────────────
 if ($scenario === 'notif') {
     require __DIR__ . '/../hrms/modules/employee/change-requests.php';
-    sendInAppNotification(7, 'Title X', 'Message Y', 'success', '/profile/change-requests');
+    sendInAppNotification(7, 'Title X', 'Message Y', 'success');
     $i = $db->inserts[0] ?? null;
     report('notif (fix #1: notification insert)', [
         'insert() called once on ess_notifications' => count($db->inserts) === 1 && ($i['table'] ?? '') === 'ess_notifications',
@@ -247,6 +251,7 @@ if ($scenario === 'notif') {
         'title/message/type bound'                  => ($i['data']['title'] ?? '') === 'Title X' && ($i['data']['message'] ?? '') === 'Message Y' && ($i['data']['type'] ?? '') === 'success',
         'is_read explicitly 0'                      => ($i['data']['is_read'] ?? null) === 0,
         'created_at set'                            => !empty($i['data']['created_at']),
+        'no dead "link" column written'             => !array_key_exists('link', $i['data'] ?? []),
         'raw exec() never used'                     => $db->execs === [],
     ], $ERRORS);
     exit(0);
@@ -419,6 +424,11 @@ if ($scenario === 'paged') {
     $_GET['page_num'] = 2;
 }
 
+// 'dberror' makes the list query throw, to check what the UI leaks
+if ($scenario === 'dberror') {
+    $db->failOnRequestsFetch = true;
+}
+
 ob_start();
 require __DIR__ . '/../hrms/modules/employee/change-requests.php';
 $html = ob_get_clean();
@@ -436,6 +446,25 @@ foreach ($db->queries as $q) {
     }
 }
 $renderedRows = substr_count($html, '<tr id="row-');
+
+// ── DB-error scenario: what the UI leaks to whom ────────────────────────────
+if ($scenario === 'dberror') {
+    $leaksRawError = strpos($html, 'simulated SQL error') !== false;
+    $dbChecks = [
+        'no PHP fatal/warning/notice in output'  => !preg_match('/Fatal error|Warning:|Deprecated:|Notice:/', $html),
+        'database error alert shown'             => strpos($html, 'Database Error') !== false,
+    ];
+    if ($role === 'admin') {
+        $dbChecks['admin sees the raw SQL error']    = $leaksRawError;
+        $dbChecks['admin sees Debug diagnostics']    = strpos($html, 'Debug:') !== false;
+    } else {
+        $dbChecks['user told to contact an administrator'] = strpos($html, 'ask an administrator') !== false;
+        $dbChecks['raw SQL error NOT leaked']        = !$leaksRawError;
+        $dbChecks['internal diagnostics NOT leaked'] = strpos($html, 'Debug:') === false;
+    }
+    report("db error ({$role})", $dbChecks, $ERRORS, $html);
+    exit(0);
+}
 
 // ── Search scenarios: search moved out of PHP and into SQL ──────────────────
 if (strpos($scenario, 'search-') === 0) {
@@ -531,6 +560,12 @@ if ($scenario === 'paged') {
     $reportChecks['paged: summary reads 51-100 of 120']        = (bool)preg_match('/Showing 51\D{0,4}100 of 120/', $html);
     $reportChecks['paged: page 2 is the active page']          = (bool)preg_match('/<li class="page-item active">\s*<a class="page-link"[^>]*>2<\/a>/s', $html);
     $reportChecks['paged: prev/next links present']            = strpos($html, 'page_num=1') !== false && strpos($html, 'page_num=3') !== false;
+    // '#' column is now a running row number, continuing from the page offset
+    $firstRowNum = null;
+    if (preg_match('/<tr id="row-\d+">.*?<td>\s*(\d+)\s*<\/td>/s', $html, $rm)) {
+        $firstRowNum = (int)$rm[1];
+    }
+    $reportChecks['paged: row numbers continue from 51']       = $firstRowNum === 51;
 }
 
 report("render ({$scenario} as {$role})", $reportChecks, $ERRORS, $html);
