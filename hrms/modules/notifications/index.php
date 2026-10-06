@@ -1,4 +1,21 @@
-<?php $pageTitle = 'Notifications'; ?>
+<?php
+/**
+ * Notifications hub (cards for the notification tools).
+ *
+ * NOTE / correction (supersedes the wording in commit 7a8c7ee):
+ * This hub used to carry a "View Notifications" card pointing at
+ * index.php?page=notifications. That target was described in 7a8c7ee as a dead
+ * link that fell through to the Dashboard. That was inaccurate: the sibling file
+ * modules/notifications.php exists and is a six-line router that includes THIS
+ * file, so page=notifications renders this same hub — the card was a self-link
+ * (hub -> hub), not a broken link. The card was removed for that reason; it was
+ * deliberately not retargeted at notifications/center, which already has its own
+ * card below and would otherwise have become a duplicate.
+ *
+ * The bell's "View All" link in templates/header.php pointed at the hub too and
+ * now points at notifications/center.
+ */
+$pageTitle = 'Notifications'; ?>
 <div class="container-fluid py-4">
     <div class="hub-header">
         <h4><i class="bi bi-bell me-2"></i>Notifications</h4>
