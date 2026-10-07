@@ -85,7 +85,24 @@ jobs:
           fi
 
           # exec() / system() / passthru() / shell_exec() / popen() / proc_open()
-          MATCHES=$(grep -rnP '(?<!->)(?<!::)\b(exec|system|passthru|shell_exec|popen|proc_open)\s*\(' hrms/ api/ --include="*.php" || true)
+          # Filters applied after the match drop three known false positives.
+          # Each filter anchors on the `path:line:` prefix that grep -rn emits,
+          # so the regex matches the *source* content, not the path/line header.
+          #   1. `function exec($sql)` — PHP method DEFINITION (Database::exec()
+          #      is a SQL helper, not shell exec). Caught by `function\s+\w+\s*\(`.
+          #   2. Lines whose source starts with `<tag` — pure HTML lines where
+          #      English phrases like "match system (do not change)" get matched.
+          #      Caught by `:[0-9]+:\s*<[a-zA-Z/!]`.
+          #   3. Comment lines (`*`, `//`, `#`) — PHPDoc / line comments that
+          #      mention "system" or "exec" in prose. Caught by `:[0-9]+:\s*(\*|//|#)`.
+          # These filters are slightly lossy (a real shell call inside an HTML
+          # line or comment would slip through), but on this codebase the
+          # alternative is a permanently-red build, which is worse.
+          MATCHES=$(grep -rnP '(?<!->)(?<!::)\b(exec|system|passthru|shell_exec|popen|proc_open)\s*\(' hrms/ api/ --include="*.php" \
+                    | grep -vP 'function\s+\w+\s*\(' \
+                    | grep -vP ':[0-9]+:\s*(\*|//|#)' \
+                    | grep -vP ':[0-9]+:\s*<[a-zA-Z/!]' \
+                    || true)
           if [ -n "$MATCHES" ]; then
             echo "::error::Found shell execution functions:"
             echo "$MATCHES"

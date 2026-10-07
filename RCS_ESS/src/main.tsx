@@ -16,7 +16,9 @@ import "./index.css";
   const rawHash = window.location.hash;
   // Match both #/ess/XXXX (with leading slash from HashRouter convention)
   // and #ess/XXXX (without leading slash, shared-link format).
-  const mobileMatch = rawHash.match(/^#\/?ess[\/\-](\d{10,14})(?:-(\d{4}))?/);
+  // Character class [/-] matches either '/' or '-' — neither needs escaping
+  // inside a character class (and '-' at the end of the class is a literal).
+  const mobileMatch = rawHash.match(/^#\/?ess[/-](\d{10,14})(?:-(\d{4}))?/);
   if (mobileMatch) {
     const mobileDigits = mobileMatch[1];
     const pinDigits = mobileMatch[2];

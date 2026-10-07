@@ -368,9 +368,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if (isset($result['success']) && $result['success']) {
         // Auto-apply salary template only if NO manual salary data was entered
-        // (prevents template from overwriting user's intentional values)
-        $hasManualSalary = !empty($data['basic_da']) || !empty($data['basic_salary'])
-            || !empty($data['hra']) || !empty($data['gross_salary']);
+        // (prevents template from overwriting user's intentional values).
+        //
+        // Note: $data is built locally (see ~line 259) and only ever has
+        // 'basic_da', not 'basic_salary'. The null-coalesce on basic_salary
+        // keeps the defensive check without triggering PHPStan's empty.offset
+        // (which fires when accessing an offset that doesn't exist on the
+        // known array shape).
+        $hasManualSalary = !empty($data['basic_da'])
+            || !empty($data['basic_salary'] ?? null)
+            || !empty($data['hra'])
+            || !empty($data['gross_salary']);
         if (!$isEdit && !empty($result['employee_id']) && !$hasManualSalary) {
             try {
                 applyTemplateToEmployee((int)$result['employee_id'], $db, (int)date('n'), (int)date('Y'));
