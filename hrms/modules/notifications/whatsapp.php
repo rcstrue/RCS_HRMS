@@ -38,6 +38,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($tab === 'send') && ($_POST['actio
 }
 
 // ═══════════════════════════════════════════════════════════
+//  HISTORY TAB: Retry queued messages
+// ═══════════════════════════════════════════════════════════
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'history' && ($_POST['action'] ?? '') === 'retry_queued') {
+    // CSRF check (Round 9)
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect('index.php?page=notifications/whatsapp&tab=history');
+    }
+
+    $queued = $db->fetchAll("SELECT * FROM whatsapp_logs WHERE status = 'queued' ORDER BY id ASC");
+
+    if (empty($queued)) {
+        setFlash('info', 'No queued messages to retry.');
+        redirect('index.php?page=notifications/whatsapp&tab=history');
+    }
+
+    $config = waGetConfig();
+    if (empty($config['api_url']) || empty($config['api_key'])) {
+        setFlash('error', 'WhatsApp Bot is not configured.');
+        redirect('index.php?page=notifications/whatsapp&tab=history');
+    }
+
+    // Re-send all queued rows through the bot's /send-bulk (server queues with 3s delay)
+    $msgs = [];
+    foreach ($queued as $row) {
+        $msgs[] = ['number' => $row['mobile'], 'message' => $row['message']];
+    }
+
+    $result = waApiCall('/send-bulk', ['messages' => $msgs], 600);
+    if ($result['httpCode'] == 200 && ($result['data']['success'] ?? false)) {
+        $ids = array_map(fn($r) => (int)$r['id'], $queued);
+        $db->exec("UPDATE whatsapp_logs SET status = 'sent', error = NULL WHERE id IN (" . implode(',', $ids) . ")");
+        setFlash('success', 'Re-sent ' . count($queued) . ' queued messages. Check bot logs for delivery.');
+    } else {
+        $err = $result['error'] ?? ($result['data']['error'] ?? 'Unknown error');
+        setFlash('error', 'Retry failed: ' . sanitize($err));
+    }
+    redirect('index.php?page=notifications/whatsapp&tab=history');
+}
+
+// ═══════════════════════════════════════════════════════════
 //  BULK TAB: Preview + Send with Placeholders
 // ═══════════════════════════════════════════════════════════
 $resultMessage = '';
@@ -1322,7 +1363,21 @@ document.addEventListener('DOMContentLoaded', function() { waUpdateCounts(); });
                 <h5 class="card-title mb-0"><i class="bi bi-clock-history me-2"></i>Send History</h5>
             </div>
             <div class="col-auto">
-                <span class="badge bg-secondary"><?php echo number_format($history['pagination']['total']); ?> messages</span>
+                <span class="badge bg-secondary me-2"><?php echo number_format($history['pagination']['total']); ?> messages</span>
+                <?php
+                $queuedCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'queued'");
+                ?>
+                <form method="POST" style="display:inline;" onsubmit="return confirm('Re-send all <?php echo (int)$queuedCount; ?> queued message(s)?');">
+                    <?php echo getCSRFTokenField(); ?>
+                    <input type="hidden" name="tab" value="history">
+                    <input type="hidden" name="action" value="retry_queued">
+                    <button type="submit" class="btn btn-sm btn-warning" <?php echo $queuedCount > 0 ? '' : 'disabled'; ?>>
+                        <i class="bi bi-arrow-repeat me-1"></i>Retry Queued
+                        <?php if ($queuedCount > 0): ?>
+                        <span class="badge bg-danger ms-1"><?php echo $queuedCount; ?></span>
+                        <?php endif; ?>
+                    </button>
+                </form>
             </div>
         </div>
     </div>
