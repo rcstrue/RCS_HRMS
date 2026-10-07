@@ -27,6 +27,12 @@ const App = () => (
         <Route path="/ess" element={
           <ESSApp onBackToRegistration={() => window.location.hash = '/'} />
         } />
+        {/* Fallback: shared-login links like #/ess/8469841414 — renders ESSApp
+             with the mobile number available to LoginScreen. The normalization in
+             main.tsx handles most cases; this covers any race-condition miss. */
+        <Route path="/ess/:mobile" element={
+          <ESSApp onBackToRegistration={() => window.location.hash = '/'} />
+        } />
         <Route path="/admin" element={
           <RequireAuth type="admin">
             <AdminDashboard />
