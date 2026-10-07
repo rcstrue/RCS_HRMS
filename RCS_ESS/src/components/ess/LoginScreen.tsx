@@ -55,17 +55,17 @@ export default function LoginScreen({
   useEffect(() => {
     if (prefilledMobile) return; // Parent already provided it (e.g., session expiry)
     try {
-      const storedMobile = localStorage.getItem('ess_login_mobile');
-      const storedPin = localStorage.getItem('ess_login_pin');
+      const storedMobile = sessionStorage.getItem('ess_login_mobile');
+      const storedPin = sessionStorage.getItem('ess_login_pin');
       if (storedMobile && mobile === '') {
         setMobile(storedMobile);
         if (storedPin) {
           setPin(storedPin.split('').slice(0, 4));
         }
         setShowPin(true);
-        // Clear after reading so it doesn't persist on future loads
-        localStorage.removeItem('ess_login_mobile');
-        localStorage.removeItem('ess_login_pin');
+        // Clear after reading so it doesn't persist across reloads
+        sessionStorage.removeItem('ess_login_mobile');
+        sessionStorage.removeItem('ess_login_pin');
       }
     } catch { /* localStorage unavailable */ }
   }, [prefilledMobile, mobile]);
