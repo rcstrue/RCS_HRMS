@@ -79,6 +79,9 @@ async function createSocket() {
       connecting = false;
       currentQr = null;
       state = 'connected';
+      const ownJid = sock?.user?.id || '';
+      currentPhone = ownJid.split(':')[0].split('@')[0] || null;
+      currentName = sock?.user?.name || sock?.user?.verifiedName || null;
       console.log('[CONN] WhatsApp connection open');
     }
   });
@@ -193,9 +196,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Existing text-send contract used by hrms/includes/whatsapp.php:
-  // POST /send { number, message }
-  if (req.method === 'POST' && urlPath === '/send') {
+  // Shared text-send implementation for all HRMS-compatible text endpoints.
+  if (req.method === 'POST' && (urlPath === '/send' || urlPath === '/send-message' || urlPath === '/api/send')) {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', async () => {
@@ -232,8 +234,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Do not claim specialized endpoints work without their original handlers.
-  if (urlPath.startsWith('/send-') || urlPath.startsWith('/send-message') || urlPath.startsWith('/api/send')) {
+  // Specialized endpoints require their original production handlers.
+  if (urlPath.startsWith('/send-')) {
     res.writeHead(501);
     res.end(JSON.stringify({ success: false, error: 'This message type is not available in the active bot' }));
     return;
