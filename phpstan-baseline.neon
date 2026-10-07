@@ -2327,3 +2327,15 @@ parameters:
 			identifier: variable.undefined
 			count: 20
 			path: hrms/templates/header.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/wa-delivery-callback.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/wa-queue.php

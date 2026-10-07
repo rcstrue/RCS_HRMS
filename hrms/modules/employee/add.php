@@ -371,12 +371,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // (prevents template from overwriting user's intentional values).
         //
         // Note: $data is built locally (see ~line 259) and only ever has
-        // 'basic_da', not 'basic_salary'. The null-coalesce on basic_salary
-        // keeps the defensive check without triggering PHPStan's empty.offset
-        // (which fires when accessing an offset that doesn't exist on the
-        // known array shape).
+        // 'basic_da' (Basic + DA), not 'basic_salary'. The defensive check
+        // for 'basic_salary' was dead code and triggered PHPStan's
+        // empty.offset + nullCoalesce.offset rules. Removed.
         $hasManualSalary = !empty($data['basic_da'])
-            || !empty($data['basic_salary'] ?? null)
             || !empty($data['hra'])
             || !empty($data['gross_salary']);
         if (!$isEdit && !empty($result['employee_id']) && !$hasManualSalary) {

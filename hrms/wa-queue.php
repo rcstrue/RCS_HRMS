@@ -110,7 +110,9 @@ try {
             }
             $ok        = !empty($input['ok']);
             $messageId = isset($input['messageId']) ? (string)$input['messageId'] : null;
-            $error     = isset($input['error']) && $input['error'] !== null ? (string)$input['error'] : null;
+            // isset() returns false for null values, so the redundant
+            // `!== null` check (which PHPStan flags as always-true) is gone.
+            $error     = isset($input['error']) ? (string)$input['error'] : null;
 
             $result = waQueueReport($logId, $ok, $messageId, $error);
             $result['queue'] = waQueueStats();
