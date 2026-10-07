@@ -56,23 +56,24 @@ async function createSocket() {
       console.log('[QR] New QR generated');
     }
     if (connection === 'close') {
-      const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       connected = false;
       currentPhone = null;
       currentName = null;
       currentQr = null;
+      // Always reset these flags after close, including QR expiry.
+      // Otherwise the duplicate-socket guard blocks the next login flow.
+      connecting = false;
       state = 'disconnected';
       console.log('[CONN] Connection closed. Logged out?', !shouldReconnect);
-      if (!shouldReconnect) {
-        // Logout was intentional; do NOT auto-reconnect (Rule 7 / Part 7)
-        // Wait for new /api/login call
-      } else if (shouldReconnect) {
-        // Auto-reconnect only on unexpected disconnect, NOT after intentional logout
-        // (This is the controlled reconnect mechanism — Part 16)
+      if (shouldReconnect) {
+        // Reconnect after unexpected disconnect or expired QR.
         setTimeout(() => {
-          if (state !== 'connected' && state !== 'connecting') createSocket();
+          if (!connected && !connecting) createSocket();
         }, 3000);
       }
+      // Intentional logout does not auto-reconnect; /api/login starts it.
     } else if (connection === 'open') {
       connected = true;
       connecting = false;
