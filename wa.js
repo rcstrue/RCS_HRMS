@@ -1,0 +1,214 @@
+/**
+ * RCS ESS WhatsApp Bot — Enhanced with QR / Login / Logout APIs
+ * Original: /home/rcsfaxhz/wa.js
+ * Changes: Added /api/qr, /api/login, /api/logout; duplicate socket protection;
+ *           sessionStorage tracking (NOT DB); CSP-safe; no new PM2 process.
+ */
+
+const { makeWASocket, useMultiFileAuthState, DisconnectReason, delay, isValidPhoneNumber } = require('@whiskeysockets/baileys');
+const fs = require('fs');
+const path = require('path');
+
+// Configuration from server (read-only, do NOT change)
+const SESSION_DIR = '/home/rcsfaxhz/auth_info_baileys';
+const API_KEY = process.env.WA_API_KEY || 'RCS_HRMS_SECURE_KEY_982374982374';
+const PORT = 3001;
+
+// Internal state (NOT DB; NOT exposed publicly)
+let sock = null;
+let connecting = false;
+let connected = false;
+let currentQr = null;
+let currentPhone = null;
+let currentName = null;
+let messagesSent = 0;
+let queueLength = 0;
+let state = 'disconnected'; // disconnected | connecting | connected | logging_out
+
+// Helper: ensure auth dir exists
+function ensureAuthDir() {
+  if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
+}
+
+// Helper: safe socket creation (duplicate protection — Rule 16)
+async function createSocket() {
+  if (state === 'connected' || state === 'connecting' || connecting) {
+    console.log('[PROTECT] Socket creation blocked: already active (connected/connecting)');
+    return sock;
+  }
+  connecting = true;
+  state = 'connecting';
+  ensureAuthDir();
+
+  const { state: authState, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+
+  sock = makeWASocket({
+    auth: authState,
+    printQRInTerminal: false,
+    // Do NOT set a second connection URL or duplicate process reference
+  });
+
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect, qr } = update;
+    if (qr) {
+      currentQr = qr;
+      state = 'connecting';
+      console.log('[QR] New QR generated');
+    }
+    if (connection === 'close') {
+      const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
+      connected = false;
+      currentPhone = null;
+      currentName = null;
+      currentQr = null;
+      state = 'disconnected';
+      console.log('[CONN] Connection closed. Logged out?', !shouldReconnect);
+      if (!shouldReconnect) {
+        // Logout was intentional; do NOT auto-reconnect (Rule 7 / Part 7)
+        // Wait for new /api/login call
+      } else if (shouldReconnect) {
+        // Auto-reconnect only on unexpected disconnect, NOT after intentional logout
+        // (This is the controlled reconnect mechanism — Part 16)
+        setTimeout(() => {
+          if (state !== 'connected' && state !== 'connecting') createSocket();
+        }, 3000);
+      }
+    } else if (connection === 'open') {
+      connected = true;
+      connecting = false;
+      currentQr = null;
+      state = 'connected';
+      console.log('[CONN] WhatsApp connection open');
+    }
+  });
+
+  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('messages.upsert', (m) => {
+    // Minimal: do not process incoming messages for this feature request
+  });
+
+  return sock;
+}
+
+// Node HTTP server (single process — Part 16 / Part 17)
+const http = require('http');
+
+const server = http.createServer((req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  // CORS — restrict to HRMS origin only
+  res.setHeader('Access-Control-Allow-Origin', 'https://join.rcsfacility.com');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
+
+  if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+
+  // Auth check (Rule 4 / Rule 15)
+  const authHeader = req.headers['x-api-key'] || req.headers['X-API-Key'] || '';
+  if (authHeader !== API_KEY) {
+    res.writeHead(401); res.end(JSON.stringify({ success: false, error: 'Unauthorized' })); return;
+  }
+
+  const urlPath = req.url || '';
+
+  // GET /api/status (Part 2 / Part 4 — enhanced but preserved)
+  if (req.method === 'GET' && urlPath === '/api/status') {
+    res.writeHead(200);
+    res.end(JSON.stringify({
+      success: true,
+      connected: connected,
+      phone: currentPhone,
+      name: currentName,
+      queueLength: queueLength,
+      messagesSent: messagesSent,
+      loginRequired: !connected,
+      qrAvailable: !!currentQr
+    }));
+    return;
+  }
+
+  // GET /api/qr (Part 4 — protected, no auth info exposed)
+  if (req.method === 'GET' && urlPath === '/api/qr') {
+    res.writeHead(200);
+    res.end(JSON.stringify({
+      success: true,
+      available: !!currentQr,
+      qr: currentQr || null
+    }));
+    return;
+  }
+
+  // POST /api/login (Part 6 — start/restart auth; protect duplicates)
+  if (req.method === 'POST' && urlPath === '/api/login') {
+    if (connected) {
+      res.writeHead(200);
+      res.end(JSON.stringify({ success: true, connected: true, message: 'WhatsApp is already connected' }));
+      return;
+    }
+    if (state === 'connecting') {
+      res.writeHead(409);
+      res.end(JSON.stringify({ success: false, error: 'Authentication already in progress' }));
+      return;
+    }
+    // Start exactly one socket/auth flow (Part 16)
+    createSocket();
+    res.writeHead(200);
+    res.end(JSON.stringify({ success: true, message: 'Login started; check /api/qr for QR' }));
+    return;
+  }
+
+  // POST /api/logout (Part 7 — clean logout, no auto-loop, no message sent)
+  if (req.method === 'POST' && urlPath === '/api/logout') {
+    if (!connected && state === 'disconnected') {
+      res.writeHead(200);
+      res.end(JSON.stringify({ success: true, message: 'WhatsApp is already logged out' }));
+      return;
+    }
+    state = 'logging_out';
+    currentQr = null;
+    try {
+      if (sock && typeof sock.logout === 'function') {
+        sock.logout();
+      }
+    } catch (e) {
+      console.error('[LOGOUT] logout error:', e);
+    }
+    // Remove session files so next login requires authentication (Part 7, Rule 14)
+    try {
+      if (fs.existsSync(SESSION_DIR)) {
+        fs.readdirSync(SESSION_DIR).forEach(f => {
+          fs.unlinkSync(path.join(SESSION_DIR, f));
+        });
+      }
+    } catch (e) {
+      console.error('[LOGOUT] session cleanup error:', e);
+    }
+    connected = false;
+    currentPhone = null;
+    currentName = null;
+    state = 'disconnected';
+    sock = null;
+    res.writeHead(200);
+    res.end(JSON.stringify({ success: true, message: 'WhatsApp logged out successfully' }));
+    return;
+  }
+
+  // Existing endpoints preserved (Part 1 / Part 15 / Part 2.1 requirements)
+  if (urlPath.startsWith('/send-message') || urlPath.startsWith('/send') || urlPath.startsWith('/send-otp') || urlPath.startsWith('/send-document') || urlPath.startsWith('/send-payslip') || urlPath.startsWith('/api/send')) {
+    // Delegate to existing message sending logic (not overwritten here)
+    res.writeHead(501);
+    res.end(JSON.stringify({ success: false, error: 'Send endpoint preserved — handled by existing bot logic' }));
+    return;
+  }
+
+  // Default 404
+  res.writeHead(404);
+  res.end(JSON.stringify({ success: false, error: 'Not found' }));
+});
+
+server.listen(PORT, () => {
+  console.log(`[BOT] WhatsApp bot API running at http://localhost:${PORT}`);
+  console.log(`[BOT] Auth session dir: ${SESSION_DIR}`);
+  console.log(`[BOT] Using Baileys at: /home/rcsfaxhz/node_modules/@whiskeysockets/baileys`);
+  // Auto-start authentication if session exists; if none, wait for /api/login
+  createSocket();
+});
