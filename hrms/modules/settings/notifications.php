@@ -255,16 +255,23 @@ function showLoginWA() {
 function closeLoginWA() { clearInterval(window.waPollInterval); document.getElementById('wa-login-modal').style.display='none'; document.getElementById('wa-login-modal').classList.remove('show'); }
 
 function pollQR() {
-    fetch('index.php?page=api/whatsapp-qr', {method:'GET'})
-    .then(r=>r.json()).then(d=>{
-        if (d.success && d.available && d.qr) {
-            // Convert QR string to image using qrserver (trusted external; no secret in URL)
-            document.getElementById('wa-qr-area').innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data='+encodeURIComponent(d.qr)+'" alt="WhatsApp QR" style="max-width:220px;">';
+    Promise.all([
+        fetch('index.php?page=api/whatsapp-qr').then(r=>r.json()),
+        fetch('index.php?page=api/whatsapp-status').then(r=>r.json())
+    ]).then(([qr, status])=>{
+        if (status.success && status.connected) {
+            closeLoginWA();
+            location.reload();
+            return;
+        }
+        if (qr.success && qr.available && qr.qr) {
+            // Convert QR string to image using qrserver (no bot key exposed)
+            document.getElementById('wa-qr-area').innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data='+encodeURIComponent(qr.qr)+'" alt="WhatsApp QR" style="max-width:220px;">';
             document.getElementById('wa-modal-status').textContent = 'Scan this QR with WhatsApp → Linked Devices';
-        } else if (d.success && !d.available) {
+        } else {
             document.getElementById('wa-modal-status').textContent = 'Waiting for new QR...';
         }
-    }).catch(()=>{ document.getElementById('wa-modal-status').textContent = 'Polling...'; });
+    }).catch(()=>{ document.getElementById('wa-modal-status').textContent = 'Polling connection status...'; });
 }
 
 function showReconnectWA() { alert('Reconnect: use Login WhatsApp if session expired.'); }

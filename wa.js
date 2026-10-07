@@ -193,11 +193,49 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Existing endpoints preserved (Part 1 / Part 15 / Part 2.1 requirements)
-  if (urlPath.startsWith('/send-message') || urlPath.startsWith('/send') || urlPath.startsWith('/send-otp') || urlPath.startsWith('/send-document') || urlPath.startsWith('/send-payslip') || urlPath.startsWith('/api/send')) {
-    // Delegate to existing message sending logic (not overwritten here)
+  // Existing text-send contract used by hrms/includes/whatsapp.php:
+  // POST /send { number, message }
+  if (req.method === 'POST' && urlPath === '/send') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const number = String(payload.number || '').replace(/[^0-9]/g, '');
+        const message = String(payload.message || '');
+        if (number.length < 10 || !message.trim()) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ success: false, error: 'number and message are required' }));
+          return;
+        }
+        if (!connected || !sock) {
+          res.writeHead(503);
+          res.end(JSON.stringify({ success: false, error: 'WhatsApp is not connected' }));
+          return;
+        }
+        const jid = `${number}@s.whatsapp.net`;
+        const sent = await sock.sendMessage(jid, { text: message });
+        res.writeHead(200);
+        res.end(JSON.stringify({
+          success: true,
+          message: 'Message sent',
+          messageId: sent?.key?.id || null
+        }));
+      } catch (error) {
+        console.error('[SEND] text send failed:', error?.message || error);
+        if (!res.writableEnded) {
+          res.writeHead(502);
+          res.end(JSON.stringify({ success: false, error: 'Message send failed' }));
+        }
+      }
+    });
+    return;
+  }
+
+  // Do not claim specialized endpoints work without their original handlers.
+  if (urlPath.startsWith('/send-') || urlPath.startsWith('/send-message') || urlPath.startsWith('/api/send')) {
     res.writeHead(501);
-    res.end(JSON.stringify({ success: false, error: 'Send endpoint preserved — handled by existing bot logic' }));
+    res.end(JSON.stringify({ success: false, error: 'This message type is not available in the active bot' }));
     return;
   }
 
