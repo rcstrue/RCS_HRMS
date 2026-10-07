@@ -368,7 +368,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'bulk') {
         unset($_SESSION['wa_bulk_preview']);
 
         $totalAll = count($sentList) + count($failedList) + count($skipped) + count($preview['rejected'] ?? []);
-        $resultMessage = "<b>Campaign Submitted!</b> Total: $totalAll | <span class='text-warning'>Queued: $queued</span> | <span class='text-danger'>Failed: $failed</span> | <span class='text-warning'>Skipped: " . count($skipped) . "</span> | <span class='text-secondary'>Rejected (invalid mobile): " . count($preview['rejected'] ?? []) . "</span><br><small class='text-muted'>Status updates to Sent/Queued as the bot confirms each delivery — check the Send History tab.</small>";
+        $resultMessage = "<b>Campaign Submitted!</b> Total: $totalAll | <span class='text-warning'>Queued: $queued</span> | <span class='text-danger'>Failed: $failed</span> | <span class='text-warning'>Skipped: " . count($skipped) . "</span> | <span class='text-secondary'>Rejected (invalid mobile): " . count($preview['rejected'] ?? []) . "</span><br><small class='text-muted'>Status updates in real time: Queued → Sending → Sent (or Failed/Retry) as the bot confirms each delivery — check the Send History tab.</small>";
         $resultType = 'success';
         $currentTab = 'sent';
     }

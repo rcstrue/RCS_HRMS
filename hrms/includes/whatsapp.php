@@ -319,6 +319,13 @@ if (!function_exists('waIsPermanentDisconnectError')) {
     }
 }
 
+// Admin queue management (pause/resume) is only through the new endpoint.
+if (!function_exists('waQueuePauseAdmin')) {
+    function waQueuePauseAdmin(bool $paused): bool {
+        return updateSetting('wa_queue_paused', $paused ? '1' : '0');
+    }
+}
+
 // Queue pacing/config — configurable from HRMS settings, conservative defaults.
 if (!function_exists('waQueueConfig')) {
     function waQueueConfig(): array {
