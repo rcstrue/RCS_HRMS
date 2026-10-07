@@ -217,6 +217,7 @@ const server = http.createServer((req, res) => {
         }
         const jid = `${number}@s.whatsapp.net`;
         const sent = await sock.sendMessage(jid, { text: message });
+        messagesSent++;
         res.writeHead(200);
         res.end(JSON.stringify({
           success: true,
@@ -228,6 +229,55 @@ const server = http.createServer((req, res) => {
         if (!res.writableEnded) {
           res.writeHead(502);
           res.end(JSON.stringify({ success: false, error: 'Message send failed' }));
+        }
+      }
+    });
+    return;
+  }
+
+  // POST /send-bulk { messages: [{ number, message }, ...] }
+  if (req.method === 'POST' && urlPath === '/send-bulk') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const bulkMessages = payload.messages || [];
+        if (!Array.isArray(bulkMessages) || bulkMessages.length === 0) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ success: false, error: 'messages array is required' }));
+          return;
+        }
+        if (!connected || !sock) {
+          res.writeHead(503);
+          res.end(JSON.stringify({ success: false, error: 'WhatsApp is not connected' }));
+          return;
+        }
+
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, message: `Bulk sending ${bulkMessages.length} messages started` }));
+
+        // Process in background sequentially with 3s delay (Part 9 / Part 15 requirement)
+        (async () => {
+          for (const msg of bulkMessages) {
+            try {
+              const num = String(msg.number || '').replace(/[^0-9]/g, '');
+              const txt = String(msg.message || '');
+              if (num.length >= 10 && txt.trim() && connected && sock) {
+                await sock.sendMessage(`${num}@s.whatsapp.net`, { text: txt });
+                messagesSent++;
+                console.log(`[BULK] Sent to ${num}`);
+              }
+              await new Promise(r => setTimeout(r, 3000));
+            } catch (err) {
+              console.error(`[BULK] Error sending to ${msg.number}:`, err.message);
+            }
+          }
+        })();
+      } catch (error) {
+        if (!res.writableEnded) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ success: false, error: 'Invalid JSON' }));
         }
       }
     });
