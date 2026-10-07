@@ -79,6 +79,25 @@ export default function LoginScreen({
     extractFromUrl();
   }, [prefilledMobile]);
 
+  // ── Read mobile/PIN from localStorage (set by inline script in index.html) ──
+  useEffect(() => {
+    if (prefilledMobile) return; // Parent already provided it (e.g., session expiry)
+    try {
+      const storedMobile = localStorage.getItem('ess_login_mobile');
+      const storedPin = localStorage.getItem('ess_login_pin');
+      if (storedMobile && mobile === '') {
+        setMobile(storedMobile);
+        if (storedPin) {
+          setPin(storedPin.split('').slice(0, 4));
+        }
+        setShowPin(true);
+        // Clear after reading so it doesn't persist on future loads
+        localStorage.removeItem('ess_login_mobile');
+        localStorage.removeItem('ess_login_pin');
+      }
+    } catch { /* localStorage unavailable */ }
+  }, [prefilledMobile, mobile]);
+
   // ── Rate limit state ──────────────────────────────────
   const [rateLimit, setRateLimit] = useState(getRateLimitStatus());
   const cooldownTimer = useRef<ReturnType<typeof setInterval> | null>(null);

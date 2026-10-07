@@ -36,5 +36,25 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // ── Auto-extract mobile/PIN from URL hash for shared login links ──
+      // This runs BEFORE React router processes the hash, so the route /ess/xxxx
+      // is never seen by the SPA. Instead, the values are stored for LoginScreen.
+      (() => {
+        const hash = window.location.hash;
+        const mobileMatch = hash.match(/^#ess[\/\-](\d{10,14})(?:-(\d{4}))?/);
+        if (mobileMatch) {
+          const mobile = mobileMatch[1];
+          const pin = mobileMatch[2]; // last 4 digits if provided
+          // Store for the app to read on startup
+          localStorage.setItem('ess_login_mobile', mobile);
+          if (pin) {
+            localStorage.setItem('ess_login_pin', pin);
+          }
+          // Clean the hash so React router doesn't try /ess/xxxx as a page route
+          window.history.replaceState(null, '', window.location.pathname + window.location.search + '#ess');
+        }
+      })();
+    </script>
   </body>
 </html>
