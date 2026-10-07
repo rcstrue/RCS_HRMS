@@ -240,7 +240,7 @@ const server = http.createServer((req, res) => {
     req.on('end', async () => {
       try {
         const payload = JSON.parse(body || '{}');
-        const number = String(payload.number || '').replace(/[^0-9]/g, '');
+        const number = String(payload.number || payload.to || '').replace(/[^0-9]/g, '');
         const message = String(payload.message || '');
         if (number.length < 10 || !message.trim()) {
           res.writeHead(400);
@@ -298,7 +298,7 @@ const server = http.createServer((req, res) => {
         (async () => {
           for (const msg of bulkMessages) {
             const logId = msg.log_id || null;
-            const num = String(msg.number || '').replace(/[^0-9]/g, '');
+            const num = String(msg.number || msg.to || '').replace(/[^0-9]/g, '');
             const txt = String(msg.message || '');
             try {
               if (num.length >= 10 && txt.trim() && connected && sock) {
