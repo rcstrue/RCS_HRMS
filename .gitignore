@@ -50,5 +50,9 @@ test
 prompt
 
 server.log
+# WhatsApp auth session — NEVER commit sensitive session credentials
+auth_info_baileys/
+/home/rcsfaxhz/auth_info_baileys/
+
 # Skills directory
 /skills/tool-results/

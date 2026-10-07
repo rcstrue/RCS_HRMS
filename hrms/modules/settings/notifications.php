@@ -95,6 +95,25 @@ $waBot = $notification->getWhatsAppBotStatus();
                         <?php endif; ?>
                     </div>
                     
+                    <!-- WhatsApp Login / Logout / Reconnect Buttons -->
+                    <div class="d-flex gap-2 mb-3">
+                        <?php if ($waBot['connected']): ?>
+                        <a href="#" onclick="confirmRefreshWA()" class="btn btn-outline-primary btn-sm" title="Refresh connection status">
+                            <i class="bi bi-arrow-clockwise me-1"></i>Refresh Status
+                        </a>
+                        <a href="#" onclick="showLogoutConfirm()" class="btn btn-outline-danger btn-sm" title="Log out of WhatsApp bot (requires re-login)">
+                            <i class="bi bi-box-arrow-right me-1"></i>Logout WhatsApp
+                        </a>
+                        <?php else: ?>
+                        <a href="#" onclick="showLoginWA()" class="btn btn-success btn-sm" title="Start WhatsApp login (QR scan)">
+                            <i class="bi bi-phone me-1"></i>Login WhatsApp
+                        </a>
+                        <a href="#" onclick="showReconnectWA()" class="btn btn-outline-secondary btn-sm" title="Reconnect to existing session">
+                            <i class="bi bi-arrow-repeat me-1"></i>Reconnect
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                    
                     <div class="mb-3">
                         <label class="form-label">Bot API URL *</label>
                         <input type="url" class="form-control" name="wa_bot_url" 
@@ -197,3 +216,58 @@ $waBot = $notification->getWhatsAppBotStatus();
         </button>
     </div>
 </form>
+
+<!-- WhatsApp Login / QR Modal (hidden by default; shown via JS) -->
+<div id="wa-login-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="display:none;">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="bi bi-whatsapp me-2"></i>WhatsApp Login</h5>
+                <button type="button" class="btn-close btn-close-white" onclick="closeLoginWA()" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center" id="wa-modal-body">
+                <p class="text-muted">Connecting to WhatsApp bot...</p>
+                <div id="wa-qr-area" style="margin:15px auto; max-width:260px; text-align:center;"></div>
+                <p class="small text-muted" id="wa-qr-instruction">Open WhatsApp → Linked Devices → Link a Device → Scan QR</p>
+                <div id="wa-modal-status" class="small mb-2 text-info">Waiting for QR code...</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeLoginWA()">Cancel</button>
+                <button type="button" class="btn btn-outline-info" onclick="pollQR()">Refresh QR</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// WhatsApp Login / Logout / QR Polling (client-side only; server proxies all calls via PHP)
+function showLoginWA() {
+    document.getElementById('wa-login-modal').style.display = 'block';
+    document.getElementById('wa-login-modal').classList.add('show');
+    // Call PHP proxy to trigger /api/login server-side (does not expose bot URL/key to browser)
+    fetch('index.php?page=api/whatsapp-login', {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'csrf_token='+document.querySelector('input[name="csrf_token"]')?.value||''}).catch(()=>{});
+    document.getElementById('wa-qr-area').innerHTML = '<div class="spinner-border spinner-border-sm text-success"></div> <span>Waiting for QR...</span>';
+    document.getElementById('wa-modal-status').textContent = 'Starting WhatsApp authentication...';
+    // Start polling for QR
+    window.waPollInterval = setInterval(pollQR, 2500);
+    pollQR();
+}
+function closeLoginWA() { clearInterval(window.waPollInterval); document.getElementById('wa-login-modal').style.display='none'; document.getElementById('wa-login-modal').classList.remove('show'); }
+
+function pollQR() {
+    fetch('index.php?page=api/whatsapp-qr', {method:'GET'})
+    .then(r=>r.json()).then(d=>{
+        if (d.success && d.available && d.qr) {
+            // Convert QR string to image using qrserver (trusted external; no secret in URL)
+            document.getElementById('wa-qr-area').innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data='+encodeURIComponent(d.qr)+'" alt="WhatsApp QR" style="max-width:220px;">';
+            document.getElementById('wa-modal-status').textContent = 'Scan this QR with WhatsApp → Linked Devices';
+        } else if (d.success && !d.available) {
+            document.getElementById('wa-modal-status').textContent = 'Waiting for new QR...';
+        }
+    }).catch(()=>{ document.getElementById('wa-modal-status').textContent = 'Polling...'; });
+}
+
+function showReconnectWA() { alert('Reconnect: use Login WhatsApp if session expired.'); }
+function confirmRefreshWA() { if(confirm('Refresh WhatsApp bot status?')) { location.reload(); } }
+function showLogoutConfirm() { if(confirm('Logout WhatsApp?\nMessages will stop being sent until WhatsApp is connected again.')) { fetch('index.php?page=api/whatsapp-logout',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'csrf_token='+document.querySelector('input[name="csrf_token"]')?.value||''}); setTimeout(()=>location.reload(),800); } }
+</script>
