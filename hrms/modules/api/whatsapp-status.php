@@ -4,8 +4,8 @@
  * Authenticated admin endpoint → calls Node bot /api/status
  * Never exposes API key to browser.
  */
-require_once __DIR__ . '/../../hrms/includes/config/config.php';
-require_once __DIR__ . '/../../hrms/includes/database.php';
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../includes/database.php';
 
 // Auth check
 session_start();

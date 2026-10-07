@@ -3,8 +3,8 @@
  * HRMS Proxy: WhatsApp QR
  * GET — authenticated admin only; server calls bot /api/qr
  */
-require_once __DIR__ . '/../../hrms/includes/config/config.php';
-require_once __DIR__ . '/../../hrms/includes/database.php';
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../includes/database.php';
 
 session_start();
 if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) {
