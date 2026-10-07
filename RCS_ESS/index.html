@@ -42,7 +42,7 @@
       // is never seen by the SPA. Instead, the values are stored for LoginScreen.
       (() => {
         const hash = window.location.hash;
-        const mobileMatch = hash.match(/^#ess[\/\-](\d{10,14})(?:-(\d{4}))?/);
+        const mobileMatch = hash.match(/^#\/?ess[\/\-](\d{10,14})(?:-(\d{4}))?/);
         if (mobileMatch) {
           const mobile = mobileMatch[1];
           const pin = mobileMatch[2]; // last 4 digits if provided

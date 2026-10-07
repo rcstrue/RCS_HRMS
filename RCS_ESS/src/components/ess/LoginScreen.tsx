@@ -51,34 +51,6 @@ export default function LoginScreen({
   const [loading, setLoading] = useState(false);
   const pinRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // ── Auto-extract mobile number from URL hash on mount (for shared login links) ──
-  // Supports both patterns:
-  //   1. #ess/8469841414        → mobile only, employee enters PIN manually
-  //   2. #ess/8469841414-1988   → mobile + 4-digit PIN (temporary, first-time login)
-  useEffect(() => {
-    const extractFromUrl = () => {
-      if (typeof window === 'undefined' || !window.location.hash) return;
-      const hash = window.location.hash;
-      const match = hash.match(/^#ess[\/\-](\d{10,14})(?:-(\d{4}))?/);
-      // Only extract if mobile is still empty (first mount, not from parent prop)
-      if (match && !prefilledMobile) {
-        const mobileDigits = match[1];
-        const pinDigits = match[2];
-        // Only apply if mobile hasn't been pre-filled via prop
-        setMobile((prev) => (prev === '' ? mobileDigits : prev));
-        if (pinDigits) {
-          setPin(pinDigits.split('').slice(0, 4));
-        }
-        // If mobile was just set, also trigger PIN entry
-        setShowPin(true);
-        // Clean the URL but keep mobile for reference (or just to #ess if PIN was included)
-        // If PIN was in URL, clean fully; otherwise keep mobile in hash for reference
-        window.history.replaceState(null, '', window.location.pathname + window.location.search + (pinDigits ? '#ess' : '#ess/' + mobileDigits));
-      }
-    };
-    extractFromUrl();
-  }, [prefilledMobile]);
-
   // ── Read mobile/PIN from localStorage (set by inline script in index.html) ──
   useEffect(() => {
     if (prefilledMobile) return; // Parent already provided it (e.g., session expiry)
