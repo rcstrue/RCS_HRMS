@@ -272,8 +272,9 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // POST /send-bulk { messages: [{ number, message }, ...] }
-  if (req.method === 'POST' && urlPath === '/send-bulk') {
+  // POST /send-bulk { messages: [{ number|to, message, log_id? }, ...] }
+  // Also accepts /api/send-bulk (used by class.notification.php)
+  if (req.method === 'POST' && (urlPath === '/send-bulk' || urlPath === '/api/send-bulk')) {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', async () => {
