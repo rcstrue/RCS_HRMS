@@ -47,26 +47,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'history' && ($_POST['acti
         redirect('index.php?page=notifications/whatsapp&tab=history');
     }
 
-    $queued = $db->fetchAll("SELECT * FROM whatsapp_logs WHERE status IN ('queued','retry_wait') ORDER BY id ASC");
+    $queued = $db->fetchAll("SELECT * FROM whatsapp_logs WHERE status = 'queued' ORDER BY id ASC");
 
     if (empty($queued)) {
         setFlash('info', 'No queued messages to retry.');
         redirect('index.php?page=notifications/whatsapp&tab=history');
     }
 
-    // Re-arm the existing rows: reset the attempt counter and make them due now.
-    // The bot's worker claims them from the DB — no duplicate rows, no in-memory loop.
-    $stmt = $db->query(
-        "UPDATE whatsapp_logs
-         SET status = 'queued', attempts = 0, error = NULL, available_at = NOW(), updated_at = NOW()
-         WHERE status IN ('queued','retry_wait')"
-    );
-    $rearmed = $stmt ? $stmt->rowCount() : 0;
+    $config = waGetConfig();
+    if (empty($config['api_url']) || empty($config['api_key'])) {
+        setFlash('error', 'WhatsApp Bot is not configured.');
+        redirect('index.php?page=notifications/whatsapp&tab=history');
+    }
 
-    // Clear any admin pause so the worker actually resumes.
-    waQueuePause(false);
+    // Re-send all queued rows through the bot's /send-bulk.
+    // Create FRESH queued log rows so each retry is tracked independently,
+    // and the delivery callback flips them to sent/failed on real delivery.
+    $msgs = [];
+    foreach ($queued as $row) {
+        $newLogId = waLog([
+            'mobile' => $row['mobile'],
+            'message' => $row['message'],
+            'status' => 'queued',
+            'employee_id' => $row['employee_id'] ?? null,
+        ]);
+        $msgs[] = ['number' => $row['mobile'], 'message' => $row['message'], 'log_id' => $newLogId];
+    }
 
-    setFlash('success', "Re-queued $rearmed message(s). The bot sends them gradually and reports the real delivery status.");
+    $result = waApiCall('/send-bulk', ['messages' => $msgs], 600);
+    if ($result['httpCode'] == 200 && ($result['data']['success'] ?? false)) {
+        setFlash('success', 'Re-queued ' . count($msgs) . ' messages. The bot will report delivery via callback.');
+    } else {
+        $err = $result['error'] ?? ($result['data']['error'] ?? 'Unknown error');
+        // Bot unreachable: mark the new rows failed
+        foreach ($msgs as $m) {
+            $db->update('whatsapp_logs',
+                ['status' => 'failed', 'error' => $err],
+                'id = :log_id AND status = :st',
+                [':log_id' => (int)$m['log_id'], ':st' => 'queued']);
+        }
+        setFlash('error', 'Retry failed: ' . sanitize($err));
+    }
     redirect('index.php?page=notifications/whatsapp&tab=history');
 }
 
@@ -305,50 +326,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'bulk') {
                 $failedList[] = ['mobile' => $m['number'], 'name' => $m['name'], 'reason' => 'WhatsApp Bot not configured'];
             }
         } else {
-            // PERSISTENT QUEUE: rows are inserted as 'queued' with a campaign id and
-            // are sent GRADUALLY by the bot's single worker (paced, sequential,
-            // DB-backed). Nothing is marked 'sent' here. Status becomes truthful
-            // only when the worker confirms an actual WhatsApp send.
-            $campaignId = 'wa' . date('ymd') . bin2hex(random_bytes(6));
-            $queueRows = [];
-            foreach ($messages as $m) {
-                $queueRows[] = [
-                    'mobile'      => $m['number'],
-                    'message'     => $m['message'],
-                    'employee_id' => $m['employee_id'],
-                ];
-            }
+            // Send in batches of 200 to avoid API limits.
+            // IMPORTANT: Rows stay 'queued' until the bot confirms each ACTUAL send
+            // via the delivery callback (wa-delivery-callback.php), which flips them
+            // to 'sent'/'failed' with the real message id. We never mark them 'sent'
+            // here at submission time.
+            $batchSize = 200;
+            $totalBatches = ceil(count($messages) / $batchSize);
 
-            // Insert into whatsapp_logs as the queue itself (Option A).
-            foreach ($queueRows as $qr) {
-                $logId = waLog([
-                    'mobile'      => $qr['mobile'],
-                    'message'     => $qr['message'],
-                    'status'      => 'queued',
-                    'employee_id' => $qr['employee_id'],
-                    'campaign_id' => $campaignId,
-                    'available_at' => date('Y-m-d H:i:s'),
-                ]);
-                if ($logId <= 0) {
-                    $failed++;
-                    $failedList[] = ['mobile' => $qr['mobile'], 'name' => '', 'reason' => 'Could not queue message'];
+            for ($batch = 0; $batch < $totalBatches; $batch++) {
+                $batchMsgs = array_slice($messages, $batch * $batchSize, $batchSize);
+
+                // 1) Insert each recipient as queued FIRST, capturing the log id
+                $apiMsgs = [];
+                $apiNameMap = []; // log_id -> name (for error reporting)
+                foreach ($batchMsgs as $m) {
+                    $logId = waLog([
+                        'mobile' => $m['number'],
+                        'message' => $m['message'],
+                        'status' => 'queued',
+                        'employee_id' => $m['employee_id'],
+                    ]);
+                    $apiMsgs[] = [
+                        'number' => $m['number'],
+                        'message' => $m['message'],
+                        'log_id' => $logId, // lets the bot report back the real delivery
+                    ];
+                    $apiNameMap[$logId] = $m['name'];
+                }
+
+                // 2) Fire batch to bot; it processes with 3s delay and calls back per message
+                $result = waApiCall('/send-bulk', ['messages' => $apiMsgs], 600);
+                if ($result['error']) {
+                    // Bot unreachable: mark the batch rows failed (they never entered the queue)
+                    foreach ($apiMsgs as $am) {
+                        $failed++;
+                        $failedList[] = ['mobile' => $am['number'], 'name' => $apiNameMap[$am['log_id']] ?? '', 'reason' => $result['error']];
+                        $db->update('whatsapp_logs',
+                            ['status' => 'failed', 'error' => $result['error']],
+                            'id = :log_id AND status = :st',
+                            [':log_id' => (int)$am['log_id'], ':st' => 'queued']);
+                    }
                 } else {
-                    $queued++;
+                    // Accepted by bot queue — stays queued; callback will finalize status
+                    $queued += count($apiMsgs);
                 }
             }
 
-            // Wake the delivery-callback path is no longer needed: the bot's worker
-            // claims rows straight from the DB. We only nudge it once so a healthy
-            // connection starts working immediately instead of on the next tick.
-            // No nudge call needed: the bot's single worker polls the queue every
-            // few seconds and claims rows straight from the DB. The HTTP request
-            // returns immediately and never waits for delivery.
-
-            // Populate the results panel. These rows are QUEUED for gradual
-            // delivery — the panel labels them accordingly; real status lives
-            // in the Send History tab.
-            foreach ($queueRows as $qr) {
-                $sentList[] = ['mobile' => $qr['mobile'], 'name' => ''];
+            // Build sent list (shows as queued — will finalize via callback)
+            foreach ($messages as $m) {
+                $sentList[] = ['mobile' => $m['number'], 'name' => $m['name']];
             }
         }
 
@@ -1460,12 +1487,9 @@ document.addEventListener('DOMContentLoaded', function() { waUpdateCounts(); });
             <div class="col-md-3">
                 <select class="form-select form-select-sm" name="status" onchange="this.form.submit()">
                     <option value="">All Status</option>
-                    <option value="queued" <?php echo $historyStatus === 'queued' ? 'selected' : ''; ?>>Queued</option>
-                    <option value="sending" <?php echo $historyStatus === 'sending' ? 'selected' : ''; ?>>Sending</option>
                     <option value="sent" <?php echo $historyStatus === 'sent' ? 'selected' : ''; ?>>Sent</option>
-                    <option value="retry_wait" <?php echo $historyStatus === 'retry_wait' ? 'selected' : ''; ?>>Retry Wait</option>
+                    <option value="queued" <?php echo $historyStatus === 'queued' ? 'selected' : ''; ?>>Queued</option>
                     <option value="failed" <?php echo $historyStatus === 'failed' ? 'selected' : ''; ?>>Failed</option>
-                    <option value="paused" <?php echo $historyStatus === 'paused' ? 'selected' : ''; ?>>Paused</option>
                 </select>
             </div>
             <div class="col-md-5">
@@ -1522,8 +1546,8 @@ document.addEventListener('DOMContentLoaded', function() { waUpdateCounts(); });
                         </td>
                         <td>
                             <?php
-                            $statusBadge = ['sent'=>'success','queued'=>'warning','failed'=>'danger','link_generated'=>'info','sending'=>'primary','retry_wait'=>'secondary','paused'=>'light'];
-                            $statusLabel = ['sent'=>'Sent','queued'=>'Queued','failed'=>'Failed','link_generated'=>'Link','sending'=>'Sending','retry_wait'=>'Retry Wait','paused'=>'Paused'];
+                            $statusBadge = ['sent'=>'success','queued'=>'warning','failed'=>'danger','link_generated'=>'info'];
+                            $statusLabel = ['sent'=>'Sent','queued'=>'Queued','failed'=>'Failed','link_generated'=>'Link'];
                             $bg = $statusBadge[$log['status']] ?? 'secondary';
                             $label = $statusLabel[$log['status']] ?? $log['status'];
                             ?>

@@ -19,7 +19,6 @@
  */
 
 // Ensure table exists (call once per request at most)
-// Also self-heals existing installs so whatsapp_logs can act as a PERSISTENT QUEUE.
 if (!function_exists('ensureWhatsAppLogsTable')) {
     function ensureWhatsAppLogsTable() {
         $db = Database::getInstance();
@@ -30,88 +29,17 @@ if (!function_exists('ensureWhatsAppLogsTable')) {
             `message` text NOT NULL,
             `message_type` enum('text','image','document','payslip','letter','otp','notification') DEFAULT 'text',
             `media_url` varchar(500) DEFAULT NULL,
-            `status` enum('queued','sending','sent','retry_wait','failed','paused','link_generated') NOT NULL DEFAULT 'queued',
+            `status` enum('sent','queued','failed','link_generated') DEFAULT 'sent',
             `error` text DEFAULT NULL,
             `wa_message_id` varchar(100) DEFAULT NULL,
             `sent_by` int(11) DEFAULT NULL,
-            `attempts` int(10) unsigned NOT NULL DEFAULT 0,
-            `max_attempts` tinyint(3) unsigned NOT NULL DEFAULT 4,
-            `available_at` datetime DEFAULT NULL,
-            `last_attempt_at` datetime DEFAULT NULL,
-            `sent_at` datetime DEFAULT NULL,
-            `failed_at` datetime DEFAULT NULL,
-            `campaign_id` varchar(40) DEFAULT NULL,
             `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` datetime DEFAULT NULL,
             PRIMARY KEY (`id`),
             KEY `idx_mobile` (`mobile`),
             KEY `idx_status` (`status`),
             KEY `idx_employee` (`employee_id`),
-            KEY `idx_created` (`created_at`),
-            KEY `idx_queue` (`status`, `available_at`),
-            KEY `idx_campaign` (`campaign_id`)
+            KEY `idx_created` (`created_at`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-        ensureWhatsAppQueueColumns($db);
-    }
-}
-
-// Additive, idempotent migration: bring pre-existing whatsapp_logs up to queue schema.
-if (!function_exists('ensureWhatsAppQueueColumns')) {
-    function ensureWhatsAppQueueColumns($db = null) {
-        static $done = false;
-        if ($done) { return; }
-        $done = true;
-
-        if ($db === null) { $db = Database::getInstance(); }
-
-        try {
-            $cols = $db->fetchAll("SHOW COLUMNS FROM `whatsapp_logs`");
-            $have = array_column($cols, 'Field');
-
-            $add = [
-                'attempts'        => "int(10) unsigned NOT NULL DEFAULT 0",
-                'max_attempts'    => "tinyint(3) unsigned NOT NULL DEFAULT 4",
-                'available_at'    => "datetime DEFAULT NULL",
-                'last_attempt_at' => "datetime DEFAULT NULL",
-                'sent_at'         => "datetime DEFAULT NULL",
-                'failed_at'       => "datetime DEFAULT NULL",
-                'campaign_id'     => "varchar(40) DEFAULT NULL",
-                'updated_at'      => "datetime DEFAULT NULL",
-            ];
-            foreach ($add as $col => $def) {
-                if (!in_array($col, $have, true)) {
-                    $db->exec("ALTER TABLE `whatsapp_logs` ADD COLUMN `$col` $def");
-                }
-            }
-
-            // Widen status enum (must include the queue lifecycle states).
-            $statusCol = null;
-            foreach ($cols as $c) { if ($c['Field'] === 'status') { $statusCol = strtolower($c['Type'] ?? ''); break; } }
-            if ($statusCol !== null && (strpos($statusCol, 'sending') === false || strpos($statusCol, 'retry_wait') === false)) {
-                $db->exec("ALTER TABLE `whatsapp_logs` MODIFY COLUMN `status`
-                           ENUM('queued','sending','sent','retry_wait','failed','paused','link_generated')
-                           NOT NULL DEFAULT 'queued'");
-            }
-
-            // Indexes used by the queue claim query.
-            $idx = $db->fetchAll("SHOW INDEX FROM `whatsapp_logs`");
-            $idxNames = array_column($idx, 'Key_name');
-            if (!in_array('idx_queue', $idxNames, true)) {
-                $db->exec("ALTER TABLE `whatsapp_logs` ADD KEY `idx_queue` (`status`, `available_at`)");
-            }
-            if (!in_array('idx_campaign', $idxNames, true)) {
-                $db->exec("ALTER TABLE `whatsapp_logs` ADD KEY `idx_campaign` (`campaign_id`)");
-            }
-
-            // Backfill updated_at for legacy rows.
-            $db->exec("UPDATE `whatsapp_logs` SET `updated_at` = `created_at` WHERE `updated_at` IS NULL");
-            // Rows left mid-flight by an older process must not stay stuck.
-            $db->exec("UPDATE `whatsapp_logs` SET `status` = 'queued', `available_at` = NOW()
-                       WHERE `status` = 'sending' AND `last_attempt_at` < DATE_SUB(NOW(), INTERVAL 10 MINUTE)");
-        } catch (Exception $e) {
-            error_log('WhatsApp queue migration error: ' . $e->getMessage());
-        }
     }
 }
 
@@ -121,22 +49,16 @@ if (!function_exists('waLog')) {
         if (!$ensured) { ensureWhatsAppLogsTable(); $ensured = true; }
 
         $db = Database::getInstance();
-        $status = $data['status'] ?? 'sent';
         return (int)$db->insert('whatsapp_logs', [
             'employee_id'   => $data['employee_id'] ?? null,
             'mobile'        => $data['mobile'],
             'message'       => $data['message'] ?? '',
             'message_type'  => $data['message_type'] ?? 'text',
             'media_url'     => $data['media_url'] ?? null,
-            'status'        => $status,
+            'status'        => $data['status'] ?? 'sent',
             'error'         => $data['error'] ?? null,
             'wa_message_id' => $data['wa_message_id'] ?? null,
             'sent_by'       => $data['sent_by'] ?? ($_SESSION['user_id'] ?? null),
-            'max_attempts'  => $data['max_attempts'] ?? 4,
-            'available_at'  => $data['available_at'] ?? (($status === 'queued') ? date('Y-m-d H:i:s') : null),
-            'sent_at'       => $data['sent_at'] ?? (($status === 'sent') ? date('Y-m-d H:i:s') : null),
-            'campaign_id'   => $data['campaign_id'] ?? null,
-            'updated_at'    => date('Y-m-d H:i:s'),
         ]);
     }
 }
@@ -258,10 +180,7 @@ if (!function_exists('waSendBulk')) {
             return ['success' => false, 'message' => 'WhatsApp Bot not configured. Go to Settings > Notifications.', 'sent' => 0, 'failed' => 0, 'queued' => 0];
         }
 
-        // PERSISTENT QUEUE (Option A): rows go into whatsapp_logs as 'queued' with a
-        // campaign id and are delivered gradually by the bot's single worker.
-        // Nothing is reported as 'sent' here.
-        $rows = [];
+        $messages = [];
         foreach ($recipients as $r) {
             $empId = null;
             if (is_array($r)) {
@@ -272,336 +191,48 @@ if (!function_exists('waSendBulk')) {
             }
             $mobile = waNormalizeMobile($mobile);
             if (strlen($mobile) >= 12) {
-                $rows[] = ['number' => $mobile, 'message' => $message, 'employee_id' => $empId];
+                // Insert queued row FIRST and pass log_id so the bot's delivery
+                // callback flips exactly this row to sent/failed on real delivery.
+                $logId = waLog([
+                    'mobile' => $mobile,
+                    'message' => $message,
+                    'status' => 'queued',
+                    'employee_id' => $empId,
+                ]);
+                $messages[] = ['number' => $mobile, 'message' => $message, 'log_id' => $logId];
             }
         }
 
-        if (empty($rows)) {
+        if (empty($messages)) {
             return ['success' => false, 'message' => 'No valid phone numbers', 'sent' => 0, 'failed' => 0, 'queued' => 0];
         }
 
-        $res = waQueueEnqueue($rows);
+        $result = waApiCall('/send-bulk', ['messages' => $messages], 600);
+        $data = $result['data'];
 
-        return [
-            'success' => $res['success'],
-            'message' => $res['queued'] . ' message(s) queued for gradual delivery'
-                       . ($res['skipped'] > 0 ? ', ' . $res['skipped'] . ' skipped' : ''),
-            'sent'    => 0,
-            'failed'  => 0,
-            'queued'  => $res['queued'],
-            'campaign_id' => $res['campaign_id'],
-        ];
-    }
-}
-
-// ═══════════════════════════════════════════════════════════
-//  PERSISTENT QUEUE ENGINE  (Option A: whatsapp_logs IS the queue)
-//
-//  Design notes:
-//   - All DB access stays in PHP; the Node bot talks to these
-//     functions over HTTP (X-API-Key) via hrms/wa-queue.php.
-//   - Claiming is an ATOMIC DB transition (queued -> sending).
-//     The database is the lock; never JavaScript memory.
-//   - Only ONE worker may run. No Promise.all, no parallel sends.
-// ═══════════════════════════════════════════════════════════
-
-// Permanent-failure markers: these mean STOP the queue and require manual login.
-if (!function_exists('waIsPermanentDisconnectError')) {
-    function waIsPermanentDisconnectError(?string $error): bool {
-        if (!$error) return false;
-        $e = strtolower($error);
-        foreach (['device_removed', 'device removed', 'logged out', 'loggedout',
-                  'conflict', '401', 'connection closed', 'connection terminated',
-                  'stream errored', 'bad session', 'replaced'] as $needle) {
-            if (strpos($e, $needle) !== false) return true;
-        }
-        return false;
-    }
-}
-
-// Queue pacing/config — configurable from HRMS settings, conservative defaults.
-if (!function_exists('waQueueConfig')) {
-    function waQueueConfig(): array {
-        $defaults = [
-            'interval_min_s'   => 8,
-            'interval_max_s'   => 15,
-            'batch_limit'      => 50,
-            'batch_cooldown_s' => 60,
-            'day_limit'        => 500,
-            'paused'           => 0,
-            'connect_cooldown_s' => 30,
-        ];
-        $out = $defaults;
-        try {
+        if ($result['error']) {
+            // Bot unreachable: mark the queued rows failed
             $db = Database::getInstance();
-            $rows = $db->fetchAll("SELECT setting_key, setting_value FROM settings
-                                   WHERE setting_key LIKE 'wa_queue_%'");
-            foreach ($rows as $r) {
-                $k = str_replace('wa_queue_', '', $r['setting_key']);
-                if (array_key_exists($k, $out)) {
-                    $out[$k] = (int)$r['setting_value'];
-                }
+            foreach ($messages as $msg) {
+                $db->update('whatsapp_logs',
+                    ['status' => 'failed', 'error' => $result['error']],
+                    'id = :log_id AND status = :st',
+                    [':log_id' => (int)$msg['log_id'], ':st' => 'queued']);
             }
-        } catch (Exception $e) { /* use defaults */ }
-
-        // Hard safety clamps — never allow an aggressive configuration.
-        $out['interval_min_s']   = max(5, min(600, $out['interval_min_s']));
-        $out['interval_max_s']   = max($out['interval_min_s'], min(900, $out['interval_max_s']));
-        $out['batch_limit']      = max(1, min(200, $out['batch_limit']));
-        $out['batch_cooldown_s'] = max(0, min(3600, $out['batch_cooldown_s']));
-        $out['day_limit']        = max(1, min(2000, $out['day_limit']));
-        $out['connect_cooldown_s'] = max(0, min(600, $out['connect_cooldown_s']));
-        return $out;
-    }
-}
-
-// Enqueue messages for gradual sending. Returns campaign info immediately.
-if (!function_exists('waQueueEnqueue')) {
-    function waQueueEnqueue(array $messages, ?string $campaignId = null, ?int $employeeId = null): array {
-        ensureWhatsAppLogsTable();
-
-        $campaignId = $campaignId ?: ('wa' . date('ymd') . bin2hex(random_bytes(6)));
-        $now = date('Y-m-d H:i:s');
-        $ids = [];
-        $skipped = 0;
-
-        foreach ($messages as $m) {
-            $number  = waNormalizeMobile((string)($m['number'] ?? $m['to'] ?? $m['mobile'] ?? ''));
-            $message = (string)($m['message'] ?? '');
-            if (strlen($number) < 12 || $message === '') { $skipped++; continue; }
-
-            $ids[] = waLog([
-                'mobile'       => $number,
-                'message'      => $message,
-                'employee_id'  => $m['employee_id'] ?? $employeeId,
-                'message_type' => $m['message_type'] ?? 'notification',
-                'status'       => 'queued',
-                'available_at' => $now,
-                'campaign_id'  => $m['campaign_id'] ?? $campaignId,
-                'max_attempts' => (int)($m['max_attempts'] ?? 4),
-            ]);
+            return ['success' => false, 'message' => 'Cannot reach WhatsApp Bot: ' . $result['error'], 'sent' => 0, 'failed' => 0, 'queued' => 0];
         }
+
+        $queued = $data['data']['queued'] ?? count($messages);
+        $sent = $data['data']['sent'] ?? 0;
+        $failed = $data['data']['failed'] ?? 0;
 
         return [
-            'success'     => count($ids) > 0,
-            'queued'      => count($ids),
-            'skipped'     => $skipped,
-            'campaign_id' => $campaignId,
-            'log_ids'     => $ids,
+            'success' => ($result['httpCode'] == 200 && ($data['success'] ?? false)),
+            'message' => $data['message'] ?? "$queued messages queued",
+            'sent'    => $sent,
+            'failed'  => $failed,
+            'queued'  => $queued,
         ];
-    }
-}
-
-// Atomically claim ONE due message: queued -> sending.
-// Returns the row, or null when nothing is due. The DB row lock is the guard
-// against two workers picking the same message.
-if (!function_exists('waQueueClaim')) {
-    function waQueueClaim(): ?array {
-        ensureWhatsAppLogsTable();
-        $db = Database::getInstance();
-
-        try {
-            $db->beginTransaction();
-
-            $row = $db->fetch(
-                "SELECT * FROM whatsapp_logs
-                 WHERE status IN ('queued','retry_wait')
-                   AND (available_at IS NULL OR available_at <= NOW())
-                   AND attempts < max_attempts
-                   AND mobile <> ''
-                 ORDER BY id ASC
-                 LIMIT 1
-                 FOR UPDATE"
-            );
-
-            if (!$row) { $db->commit(); return null; }
-
-            // Guarded transition — only succeeds if the row is still claimable.
-            $stmt = $db->query(
-                "UPDATE whatsapp_logs
-                 SET status = 'sending', last_attempt_at = NOW(), updated_at = NOW()
-                 WHERE id = :id AND status IN ('queued','retry_wait')",
-                [':id' => (int)$row['id']]
-            );
-            $claimed = $stmt ? $stmt->rowCount() : 0;
-
-            if ($claimed !== 1) { $db->rollBack(); return null; }
-            $db->commit();
-
-            $row['status'] = 'sending';
-            return $row;
-        } catch (Exception $e) {
-            try { $db->rollBack(); } catch (Exception $e2) {}
-            error_log('waQueueClaim error: ' . $e->getMessage());
-            return null;
-        }
-    }
-}
-
-// Report the outcome of a claimed message and apply the retry policy.
-if (!function_exists('waQueueReport')) {
-    function waQueueReport(int $logId, bool $ok, ?string $messageId = null, ?string $error = null): array {
-        $db = Database::getInstance();
-        $row = $db->fetch("SELECT * FROM whatsapp_logs WHERE id = :id", [':id' => $logId]);
-        if (!$row) {
-            return ['success' => false, 'error' => 'Log row not found'];
-        }
-
-        $now = date('Y-m-d H:i:s');
-
-        // A row that is no longer 'sending' was already finalised (or reclaimed).
-        if ($row['status'] !== 'sending') {
-            return ['success' => true, 'status' => $row['status'], 'note' => 'already finalised'];
-        }
-
-        if ($ok) {
-            $db->update('whatsapp_logs', [
-                'status'        => 'sent',
-                'wa_message_id' => $messageId,
-                'error'         => null,
-                'sent_at'       => $now,
-                'updated_at'    => $now,
-            ], 'id = :id', [':id' => $logId]);
-            return ['success' => true, 'status' => 'sent'];
-        }
-
-        // Permanent disconnect/restriction → do NOT retry. Park as retry_wait;
-        // the worker stops and a human must reconnect/login.
-        if (waIsPermanentDisconnectError($error)) {
-            $db->update('whatsapp_logs', [
-                'status'       => 'retry_wait',
-                'error'        => $error,
-                'available_at' => date('Y-m-d H:i:s', time() + 3600),
-                'updated_at'   => $now,
-            ], 'id = :id', [':id' => $logId]);
-            return ['success' => true, 'status' => 'retry_wait', 'stop_queue' => true,
-                    'reason' => 'permanent_disconnect'];
-        }
-
-        $attempts = (int)$row['attempts'] + 1;
-        $max      = max(1, (int)$row['max_attempts']);
-
-        // Bounded exponential backoff: 30s, 90s, 4m, 15m (capped).
-        if ($attempts >= $max) {
-            $db->update('whatsapp_logs', [
-                'status'     => 'failed',
-                'attempts'   => $attempts,
-                'error'      => $error,
-                'failed_at'  => $now,
-                'updated_at' => $now,
-            ], 'id = :id', [':id' => $logId]);
-            return ['success' => true, 'status' => 'failed', 'attempts' => $attempts];
-        }
-
-        $delays = [30, 90, 240, 900];
-        $delay  = $delays[min($attempts - 1, count($delays) - 1)];
-
-        $db->update('whatsapp_logs', [
-            'status'       => 'retry_wait',
-            'attempts'     => $attempts,
-            'error'        => $error,
-            'available_at' => date('Y-m-d H:i:s', time() + $delay),
-            'updated_at'   => $now,
-        ], 'id = :id', [':id' => $logId]);
-
-        return ['success' => true, 'status' => 'retry_wait', 'attempts' => $attempts, 'retry_in_s' => $delay];
-    }
-}
-
-// Queue counters + pacing config for /api/queue-status (never exposes the API key).
-if (!function_exists('waQueueStats')) {
-    function waQueueStats(): array {
-        ensureWhatsAppLogsTable();
-        $db = Database::getInstance();
-        $cfg = waQueueConfig();
-
-        $counts = ['queued' => 0, 'sending' => 0, 'sent' => 0, 'failed' => 0, 'retry_wait' => 0, 'paused' => 0];
-        try {
-            $rows = $db->fetchAll("SELECT status, COUNT(*) AS c FROM whatsapp_logs GROUP BY status");
-            foreach ($rows as $r) {
-                $s = $r['status'];
-                if (isset($counts[$s])) { $counts[$s] = (int)$r['c']; }
-            }
-        } catch (Exception $e) {}
-
-        $dueNow = 0; $sentToday = 0;
-        try {
-            $dueNow = (int)$db->fetchColumn(
-                "SELECT COUNT(*) FROM whatsapp_logs
-                 WHERE status IN ('queued','retry_wait')
-                   AND (available_at IS NULL OR available_at <= NOW())
-                   AND attempts < max_attempts");
-            $sentToday = (int)$db->fetchColumn(
-                "SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'sent' AND DATE(sent_at) = CURDATE()");
-        } catch (Exception $e) {}
-
-        return array_merge($counts, [
-            'due_now'        => $dueNow,
-            'sent_today'     => $sentToday,
-            'day_limit'      => $cfg['day_limit'],
-            'day_limit_hit'  => $sentToday >= $cfg['day_limit'],
-            'paused'         => (bool)$cfg['paused'],
-            'config'         => $cfg,
-        ]);
-    }
-}
-
-// Admin controls -------------------------------------------------------------
-
-if (!function_exists('waQueuePause')) {
-    function waQueuePause(bool $paused): bool {
-        return updateSetting('wa_queue_paused', $paused ? '1' : '0');
-    }
-}
-
-// Move any in-flight row back to queued (used when pausing/disconnecting).
-if (!function_exists('waQueueRequeueStale')) {
-    function waQueueRequeueStale(int $olderThanSeconds = 300): int {
-        $db = Database::getInstance();
-        $stmt = $db->query(
-            "UPDATE whatsapp_logs
-             SET status = 'queued', available_at = NOW(), updated_at = NOW()
-             WHERE status = 'sending'
-               AND (last_attempt_at IS NULL OR last_attempt_at < DATE_SUB(NOW(), INTERVAL :sec SECOND))",
-            [':sec' => $olderThanSeconds]
-        );
-        return $stmt ? $stmt->rowCount() : 0;
-    }
-}
-
-// Cancel everything still waiting in a campaign.
-if (!function_exists('waQueueCancelCampaign')) {
-    function waQueueCancelCampaign(string $campaignId): int {
-        $db = Database::getInstance();
-        $stmt = $db->query(
-            "UPDATE whatsapp_logs
-             SET status = 'failed', error = 'Cancelled by admin', failed_at = NOW(), updated_at = NOW()
-             WHERE campaign_id = :cid AND status IN ('queued','retry_wait','sending')",
-            [':cid' => $campaignId]
-        );
-        return $stmt ? $stmt->rowCount() : 0;
-    }
-}
-
-// Admin-triggered re-queue of permanently failed rows (resets attempt counter).
-if (!function_exists('waQueueRetryFailed')) {
-    function waQueueRetryFailed(?string $campaignId = null): int {
-        $db = Database::getInstance();
-        if ($campaignId) {
-            $stmt = $db->query(
-                "UPDATE whatsapp_logs
-                 SET status = 'queued', attempts = 0, error = NULL, available_at = NOW(), updated_at = NOW()
-                 WHERE status = 'failed' AND campaign_id = :cid",
-                [':cid' => $campaignId]
-            );
-        } else {
-            $stmt = $db->query(
-                "UPDATE whatsapp_logs
-                 SET status = 'queued', attempts = 0, error = NULL, available_at = NOW(), updated_at = NOW()
-                 WHERE status = 'failed' AND DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
-            );
-        }
-        return $stmt ? $stmt->rowCount() : 0;
     }
 }
 
@@ -832,7 +463,7 @@ if (!function_exists('waGetLogs')) {
         $where = '1=1';
         $params = [];
 
-        if (!empty($statusFilter) && in_array($statusFilter, ['queued', 'sending', 'sent', 'retry_wait', 'failed', 'paused', 'link_generated'])) {
+        if (!empty($statusFilter) && in_array($statusFilter, ['sent', 'queued', 'failed', 'link_generated'])) {
             $where .= ' AND wl.status = :status';
             $params['status'] = $statusFilter;
         }
@@ -884,15 +515,12 @@ if (!function_exists('waGetStats')) {
                     SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
                     SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
                     SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-                    SUM(CASE WHEN status = 'sending' THEN 1 ELSE 0 END) as sending,
-                    SUM(CASE WHEN status = 'retry_wait' THEN 1 ELSE 0 END) as retry_wait,
-                    SUM(CASE WHEN status = 'paused' THEN 1 ELSE 0 END) as paused,
                     SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today
                 FROM whatsapp_logs
             ");
-            return $stats ?: ['total' => 0, 'sent' => 0, 'queued' => 0, 'failed' => 0, 'sending' => 0, 'retry_wait' => 0, 'paused' => 0, 'today' => 0];
+            return $stats ?: ['total' => 0, 'sent' => 0, 'queued' => 0, 'failed' => 0, 'today' => 0];
         } catch (Exception $e) {
-            return ['total' => 0, 'sent' => 0, 'queued' => 0, 'failed' => 0, 'sending' => 0, 'retry_wait' => 0, 'paused' => 0, 'today' => 0];
+            return ['total' => 0, 'sent' => 0, 'queued' => 0, 'failed' => 0, 'today' => 0];
         }
     }
 }
