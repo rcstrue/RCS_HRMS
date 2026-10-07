@@ -14,6 +14,10 @@ const SESSION_DIR = '/home/rcsfaxhz/auth_info_baileys';
 const API_KEY = process.env.WA_API_KEY || 'RCS_HRMS_SECURE_KEY_982374982374';
 const PORT = 3001;
 
+// Delivery-callback config for HRMS (server-side only; never exposed to browser)
+// The bot POSTs to this AFTER each ACTUAL WhatsApp send so HRMS can flip queued -> sent.
+const HRMS_CALLBACK_URL = process.env.HRMS_CALLBACK_URL || 'https://join.rcsfacility.com/hrms/wa-delivery-callback.php';
+
 // Internal state (NOT DB; NOT exposed publicly)
 let sock = null;
 let connecting = false;
@@ -28,6 +32,38 @@ let state = 'disconnected'; // disconnected | connecting | connected | logging_o
 // Helper: ensure auth dir exists
 function ensureAuthDir() {
   if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
+}
+
+// Helper: notify HRMS that a specific message was actually sent or failed.
+// Uses the same API key as the bot (server-to-server; never exposed to browser).
+function notifyHrmsDelivery(logId, number, ok, messageId, error) {
+  if (!HRMS_CALLBACK_URL || !logId) return;
+  const postBody = JSON.stringify({
+    log_id: logId,
+    mobile: number,
+    ok: !!ok,
+    messageId: messageId || null,
+    error: error || null
+  });
+  const isHttps = /^https:/i.test(HRMS_CALLBACK_URL);
+  const lib = isHttps ? https : http;
+  const req = lib.request(HRMS_CALLBACK_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': API_KEY
+    },
+    timeout: 8000
+  }, (res) => {
+    // drain response to free the socket
+    res.resume();
+    console.log(`[CALLBACK] log ${logId} -> ${ok ? 'sent' : 'failed'} (http ${res.statusCode})`);
+  });
+  req.on('error', (e) => {
+    console.error(`[CALLBACK] error for log ${logId}:`, e?.message || e);
+  });
+  req.write(postBody);
+  req.end();
 }
 
 // Helper: safe socket creation (duplicate protection — Rule 16)
@@ -96,6 +132,7 @@ async function createSocket() {
 
 // Node HTTP server (single process — Part 16 / Part 17)
 const http = require('http');
+const https = require('https');
 
 const server = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json');
@@ -260,18 +297,29 @@ const server = http.createServer((req, res) => {
         // Process in background sequentially with 3s delay (Part 9 / Part 15 requirement)
         (async () => {
           for (const msg of bulkMessages) {
+            const logId = msg.log_id || null;
+            const num = String(msg.number || '').replace(/[^0-9]/g, '');
+            const txt = String(msg.message || '');
             try {
-              const num = String(msg.number || '').replace(/[^0-9]/g, '');
-              const txt = String(msg.message || '');
               if (num.length >= 10 && txt.trim() && connected && sock) {
-                await sock.sendMessage(`${num}@s.whatsapp.net`, { text: txt });
+                const sent = await sock.sendMessage(`${num}@s.whatsapp.net`, { text: txt });
                 messagesSent++;
                 console.log(`[BULK] Sent to ${num}`);
+                // Notify HRMS after the ACTUAL send so the log flips queued -> sent
+                if (logId) {
+                  notifyHrmsDelivery(logId, num, true, sent?.key?.id || null);
+                }
+              } else if (logId) {
+                // Invalid number/empty message, or bot disconnected mid-queue
+                notifyHrmsDelivery(logId, num, false, null, 'Invalid number or bot unavailable');
               }
-              await new Promise(r => setTimeout(r, 3000));
             } catch (err) {
-              console.error(`[BULK] Error sending to ${msg.number}:`, err.message);
+              console.error(`[BULK] Error sending to ${num}:`, err?.message || err);
+              if (logId) {
+                notifyHrmsDelivery(logId, num, false, null, err?.message || 'Send failed');
+              }
             }
+            await new Promise(r => setTimeout(r, 3000));
           }
         })();
       } catch (error) {

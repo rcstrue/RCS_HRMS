@@ -191,7 +191,15 @@ if (!function_exists('waSendBulk')) {
             }
             $mobile = waNormalizeMobile($mobile);
             if (strlen($mobile) >= 12) {
-                $messages[] = ['number' => $mobile, 'message' => $message];
+                // Insert queued row FIRST and pass log_id so the bot's delivery
+                // callback flips exactly this row to sent/failed on real delivery.
+                $logId = waLog([
+                    'mobile' => $mobile,
+                    'message' => $message,
+                    'status' => 'queued',
+                    'employee_id' => $empId,
+                ]);
+                $messages[] = ['number' => $mobile, 'message' => $message, 'log_id' => $logId];
             }
         }
 
@@ -203,17 +211,20 @@ if (!function_exists('waSendBulk')) {
         $data = $result['data'];
 
         if ($result['error']) {
+            // Bot unreachable: mark the queued rows failed
+            $db = Database::getInstance();
+            foreach ($messages as $msg) {
+                $db->update('whatsapp_logs',
+                    ['status' => 'failed', 'error' => $result['error']],
+                    'id = :log_id AND status = :st',
+                    [':log_id' => (int)$msg['log_id'], ':st' => 'queued']);
+            }
             return ['success' => false, 'message' => 'Cannot reach WhatsApp Bot: ' . $result['error'], 'sent' => 0, 'failed' => 0, 'queued' => 0];
         }
 
         $queued = $data['data']['queued'] ?? count($messages);
         $sent = $data['data']['sent'] ?? 0;
         $failed = $data['data']['failed'] ?? 0;
-
-        // Log each message as queued (server handles actual sending)
-        foreach ($messages as $msg) {
-            waLog(['mobile' => $msg['number'], 'message' => $message, 'status' => 'queued']);
-        }
 
         return [
             'success' => ($result['httpCode'] == 200 && ($data['success'] ?? false)),

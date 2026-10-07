@@ -60,19 +60,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'history' && ($_POST['acti
         redirect('index.php?page=notifications/whatsapp&tab=history');
     }
 
-    // Re-send all queued rows through the bot's /send-bulk (server queues with 3s delay)
+    // Re-send all queued rows through the bot's /send-bulk.
+    // Create FRESH queued log rows so each retry is tracked independently,
+    // and the delivery callback flips them to sent/failed on real delivery.
     $msgs = [];
     foreach ($queued as $row) {
-        $msgs[] = ['number' => $row['mobile'], 'message' => $row['message']];
+        $newLogId = waLog([
+            'mobile' => $row['mobile'],
+            'message' => $row['message'],
+            'status' => 'queued',
+            'employee_id' => $row['employee_id'] ?? null,
+        ]);
+        $msgs[] = ['number' => $row['mobile'], 'message' => $row['message'], 'log_id' => $newLogId];
     }
 
     $result = waApiCall('/send-bulk', ['messages' => $msgs], 600);
     if ($result['httpCode'] == 200 && ($result['data']['success'] ?? false)) {
-        $ids = array_map(fn($r) => (int)$r['id'], $queued);
-        $db->exec("UPDATE whatsapp_logs SET status = 'sent', error = NULL WHERE id IN (" . implode(',', $ids) . ")");
-        setFlash('success', 'Re-sent ' . count($queued) . ' queued messages. Check bot logs for delivery.');
+        setFlash('success', 'Re-queued ' . count($msgs) . ' messages. The bot will report delivery via callback.');
     } else {
         $err = $result['error'] ?? ($result['data']['error'] ?? 'Unknown error');
+        // Bot unreachable: mark the new rows failed
+        foreach ($msgs as $m) {
+            $db->update('whatsapp_logs',
+                ['status' => 'failed', 'error' => $err],
+                'id = :log_id AND status = :st',
+                [':log_id' => (int)$m['log_id'], ':st' => 'queued']);
+        }
         setFlash('error', 'Retry failed: ' . sanitize($err));
     }
     redirect('index.php?page=notifications/whatsapp&tab=history');
@@ -313,44 +326,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'bulk') {
                 $failedList[] = ['mobile' => $m['number'], 'name' => $m['name'], 'reason' => 'WhatsApp Bot not configured'];
             }
         } else {
-            // Send in batches of 200 to avoid API limits
+            // Send in batches of 200 to avoid API limits.
+            // IMPORTANT: Rows stay 'queued' until the bot confirms each ACTUAL send
+            // via the delivery callback (wa-delivery-callback.php), which flips them
+            // to 'sent'/'failed' with the real message id. We never mark them 'sent'
+            // here at submission time.
             $batchSize = 200;
             $totalBatches = ceil(count($messages) / $batchSize);
 
             for ($batch = 0; $batch < $totalBatches; $batch++) {
                 $batchMsgs = array_slice($messages, $batch * $batchSize, $batchSize);
+
+                // 1) Insert each recipient as queued FIRST, capturing the log id
                 $apiMsgs = [];
+                $apiNameMap = []; // log_id -> name (for error reporting)
                 foreach ($batchMsgs as $m) {
-                    $apiMsgs[] = ['number' => $m['number'], 'message' => $m['message']];
+                    $logId = waLog([
+                        'mobile' => $m['number'],
+                        'message' => $m['message'],
+                        'status' => 'queued',
+                        'employee_id' => $m['employee_id'],
+                    ]);
+                    $apiMsgs[] = [
+                        'number' => $m['number'],
+                        'message' => $m['message'],
+                        'log_id' => $logId, // lets the bot report back the real delivery
+                    ];
+                    $apiNameMap[$logId] = $m['name'];
                 }
 
+                // 2) Fire batch to bot; it processes with 3s delay and calls back per message
                 $result = waApiCall('/send-bulk', ['messages' => $apiMsgs], 600);
-                $data = $result['data'];
-
                 if ($result['error']) {
-                    // Entire batch failed
-                    foreach ($batchMsgs as $m) {
+                    // Bot unreachable: mark the batch rows failed (they never entered the queue)
+                    foreach ($apiMsgs as $am) {
                         $failed++;
-                        $failedList[] = ['mobile' => $m['number'], 'name' => $m['name'], 'reason' => $result['error']];
-                        waLog(['mobile' => $m['number'], 'message' => $m['message'], 'status' => 'failed', 'error' => $result['error'], 'employee_id' => $m['employee_id']]);
+                        $failedList[] = ['mobile' => $am['number'], 'name' => $apiNameMap[$am['log_id']] ?? '', 'reason' => $result['error']];
+                        $db->update('whatsapp_logs',
+                            ['status' => 'failed', 'error' => $result['error']],
+                            'id = :log_id AND status = :st',
+                            [':log_id' => (int)$am['log_id'], ':st' => 'queued']);
                     }
                 } else {
-                    $bSent = $data['data']['sent'] ?? 0;
-                    $bFailed = $data['data']['failed'] ?? 0;
-                    $bQueued = $data['data']['queued'] ?? count($apiMsgs);
-
-                    // Log each as queued
-                    foreach ($batchMsgs as $m) {
-                        waLog(['mobile' => $m['number'], 'message' => $m['message'], 'status' => 'queued', 'employee_id' => $m['employee_id']]);
-                    }
-
-                    $sent += $bSent;
-                    $failed += $bFailed;
-                    $queued += $bQueued;
+                    // Accepted by bot queue — stays queued; callback will finalize status
+                    $queued += count($apiMsgs);
                 }
             }
 
-            // Build sent list (we don't get per-message results from bulk API, treat all queued as sent)
+            // Build sent list (shows as queued — will finalize via callback)
             foreach ($messages as $m) {
                 $sentList[] = ['mobile' => $m['number'], 'name' => $m['name']];
             }
@@ -372,7 +395,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'bulk') {
         unset($_SESSION['wa_bulk_preview']);
 
         $totalAll = count($sentList) + count($failedList) + count($skipped) + count($preview['rejected'] ?? []);
-        $resultMessage = "<b>Campaign Complete!</b> Total: $totalAll | <span class='text-success'>Sent/Queued: $sent</span> | <span class='text-danger'>Failed: $failed</span> | <span class='text-warning'>Skipped: " . count($skipped) . "</span> | <span class='text-secondary'>Rejected (invalid mobile): " . count($preview['rejected'] ?? []) . "</span>";
+        $resultMessage = "<b>Campaign Submitted!</b> Total: $totalAll | <span class='text-warning'>Queued: $queued</span> | <span class='text-danger'>Failed: $failed</span> | <span class='text-warning'>Skipped: " . count($skipped) . "</span> | <span class='text-secondary'>Rejected (invalid mobile): " . count($preview['rejected'] ?? []) . "</span><br><small class='text-muted'>Status updates to Sent/Queued as the bot confirms each delivery — check the Send History tab.</small>";
         $resultType = 'success';
         $currentTab = 'sent';
     }
