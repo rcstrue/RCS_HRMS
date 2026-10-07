@@ -29,7 +29,7 @@ const App = () => (
         } />
         {/* Fallback: shared-login links like #/ess/8469841414 — renders ESSApp
              with the mobile number available to LoginScreen. The normalization in
-             main.tsx handles most cases; this covers any race-condition miss. */
+             main.tsx handles most cases; this covers any race-condition miss. */}
         <Route path="/ess/:mobile" element={
           <ESSApp onBackToRegistration={() => window.location.hash = '/'} />
         } />
