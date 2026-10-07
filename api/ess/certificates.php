@@ -127,16 +127,20 @@ function _generateCertificate(mysqli $conn, string $authId, string $type): void
     $stmt->close();
 
     // 4) Get latest payroll for deductions (salary cert)
+    // payroll.employee_id stores the employee CODE (not employees.id),
+    // so resolve the code first — same fix as api/ess/payslip.php.
     $payroll = null;
-    $stmt = $conn->prepare('
-        SELECT p.* FROM payroll p
-        WHERE p.employee_id = ?
-        ORDER BY p.year DESC, p.month DESC LIMIT 1
-    ');
-    $stmt->bind_param('s', $authId);
-    $stmt->execute();
-    $payroll = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
+    if (!empty($emp['employee_code'])) {
+        $stmt = $conn->prepare('
+            SELECT p.* FROM payroll p
+            WHERE p.employee_id = ?
+            ORDER BY p.year DESC, p.month DESC LIMIT 1
+        ');
+        $stmt->bind_param('s', $emp['employee_code']);
+        $stmt->execute();
+        $payroll = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+    }
 
     // 5) Calculate tenure for experience certificate
     $tenure = '';

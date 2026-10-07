@@ -94,14 +94,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_single_revision'
             // Calculate gross
             $grossSalary = $basicDa + $hra + $leaveEncashment + $bonusEncashment + $washingAllowance;
             
-            // Statutory checkboxes
-            $pfApplicable = isset($_POST['pf_applicable'][$empId]) ? 1 : 0;
-            $esiApplicable = isset($_POST['esi_applicable'][$empId]) ? 1 : 0;
-            $ptApplicable = isset($_POST['pt_applicable'][$empId]) ? 1 : 0;
-            $lwfApplicable = isset($_POST['lwf_applicable'][$empId]) ? 1 : 0;
-            $bonusApplicable = isset($_POST['bonus_applicable'][$empId]) ? 1 : 0;
-            $gratuityApplicable = isset($_POST['gratuity_applicable'][$empId]) ? 1 : 0;
-            $overtimeApplicable = isset($_POST['overtime_applicable'][$empId]) ? 1 : 0;
+            // Statutory checkboxes. The grid only renders PF/ESI/PT/LWF toggles
+            // (audit P0-3), so bonus / gratuity / overtime would be silently
+            // zeroed on every "Save All Changes". Fetch the existing salary
+            // structure here so we can preserve those flags when the form
+            // doesn't post them.
+            $existingFlags = $db->fetch(
+                "SELECT pf_applicable, esi_applicable, pt_applicable,
+                        lwf_applicable, bonus_applicable,
+                        gratuity_applicable, overtime_applicable
+                 FROM employee_salary_structures
+                 WHERE employee_id = ?
+                   AND (effective_to IS NULL OR effective_to >= CURDATE())
+                 ORDER BY effective_from DESC LIMIT 1",
+                [$empId]
+            ) ?: [];
+
+            $pfApplicable       = isset($_POST['pf_applicable'][$empId])       ? 1 : (int)($existingFlags['pf_applicable']       ?? 0);
+            $esiApplicable      = isset($_POST['esi_applicable'][$empId])      ? 1 : (int)($existingFlags['esi_applicable']      ?? 0);
+            $ptApplicable       = isset($_POST['pt_applicable'][$empId])       ? 1 : (int)($existingFlags['pt_applicable']       ?? 0);
+            $lwfApplicable      = isset($_POST['lwf_applicable'][$empId])     ? 1 : (int)($existingFlags['lwf_applicable']      ?? 0);
+            $bonusApplicable    = isset($_POST['bonus_applicable'][$empId])   ? 1 : (int)($existingFlags['bonus_applicable']    ?? 0);
+            $gratuityApplicable = isset($_POST['gratuity_applicable'][$empId])? 1 : (int)($existingFlags['gratuity_applicable'] ?? 0);
+            $overtimeApplicable = isset($_POST['overtime_applicable'][$empId])? 1 : (int)($existingFlags['overtime_applicable'] ?? 0);
             
             // Check if salary structure exists
             $existingSalary = $db->fetch(

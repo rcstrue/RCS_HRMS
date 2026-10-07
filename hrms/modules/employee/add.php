@@ -306,10 +306,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'pf_applicable' => isset($_POST['pf_applicable']) ? 1 : 0,
         'esi_applicable' => isset($_POST['esi_applicable']) ? 1 : 0,
         'pt_applicable' => isset($_POST['pt_applicable']) ? 1 : 0,
-        'lwf_applicable' => isset($_POST['lwf_applicable']) ? 1 : 0,
-        'bonus_applicable' => isset($_POST['bonus_applicable']) ? 1 : 0,
-        'gratuity_applicable' => isset($_POST['gratuity_applicable']) ? 1 : 0,
-        'overtime_applicable' => isset($_POST['overtime_applicable']) ? 1 : 0,
+        // LWF / bonus / gratuity / overtime are NOT rendered as checkboxes in the
+        // employee form (audit P0-3). On edit, isset($_POST[...]) always returns
+        // false, which silently wiped the existing flag to 0 on every save.
+        // Preserve the stored value when the form doesn't post the flag.
+        'lwf_applicable'      => isset($_POST['lwf_applicable'])      ? 1 : (int)($employeeData['lwf_applicable']      ?? 0),
+        'bonus_applicable'    => isset($_POST['bonus_applicable'])    ? 1 : (int)($employeeData['bonus_applicable']    ?? 0),
+        'gratuity_applicable' => isset($_POST['gratuity_applicable']) ? 1 : (int)($employeeData['gratuity_applicable'] ?? 0),
+        'overtime_applicable' => isset($_POST['overtime_applicable']) ? 1 : (int)($employeeData['overtime_applicable'] ?? 0),
     ];
     
     // Handle file uploads with correct paths

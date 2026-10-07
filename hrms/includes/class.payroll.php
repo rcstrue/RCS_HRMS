@@ -776,13 +776,30 @@ class Payroll {
                 $this->logException($periodId, $exception['employee_id'], $exception['type'], $exception['message']);
             }
 
-            // Update period status
-            $this->db->update('payroll_periods', [
-                'status' => 'Processed',
-                'processed_by' => $_SESSION['user_id'] ?? null,
-                'processed_at' => date('Y-m-d H:i:s'),
-                'exception_count' => count($exceptions)
-            ], SQL_WHERE_ID, ['id' => $periodId]);
+            // Update period status — but never downgrade an Approved or Paid
+            // period back to Processed (audit P1-13). Doing so would leave
+            // paid rows labelled "Processed" while the period claims the
+            // process was never approved, opening the door to a re-process
+            // that double-pays the period. Only Draft/Processed periods move
+            // forward to Processed.
+            $currentPeriodStatus = $this->db->fetchColumn(
+                "SELECT status FROM payroll_periods WHERE id = :id",
+                ['id' => $periodId]
+            );
+            if (in_array($currentPeriodStatus, ['Draft', 'Processed', null], true)) {
+                $this->db->update('payroll_periods', [
+                    'status' => 'Processed',
+                    'processed_by' => $_SESSION['user_id'] ?? null,
+                    'processed_at' => date('Y-m-d H:i:s'),
+                    'exception_count' => count($exceptions)
+                ], SQL_WHERE_ID, ['id' => $periodId]);
+            } else {
+                // Approved/Paid/Frozen/Locked — only refresh exception count,
+                // do not regress status. Log so the operator sees it.
+                $this->db->update('payroll_periods', [
+                    'exception_count' => count($exceptions)
+                ], SQL_WHERE_ID, ['id' => $periodId]);
+            }
 
             $this->db->commit();
 
@@ -882,14 +899,17 @@ class Payroll {
      * @return array Result with success status
      */
     public function releaseSalary($periodId, $employeeCodes) {
-        // Check if period is frozen
+        // Check if period is frozen OR already paid (audit P1-14). holdSalary
+        // already blocked Paid; releaseSalary didn't, so a held salary could
+        // be released into an already-paid period (silently moving it back
+        // to 'Processed'). Now both branches block the same statuses.
         $period = $this->db->fetch(
             "SELECT status FROM payroll_periods WHERE id = :id",
             ['id' => $periodId]
         );
 
-        if (!$period || in_array($period['status'], ['Frozen', 'Locked'])) {
-            return ['success' => false, 'message' => 'Cannot release salary for this period.'];
+        if (!$period || in_array($period['status'], ['Frozen', 'Locked', 'Paid'])) {
+            return ['success' => false, 'message' => 'Cannot release salary for a paid or locked period.'];
         }
 
         $placeholders = implode(',', array_fill(0, count($employeeCodes), '?'));
