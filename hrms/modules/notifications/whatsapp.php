@@ -195,33 +195,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'bulk') {
         foreach ($toSend as $r) {
             $rawDob = $r['date_of_birth'] ?? '';
             $formattedDob = '';
+            $birthYear = '';
             if ($rawDob) {
                 try {
-                    $formattedDob = (new DateTime($rawDob))->format('d/m/Y');
+                    $dobDt = new DateTime($rawDob);
+                    $formattedDob = $dobDt->format('d/m/Y');
+                    $birthYear = $dobDt->format('Y');
                 } catch (Exception $e) {
                     $formattedDob = $rawDob;
                 }
             }
 
+            $rawDoj = $r['date_of_joining'] ?? '';
+            $formattedDoj = '';
+            if ($rawDoj) {
+                try {
+                    $formattedDoj = (new DateTime($rawDoj))->format('d/m/Y');
+                } catch (Exception $e) {
+                    $formattedDoj = $rawDoj;
+                }
+            }
+
+            $fGross = '';
+            if (!empty($r['gross_salary'])) {
+                $fGross = number_format((float)$r['gross_salary'], 2);
+            }
+
+            // Full placeholder map — matches the buttons shown in the Compose screen.
             $replacements = [
-                '{{name}}'        => $r['full_name'] ?? 'Employee',
-                '{{mobile}}'      => $r['mobile_number'] ?? '',
-                '{{dob}}'         => $formattedDob,
-                '{{unit}}'        => $r['unit_name'] ?? '',
-                '{{site}}'        => $r['site_name'] ?? $r['unit_name'] ?? '',
-                '{{client}}'      => $r['client_name'] ?? '',
-                '{{designation}}' => $r['designation'] ?? '',
-                '{{department}}'  => $r['department'] ?? '',
-                '{{code}}'        => $r['employee_code'] ?? '',
-                '{{Name}}'        => $r['full_name'] ?? 'Employee',
-                '{{Mobile}}'      => $r['mobile_number'] ?? '',
-                '{{DOB}}'         => $formattedDob,
-                '{{Unit}}'        => $r['unit_name'] ?? '',
-                '{{Site}}'        => $r['site_name'] ?? $r['unit_name'] ?? '',
-                '{{Client}}'      => $r['client_name'] ?? '',
-                '{{Designation}}' => $r['designation'] ?? '',
-                '{{Department}}'  => $r['department'] ?? '',
-                '{{Code}}'        => $r['employee_code'] ?? '',
+                '{{name}}'               => $r['full_name'] ?? 'Employee',
+                '{{mobile}}'             => $r['mobile_number'] ?? '',
+                '{{dob}}'                => $formattedDob,
+                '{{birthyear}}'          => $birthYear,
+                '{{unit}}'               => $r['unit_name'] ?? '',
+                '{{site}}'               => $r['site_name'] ?? $r['unit_name'] ?? '',
+                '{{client}}'             => $r['client_name'] ?? '',
+                '{{designation}}'        => $r['designation'] ?? '',
+                '{{department}}'         => $r['department'] ?? '',
+                '{{code}}'               => $r['employee_code'] ?? '',
+                '{{email}}'              => $r['email'] ?? '',
+                '{{father_name}}'        => $r['father_name'] ?? '',
+                '{{gender}}'             => $r['gender'] ?? '',
+                '{{blood_group}}'        => $r['blood_group'] ?? '',
+                '{{marital_status}}'     => $r['marital_status'] ?? '',
+                '{{doj}}'                => $formattedDoj,
+                '{{address}}'            => $r['address'] ?? '',
+                '{{pin_code}}'           => $r['pin_code'] ?? '',
+                '{{state}}'              => $r['state'] ?? '',
+                '{{district}}'           => $r['district'] ?? '',
+                '{{employment_type}}'    => $r['employment_type'] ?? '',
+                '{{worker_category}}'    => $r['worker_category'] ?? '',
+                '{{emp_status}}'         => $r['emp_status'] ?? '',
+                '{{uan}}'                => $r['uan_number'] ?? '',
+                '{{esic}}'               => $r['esic_number'] ?? '',
+                '{{gross_salary}}'       => $fGross,
+                '{{bank_name}}'          => $r['bank_name'] ?? '',
+                '{{ifsc_code}}'          => $r['ifsc_code'] ?? '',
+                '{{account_holder}}'     => $r['account_holder_name'] ?? '',
+                '{{alt_mobile}}'         => $r['alternate_mobile'] ?? '',
+                '{{emergency_contact}}'  => $r['emergency_contact_name'] ?? '',
+                '{{nominee_name}}'       => $r['nominee_name'] ?? '',
+                '{{Name}}'               => $r['full_name'] ?? 'Employee',
+                '{{Mobile}}'             => $r['mobile_number'] ?? '',
+                '{{DOB}}'                => $formattedDob,
+                '{{BirthYear}}'          => $birthYear,
+                '{{Unit}}'               => $r['unit_name'] ?? '',
+                '{{Site}}'               => $r['site_name'] ?? $r['unit_name'] ?? '',
+                '{{Client}}'             => $r['client_name'] ?? '',
+                '{{Designation}}'        => $r['designation'] ?? '',
+                '{{Department}}'         => $r['department'] ?? '',
+                '{{Code}}'               => $r['employee_code'] ?? '',
+                '{{Email}}'              => $r['email'] ?? '',
+                '{{Father_Name}}'        => $r['father_name'] ?? '',
+                '{{Gender}}'             => $r['gender'] ?? '',
+                '{{Blood_Group}}'        => $r['blood_group'] ?? '',
+                '{{Marital_Status}}'     => $r['marital_status'] ?? '',
+                '{{DOJ}}'                => $formattedDoj,
+                '{{Address}}'            => $r['address'] ?? '',
+                '{{Pin_Code}}'           => $r['pin_code'] ?? '',
+                '{{State}}'              => $r['state'] ?? '',
+                '{{District}}'           => $r['district'] ?? '',
+                '{{Employment_Type}}'    => $r['employment_type'] ?? '',
+                '{{Worker_Category}}'    => $r['worker_category'] ?? '',
+                '{{Emp_Status}}'         => $r['emp_status'] ?? '',
+                '{{UAN}}'                => $r['uan_number'] ?? '',
+                '{{ESIC}}'               => $r['esic_number'] ?? '',
+                '{{Gross_Salary}}'       => $fGross,
+                '{{Bank_Name}}'          => $r['bank_name'] ?? '',
+                '{{IFSC_Code}}'          => $r['ifsc_code'] ?? '',
+                '{{Account_Holder}}'     => $r['account_holder_name'] ?? '',
+                '{{Alt_Mobile}}'         => $r['alternate_mobile'] ?? '',
+                '{{Emergency_Contact}}'  => $r['emergency_contact_name'] ?? '',
+                '{{Nominee_Name}}'       => $r['nominee_name'] ?? '',
             ];
 
             $personalMsg = str_replace(array_keys($replacements), array_values($replacements), $preview['message']);
@@ -737,6 +802,7 @@ function searchEmployee() {
                             <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{name}}')"><i class="bi bi-person me-1"></i>Name</button>
                             <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{mobile}}')"><i class="bi bi-phone me-1"></i>Mobile</button>
                             <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{dob}}')"><i class="bi bi-calendar3 me-1"></i>DOB</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{birthyear}}')"><i class="bi bi-calendar-minus me-1"></i>Birth Year</button>
                             <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{unit}}')"><i class="bi bi-building me-1"></i>Unit</button>
                             <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{site}}')"><i class="bi bi-geo-alt me-1"></i>Site</button>
                             <button type="button" class="btn btn-sm btn-outline-success" onclick="waInsertPlaceholder('{{client}}')"><i class="bi bi-briefcase me-1"></i>Client</button>
@@ -860,6 +926,7 @@ Thank you.
                             <tr><td><code>{{name}}</code></td><td>Full Name</td></tr>
                             <tr class="table-success"><td><code>{{mobile}}</code></td><td>Mobile No.</td></tr>
                             <tr class="table-success"><td><code>{{dob}}</code></td><td>Date of Birth (DD/MM/YYYY)</td></tr>
+                            <tr class="table-success"><td><code>{{birthyear}}</code></td><td>Birth Year (YYYY)</td></tr>
                             <tr><td><code>{{email}}</code></td><td>Email Address</td></tr>
                             <tr><td><code>{{father_name}}</code></td><td>Father's Name</td></tr>
                             <tr class="table-success"><td><code>{{gender}}</code></td><td>Gender</td></tr>
@@ -1101,27 +1168,34 @@ Thank you.
                         $first = $preview['recipients'][0] ?? [];
                         $fDob = $first['date_of_birth'] ?? '';
                         $fDobFmt = '';
-                        if ($fDob) { try { $fDobFmt = (new DateTime($fDob))->format('d/m/Y'); } catch(Exception $e) { $fDobFmt = $fDob; } }
+                        $fBirthYear = '';
+                        if ($fDob) {
+                            try {
+                                $fDobDate = new DateTime($fDob);
+                                $fDobFmt = $fDobDate->format('d/m/Y');
+                                $fBirthYear = $fDobDate->format('Y');
+                            } catch(Exception $e) { $fDobFmt = $fDob; }
+                        }
                         $fDoj = $first['date_of_joining'] ?? '';
                         $fDojFmt = '';
                         if ($fDoj) { try { $fDojFmt = (new DateTime($fDoj))->format('d/m/Y'); } catch(Exception $e) { $fDojFmt = $fDoj; } }
                         $fGross = $first['gross_salary'] ? number_format((float)$first['gross_salary'], 2) : '[Gross Salary]';
                         echo nl2br(sanitize(str_replace(
-                            ['{{name}}','{{mobile}}','{{dob}}','{{unit}}','{{site}}','{{client}}','{{designation}}','{{department}}','{{code}}',
+                            ['{{name}}','{{mobile}}','{{dob}}','{{birthyear}}','{{unit}}','{{site}}','{{client}}','{{designation}}','{{department}}','{{code}}',
                              '{{email}}','{{father_name}}','{{gender}}','{{blood_group}}','{{marital_status}}','{{doj}}',
                              '{{employment_type}}','{{worker_category}}','{{emp_status}}',
                              '{{uan}}','{{esic}}','{{gross_salary}}',
                              '{{address}}','{{pin_code}}','{{state}}','{{district}}',
                              '{{bank_name}}','{{ifsc_code}}','{{account_holder}}',
                              '{{alt_mobile}}','{{emergency_contact}}','{{nominee_name}}',
-                             '{{Name}}','{{Mobile}}','{{DOB}}','{{Unit}}','{{Site}}','{{Client}}','{{Designation}}','{{Department}}','{{Code}}',
+                             '{{Name}}','{{Mobile}}','{{DOB}}','{{BirthYear}}','{{Unit}}','{{Site}}','{{Client}}','{{Designation}}','{{Department}}','{{Code}}',
                              '{{Email}}','{{Father_Name}}','{{Gender}}','{{Blood_Group}}','{{Marital_Status}}','{{DOJ}}',
                              '{{Employment_Type}}','{{Worker_Category}}','{{Emp_Status}}',
                              '{{UAN}}','{{ESIC}}','{{Gross_Salary}}',
                              '{{Address}}','{{Pin_Code}}','{{State}}','{{District}}',
                              '{{Bank_Name}}','{{IFSC_Code}}','{{Account_Holder}}',
                              '{{Alt_Mobile}}','{{Emergency_Contact}}','{{Nominee_Name}}'],
-                            [$first['full_name'] ?? '[Name]',$first['mobile_number'] ?? '[Mobile]',$fDobFmt,
+                            [$first['full_name'] ?? '[Name]',$first['mobile_number'] ?? '[Mobile]',$fDobFmt,$fBirthYear,
                              $first['unit_name'] ?? '[Unit]',$first['site_name'] ?? $first['unit_name'] ?? '[Site]',
                              $first['client_name'] ?? '[Client]',$first['designation'] ?? '[Designation]',
                              $first['department'] ?? '[Department]',$first['employee_code'] ?? '[Code]',
@@ -1136,7 +1210,7 @@ Thank you.
                              $first['bank_name'] ?? '[Bank]',$first['ifsc_code'] ?? '[IFSC]',$first['account_holder_name'] ?? '[Account Holder]',
                              $first['alternate_mobile'] ?? '[Alt Mobile]',$first['emergency_contact_name'] ?? '[Emergency Contact]',
                              $first['nominee_name'] ?? '[Nominee]',
-                             $first['full_name'] ?? '[Name]',$first['mobile_number'] ?? '[Mobile]',$fDobFmt,
+                             $first['full_name'] ?? '[Name]',$first['mobile_number'] ?? '[Mobile]',$fDobFmt,$fBirthYear,
                              $first['unit_name'] ?? '[Unit]',$first['site_name'] ?? $first['unit_name'] ?? '[Site]',
                              $first['client_name'] ?? '[Client]',$first['designation'] ?? '[Designation]',
                              $first['department'] ?? '[Department]',$first['employee_code'] ?? '[Code]',
@@ -1217,6 +1291,7 @@ function waRenderPreview() {
         '{{name}}': 'Rajesh Kumar', '{{Name}}': 'Rajesh Kumar',
         '{{mobile}}': '9876543210', '{{Mobile}}': '9876543210',
         '{{dob}}': '15/08/1990', '{{DOB}}': '15/08/1990',
+        '{{birthyear}}': '1990', '{{BirthYear}}': '1990',
         '{{email}}': 'rajesh.kumar@email.com', '{{Email}}': 'rajesh.kumar@email.com',
         '{{father_name}}': 'Sh. Ram Kumar', '{{Father_Name}}': 'Sh. Ram Kumar',
         '{{gender}}': 'Male', '{{Gender}}': 'Male',
