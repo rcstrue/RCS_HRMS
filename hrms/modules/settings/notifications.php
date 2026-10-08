@@ -165,7 +165,10 @@ $q = $queueStatus['data'] ?? [];
                         </a>
                         <?php else: ?>
                         <a href="#" onclick="showLoginWA()" class="btn btn-success btn-sm" title="Start WhatsApp login (QR scan)">
-                            <i class="bi bi-phone me-1"></i>Login WhatsApp
+                            <i class="bi bi-qr-code me-1"></i>Login with QR
+                        </a>
+                        <a href="#" onclick="showPairingWA()" class="btn btn-outline-success btn-sm" title="Login with phone code (no QR scan needed)">
+                            <i class="bi bi-key me-1"></i>Login with Phone Code
                         </a>
                         <a href="#" onclick="showReconnectWA()" class="btn btn-outline-secondary btn-sm" title="Reconnect to existing session">
                             <i class="bi bi-arrow-repeat me-1"></i>Reconnect
@@ -403,6 +406,71 @@ $q = $queueStatus['data'] ?? [];
     </div>
 </div>
 
+<!-- WhatsApp Pairing Code Modal (alternative to QR — enter code on phone) -->
+<div id="wa-pairing-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="display:none;">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="bi bi-key me-2"></i>Login with Phone Code</h5>
+                <button type="button" class="btn-close btn-close-white" onclick="closePairingWA()" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Step 1: Enter phone number -->
+                <div id="wa-pairing-step1">
+                    <p class="text-muted small">Enter the WhatsApp number of the account you want to link. This is <strong>your own</strong> WhatsApp number (the one you'll use to send messages from), not a recipient.</p>
+                    <div class="input-group mb-3">
+                        <span class="input-group-text">+</span>
+                        <input type="tel" class="form-control form-control-lg" id="wa-pairing-phone"
+                               placeholder="917400135181"
+                               value=""
+                               maxlength="15">
+                    </div>
+                    <small class="text-muted d-block mb-3">Include country code (e.g. 91 for India). 10–15 digits, no spaces or +.</small>
+                    <button type="button" class="btn btn-success btn-lg w-100" onclick="generatePairingCode()">
+                        <i class="bi bi-key me-1"></i>Generate Pairing Code
+                    </button>
+                </div>
+
+                <!-- Step 2: Display code + instructions -->
+                <div id="wa-pairing-step2" style="display:none;">
+                    <div class="alert alert-success text-center">
+                        <strong>Pairing code generated!</strong>
+                        <div class="my-3">
+                            <span class="display-4 fw-bold text-success font-monospace" id="wa-pairing-code-display" style="letter-spacing:3px;">--------</span>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-success" onclick="copyPairingCode()">
+                            <i class="bi bi-clipboard me-1"></i>Copy Code
+                        </button>
+                    </div>
+                    <div class="small text-muted">
+                        <h6 class="text-primary"><i class="bi bi-phone me-1"></i>On your phone:</h6>
+                        <ol class="mb-2">
+                            <li>Open <strong>WhatsApp</strong></li>
+                            <li>Tap <strong>Settings</strong> (iPhone) or <strong>⋮</strong> menu (Android)</li>
+                            <li>Tap <strong>Linked Devices</strong></li>
+                            <li>Tap <strong>Link with phone number instead</strong></li>
+                            <li>Enter the code above</li>
+                        </ol>
+                        <div class="alert alert-warning mb-0"><i class="bi bi-clock me-1"></i>The code expires in ~60 seconds. Enter it quickly on your phone.</div>
+                    </div>
+                    <div id="wa-pairing-status" class="text-center mt-3 small text-info">
+                        <div class="spinner-border spinner-border-sm me-1"></span>Waiting for phone confirmation...
+                    </div>
+                </div>
+
+                <!-- Error display -->
+                <div id="wa-pairing-error" class="alert alert-danger mt-3 mb-0" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closePairingWA()">Cancel</button>
+                <button type="button" class="btn btn-outline-success" id="wa-pairing-regenerate" style="display:none;" onclick="generatePairingCode()">
+                    <i class="bi bi-arrow-repeat me-1"></i>Generate New Code
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 // WhatsApp Login / Logout / QR Polling (client-side only; server proxies all calls via PHP)
 function showLoginWA() {
@@ -441,4 +509,112 @@ function pollQR() {
 function showReconnectWA() { alert('Reconnect: use Login WhatsApp if session expired.'); }
 function confirmRefreshWA() { if(confirm('Refresh WhatsApp bot status?')) { location.reload(); } }
 function showLogoutConfirm() { if(confirm('Logout WhatsApp?\nMessages will stop being sent until WhatsApp is connected again.')) { fetch('index.php?page=api/whatsapp-logout',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'csrf_token='+document.querySelector('input[name="csrf_token"]')?.value||''}); setTimeout(()=>location.reload(),800); } }
+
+// ── Pairing Code Login (alternative to QR) ──────────────────────────────
+// Flow: enter phone → bot generates 8-char code → user enters code on phone
+// → WhatsApp links the session. No QR scanning required.
+function showPairingWA() {
+    // Reset modal to step 1
+    document.getElementById('wa-pairing-step1').style.display = '';
+    document.getElementById('wa-pairing-step2').style.display = 'none';
+    document.getElementById('wa-pairing-regenerate').style.display = 'none';
+    document.getElementById('wa-pairing-error').style.display = 'none';
+    document.getElementById('wa-pairing-code-display').textContent = '--------';
+    document.getElementById('wa-pairing-phone').value = '';
+    // Show modal
+    document.getElementById('wa-pairing-modal').style.display = 'block';
+    document.getElementById('wa-pairing-modal').classList.add('show');
+}
+function closePairingWA() {
+    clearInterval(window.waPairingPollInterval);
+    document.getElementById('wa-pairing-modal').style.display = 'none';
+    document.getElementById('wa-pairing-modal').classList.remove('show');
+}
+
+function generatePairingCode() {
+    const phone = document.getElementById('wa-pairing-phone').value.replace(/[^0-9]/g, '');
+    const csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
+    const errEl = document.getElementById('wa-pairing-error');
+    errEl.style.display = 'none';
+
+    if (phone.length < 10) {
+        errEl.textContent = 'Please enter a valid phone number (10+ digits including country code).';
+        errEl.style.display = '';
+        return;
+    }
+
+    // Show loading state
+    document.getElementById('wa-pairing-step1').style.display = 'none';
+    document.getElementById('wa-pairing-step2').style.display = '';
+    document.getElementById('wa-pairing-code-display').innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
+    document.getElementById('wa-pairing-regenerate').style.display = 'none';
+    document.getElementById('wa-pairing-status').innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div>Generating pairing code...';
+
+    // Call PHP proxy → bot /api/pairing-code
+    fetch('index.php?page=api/whatsapp-pairing-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'phone=' + encodeURIComponent(phone) + '&csrf_token=' + csrfToken
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.code) {
+            // Display the code (Baileys returns it with a hyphen, e.g. "1A2B-3C4D")
+            document.getElementById('wa-pairing-code-display').textContent = data.code;
+            document.getElementById('wa-pairing-status').innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div>Waiting for phone confirmation...';
+            document.getElementById('wa-pairing-regenerate').style.display = '';
+            // Start polling status to detect when the phone confirms the code
+            window.waPairingPollInterval = setInterval(pollPairingStatus, 2500);
+            pollPairingStatus();
+        } else {
+            // Error — go back to step 1
+            document.getElementById('wa-pairing-step1').style.display = '';
+            document.getElementById('wa-pairing-step2').style.display = 'none';
+            errEl.textContent = data.error || 'Could not generate pairing code. Make sure the bot is reachable.';
+            errEl.style.display = '';
+        }
+    })
+    .catch(() => {
+        document.getElementById('wa-pairing-step1').style.display = '';
+        document.getElementById('wa-pairing-step2').style.display = 'none';
+        errEl.textContent = 'Network error — could not reach the HRMS server.';
+        errEl.style.display = '';
+    });
+}
+
+function pollPairingStatus() {
+    fetch('index.php?page=api/whatsapp-status')
+        .then(r => r.json())
+        .then(status => {
+            if (status.success && status.connected) {
+                // Pairing succeeded — close modal and reload page
+                clearInterval(window.waPairingPollInterval);
+                document.getElementById('wa-pairing-status').innerHTML = '<i class="bi bi-check-circle-fill text-success me-1"></i>WhatsApp connected successfully!';
+                setTimeout(() => { closePairingWA(); location.reload(); }, 1500);
+            }
+            // If not connected yet, keep polling — the spinner stays visible
+        })
+        .catch(() => { /* keep polling */ });
+}
+
+function copyPairingCode() {
+    const code = document.getElementById('wa-pairing-code-display').textContent;
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(code).then(() => {
+            // Brief visual feedback
+            const btn = event.target.closest('button');
+            const origHTML = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-check me-1"></i>Copied!';
+            setTimeout(() => { btn.innerHTML = origHTML; }, 1500);
+        });
+    } else {
+        // Fallback for older browsers
+        const ta = document.createElement('textarea');
+        ta.value = code;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+    }
+}
 </script>

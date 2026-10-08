@@ -535,6 +535,98 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // POST /api/pairing-code { phone: "+91..." }
+  //
+  // Alternative to QR login: generates an 8-character pairing code that the
+  // user enters on their phone (WhatsApp → Linked Devices → Link with phone
+  // number instead). Useful when QR scanning isn't practical (remote server,
+  // mobile-only, poor camera, etc.).
+  //
+  // The socket must exist for requestPairingCode() to work. If the bot is
+  // disconnected, this endpoint auto-starts a fresh login flow (including
+  // clearing stale session on hard-stop) and waits for the socket to come
+  // up before requesting the code.
+  if (req.method === 'POST' && urlPath === '/api/pairing-code') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const phone = String(payload.phone || '').replace(/[^0-9]/g, '');
+        if (phone.length < 10) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ success: false, error: 'Valid phone number (10+ digits) is required' }));
+          return;
+        }
+
+        // If the bot is connected, we don't need to pair — it's already linked.
+        if (connected) {
+          res.writeHead(409);
+          res.end(JSON.stringify({
+            success: false,
+            error: 'WhatsApp is already connected. Logout first if you want to re-link with a different number.'
+          }));
+          return;
+        }
+
+        // If not already connecting, start a fresh login flow. Same logic
+        // as /api/login — including clearing stale session on hard-stop.
+        if (!sock && !connecting) {
+          const wasHardStopped = !!hardStopReason;
+          if (wasHardStopped) {
+            console.log('[PAIRING] Hard stop was active — clearing stale session');
+            clearSessionFiles();
+          }
+          hardStopReason = null;
+          drainCapPaused = false;
+          queuePaused = true;
+          sentInConnection = 0;
+          createSocket();
+        }
+
+        // Wait for the socket to be created (makeWASocket returns the
+        // socket object immediately, but the WebSocket needs a moment to
+        // open the noise handshake channel that requestPairingCode uses).
+        for (let i = 0; i < 50 && !sock; i++) {
+          await sleep(200);
+        }
+        if (!sock) {
+          res.writeHead(503);
+          res.end(JSON.stringify({ success: false, error: 'Socket not ready. Try again in a few seconds.' }));
+          return;
+        }
+
+        if (typeof sock.requestPairingCode !== 'function') {
+          res.writeHead(501);
+          res.end(JSON.stringify({
+            success: false,
+            error: 'Pairing code not supported by this Baileys version. Use QR login instead.'
+          }));
+          return;
+        }
+
+        // Generate the 8-character pairing code. Baileys returns it as a
+        // string like "1A2B-3C4D" (with a hyphen) or "1A2B3C4D".
+        const code = await sock.requestPairingCode(phone);
+        console.log(`[PAIRING] Code generated for ${phone}: ${code}`);
+        res.writeHead(200);
+        res.end(JSON.stringify({
+          success: true,
+          code: code,
+          phone: phone,
+          message: 'Enter this code on your phone: WhatsApp → Linked Devices → Link with phone number instead'
+        }));
+      } catch (error) {
+        console.error('[PAIRING] error:', error?.message || error);
+        if (!res.writableEnded) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ success: false, error: error?.message || 'Pairing code generation failed' }));
+        }
+      }
+    });
+    return;
+  }
+
   // POST /api/logout (Part 7 — clean logout, no auto-loop, no message sent)
   //
   // ALWAYS clears the session files, even if already disconnected. The
