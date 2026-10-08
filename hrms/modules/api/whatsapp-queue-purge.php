@@ -28,7 +28,7 @@ if (!validateCSRFToken($_POST['csrf_token']??'')) {
 $purged = waQueueCancelAllPending();
 
 echo json_encode([
-    'success' => $purged > 0 || true,  // success even if 0 rows (queue was empty)
+    'success' => $purged > 0,  // success only if rows were actually cancelled
     'purged'  => $purged,
     'message' => $purged > 0
         ? "Purged {$purged} pending message(s). Queue is now empty — safe to re-link WhatsApp."

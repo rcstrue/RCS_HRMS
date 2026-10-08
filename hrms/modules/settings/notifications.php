@@ -172,7 +172,7 @@ $q = $queueStatus['data'] ?? [];
                             <strong>Recovery:</strong> Click <strong>Login WhatsApp</strong> below —
                             it will automatically clear the stale session and generate a fresh QR
                             for you to scan. No terminal access needed.
-                            <?php if ($cooldownMs <= 0): ?>
+                            <?php if ((int)$cooldownMs <= 0): ?>
                             <br><small class="text-muted">Tip: <strong>Purge the queue first</strong> (Send History tab → Purge Queue) so the fresh session doesn't immediately blast pending messages.</small>
                             <?php endif; ?>
                         </div>
