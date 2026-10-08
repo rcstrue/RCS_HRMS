@@ -30,7 +30,7 @@ if (!function_exists('ensureWhatsAppLogsTable')) {
             `message` text NOT NULL,
             `message_type` enum('text','image','document','payslip','letter','otp','notification') DEFAULT 'text',
             `media_url` varchar(500) DEFAULT NULL,
-            `status` enum('queued','sending','sent','retry_wait','failed','paused','link_generated') NOT NULL DEFAULT 'queued',
+            `status` enum('queued','sending','sent','retry_wait','failed','paused','cancelled','link_generated') NOT NULL DEFAULT 'queued',
             `error` text DEFAULT NULL,
             `wa_message_id` varchar(100) DEFAULT NULL,
             `sent_by` int(11) DEFAULT NULL,
@@ -92,12 +92,14 @@ if (!function_exists('ensureWhatsAppQueueColumns')) {
                 }
             }
 
-            // Widen status enum (must include the queue lifecycle states).
+            // Widen status enum (must include the queue lifecycle states
+            // + 'cancelled' which was added in the bulk-safe redesign
+            // to distinguish admin-cancelled rows from genuinely failed ones).
             $statusCol = null;
             foreach ($cols as $c) { if ($c['Field'] === 'status') { $statusCol = strtolower($c['Type'] ?? ''); break; } }
-            if ($statusCol !== null && (strpos($statusCol, 'sending') === false || strpos($statusCol, 'retry_wait') === false)) {
+            if ($statusCol !== null && (strpos($statusCol, 'sending') === false || strpos($statusCol, 'retry_wait') === false || strpos($statusCol, 'cancelled') === false)) {
                 $db->exec("ALTER TABLE `whatsapp_logs` MODIFY COLUMN `status`
-                           ENUM('queued','sending','sent','retry_wait','failed','paused','link_generated')
+                           ENUM('queued','sending','sent','retry_wait','failed','paused','cancelled','link_generated')
                            NOT NULL DEFAULT 'queued'");
             }
 
@@ -155,6 +157,55 @@ if (!function_exists('ensureEmployeesWhatsAppOptIn')) {
             // is missing (they treat everyone as opted-in).
             error_log('WhatsApp opt-in migration error: ' . $e->getMessage());
         }
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+//  JSONL AUDIT LOG  (Option A — append-only transition trail)
+//
+//  Every status transition in the queue lifecycle is appended as one JSON
+//  line to /home/rcsfaxhz/whatsapp-bulk-queue.jsonl. This is the persistent
+//  server file the operator asked for — it survives DB crashes and lets
+//  you reconstruct the full lifecycle of any message with `jq` or `grep`.
+//
+//  States logged: QUEUED, SENDING, SENT, FAILED, PAUSED, CANCELLED, RETRY_WAIT
+//
+//  Each line looks like:
+//    {"ts":"2026-10-08T06:30:45+05:30","log_id":12345,"campaign_id":"wa261008a1b2c3",
+//     "mobile":"917400135181","employee_id":567,"from":"queued","to":"sending",
+//     "attempts":1,"max_attempts":4,"wa_message_id":null,"error":null,
+//     "trigger":"bot","message_preview":"Dear John..."}
+//
+//  The file is opened with FILE_APPEND | LOCK_EX so concurrent writes from
+//  multiple PHP-FPM workers are safe. If the directory isn't writable, the
+//  log silently degrades (no audit trail, but the DB queue still works).
+// ═════════════════════════════════════════════════════════════════════════
+if (!function_exists('waLogTransition')) {
+    function waLogTransition(?int $logId, string $fromStatus, string $toStatus, array $extra = []): void {
+        // Path is fixed on the server. On dev/CI environments where the path
+        // doesn't exist, the write silently fails — the DB queue still works.
+        $path = '/home/rcsfaxhz/whatsapp-bulk-queue.jsonl';
+
+        $record = [
+            'ts'              => date('c'),          // ISO 8601 with timezone
+            'log_id'          => $logId,
+            'campaign_id'     => $extra['campaign_id'] ?? null,
+            'mobile'          => $extra['mobile'] ?? null,
+            'employee_id'     => $extra['employee_id'] ?? null,
+            'from'            => $fromStatus,
+            'to'              => $toStatus,
+            'attempts'        => $extra['attempts'] ?? null,
+            'max_attempts'    => $extra['max_attempts'] ?? null,
+            'wa_message_id'   => $extra['wa_message_id'] ?? null,
+            'error'           => $extra['error'] ?? null,
+            'trigger'         => $extra['trigger'] ?? 'system',  // system | bot | admin
+            'message_preview' => isset($extra['message']) ? mb_substr($extra['message'], 0, 80) : null,
+        ];
+
+        $line = json_encode($record, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+
+        // Suppress errors — the audit log must never break the queue itself.
+        @file_put_contents($path, $line, FILE_APPEND | LOCK_EX);
     }
 }
 
@@ -477,6 +528,15 @@ if (!function_exists('waQueueEnqueue')) {
                 'max_attempts' => (int)($m['max_attempts'] ?? 4),
                 'message_hash' => $hash,
             ]);
+            // Audit log: new row enters the queue
+            waLogTransition($ids[count($ids) - 1], '', 'queued', [
+                'campaign_id'  => $m['campaign_id'] ?? $campaignId,
+                'mobile'       => $number,
+                'employee_id'  => $m['employee_id'] ?? $employeeId,
+                'max_attempts' => (int)($m['max_attempts'] ?? 4),
+                'message'      => $message,
+                'trigger'      => 'system',
+            ]);
         }
 
         return [
@@ -526,6 +586,16 @@ if (!function_exists('waQueueClaim')) {
             $db->commit();
 
             $row['status'] = 'sending';
+            // Audit log: bot claimed the row, sending in progress
+            waLogTransition((int)$row['id'], (string)$row['status'], 'sending', [
+                'campaign_id' => $row['campaign_id'] ?? null,
+                'mobile'       => $row['mobile'] ?? null,
+                'employee_id' => $row['employee_id'] ?? null,
+                'attempts'     => (int)($row['attempts'] ?? 0) + 1,
+                'max_attempts' => (int)($row['max_attempts'] ?? 4),
+                'message'      => $row['message'] ?? null,
+                'trigger'      => 'bot',
+            ]);
             return $row;
         } catch (Exception $e) {
             try { $db->rollBack(); } catch (Exception $e2) {}
@@ -559,6 +629,17 @@ if (!function_exists('waQueueReport')) {
                 'sent_at'       => $now,
                 'updated_at'    => $now,
             ], 'id = :id', [':id' => $logId]);
+            // Audit log: actual WhatsApp send succeeded
+            waLogTransition($logId, 'sending', 'sent', [
+                'campaign_id'   => $row['campaign_id'] ?? null,
+                'mobile'         => $row['mobile'] ?? null,
+                'employee_id'   => $row['employee_id'] ?? null,
+                'attempts'       => (int)($row['attempts'] ?? 0) + 1,
+                'max_attempts'   => (int)($row['max_attempts'] ?? 4),
+                'wa_message_id' => $messageId,
+                'message'        => $row['message'] ?? null,
+                'trigger'        => 'bot',
+            ]);
             return ['success' => true, 'status' => 'sent'];
         }
 
@@ -571,6 +652,17 @@ if (!function_exists('waQueueReport')) {
                 'available_at' => date('Y-m-d H:i:s', time() + 3600),
                 'updated_at'   => $now,
             ], 'id = :id', [':id' => $logId]);
+            // Audit log: permanent disconnect — row parked, queue hard-stopped
+            waLogTransition($logId, 'sending', 'retry_wait', [
+                'campaign_id' => $row['campaign_id'] ?? null,
+                'mobile'       => $row['mobile'] ?? null,
+                'employee_id' => $row['employee_id'] ?? null,
+                'attempts'     => (int)($row['attempts'] ?? 0) + 1,
+                'max_attempts' => (int)($row['max_attempts'] ?? 4),
+                'error'        => $error,
+                'message'      => $row['message'] ?? null,
+                'trigger'      => 'bot',
+            ]);
             return ['success' => true, 'status' => 'retry_wait', 'stop_queue' => true,
                     'reason' => 'permanent_disconnect'];
         }
@@ -587,6 +679,17 @@ if (!function_exists('waQueueReport')) {
                 'failed_at'  => $now,
                 'updated_at' => $now,
             ], 'id = :id', [':id' => $logId]);
+            // Audit log: max attempts exhausted — permanently failed
+            waLogTransition($logId, 'sending', 'failed', [
+                'campaign_id' => $row['campaign_id'] ?? null,
+                'mobile'       => $row['mobile'] ?? null,
+                'employee_id' => $row['employee_id'] ?? null,
+                'attempts'     => $attempts,
+                'max_attempts' => $max,
+                'error'        => $error,
+                'message'      => $row['message'] ?? null,
+                'trigger'      => 'bot',
+            ]);
             return ['success' => true, 'status' => 'failed', 'attempts' => $attempts];
         }
 
@@ -601,6 +704,17 @@ if (!function_exists('waQueueReport')) {
             'updated_at'   => $now,
         ], 'id = :id', [':id' => $logId]);
 
+        // Audit log: temporary failure — will retry after backoff
+        waLogTransition($logId, 'sending', 'retry_wait', [
+            'campaign_id' => $row['campaign_id'] ?? null,
+            'mobile'       => $row['mobile'] ?? null,
+            'employee_id' => $row['employee_id'] ?? null,
+            'attempts'     => $attempts,
+            'max_attempts' => $max,
+            'error'        => $error,
+            'message'      => $row['message'] ?? null,
+            'trigger'      => 'bot',
+        ]);
         return ['success' => true, 'status' => 'retry_wait', 'attempts' => $attempts, 'retry_in_s' => $delay];
     }
 }
@@ -670,13 +784,42 @@ if (!function_exists('waQueueRequeueStale')) {
 if (!function_exists('waQueueCancelCampaign')) {
     function waQueueCancelCampaign(string $campaignId): int {
         $db = Database::getInstance();
-        $stmt = $db->query(
-            "UPDATE whatsapp_logs
-             SET status = 'failed', error = 'Cancelled by admin', failed_at = NOW(), updated_at = NOW()
+
+        // Fetch the rows we're about to cancel so we can log each transition
+        // to the JSONL audit log. (The UPDATE itself doesn't tell us which
+        // rows were affected, so we SELECT first, then UPDATE in bulk.)
+        $toCancel = $db->fetchAll(
+            "SELECT id, status, mobile, employee_id, campaign_id, attempts, max_attempts, message
+             FROM whatsapp_logs
              WHERE campaign_id = :cid AND status IN ('queued','retry_wait','sending')",
             [':cid' => $campaignId]
         );
-        return $stmt ? $stmt->rowCount() : 0;
+
+        if (empty($toCancel)) { return 0; }
+
+        $stmt = $db->query(
+            "UPDATE whatsapp_logs
+             SET status = 'cancelled', error = 'Cancelled by admin', failed_at = NOW(), updated_at = NOW()
+             WHERE campaign_id = :cid AND status IN ('queued','retry_wait','sending')",
+            [':cid' => $campaignId]
+        );
+        $count = $stmt ? $stmt->rowCount() : 0;
+
+        // Audit log: each cancelled row gets a transition record
+        foreach ($toCancel as $row) {
+            waLogTransition((int)$row['id'], (string)$row['status'], 'cancelled', [
+                'campaign_id'  => $row['campaign_id'] ?? null,
+                'mobile'        => $row['mobile'] ?? null,
+                'employee_id'  => $row['employee_id'] ?? null,
+                'attempts'      => (int)($row['attempts'] ?? 0),
+                'max_attempts' => (int)($row['max_attempts'] ?? 4),
+                'error'         => 'Cancelled by admin',
+                'message'       => $row['message'] ?? null,
+                'trigger'       => 'admin',
+            ]);
+        }
+
+        return $count;
     }
 }
 

@@ -402,6 +402,26 @@ $results = $_SESSION['wa_bulk_results'] ?? null;
 $clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name ASC");
 $units = $db->fetchAll("SELECT id, name, client_id FROM units WHERE is_active = 1 ORDER BY name ASC");
 
+// Helper: column-exists check. MUST be defined BEFORE its first use below —
+// PHP does not hoist functions defined inside `if (!function_exists(...))`
+// blocks, so calling columnExists() before this definition would throw a
+// fatal "Call to undefined function" error (which is what caused the white
+// screen on this page in commit 8f8e679).
+if (!function_exists('columnExists')) {
+    function columnExists($db, string $table, string $column): bool {
+        try {
+            $cnt = (int)$db->fetchColumn(
+                "SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema = DATABASE() AND table_name = :t AND column_name = :c",
+                [':t' => $table, ':c' => $column]
+            );
+            return $cnt > 0;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+}
+
 // Recipient counts now reflect the bulk-safe redesign: only opted-in
 // employees are eligible for bulk sends. Legacy installs without the
 // whatsapp_opted_in column (migration runs on first page load) treat
@@ -425,23 +445,6 @@ $optedOutCount = columnExists($db, 'employees', 'whatsapp_opted_in')
 // Live queue status (used by the Bulk + History tabs). Fetches from the
 // bot over X-API-Key. Degrades gracefully when the bot is unreachable.
 $queueStats = waQueueStats();
-
-// Helper: column-exists check (avoids hard errors before the opt-in
-// migration has run).
-if (!function_exists('columnExists')) {
-    function columnExists($db, string $table, string $column): bool {
-        try {
-            $cnt = (int)$db->fetchColumn(
-                "SELECT COUNT(*) FROM information_schema.columns
-                 WHERE table_schema = DATABASE() AND table_name = :t AND column_name = :c",
-                [':t' => $table, ':c' => $column]
-            );
-            return $cnt > 0;
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-}
 ?>
 
 <div class="page-header">
@@ -1724,6 +1727,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'retry
                     <option value="sent" <?php echo $historyStatus === 'sent' ? 'selected' : ''; ?>>Sent</option>
                     <option value="retry_wait" <?php echo $historyStatus === 'retry_wait' ? 'selected' : ''; ?>>Retry Wait</option>
                     <option value="failed" <?php echo $historyStatus === 'failed' ? 'selected' : ''; ?>>Failed</option>
+                    <option value="cancelled" <?php echo $historyStatus === 'cancelled' ? 'selected' : ''; ?>>Cancelled</option>
                     <option value="paused" <?php echo $historyStatus === 'paused' ? 'selected' : ''; ?>>Paused</option>
                 </select>
             </div>
@@ -1741,6 +1745,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'retry
                 <?php endif; ?>
             </div>
         </form>
+
+        <!-- Quick filters — one-click access to the most common views -->
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <a href="?page=notifications/whatsapp&tab=history&status=sent"
+               class="btn btn-sm <?php echo $historyStatus === 'sent' ? 'btn-success' : 'btn-outline-success'; ?>">
+                <i class="bi bi-check-circle me-1"></i>Sent
+                <span class="badge bg-light text-dark ms-1">
+                    <?php echo (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'sent' AND DATE(sent_at) = CURDATE()"); ?>
+                </span>
+            </a>
+            <a href="?page=notifications/whatsapp&tab=history&status=failed"
+               class="btn btn-sm <?php echo $historyStatus === 'failed' ? 'btn-danger' : 'btn-outline-danger'; ?>">
+                <i class="bi bi-x-circle me-1"></i>Failed
+                <span class="badge bg-light text-dark ms-1">
+                    <?php echo (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'failed'"); ?>
+                </span>
+            </a>
+            <a href="?page=notifications/whatsapp&tab=history&status=cancelled"
+               class="btn btn-sm <?php echo $historyStatus === 'cancelled' ? 'btn-dark' : 'btn-outline-dark'; ?>">
+                <i class="bi bi-slash-circle me-1"></i>Cancelled
+                <span class="badge bg-light text-dark ms-1">
+                    <?php echo (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'cancelled'"); ?>
+                </span>
+            </a>
+            <a href="?page=notifications/whatsapp&tab=history&status=queued"
+               class="btn btn-sm <?php echo $historyStatus === 'queued' ? 'btn-warning' : 'btn-outline-warning'; ?>">
+                <i class="bi bi-hourglass-split me-1"></i>Queued
+                <span class="badge bg-light text-dark ms-1">
+                    <?php echo (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'queued'"); ?>
+                </span>
+            </a>
+            <a href="?page=notifications/whatsapp&tab=history"
+               class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-list me-1"></i>All
+            </a>
+        </div>
 
         <!-- Table -->
         <div class="table-responsive">
@@ -1791,6 +1831,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'retry
                                 'sending'       => ['primary',  'arrow-repeat',        'Sending'],
                                 'retry_wait'   => ['secondary', 'clock-history',       'Retry Wait'],
                                 'failed'       => ['danger',   'x-circle',            'Failed'],
+                                'cancelled'    => ['dark',     'slash-circle',        'Cancelled'],
                                 'paused'       => ['light',    'pause-circle',        'Paused'],
                                 'link_generated'=> ['info',    'link-45deg',          'Link'],
                             ];
