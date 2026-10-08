@@ -401,7 +401,47 @@ $preview = $_SESSION['wa_bulk_preview'] ?? null;
 $results = $_SESSION['wa_bulk_results'] ?? null;
 $clients = $db->fetchAll("SELECT id, name FROM clients WHERE is_active = 1 ORDER BY name ASC");
 $units = $db->fetchAll("SELECT id, name, client_id FROM units WHERE is_active = 1 ORDER BY name ASC");
-$mobileCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM employees WHERE mobile_number IS NOT NULL AND mobile_number != '' AND status = 'approved'");
+
+// Recipient counts now reflect the bulk-safe redesign: only opted-in
+// employees are eligible for bulk sends. Legacy installs without the
+// whatsapp_opted_in column (migration runs on first page load) treat
+// everyone as opted-in (column DEFAULT 1), so this degrades gracefully.
+$mobileCount = (int)$db->fetchColumn(
+    "SELECT COUNT(*) FROM employees
+     WHERE mobile_number IS NOT NULL AND mobile_number != ''
+       AND status = 'approved'"
+    . (columnExists($db, 'employees', 'whatsapp_opted_in') ? ' AND whatsapp_opted_in = 1' : '')
+);
+// Opted-out count = eligible mobile + approved, but consent = 0.
+// Surfaced in the Bulk tab so HR can see how many employees have opted out.
+$optedOutCount = columnExists($db, 'employees', 'whatsapp_opted_in')
+    ? (int)$db->fetchColumn(
+        "SELECT COUNT(*) FROM employees
+         WHERE mobile_number IS NOT NULL AND mobile_number != ''
+           AND status = 'approved' AND whatsapp_opted_in = 0"
+      )
+    : 0;
+
+// Live queue status (used by the Bulk + History tabs). Fetches from the
+// bot over X-API-Key. Degrades gracefully when the bot is unreachable.
+$queueStats = waQueueStats();
+
+// Helper: column-exists check (avoids hard errors before the opt-in
+// migration has run).
+if (!function_exists('columnExists')) {
+    function columnExists($db, string $table, string $column): bool {
+        try {
+            $cnt = (int)$db->fetchColumn(
+                "SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema = DATABASE() AND table_name = :t AND column_name = :c",
+                [':t' => $table, ':c' => $column]
+            );
+            return $cnt > 0;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+}
 ?>
 
 <div class="page-header">
@@ -477,6 +517,18 @@ $mobileCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM employees WHERE mobil
 <?php if ($tab === 'send'): ?>
 <div class="row">
     <div class="col-lg-8">
+        <?php if (!$waBot['connected']): ?>
+        <!-- Connection warning — single sends go out synchronously, so an
+             offline bot means the send will fail with a 503 immediately. -->
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+            <strong>WhatsApp Bot is offline.</strong>
+            Single sends will fail until the bot is reconnected.
+            Go to <a href="index.php?page=settings/notifications">Settings → Notifications</a>
+            to log in (QR or phone code).
+        </div>
+        <?php endif; ?>
+
         <div class="card">
             <div class="card-header">
                 <h5 class="card-title mb-0"><i class="bi bi-send me-2"></i>Send Single Message</h5>
@@ -578,6 +630,81 @@ function searchEmployee() {
 <div class="alert alert-<?php echo $resultType; ?> alert-dismissible fade show" role="alert">
     <?php echo $resultMessage; ?>
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+<?php endif; ?>
+
+<!-- ── Bulk-safe redesign status panel ─────────────────────────────────
+     Shows the operator the live queue state before they compose a campaign.
+     Visible on the Compose screen (not the Results screen). -->
+<?php if (!$results): ?>
+<div class="card mb-3 border-info">
+    <div class="card-header bg-info text-white py-2">
+        <h6 class="mb-0"><i class="bi bi-info-circle me-1"></i>Bulk Send — Persistent Queue</h6>
+    </div>
+    <div class="card-body py-3">
+        <div class="row g-3 small">
+            <!-- Connection state -->
+            <div class="col-md-3">
+                <div class="text-muted">Bot Connection</div>
+                <?php if ($waBot['connected']): ?>
+                    <span class="badge bg-success"><i class="bi bi-circle-fill me-1"></i>Connected</span>
+                    <?php if (!empty($waBot['phone'])): ?>
+                    <small class="d-block text-muted mt-1"><?php echo sanitize($waBot['phone']); ?></small>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <span class="badge bg-danger"><i class="bi bi-circle me-1"></i>Offline</span>
+                    <small class="d-block text-muted mt-1">
+                        Messages will still be queued, but won't send until the bot reconnects.
+                        <a href="index.php?page=settings/notifications">Fix in Settings →</a>
+                    </small>
+                <?php endif; ?>
+            </div>
+
+            <!-- Queue counters -->
+            <div class="col-md-3">
+                <div class="text-muted">Live Queue</div>
+                <strong class="text-warning"><?php echo number_format((int)($queueStats['queued'] ?? 0)); ?></strong> queued
+                &middot;
+                <strong class="text-primary"><?php echo number_format((int)($queueStats['sending'] ?? 0)); ?></strong> sending
+                &middot;
+                <strong class="text-secondary"><?php echo number_format((int)($queueStats['retry_wait'] ?? 0)); ?></strong> retry-wait
+            </div>
+
+            <!-- Today's progress -->
+            <div class="col-md-3">
+                <div class="text-muted">Today's Sends</div>
+                <strong><?php echo number_format((int)($queueStats['sent_today'] ?? 0)); ?></strong>
+                / <?php echo number_format((int)($queueStats['day_limit'] ?? 200)); ?> (day limit)
+                <?php if (!empty($queueStats['day_limit_hit'])): ?>
+                    <span class="badge bg-warning text-dark ms-1">Limit hit</span>
+                <?php endif; ?>
+            </div>
+
+            <!-- Opt-in summary -->
+            <div class="col-md-3">
+                <div class="text-muted">Eligible Recipients</div>
+                <strong><?php echo number_format($mobileCount); ?></strong> opted-in
+                <?php if ($optedOutCount > 0): ?>
+                <small class="d-block text-muted">
+                    <?php echo number_format($optedOutCount); ?> opted out (excluded automatically)
+                </small>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <hr class="my-2">
+        <div class="small text-muted">
+            <i class="bi bi-shield-check me-1 text-success"></i>
+            Messages are sent gradually by the bot's single worker
+            (<?php echo (int)($queueStats['config']['interval_min_s'] ?? 20); ?>–<?php echo (int)($queueStats['config']['interval_max_s'] ?? 45); ?>s apart,
+            max <?php echo (int)($queueStats['config']['batch_limit'] ?? 25); ?> per batch with a
+            <?php echo (int)($queueStats['config']['batch_cooldown_s'] ?? 300); ?>s breather).
+            <a href="index.php?page=settings/notifications">Adjust pacing in Settings →</a>
+            &middot;
+            <i class="bi bi-shield-lock me-1 text-success"></i>
+            Duplicate messages to the same recipient within 24 hours are auto-skipped.
+        </div>
+    </div>
 </div>
 <?php endif; ?>
 
@@ -1429,25 +1556,152 @@ document.addEventListener('DOMContentLoaded', function() { waUpdateCounts(); });
 
 <!-- ===================== HISTORY TAB ===================== -->
 <?php elseif ($tab === 'history'): ?>
+
+<?php
+// Counts for the action buttons (queued + retry_wait both retryable;
+// failed can be re-queued with the retry-failed admin action).
+$queuedCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'queued'");
+$retryWaitCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'retry_wait'");
+$failedCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'failed'");
+$retryableCount = $queuedCount + $retryWaitCount;
+
+// Active campaigns (for the Cancel Campaign dropdown) — campaigns with
+// at least one row still in a non-final status.
+$activeCampaigns = $db->fetchAll(
+    "SELECT campaign_id, COUNT(*) AS pending, MIN(created_at) AS first_at
+     FROM whatsapp_logs
+     WHERE campaign_id IS NOT NULL
+       AND status IN ('queued','sending','retry_wait')
+     GROUP BY campaign_id
+     ORDER BY first_at DESC
+     LIMIT 20"
+);
+
+// Handle Cancel Campaign action (bulk-safe redesign — operator can stop a
+// campaign's waiting rows without touching already-sent ones).
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'history' && ($_POST['action'] ?? '') === 'cancel_campaign') {
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect('index.php?page=notifications/whatsapp&tab=history');
+    }
+    $cancelCampaignId = trim($_POST['campaign_id'] ?? '');
+    if ($cancelCampaignId !== '') {
+        $cancelled = waQueueCancelCampaign($cancelCampaignId);
+        setFlash($cancelled > 0 ? 'success' : 'info',
+            $cancelled > 0
+                ? "Cancelled {$cancelled} pending message(s) in campaign {$cancelCampaignId}."
+                : "No pending messages found for campaign {$cancelCampaignId}."
+        );
+    } else {
+        setFlash('error', 'Campaign ID is required.');
+    }
+    redirect('index.php?page=notifications/whatsapp&tab=history');
+}
+
+// Handle Retry Failed action (re-queues permanently failed rows).
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'history' && ($_POST['action'] ?? '') === 'retry_failed') {
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect('index.php?page=notifications/whatsapp&tab=history');
+    }
+    $requeued = waQueueRetryFailed();
+    setFlash($requeued > 0 ? 'success' : 'info',
+        $requeued > 0
+            ? "Re-queued {$requeued} failed message(s) for delivery."
+            : 'No failed messages to re-queue.'
+    );
+    redirect('index.php?page=notifications/whatsapp&tab=history');
+}
+?>
+
+<!-- Live queue status mini-panel (same shape as Bulk tab, condensed) -->
+<div class="card mb-3 border-info">
+    <div class="card-body py-2">
+        <div class="row g-2 small text-center">
+            <div class="col">
+                <div class="text-muted">Queued</div>
+                <strong class="text-warning fs-5"><?php echo number_format($queuedCount); ?></strong>
+            </div>
+            <div class="col border-start">
+                <div class="text-muted">Retry Wait</div>
+                <strong class="text-secondary fs-5"><?php echo number_format($retryWaitCount); ?></strong>
+            </div>
+            <div class="col border-start">
+                <div class="text-muted">Failed</div>
+                <strong class="text-danger fs-5"><?php echo number_format($failedCount); ?></strong>
+            </div>
+            <div class="col border-start">
+                <div class="text-muted">Sent Today</div>
+                <strong class="text-success fs-5"><?php echo number_format((int)($queueStats['sent_today'] ?? 0)); ?></strong>
+            </div>
+            <div class="col border-start">
+                <div class="text-muted">Day Limit</div>
+                <strong class="fs-5"><?php echo number_format((int)($queueStats['day_limit'] ?? 200)); ?></strong>
+            </div>
+            <?php if (!empty($queueStats['day_limit_hit'])): ?>
+            <div class="col border-start align-self-center">
+                <span class="badge bg-warning text-dark">Day limit reached — queue resumes tomorrow</span>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-header">
         <div class="row align-items-center">
             <div class="col">
                 <h5 class="card-title mb-0"><i class="bi bi-clock-history me-2"></i>Send History</h5>
+                <small class="text-muted"><?php echo number_format($history['pagination']['total']); ?> total messages</small>
             </div>
-            <div class="col-auto">
-                <span class="badge bg-secondary me-2"><?php echo number_format($history['pagination']['total']); ?> messages</span>
-                <?php
-                $queuedCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'queued'");
-                ?>
-                <form method="POST" style="display:inline;" onsubmit="return confirm('Re-send all <?php echo (int)$queuedCount; ?> queued message(s)?');">
+            <div class="col-auto d-flex gap-2 align-items-center">
+                <!-- Cancel Campaign dropdown -->
+                <?php if (!empty($activeCampaigns)): ?>
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-danger dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <i class="bi bi-x-circle me-1"></i>Cancel Campaign
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <?php foreach ($activeCampaigns as $ac): ?>
+                        <li>
+                            <form method="POST" class="d-inline" onsubmit="return confirm('Cancel <?php echo (int)$ac['pending']; ?> pending message(s) in campaign <?php echo htmlspecialchars($ac['campaign_id']); ?>? Already-sent messages are not affected.');">
+                                <?php echo getCSRFTokenField(); ?>
+                                <input type="hidden" name="tab" value="history">
+                                <input type="hidden" name="action" value="cancel_campaign">
+                                <input type="hidden" name="campaign_id" value="<?php echo htmlspecialchars($ac['campaign_id']); ?>">
+                                <button type="submit" class="dropdown-item text-danger">
+                                    <code><?php echo htmlspecialchars($ac['campaign_id']); ?></code>
+                                    <span class="badge bg-warning text-dark ms-2"><?php echo (int)$ac['pending']; ?> pending</span>
+                                </button>
+                            </form>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+                <?php endif; ?>
+
+                <!-- Retry Failed (re-queues permanently failed rows) -->
+                <form method="POST" style="display:inline;" onsubmit="return confirm('Re-queue all <?php echo (int)$failedCount; ?> permanently failed message(s) for delivery?');">
+                    <?php echo getCSRFTokenField(); ?>
+                    <input type="hidden" name="tab" value="history">
+                    <input type="hidden" name="action" value="retry_failed">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary" <?php echo $failedCount > 0 ? '' : 'disabled'; ?>>
+                        <i class="bi bi-arrow-repeat me-1"></i>Retry Failed
+                        <?php if ($failedCount > 0): ?>
+                        <span class="badge bg-danger ms-1"><?php echo $failedCount; ?></span>
+                        <?php endif; ?>
+                    </button>
+                </form>
+
+                <!-- Retry Queued (re-queues stuck queued/retry_wait rows) -->
+                <form method="POST" style="display:inline;" onsubmit="return confirm('Re-send all <?php echo (int)$retryableCount; ?> queued/retry-wait message(s)?');">
                     <?php echo getCSRFTokenField(); ?>
                     <input type="hidden" name="tab" value="history">
                     <input type="hidden" name="action" value="retry_queued">
-                    <button type="submit" class="btn btn-sm btn-warning" <?php echo $queuedCount > 0 ? '' : 'disabled'; ?>>
+                    <button type="submit" class="btn btn-sm btn-warning" <?php echo $retryableCount > 0 ? '' : 'disabled'; ?>>
                         <i class="bi bi-arrow-repeat me-1"></i>Retry Queued
-                        <?php if ($queuedCount > 0): ?>
-                        <span class="badge bg-danger ms-1"><?php echo $queuedCount; ?></span>
+                        <?php if ($retryableCount > 0): ?>
+                        <span class="badge bg-danger ms-1"><?php echo $retryableCount; ?></span>
                         <?php endif; ?>
                     </button>
                 </form>
@@ -1473,7 +1727,7 @@ document.addEventListener('DOMContentLoaded', function() { waUpdateCounts(); });
             <div class="col-md-5">
                 <input type="text" class="form-control form-control-sm" name="search"
                        value="<?php echo sanitize($historySearch); ?>"
-                       placeholder="Search mobile, message, or name...">
+                       placeholder="Search mobile, message, campaign ID, or name...">
             </div>
             <div class="col-md-2">
                 <button class="btn btn-sm btn-primary w-100"><i class="bi bi-search me-1"></i>Search</button>
@@ -1495,13 +1749,16 @@ document.addEventListener('DOMContentLoaded', function() { waUpdateCounts(); });
                         <th>Employee</th>
                         <th>Message</th>
                         <th>Status</th>
+                        <th>Attempts</th>
+                        <th>Campaign</th>
                         <th>Error</th>
-                        <th>Sent At</th>
+                        <th>Created</th>
+                        <th>Sent</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($history['items'])): ?>
-                    <tr><td colspan="7" class="text-center text-muted py-4">No messages found</td></tr>
+                    <tr><td colspan="10" class="text-center text-muted py-4">No messages found</td></tr>
                     <?php else: ?>
                     <?php foreach ($history['items'] as $i => $log): ?>
                     <tr>
@@ -1516,31 +1773,69 @@ document.addEventListener('DOMContentLoaded', function() { waUpdateCounts(); });
                             <?php endif; ?>
                         </td>
                         <td>
-                            <div style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                            <div style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
                                  title="<?php echo htmlspecialchars($log['message']); ?>">
-                                <?php echo sanitize(mb_substr($log['message'], 0, 80)); ?>
-                                <?php if (mb_strlen($log['message']) > 80) echo '...'; ?>
+                                <?php echo sanitize(mb_substr($log['message'], 0, 60)); ?>
+                                <?php if (mb_strlen($log['message']) > 60) echo '...'; ?>
                             </div>
                         </td>
                         <td>
                             <?php
-                            $statusBadge = ['sent'=>'success','queued'=>'warning','failed'=>'danger','link_generated'=>'info','sending'=>'primary','retry_wait'=>'secondary','paused'=>'light'];
-                            $statusLabel = ['sent'=>'Sent','queued'=>'Queued','failed'=>'Failed','link_generated'=>'Link','sending'=>'Sending','retry_wait'=>'Retry Wait','paused'=>'Paused'];
-                            $bg = $statusBadge[$log['status']] ?? 'secondary';
-                            $label = $statusLabel[$log['status']] ?? $log['status'];
+                            // Status badges with icons — clearer than colour-only.
+                            $statusMap = [
+                                'sent'         => ['success',  'check-circle',        'Sent'],
+                                'queued'       => ['warning',  'hourglass-split',     'Queued'],
+                                'sending'       => ['primary',  'arrow-repeat',        'Sending'],
+                                'retry_wait'   => ['secondary', 'clock-history',       'Retry Wait'],
+                                'failed'       => ['danger',   'x-circle',            'Failed'],
+                                'paused'       => ['light',    'pause-circle',        'Paused'],
+                                'link_generated'=> ['info',    'link-45deg',          'Link'],
+                            ];
+                            $sb = $statusMap[$log['status']] ?? ['secondary', 'question-circle', $log['status']];
                             ?>
-                            <span class="badge bg-<?php echo $bg; ?>"><?php echo $label; ?></span>
+                            <span class="badge bg-<?php echo $sb[0]; ?>">
+                                <i class="bi bi-<?php echo $sb[1]; ?> me-1"></i><?php echo $sb[2]; ?>
+                            </span>
+                        </td>
+                        <td class="text-center">
+                            <?php
+                            $att = (int)($log['attempts'] ?? 0);
+                            $maxAtt = (int)($log['max_attempts'] ?? 4);
+                            // Highlight attempts > 0 so operators can see retried rows at a glance
+                            $attClass = $att === 0 ? 'text-muted' : ($att >= $maxAtt ? 'text-danger fw-bold' : 'text-warning');
+                            ?>
+                            <span class="<?php echo $attClass; ?>"><?php echo $att; ?>/<?php echo $maxAtt; ?></span>
+                        </td>
+                        <td>
+                            <?php if (!empty($log['campaign_id'])): ?>
+                            <code class="small" title="<?php echo htmlspecialchars($log['campaign_id']); ?>">
+                                <?php echo sanitize(mb_substr($log['campaign_id'], 0, 12)); ?><?php if (mb_strlen($log['campaign_id']) > 12) echo '...'; ?>
+                            </code>
+                            <?php else: ?>
+                            <span class="text-muted">&mdash;</span>
+                            <?php endif; ?>
                         </td>
                         <td>
                             <?php if (!empty($log['error'])): ?>
                             <small class="text-danger" title="<?php echo htmlspecialchars($log['error']); ?>">
-                                <?php echo sanitize(mb_substr($log['error'], 0, 40)); ?><?php if (mb_strlen($log['error']) > 40) echo '...'; ?>
+                                <?php echo sanitize(mb_substr($log['error'], 0, 30)); ?><?php if (mb_strlen($log['error']) > 30) echo '...'; ?>
                             </small>
                             <?php else: ?>
                             <span class="text-muted">&mdash;</span>
                             <?php endif; ?>
                         </td>
-                        <td><small><?php echo date('d M Y H:i', strtotime($log['created_at'])); ?></small></td>
+                        <td><small class="text-muted"><?php echo date('d M H:i', strtotime($log['created_at'])); ?></small></td>
+                        <td>
+                            <?php if (!empty($log['sent_at'])): ?>
+                            <small class="text-success"><?php echo date('d M H:i', strtotime($log['sent_at'])); ?></small>
+                            <?php elseif (!empty($log['available_at']) && in_array($log['status'], ['queued','retry_wait'], true)): ?>
+                            <small class="text-warning" title="Next attempt scheduled">
+                                <?php echo date('d M H:i', strtotime($log['available_at'])); ?>
+                            </small>
+                            <?php else: ?>
+                            <span class="text-muted">&mdash;</span>
+                            <?php endif; ?>
+                        </td>
                     </tr>
                     <?php endforeach; ?>
                     <?php endif; ?>
