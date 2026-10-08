@@ -11,6 +11,14 @@
 // Constant to avoid string duplication
 define('REGEX_NON_NUMERIC', '/[^0-9]/');
 
+// WhatsApp helper functions (waSendBulk, waQueueEnqueue, etc.) live in a
+// flat-function file that isn't autoloaded — load it once here so any
+// caller of Notification::sendWhatsAppBulk() can rely on the helpers
+// being present, regardless of which module entry point ran first.
+if (!function_exists('waSendBulk')) {
+    require_once __DIR__ . '/whatsapp.php';
+}
+
 class Notification {
     private $db;
     private $smsApiKey;
@@ -416,54 +424,38 @@ class Notification {
     }
     
     /**
-     * Send bulk WhatsApp messages via Bot API
+     * Send bulk WhatsApp messages via the persistent DB queue.
+     *
+     * REDESIGNED (bulk-safe): no longer POSTs directly to the bot's /api/send-bulk
+     * with a 10-min curl timeout. Instead, enqueues rows into whatsapp_logs via
+     * waSendBulk(), which the bot's single worker drains at the configured
+     * conservative pace (interval_min_s .. interval_max_s, batch_limit +
+     * batch_cooldown_s, day_limit cap, message_hash dedupe, opt-in filter).
+     *
+     * Returns immediately with campaign info; the caller never blocks on sends.
      */
     public function sendWhatsAppBulk($recipients, $message) {
         if (empty($this->whatsappConfig['api_url']) || empty($this->whatsappConfig['api_key'])) {
-            return ['success' => false, 'message' => 'WhatsApp Bot API not configured', 'sent' => 0, 'failed' => 0];
+            return ['success' => false, 'message' => 'WhatsApp Bot API not configured', 'sent' => 0, 'failed' => 0, 'queued' => 0];
         }
-        
-        $messages = [];
-        foreach ($recipients as $r) {
-            $mobile = is_array($r) ? ($r['mobile'] ?? $r['phone'] ?? $r['to']) : $r;
-            $mobile = preg_replace(REGEX_NON_NUMERIC, '', (string)$mobile);
-            if (strlen($mobile) >= 10) {
-                $messages[] = ['to' => $mobile, 'message' => $message];
-            }
-        }
-        
-        if (empty($messages)) {
-            return ['success' => false, 'message' => 'No valid phone numbers', 'sent' => 0, 'failed' => 0];
-        }
-        
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $this->whatsappConfig['api_url'] . '/api/send-bulk',
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 600, // 10 min timeout for bulk
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'X-API-Key: ' . $this->whatsappConfig['api_key']
-            ],
-            CURLOPT_POSTFIELDS => json_encode(['messages' => $messages])
-        ]);
-        
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        
-        $result = json_decode($response, true);
-        
+
+        // Delegate to the queue-backed helper. waSendBulk() already:
+        //   - normalises mobiles
+        //   - inserts rows as 'queued' with a campaign_id
+        //   - applies the duplicate-prevention message_hash check
+        //   - returns immediately (the bot drains the queue separately)
+        $result = waSendBulk($recipients, $message);
+
         return [
-            'success' => ($httpCode == 200 && ($result['success'] ?? false)),
-            'message' => $result['message'] ?? 'Bulk send failed',
-            'sent' => $result['data']['sent'] ?? 0,
-            'failed' => $result['data']['failed'] ?? 0,
-            'queued' => $result['data']['queued'] ?? 0
+            'success'     => $result['success'] ?? false,
+            'message'     => $result['message'] ?? 'Bulk send failed',
+            'sent'        => 0,                                  // never claim sends here — status becomes 'sent' only when the bot confirms
+            'failed'      => 0,
+            'queued'      => $result['queued'] ?? 0,
+            'campaign_id' => $result['campaign_id'] ?? null,
         ];
     }
-    
+
     /**
      * Check WhatsApp Bot connection status
      */

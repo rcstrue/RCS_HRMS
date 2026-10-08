@@ -41,6 +41,7 @@ if (!function_exists('ensureWhatsAppLogsTable')) {
             `sent_at` datetime DEFAULT NULL,
             `failed_at` datetime DEFAULT NULL,
             `campaign_id` varchar(40) DEFAULT NULL,
+            `message_hash` char(64) DEFAULT NULL,
             `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
             `updated_at` datetime DEFAULT NULL,
             PRIMARY KEY (`id`),
@@ -49,7 +50,8 @@ if (!function_exists('ensureWhatsAppLogsTable')) {
             KEY `idx_employee` (`employee_id`),
             KEY `idx_created` (`created_at`),
             KEY `idx_queue` (`status`, `available_at`),
-            KEY `idx_campaign` (`campaign_id`)
+            KEY `idx_campaign` (`campaign_id`),
+            KEY `idx_dedupe` (`mobile`, `message_hash`, `created_at`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
         ensureWhatsAppQueueColumns($db);
@@ -78,6 +80,11 @@ if (!function_exists('ensureWhatsAppQueueColumns')) {
                 'failed_at'       => "datetime DEFAULT NULL",
                 'campaign_id'     => "varchar(40) DEFAULT NULL",
                 'updated_at'      => "datetime DEFAULT NULL",
+                // Duplicate-prevention (bulk-safe redesign requirement #7).
+                // SHA-256 of normalised mobile + message body; checked at enqueue
+                // time to stop a double-click / refreshed preview / re-submitted
+                // salary-blast from queueing the same message twice within 24h.
+                'message_hash'    => "char(64) DEFAULT NULL",
             ];
             foreach ($add as $col => $def) {
                 if (!in_array($col, $have, true)) {
@@ -103,6 +110,11 @@ if (!function_exists('ensureWhatsAppQueueColumns')) {
             if (!in_array('idx_campaign', $idxNames, true)) {
                 $db->exec("ALTER TABLE `whatsapp_logs` ADD KEY `idx_campaign` (`campaign_id`)");
             }
+            // Composite index for the dedupe lookup at enqueue time
+            // (mobile + message_hash + created_at within the 24h window).
+            if (!in_array('idx_dedupe', $idxNames, true)) {
+                $db->exec("ALTER TABLE `whatsapp_logs` ADD KEY `idx_dedupe` (`mobile`, `message_hash`, `created_at`)");
+            }
 
             // Backfill updated_at for legacy rows.
             $db->exec("UPDATE `whatsapp_logs` SET `updated_at` = `created_at` WHERE `updated_at` IS NULL");
@@ -111,6 +123,37 @@ if (!function_exists('ensureWhatsAppQueueColumns')) {
                        WHERE `status` = 'sending' AND `last_attempt_at` < DATE_SUB(NOW(), INTERVAL 10 MINUTE)");
         } catch (Exception $e) {
             error_log('WhatsApp queue migration error: ' . $e->getMessage());
+        }
+    }
+}
+
+// Additive, idempotent migration: add whatsapp_opted_in to employees.
+//
+// DEFAULT 1 — existing employees are treated as opted-in (preserves the
+// historical "anyone with a mobile gets messaged" behaviour until an admin
+// explicitly opts someone out). New hires should still be asked for
+// consent at onboarding, but the column existing is the prerequisite for
+// the recipient filter in waSendBulk / whatsapp-salary.php.
+if (!function_exists('ensureEmployeesWhatsAppOptIn')) {
+    function ensureEmployeesWhatsAppOptIn($db = null) {
+        static $done = false;
+        if ($done) { return; }
+        $done = true;
+
+        if ($db === null) { $db = Database::getInstance(); }
+
+        try {
+            $cols = $db->fetchAll("SHOW COLUMNS FROM `employees`");
+            $have = array_column($cols, 'Field');
+            if (!in_array('whatsapp_opted_in', $have, true)) {
+                $db->exec("ALTER TABLE `employees`
+                           ADD COLUMN `whatsapp_opted_in` TINYINT(1) NOT NULL DEFAULT 1
+                           COMMENT '1 = employee consents to WhatsApp notifications; 0 = opt out'");
+            }
+        } catch (Exception $e) {
+            // Non-fatal — recipient filters degrade gracefully when the column
+            // is missing (they treat everyone as opted-in).
+            error_log('WhatsApp opt-in migration error: ' . $e->getMessage());
         }
     }
 }
@@ -136,6 +179,7 @@ if (!function_exists('waLog')) {
             'available_at'  => $data['available_at'] ?? (($status === 'queued') ? date('Y-m-d H:i:s') : null),
             'sent_at'       => $data['sent_at'] ?? (($status === 'sent') ? date('Y-m-d H:i:s') : null),
             'campaign_id'   => $data['campaign_id'] ?? null,
+            'message_hash'  => $data['message_hash'] ?? null,
             'updated_at'    => date('Y-m-d H:i:s'),
         ]);
     }
@@ -327,16 +371,28 @@ if (!function_exists('waQueuePauseAdmin')) {
 }
 
 // Queue pacing/config — configurable from HRMS settings, conservative defaults.
+//
+// Defaults are deliberately conservative to keep the bot in a "human-paced
+// assistant" range — fast enough to be useful, slow enough that WhatsApp's
+// automation heuristics don't flag the pattern. Operators can override via
+// the wa_queue_* settings keys (Settings → Notifications → Queue Pacing).
+//   ~80–100 messages/hour sustained, with a 5-min breather every 25 sends.
+//   Hard cap of 200 messages/day per WhatsApp number.
 if (!function_exists('waQueueConfig')) {
     function waQueueConfig(): array {
         $defaults = [
-            'interval_min_s'   => 8,
-            'interval_max_s'   => 15,
-            'batch_limit'      => 50,
-            'batch_cooldown_s' => 60,
-            'day_limit'        => 500,
+            'interval_min_s'   => 20,    // was 8  — gap between sends, lower bound
+            'interval_max_s'   => 45,    // was 15 — gap between sends, upper bound (jittered)
+            'batch_limit'      => 25,    // was 50 — sends before a batch cooldown
+            'batch_cooldown_s' => 300,   // was 60 — 5-min breather after each batch
+            'day_limit'        => 200,   // was 500 — hard cap per WhatsApp number per day
             'paused'           => 0,
-            'connect_cooldown_s' => 30,
+            'connect_cooldown_s' => 120, // was 30 — 2-min settling after (re)connect
+            // Drain cap (bulk-safe redesign requirement #6): the worker stops
+            // after this many sends on a single connection and waits for either
+            // a manual resume or the next reconnect. Prevents a 1000-row
+            // backlog from draining in one session after a restart.
+            'drain_cap_per_connection' => 50,
         ];
         $out = $defaults;
         try {
@@ -358,11 +414,25 @@ if (!function_exists('waQueueConfig')) {
         $out['batch_cooldown_s'] = max(0, min(3600, $out['batch_cooldown_s']));
         $out['day_limit']        = max(1, min(2000, $out['day_limit']));
         $out['connect_cooldown_s'] = max(0, min(600, $out['connect_cooldown_s']));
+        $out['drain_cap_per_connection'] = max(1, min(500, (int)$out['drain_cap_per_connection']));
         return $out;
     }
 }
 
 // Enqueue messages for gradual sending. Returns campaign info immediately.
+//
+// Duplicate prevention (bulk-safe redesign requirement #7):
+//   Each row gets a message_hash = SHA-256(normalised_mobile + '|' + message_body).
+//   Before inserting, we check whether a row with the same (mobile, message_hash)
+//   already exists in 'queued' / 'sending' / 'sent' / 'retry_wait' status with
+//   created_at within the last 24 hours. If so, the duplicate is skipped and
+//   counted in `skipped`. This stops the common cases:
+//     - Admin clicks "Send Bulk" twice
+//     - Browser back-button re-POSTs the same form
+//     - Salary-blast endpoint called twice for the same period
+//   The 24h window is intentional — a legitimate re-send (e.g. a corrected
+//   "salary credited" message the next day) is still allowed because the
+//   message body would differ.
 if (!function_exists('waQueueEnqueue')) {
     function waQueueEnqueue(array $messages, ?string $campaignId = null, ?int $employeeId = null): array {
         ensureWhatsAppLogsTable();
@@ -377,6 +447,25 @@ if (!function_exists('waQueueEnqueue')) {
             $message = (string)($m['message'] ?? '');
             if (strlen($number) < 12 || $message === '') { $skipped++; continue; }
 
+            // Duplicate check — look for an in-flight or recently-sent row with
+            // the same hash for this recipient in the last 24 hours.
+            $hash = hash('sha256', $number . '|' . $message);
+            try {
+                $existing = Database::getInstance()->fetch(
+                    "SELECT id FROM whatsapp_logs
+                     WHERE mobile = :mobile
+                       AND message_hash = :hash
+                       AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                       AND status IN ('queued','sending','sent','retry_wait')
+                     LIMIT 1",
+                    [':mobile' => $number, ':hash' => $hash]
+                );
+                if ($existing) { $skipped++; continue; }
+            } catch (Exception $e) {
+                // Column / index not yet present on this row — fall through to
+                // insert without dedupe (the migration runs on first call).
+            }
+
             $ids[] = waLog([
                 'mobile'       => $number,
                 'message'      => $message,
@@ -386,6 +475,7 @@ if (!function_exists('waQueueEnqueue')) {
                 'available_at' => $now,
                 'campaign_id'  => $m['campaign_id'] ?? $campaignId,
                 'max_attempts' => (int)($m['max_attempts'] ?? 4),
+                'message_hash' => $hash,
             ]);
         }
 

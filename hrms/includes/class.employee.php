@@ -426,11 +426,20 @@ class Employee {
             'status', 'profile_pic_url', 'profile_pic_cropped_url',
             'aadhaar_front_url', 'aadhaar_back_url', 'bank_document_url'
         ];
-        
+
         foreach ($directFields as $field) {
             if (isset($data[$field])) {
                 $mapped[$field] = $data[$field];
             }
+        }
+
+        // whatsapp_opted_in is a checkbox: present in $_POST only when checked.
+        // The employee form renders it explicitly (default checked), so we honour
+        // the form value when present and otherwise fall back to the existing
+        // stored value (handled by callers passing $employeeData into $data on
+        // edit). For new employees the column DEFAULT 1 covers the case.
+        if (array_key_exists('whatsapp_opted_in', $data)) {
+            $mapped['whatsapp_opted_in'] = !empty($data['whatsapp_opted_in']) ? 1 : 0;
         }
         
         // Handle middle_name -> father_name mapping (for backward compatibility)

@@ -10,8 +10,9 @@ require_once __DIR__ . '/../../includes/whatsapp.php';
 
 $pageTitle = 'WhatsApp Messaging';
 
-// Ensure tables exist
+// Ensure tables exist (also self-heals the employees.whatsapp_opted_in column).
 ensureWhatsAppLogsTable();
+ensureEmployeesWhatsAppOptIn();
 
 // Tab
 $tab = $_GET['tab'] ?? 'send';
@@ -110,7 +111,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'bulk') {
                     LEFT JOIN clients c ON e.client_id = c.id
                     LEFT JOIN units u ON e.unit_id = u.id
                     LEFT JOIN employee_salary_structures ess ON e.id = ess.employee_id AND (ess.effective_to IS NULL OR ess.effective_to >= CURDATE())
-                    WHERE e.mobile_number IS NOT NULL AND e.mobile_number != ''";
+                    WHERE e.mobile_number IS NOT NULL AND e.mobile_number != ''
+                    AND e.whatsapp_opted_in = 1";
             $params = [];
 
             if ($filterStatus) {

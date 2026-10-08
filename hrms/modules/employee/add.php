@@ -314,6 +314,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'bonus_applicable'    => isset($_POST['bonus_applicable'])    ? 1 : (int)($employeeData['bonus_applicable']    ?? 0),
         'gratuity_applicable' => isset($_POST['gratuity_applicable']) ? 1 : (int)($employeeData['gratuity_applicable'] ?? 0),
         'overtime_applicable' => isset($_POST['overtime_applicable']) ? 1 : (int)($employeeData['overtime_applicable'] ?? 0),
+        // WhatsApp consent (bulk-safe redesign requirement #10).
+        // Checkbox present in POST = opted-in; absent = opted-out.
+        // On edit with no checkbox rendered, fall back to existing value.
+        'whatsapp_opted_in' => isset($_POST['whatsapp_opted_in']) ? 1 : (int)($employeeData['whatsapp_opted_in'] ?? 1),
     ];
     
     // Handle file uploads with correct paths
@@ -810,7 +814,28 @@ $appRoles = [
                     <input type="hidden" name="lwf_applicable"        value="<?php echo (int)($employeeData['lwf_applicable'] ?? 0); ?>">
                     <input type="hidden" name="gratuity_applicable"   value="<?php echo (int)($employeeData['gratuity_applicable'] ?? 0); ?>">
                     <input type="hidden" name="overtime_applicable"   value="<?php echo (int)($employeeData['overtime_applicable'] ?? 0); ?>">
-                    
+
+                    <!-- WhatsApp consent (bulk-safe redesign requirement #10) -->
+                    <!-- Default checked = opted-in. Unchecking means the employee has
+                         withdrawn consent; bulk-send recipient filters exclude them. -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h6 class="text-primary border-bottom pb-2 mb-3">
+                                <i class="bi bi-whatsapp me-2"></i>Communication Preferences
+                            </h6>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="whatsapp_opted_in" name="whatsapp_opted_in"
+                                       <?php echo (!isset($employeeData) || (int)($employeeData['whatsapp_opted_in'] ?? 1) === 1) ? 'checked' : ''; ?>>
+                                <label class="form-check-label" for="whatsapp_opted_in">
+                                    Employee consents to WhatsApp notifications
+                                    <small class="d-block text-muted">Payslip notifications, salary credit alerts, and HR broadcasts are sent via WhatsApp. Uncheck if the employee has opted out.</small>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Bank Details -->
                     <div class="row mb-4">
                         <div class="col-12">

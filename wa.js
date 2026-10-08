@@ -185,6 +185,11 @@ async function createSocket() {
       hardStopReason = null;
       queuePaused = false;
       sentInBatch = 0;
+      // Drain cap (requirement #6): reset the per-connection counter so each
+      // new connection gets a fresh allowance. This is what prevents a 1000-row
+      // backlog from draining in one session after a restart.
+      sentInConnection = 0;
+      drainCapPaused = false;
       getQueueConfig(true).then(cfg => {
         const cool = Math.max(0, Number(cfg.connect_cooldown_s) || SAFE_DEFAULTS.connect_cooldown_s);
         connectCooldownUntil = Date.now() + cool * 1000;
@@ -222,14 +227,29 @@ async function createSocket() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const SAFE_DEFAULTS = {
-  interval_min_s: 8,
-  interval_max_s: 15,
-  batch_limit: 50,
-  batch_cooldown_s: 60,
-  day_limit: 500,
+  // Must match the PHP defaults in hrms/includes/whatsapp.php::waQueueConfig().
+  // Conservative "human-paced assistant" range — fast enough to be useful,
+  // slow enough that WhatsApp's automation heuristics don't flag the pattern.
+  // Operators can override via the wa_queue_* settings keys.
+  interval_min_s: 20,        // was 8
+  interval_max_s: 45,        // was 15
+  batch_limit: 25,           // was 50
+  batch_cooldown_s: 300,    // was 60
+  day_limit: 200,            // was 500
   paused: 0,
-  connect_cooldown_s: 30
+  connect_cooldown_s: 120,  // was 30
+  // Drain cap (bulk-safe redesign requirement #6): the worker stops after this
+  // many sends on a single connection and waits for either a manual resume or
+  // the next reconnect. Prevents a large backlog from draining in one session.
+  drain_cap_per_connection: 50
 };
+
+// Per-connection send counter. Reset on every `connection: open` event.
+// When `sentInConnection >= drain_cap_per_connection`, the worker pauses
+// itself with a distinct reason so the operator can tell why the queue
+// stopped (and either wait for the next reconnect or manually resume).
+let sentInConnection = 0;
+let drainCapPaused = false;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -280,11 +300,25 @@ async function pumpOnce() {
   if (!connected || !sock) return;             // never send while disconnected
   if (hardStopReason) return;                  // permanent stop
   if (queuePaused) return;                     // admin pause
+  if (drainCapPaused) return;                  // per-connection drain cap reached (requirement #6)
   if (Date.now() < connectCooldownUntil) return; // post-reconnect settling time
 
   workerBusy = true;
   try {
     const cfg = await getQueueConfig();
+
+    // Drain cap (requirement #6): if we've sent `drain_cap_per_connection`
+    // messages on this connection, pause the worker until the next reconnect
+    // OR a manual resume. Logged once so the operator can see why the queue
+    // stopped. The remaining rows stay queued in the DB — no data loss.
+    const drainCap = Math.max(1, Number(cfg.drain_cap_per_connection) || SAFE_DEFAULTS.drain_cap_per_connection);
+    if (sentInConnection >= drainCap) {
+      if (!drainCapPaused) {
+        drainCapPaused = true;
+        console.log(`[QUEUE] Drain cap (${drainCap}) reached for this connection — pausing until next reconnect or manual resume. ${sentInConnection} sends this session.`);
+      }
+      return;
+    }
 
     // Admin paused from HRMS settings?
     if (cfg.paused) { queuePaused = true; return; }
@@ -340,7 +374,8 @@ async function pumpOnce() {
       const sent = await sock.sendMessage(`${number}@s.whatsapp.net`, { text });
       messagesSent++;
       sentInBatch++;
-      console.log(`[QUEUE] Sent log ${job.log_id} -> ${number}`);
+      sentInConnection++;    // drain cap counter (requirement #6)
+      console.log(`[QUEUE] Sent log ${job.log_id} -> ${number} (session: ${sentInConnection}/${drainCap})`);
       await hrmsQueue('report', {
         log_id: job.log_id,
         ok: true,
@@ -422,6 +457,8 @@ const server = http.createServer((req, res) => {
       qrAvailable: !!currentQr,
       // Queue state (no secrets). Counters are filled by /api/queue-status.
       queuePaused: !!queuePaused,
+      drainCapPaused: !!drainCapPaused,
+      sentInConnection: sentInConnection,
       hardStop: hardStopReason
     }));
     return;
@@ -602,6 +639,8 @@ const server = http.createServer((req, res) => {
         success: true,
         connected: connected,
         paused: !!queuePaused,
+        drainCapPaused: !!drainCapPaused,
+        sentInConnection: sentInConnection,
         hardStop: hardStopReason,
         queued: q.queued || 0,
         sending: q.sending || 0,
@@ -641,6 +680,11 @@ const server = http.createServer((req, res) => {
       return;
     }
     queuePaused = false;
+    // Manual resume also clears the per-connection drain cap pause, so an
+    // operator who knows what they're doing can push a backlog through
+    // without waiting for a reconnect. The cap will re-engage at the next
+    // reconnect.
+    drainCapPaused = false;
     sentInBatch = 0;
     res.writeHead(200);
     res.end(JSON.stringify({ success: true, paused: false, connected }));
