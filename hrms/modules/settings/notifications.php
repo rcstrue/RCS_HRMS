@@ -146,6 +146,7 @@ $q = $queueStatus['data'] ?? [];
                         // exposed in /api/status.
                         $cooldownMs = isset($q['blockCooldownRemainingMs']) ? max(0, (int)$q['blockCooldownRemainingMs']) : 0;
                         $cooldownActive = $cooldownMs > 0;
+                        $showPurgeTip = !$cooldownActive;  // show the "purge first" tip only when cooldown is NOT active
                         if (!$waBot['connected'] && $cooldownActive):
                         ?>
                         <div class="alert alert-warning mt-2 mb-0 small">
@@ -172,7 +173,7 @@ $q = $queueStatus['data'] ?? [];
                             <strong>Recovery:</strong> Click <strong>Login WhatsApp</strong> below —
                             it will automatically clear the stale session and generate a fresh QR
                             for you to scan. No terminal access needed.
-                            <?php if ($cooldownMs === 0): ?>
+                            <?php if ($showPurgeTip): ?>
                             <br><small class="text-muted">Tip: <strong>Purge the queue first</strong> (Send History tab → Purge Queue) so the fresh session doesn't immediately blast pending messages.</small>
                             <?php endif; ?>
                         </div>
