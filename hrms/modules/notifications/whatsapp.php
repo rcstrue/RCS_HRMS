@@ -1579,7 +1579,9 @@ $activeCampaigns = $db->fetchAll(
 
 // Handle Cancel Campaign action (bulk-safe redesign — operator can stop a
 // campaign's waiting rows without touching already-sent ones).
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'history' && ($_POST['action'] ?? '') === 'cancel_campaign') {
+// Note: $tab is already constrained to 'history' by the elseif above, so
+// we don't re-check it here (PHPStan flags the redundant check as always-true).
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'cancel_campaign') {
     if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
         setFlash('error', 'Invalid request. Please refresh the page and try again.');
         redirect('index.php?page=notifications/whatsapp&tab=history');
@@ -1599,7 +1601,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'history' && ($_POST['acti
 }
 
 // Handle Retry Failed action (re-queues permanently failed rows).
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'history' && ($_POST['action'] ?? '') === 'retry_failed') {
+// Same note: $tab is already 'history' here — no need to re-check.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'retry_failed') {
     if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
         setFlash('error', 'Invalid request. Please refresh the page and try again.');
         redirect('index.php?page=notifications/whatsapp&tab=history');
