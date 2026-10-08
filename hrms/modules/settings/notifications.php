@@ -144,7 +144,7 @@ $q = $queueStatus['data'] ?? [];
                         // a device_removed/401 hard-stop, to prevent the re-link →
                         // immediate re-block loop. The cooldown timestamp is
                         // exposed in /api/status.
-                        $cooldownMs = (int)($q['blockCooldownRemainingMs'] ?? 0);
+                        $cooldownMs = isset($q['blockCooldownRemainingMs']) ? max(0, (int)$q['blockCooldownRemainingMs']) : 0;
                         $cooldownActive = $cooldownMs > 0;
                         if (!$waBot['connected'] && $cooldownActive):
                         ?>
