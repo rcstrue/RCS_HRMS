@@ -823,6 +823,49 @@ if (!function_exists('waQueueCancelCampaign')) {
     }
 }
 
+// Cancel ALL pending rows (queued / sending / retry_wait) — used to safely
+// drain the queue before re-linking a blocked WhatsApp account. Already-sent
+// and permanently-failed rows are NOT touched. Each cancelled row is logged
+// to the JSONL audit trail.
+if (!function_exists('waQueueCancelAllPending')) {
+    function waQueueCancelAllPending(): int {
+        $db = Database::getInstance();
+
+        // Fetch rows to cancel so we can log each transition to the JSONL
+        // audit trail (the bulk UPDATE doesn't tell us which rows were touched).
+        $toCancel = $db->fetchAll(
+            "SELECT id, status, mobile, employee_id, campaign_id, attempts, max_attempts, message
+             FROM whatsapp_logs
+             WHERE status IN ('queued','sending','retry_wait')"
+        );
+
+        if (empty($toCancel)) { return 0; }
+
+        $stmt = $db->query(
+            "UPDATE whatsapp_logs
+             SET status = 'cancelled', error = 'Purged by admin (pre-relink)', failed_at = NOW(), updated_at = NOW()
+             WHERE status IN ('queued','sending','retry_wait')"
+        );
+        $count = $stmt ? $stmt->rowCount() : 0;
+
+        // Audit log: each cancelled row gets a transition record
+        foreach ($toCancel as $row) {
+            waLogTransition((int)$row['id'], (string)$row['status'], 'cancelled', [
+                'campaign_id'  => $row['campaign_id'] ?? null,
+                'mobile'        => $row['mobile'] ?? null,
+                'employee_id'  => $row['employee_id'] ?? null,
+                'attempts'      => (int)($row['attempts'] ?? 0),
+                'max_attempts' => (int)($row['max_attempts'] ?? 4),
+                'error'         => 'Purged by admin (pre-relink)',
+                'message'       => $row['message'] ?? null,
+                'trigger'       => 'admin',
+            ]);
+        }
+
+        return $count;
+    }
+}
+
 // Admin-triggered re-queue of permanently failed rows (resets attempt counter).
 if (!function_exists('waQueueRetryFailed')) {
     function waQueueRetryFailed(?string $campaignId = null): int {

@@ -709,6 +709,47 @@ function searchEmployee() {
         </div>
     </div>
 </div>
+
+<?php
+// Block-risk warning — shown when the queue state suggests WhatsApp may
+// block the account. Two triggers:
+//   1. > 100 pending messages (large backlog → burst risk on resume)
+//   2. > 5% failure rate on recent sends (recipients reporting/blocking)
+// Both are heuristics — they don't prove a block is imminent, but they
+// correlate with the conditions that led to past blocks.
+$pendingCount = (int)($queueStats['queued'] ?? 0) + (int)($queueStats['retry_wait'] ?? 0);
+$sentTotal = (int)($queueStats['sent'] ?? 0) + (int)($queueStats['sent_today'] ?? 0);
+$failedTotal = (int)($queueStats['failed'] ?? 0);
+$failureRate = ($sentTotal + $failedTotal > 0) ? ($failedTotal / ($sentTotal + $failedTotal) * 100) : 0;
+$highBacklog = $pendingCount > 100;
+$highFailureRate = $failureRate > 5 && ($sentTotal + $failedTotal) > 20;
+if ($highBacklog || $highFailureRate):
+?>
+<div class="alert alert-warning mb-3">
+    <i class="bi bi-exclamation-triangle-fill me-1"></i>
+    <strong>High block risk detected.</strong>
+    <ul class="mb-0 mt-1 small">
+        <?php if ($highBacklog): ?>
+        <li><strong><?php echo number_format($pendingCount); ?></strong> messages pending in the queue.
+            A large backlog drained at once looks like automated bulk sending to WhatsApp's
+            heuristics. Consider purging non-essential messages or spreading the send
+            across multiple days.</li>
+        <?php endif; ?>
+        <?php if ($highFailureRate): ?>
+        <li>Failure rate is <strong><?php echo number_format($failureRate, 1); ?>%</strong>
+            (<?php echo $failedTotal; ?> failed out of <?php echo $sentTotal + $failedTotal; ?> attempts).
+            High failure rates usually mean recipients are reporting the messages as spam or
+            blocking the number. Review message content and recipient opt-in status.</li>
+        <?php endif; ?>
+    </ul>
+    <div class="mt-2">
+        <a href="index.php?page=notifications/whatsapp&tab=history" class="btn btn-sm btn-outline-warning">
+            <i class="bi bi-clock-history me-1"></i>Review in History tab
+        </a>
+    </div>
+</div>
+<?php endif; ?>
+
 <?php endif; ?>
 
 <?php if ($results): ?>
@@ -1817,6 +1858,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'retry
                     <button type="submit" class="btn btn-sm btn-success"
                             title="Resume the queue after a drain-cap pause or admin pause">
                         <i class="bi bi-play-circle me-1"></i>Resume Queue
+                    </button>
+                </form>
+
+                <!-- Purge All Queued — cancels every pending message (queued/
+                     sending/retry_wait). Used BEFORE re-linking a blocked
+                     WhatsApp account so the fresh session doesn't immediately
+                     blast 100+ messages and re-trigger the block. Already-sent
+                     and permanently-failed rows are NOT touched. -->
+                <form method="POST" action="index.php?page=api/whatsapp-queue-purge" style="display:inline;"
+                      onsubmit="return confirm('PURGE ALL QUEUED MESSAGES?\n\nThis cancels every pending message (queued / sending / retry_wait) and marks them as cancelled. Already-sent messages are not affected.\n\nUse this BEFORE re-linking a blocked WhatsApp account so the fresh session does not immediately send a burst that re-triggers the block.\n\nContinue?');">
+                    <?php echo getCSRFTokenField(); ?>
+                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                            title="Cancel all pending messages (use before re-linking after a block)">
+                        <i class="bi bi-trash me-1"></i>Purge Queue
+                        <?php if ($retryableCount > 0): ?>
+                        <span class="badge bg-danger ms-1"><?php echo $retryableCount; ?></span>
+                        <?php endif; ?>
                     </button>
                 </form>
             </div>

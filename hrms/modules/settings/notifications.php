@@ -140,8 +140,30 @@ $q = $queueStatus['data'] ?? [];
                         // the operator just needs to click "Login WhatsApp" — no
                         // terminal access required. This alert makes that clear.
                         $hardStop = !empty($q['hardStop']) ? (string)$q['hardStop'] : '';
-                        if (!$waBot['connected'] && $hardStop !== ''):
+                        // Post-block cooldown — the bot refuses login for 24h after
+                        // a device_removed/401 hard-stop, to prevent the re-link →
+                        // immediate re-block loop. The cooldown timestamp is
+                        // exposed in /api/status.
+                        $cooldownMs = (int)($q['blockCooldownRemainingMs'] ?? 0);
+                        $cooldownActive = $cooldownMs > 0;
+                        if (!$waBot['connected'] && $cooldownActive):
                         ?>
+                        <div class="alert alert-warning mt-2 mb-0 small">
+                            <i class="bi bi-shield-lock me-1"></i>
+                            <strong>Post-block cooldown active.</strong>
+                            WhatsApp was recently blocked (device_removed / 401).
+                            Login is refused for <strong><?php echo ceil($cooldownMs / 3600000); ?>h</strong> more
+                            (until <?php echo date('d M Y H:i', time() + $cooldownMs); ?>).
+                            <hr class="my-2">
+                            Re-linking immediately after a block often triggers another block.
+                            <strong>Steps:</strong>
+                            <ol class="mb-0">
+                                <li>Wait for the cooldown to expire.</li>
+                                <li>Go to <strong>Notifications → Send History</strong> and click <strong>Purge Queue</strong> to cancel all pending messages.</li>
+                                <li>Then come back here and click <strong>Login WhatsApp</strong>.</li>
+                            </ol>
+                        </div>
+                        <?php elseif (!$waBot['connected'] && $hardStop !== ''): ?>
                         <div class="alert alert-danger mt-2 mb-0 small">
                             <i class="bi bi-exclamation-triangle-fill me-1"></i>
                             <strong>WhatsApp session is invalid.</strong>
@@ -150,6 +172,9 @@ $q = $queueStatus['data'] ?? [];
                             <strong>Recovery:</strong> Click <strong>Login WhatsApp</strong> below —
                             it will automatically clear the stale session and generate a fresh QR
                             for you to scan. No terminal access needed.
+                            <?php if ($cooldownMs <= 0): ?>
+                            <br><small class="text-muted">Tip: <strong>Purge the queue first</strong> (Send History tab → Purge Queue) so the fresh session doesn't immediately blast pending messages.</small>
+                            <?php endif; ?>
                         </div>
                         <?php endif; ?>
                     </div>

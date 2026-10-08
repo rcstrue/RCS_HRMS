@@ -42,9 +42,62 @@ let lastQueueConfig = null;      // cached pacing config
 let lastConfigFetch = 0;         // ms timestamp of last config fetch
 let connectCooldownUntil = 0;    // ms timestamp; no sends before this
 
+// Post-block cooldown: when the bot hits a device_removed / 401 hard-stop,
+// we record the timestamp. For the next 24 hours, the bot refuses to accept
+// a new login attempt — re-linking immediately after a block often results
+// in another immediate block because WhatsApp's enforcement heuristics
+// flag the freshly-linked device. The operator must wait out the cooldown
+// (configurable via wa_queue_block_cooldown_hours setting, default 24).
+let blockCooldownUntil = 0;       // ms timestamp; login blocked before this
+const DEFAULT_BLOCK_COOLDOWN_HOURS = 24;
+
 // Helper: ensure auth dir exists
 function ensureAuthDir() {
   if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
+}
+
+// Helper: persist the block cooldown timestamp to a file so it survives
+// PM2 restarts. Without this, an operator could bypass the cooldown by
+// simply restarting the bot process.
+const BLOCK_COOLDOWN_FILE = '/home/rcsfaxhz/wa_block_cooldown_until';
+
+function persistBlockCooldown() {
+  try {
+    if (blockCooldownUntil > 0) {
+      fs.writeFileSync(BLOCK_COOLDOWN_FILE, String(blockCooldownUntil));
+    } else {
+      if (fs.existsSync(BLOCK_COOLDOWN_FILE)) fs.unlinkSync(BLOCK_COOLDOWN_FILE);
+    }
+  } catch (e) {
+    // Non-fatal — the cooldown is also held in memory
+    console.error('[COOLDOWN] persist error:', e?.message || e);
+  }
+}
+
+function loadBlockCooldown() {
+  try {
+    if (fs.existsSync(BLOCK_COOLDOWN_FILE)) {
+      const ts = parseInt(fs.readFileSync(BLOCK_COOLDOWN_FILE, 'utf8').trim(), 10);
+      if (!isNaN(ts) && ts > Date.now()) {
+        blockCooldownUntil = ts;
+        const hoursLeft = Math.ceil((ts - Date.now()) / 3600000);
+        console.log(`[COOLDOWN] Active block cooldown loaded — ${hoursLeft}h remaining. Login will be refused until ${new Date(ts).toISOString()}`);
+      } else if (!isNaN(ts)) {
+        // Cooldown expired — clean up the file
+        fs.unlinkSync(BLOCK_COOLDOWN_FILE);
+      }
+    }
+  } catch (e) {
+    // Non-fatal
+  }
+}
+
+// Helper: check if the block cooldown is active. Returns the remaining ms
+// if active, or 0 if the cooldown has passed / was never set.
+function blockCooldownRemainingMs() {
+  if (blockCooldownUntil <= 0) return 0;
+  const remaining = blockCooldownUntil - Date.now();
+  return remaining > 0 ? remaining : 0;
 }
 
 // Helper: clear all Baileys session files so the next createSocket() starts
@@ -301,6 +354,29 @@ function stopWorkerHard(reason) {
   hardStopReason = reason;
   queuePaused = true;
   console.error(`[QUEUE] HARD STOP — ${reason}. Queue paused; manual login required.`);
+
+  // Post-block cooldown: if the hard stop was caused by a device_removed /
+  // 401 / conflict (i.e. WhatsApp actively blocked the device), set a
+  // 24-hour cooldown during which new login attempts are refused. This
+  // prevents the "re-link → immediately blocked again" loop. The cooldown
+  // persists across PM2 restarts via the file at BLOCK_COOLDOWN_FILE.
+  if (isPermanentDisconnectString(reason)) {
+    const cooldownHours = Number(lastQueueConfig?.block_cooldown_hours) || DEFAULT_BLOCK_COOLDOWN_HOURS;
+    blockCooldownUntil = Date.now() + cooldownHours * 3600000;
+    persistBlockCooldown();
+    const until = new Date(blockCooldownUntil).toISOString();
+    console.error(`[COOLDOWN] Block cooldown activated — login refused for ${cooldownHours}h (until ${until}). Purge the queue before re-linking.`);
+  }
+}
+
+// Detect device_removed / 401 / conflict from a reason string (vs the
+// err object that isPermanentDisconnect(err) uses).
+function isPermanentDisconnectString(reason) {
+  if (!reason) return false;
+  const r = String(reason).toLowerCase();
+  return ['device_removed', 'device removed', 'logged out', 'loggedout',
+          'conflict', 'bad session', 'replaced', '401',
+          'connection closed: 401', 'connection terminated'].some(n => r.includes(n));
 }
 
 // Pace between sends: random interval inside the configured window.
@@ -477,7 +553,11 @@ const server = http.createServer((req, res) => {
       queuePaused: !!queuePaused,
       drainCapPaused: !!drainCapPaused,
       sentInConnection: sentInConnection,
-      hardStop: hardStopReason
+      hardStop: hardStopReason,
+      // Post-block cooldown state — shown in the UI so the operator knows
+      // why login is refused and when it will be available again.
+      blockCooldownUntil: blockCooldownUntil > 0 ? blockCooldownUntil : null,
+      blockCooldownRemainingMs: blockCooldownRemainingMs()
     }));
     return;
   }
@@ -505,6 +585,24 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ success: false, error: 'Authentication already in progress' }));
       return;
     }
+
+    // Post-block cooldown check — refuse login if we're inside the cooldown
+    // window after a device_removed / 401 hard-stop. Re-linking immediately
+    // after a block often results in another immediate block.
+    const cooldownMs = blockCooldownRemainingMs();
+    if (cooldownMs > 0) {
+      const hoursLeft = Math.ceil(cooldownMs / 3600000);
+      const until = new Date(Date.now() + cooldownMs).toISOString();
+      res.writeHead(429);
+      res.end(JSON.stringify({
+        success: false,
+        error: `WhatsApp was recently blocked. Login is refused for ${hoursLeft}h more (until ${until}). Re-linking immediately after a block often triggers another block. Please wait, then purge the queue before retrying.`,
+        cooldown_remaining_ms: cooldownMs,
+        cooldown_until: Date.now() + cooldownMs,
+      }));
+      return;
+    }
+
     // A deliberate login clears the hard stop (device_removed / logout / 401).
     //
     // RECOVERY PATH (bulk-safe redesign): if the bot previously hit a hard
@@ -556,6 +654,21 @@ const server = http.createServer((req, res) => {
         if (phone.length < 10) {
           res.writeHead(400);
           res.end(JSON.stringify({ success: false, error: 'Valid phone number (10+ digits) is required' }));
+          return;
+        }
+
+        // Post-block cooldown check — same as /api/login
+        const cooldownMs = blockCooldownRemainingMs();
+        if (cooldownMs > 0) {
+          const hoursLeft = Math.ceil(cooldownMs / 3600000);
+          const until = new Date(Date.now() + cooldownMs).toISOString();
+          res.writeHead(429);
+          res.end(JSON.stringify({
+            success: false,
+            error: `WhatsApp was recently blocked. Pairing code generation refused for ${hoursLeft}h more (until ${until}). Please wait, then purge the queue before retrying.`,
+            cooldown_remaining_ms: cooldownMs,
+            cooldown_until: Date.now() + cooldownMs,
+          }));
           return;
         }
 
@@ -878,9 +991,15 @@ server.listen(PORT, () => {
   console.log(`[BOT] WhatsApp bot API running at http://localhost:${PORT}`);
   console.log(`[BOT] Auth session dir: ${SESSION_DIR}`);
   console.log(`[BOT] Using Baileys at: /home/rcsfaxhz/node_modules/@whiskeysockets/baileys`);
+  // Load any persisted block cooldown from a previous run (so operators
+  // can't bypass the 24h lockout by restarting the bot).
+  loadBlockCooldown();
   // Queue stays paused until a healthy 'open' event resumes it (with cooldown).
   queuePaused = true;
-  // Auto-start authentication if session exists; if none, wait for /api/login
+  // Auto-start authentication if session exists; if none, wait for /api/login.
+  // Note: if blockCooldownUntil is active, createSocket() will still run
+  // (so the bot can detect a still-valid session), but /api/login and
+  // /api/pairing-code are refused until the cooldown expires.
   createSocket();
   // The worker is started by the connection 'open' handler, never here —
   // this guarantees we never send while the connection state is unknown.
