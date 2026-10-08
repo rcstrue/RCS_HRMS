@@ -1004,7 +1004,7 @@ Thank you.
                         // of the hardcoded "EMP-1042" sample. If no preview has
                         // been built yet, waRenderPreview() falls back to the
                         // hardcoded sample.
-                        if ($preview && !empty($preview['recipients'])):
+                        if (!empty($preview) && !empty($preview['recipients'])):
                             $pr = $preview['recipients'][0];
                             $prDob = $pr['date_of_birth'] ?? '';
                             $prDobFmt = ''; $prBirthYear = '';
