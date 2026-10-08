@@ -132,6 +132,26 @@ $q = $queueStatus['data'] ?? [];
                             Queue: <?php echo $waBot['queueLength'] ?? 0; ?>
                         </small>
                         <?php endif; ?>
+
+                        <?php
+                        // Recovery alert: when the bot is offline AND has a hard-stop
+                        // reason (401 / device_removed / conflict), the session files
+                        // are stale. The /api/login handler now auto-clears them, so
+                        // the operator just needs to click "Login WhatsApp" — no
+                        // terminal access required. This alert makes that clear.
+                        $hardStop = !empty($q['hardStop']) ? (string)$q['hardStop'] : '';
+                        if (!$waBot['connected'] && $hardStop !== ''):
+                        ?>
+                        <div class="alert alert-danger mt-2 mb-0 small">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                            <strong>WhatsApp session is invalid.</strong>
+                            The bot was disconnected with: <code><?php echo sanitize($hardStop); ?></code>
+                            <hr class="my-2">
+                            <strong>Recovery:</strong> Click <strong>Login WhatsApp</strong> below —
+                            it will automatically clear the stale session and generate a fresh QR
+                            for you to scan. No terminal access needed.
+                        </div>
+                        <?php endif; ?>
                     </div>
                     
                     <!-- WhatsApp Login / Logout / Reconnect Buttons -->

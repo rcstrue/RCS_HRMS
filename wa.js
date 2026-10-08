@@ -47,6 +47,24 @@ function ensureAuthDir() {
   if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 }
 
+// Helper: clear all Baileys session files so the next createSocket() starts
+// fresh — no stored credentials → Baileys generates a QR for re-scan.
+// Used by /api/login (when recovering from a 401 hard-stop) and /api/logout
+// (always, so the next login requires a fresh QR scan rather than resuming
+// a stale session that WhatsApp will reject with 401).
+function clearSessionFiles() {
+  try {
+    if (fs.existsSync(SESSION_DIR)) {
+      fs.readdirSync(SESSION_DIR).forEach(f => {
+        fs.unlinkSync(path.join(SESSION_DIR, f));
+      });
+      console.log('[AUTH] Session files cleared — next login will require QR scan');
+    }
+  } catch (e) {
+    console.error('[AUTH] Session cleanup error:', e);
+  }
+}
+
 // ── HRMS queue API client (server-to-server; key never leaves the server) ────
 function hrmsQueue(action, payload, method = 'POST', timeoutMs = 10000) {
   return new Promise((resolve) => {
@@ -488,22 +506,44 @@ const server = http.createServer((req, res) => {
       return;
     }
     // A deliberate login clears the hard stop (device_removed / logout / 401).
+    //
+    // RECOVERY PATH (bulk-safe redesign): if the bot previously hit a hard
+    // stop (401 / device_removed / conflict), the session files at
+    // SESSION_DIR are STALE — WhatsApp will reject them again on the next
+    // connect attempt, and Baileys will never reach the QR-generation step.
+    // Clearing them here forces createSocket() to start a fresh auth flow,
+    // which produces a QR the operator can scan. This is the one-click
+    // recovery: 401 → click Login WhatsApp → scan QR. No terminal needed.
+    const wasHardStopped = !!hardStopReason;
+    if (wasHardStopped) {
+      console.log('[LOGIN] Hard stop was active — clearing stale session before reconnect');
+      clearSessionFiles();
+    }
     hardStopReason = null;
+    drainCapPaused = false;
     queuePaused = true;   // queue stays paused until the connection is healthy
+    sentInConnection = 0;
     // Start exactly one socket/auth flow (Part 16)
     createSocket();
     res.writeHead(200);
-    res.end(JSON.stringify({ success: true, message: 'Login started; check /api/qr for QR' }));
+    res.end(JSON.stringify({
+      success: true,
+      message: wasHardStopped
+        ? 'Stale session cleared — fresh login started. Check /api/qr for QR in a few seconds.'
+        : 'Login started; check /api/qr for QR'
+    }));
     return;
   }
 
   // POST /api/logout (Part 7 — clean logout, no auto-loop, no message sent)
+  //
+  // ALWAYS clears the session files, even if already disconnected. The
+  // previous early-return when `!connected && state === 'disconnected'`
+  // was a bug: it skipped the session cleanup, so a 401 hard-stop couldn't
+  // be recovered from the UI — clicking "Logout WhatsApp" did nothing, and
+  // the next "Login WhatsApp" retried the same dead session forever.
+  // Now logout always nukes the session, so the next login starts fresh.
   if (req.method === 'POST' && urlPath === '/api/logout') {
-    if (!connected && state === 'disconnected') {
-      res.writeHead(200);
-      res.end(JSON.stringify({ success: true, message: 'WhatsApp is already logged out' }));
-      return;
-    }
     state = 'logging_out';
     currentQr = null;
     // Stop queue processing first — no sends while logging out.
@@ -516,23 +556,25 @@ const server = http.createServer((req, res) => {
     } catch (e) {
       console.error('[LOGOUT] logout error:', e);
     }
-    // Remove session files so next login requires authentication (Part 7, Rule 14)
-    try {
-      if (fs.existsSync(SESSION_DIR)) {
-        fs.readdirSync(SESSION_DIR).forEach(f => {
-          fs.unlinkSync(path.join(SESSION_DIR, f));
-        });
-      }
-    } catch (e) {
-      console.error('[LOGOUT] session cleanup error:', e);
-    }
+    // Always clear session files — this is the key fix. Even if the bot
+    // was already disconnected (e.g. after a 401 hard-stop), the stale
+    // creds must be removed so the next login generates a fresh QR.
+    clearSessionFiles();
     connected = false;
+    connecting = false;
     currentPhone = null;
     currentName = null;
+    currentQr = null;
+    hardStopReason = null;
+    drainCapPaused = false;
+    sentInConnection = 0;
     state = 'disconnected';
     sock = null;
     res.writeHead(200);
-    res.end(JSON.stringify({ success: true, message: 'WhatsApp logged out successfully' }));
+    res.end(JSON.stringify({
+      success: true,
+      message: 'WhatsApp logged out — session cleared. Click Login WhatsApp to scan a fresh QR.'
+    }));
     return;
   }
 
