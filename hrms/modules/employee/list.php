@@ -48,9 +48,35 @@ $availableColumns = [
     'bank_name' => ['label' => 'Bank Name', 'default' => false],
     'account_number' => ['label' => 'Account No', 'default' => false],
     'ifsc_code' => ['label' => 'IFSC', 'default' => false],
+    'account_holder_name' => ['label' => 'Account Holder', 'default' => false],
     'nominee_name' => ['label' => 'Nominee', 'default' => false],
     'nominee_relation' => ['label' => 'Nominee Relation', 'default' => false],
+    'nominee_dob' => ['label' => 'Nominee DOB', 'default' => false],
+    'nominee_contact' => ['label' => 'Nominee Contact', 'default' => false],
     'emergency_contact' => ['label' => 'Emergency Contact', 'default' => false],
+    'emergency_contact_relation' => ['label' => 'Emergency Relation', 'default' => false],
+    'marital_status' => ['label' => 'Marital Status', 'default' => false],
+    'blood_group' => ['label' => 'Blood Group', 'default' => false],
+    'confirmation_date' => ['label' => 'Confirmation Date', 'default' => false],
+    'probation_period' => ['label' => 'Probation (months)', 'default' => false],
+    'employee_role' => ['label' => 'Employee Role', 'default' => false],
+    'app_role' => ['label' => 'App Role', 'default' => false],
+    'profile_completion' => ['label' => 'Profile %', 'default' => false],
+    'whatsapp_opted_in' => ['label' => 'WhatsApp Opt-in', 'default' => false],
+    // Salary structure columns (from employee_salary_structures join)
+    'basic_da' => ['label' => 'Basic + DA', 'default' => false],
+    'hra' => ['label' => 'HRA', 'default' => false],
+    'leave_encashment' => ['label' => 'Leave Encash.', 'default' => false],
+    'bonus_encashment' => ['label' => 'Bonus Encash.', 'default' => false],
+    'washing_allowance' => ['label' => 'Washing Allow.', 'default' => false],
+    'gross_salary' => ['label' => 'Gross Salary', 'default' => false],
+    'pt_applicable' => ['label' => 'PT', 'default' => false],
+    'lwf_applicable' => ['label' => 'LWF', 'default' => false],
+    'bonus_applicable' => ['label' => 'Bonus', 'default' => false],
+    'gratuity_applicable' => ['label' => 'Gratuity', 'default' => false],
+    'overtime_applicable' => ['label' => 'Overtime', 'default' => false],
+    'created_at' => ['label' => 'Created', 'default' => false],
+    'updated_at' => ['label' => 'Updated', 'default' => false],
     'status' => ['label' => 'Status', 'default' => true],
     'actions' => ['label' => 'Actions', 'default' => true]
 ];
@@ -70,99 +96,76 @@ if ((isset($isExportRequest) || isset($_GET['export'])) && !headers_sent()) {
     // Get all employees for export (no pagination)
     $result = $employee->getAll($filters, 1, 10000);
     $exportData = $result['data'];
-    
+
     // Set headers for Excel download
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="employees_export_' . date('Y-m-d_His') . '.csv"');
     header('Pragma: no-cache');
     header('Expires: 0');
-    
+
     // Output CSV with BOM for Excel
     echo "\xEF\xBB\xBF";
-    
-    // CSV headers
-    $headers = [
-        'Employee Code',
-        'Full Name',
-        'Father Name',
-        'Date of Birth',
-        'Gender',
-        'Mobile Number',
-        'Alternate Mobile',
-        'Email',
-        'Aadhaar Number',
-        'UAN Number',
-        'ESIC Number',
-        'Address',
-        'Pin Code',
-        'State',
-        'District',
-        'Bank Name',
-        'Account Number',
-        'IFSC Code',
-        'Client Name',
-        'Unit Name',
-        'Designation',
-        'Department',
-        'Worker Category',
-        'Employment Type',
-        'Date of Joining',
-        'Date of Leaving',
-        'Status',
-        'PF Applicable',
-        'ESI Applicable',
-        'Basic + DA',
-        'Gross Salary',
-        'Nominee Name',
-        'Nominee Relationship',
-        'Emergency Contact Name',
-        'Emergency Contact Relation'
-    ];
-    
+
+    // DYNAMIC EXPORT: dump every column from the result set, so ALL DB
+    // columns are exported (no hardcoded subset that silently drops new
+    // columns). The getAll() query already selects e.* plus salary + client
+    // + unit joins, so this captures everything.
     $output = fopen('php://output', 'w');
-    fputcsv($output, $headers, ',', '"', '\\');
-    
-    foreach ($exportData as $emp) {
-        $row = [
-            $emp['employee_code'] ?? '',
-            $emp['full_name'] ?? '',
-            $emp['father_name'] ?? '',
-            $emp['date_of_birth'] ?? '',
-            $emp['gender'] ?? '',
-            $emp['mobile_number'] ?? '',
-            $emp['alternate_mobile'] ?? '',
-            $emp['email'] ?? '',
-            $emp['aadhaar_number'] ?? '',
-            $emp['uan_number'] ?? '',
-            $emp['esic_number'] ?? '',
-            $emp['address'] ?? '',
-            $emp['pin_code'] ?? '',
-            $emp['state'] ?? '',
-            $emp['district'] ?? '',
-            $emp['bank_name'] ?? '',
-            $emp['account_number'] ?? '',
-            $emp['ifsc_code'] ?? '',
-            $emp['client_name_display'] ?? $emp['client_name'] ?? '',
-            $emp['unit_name_display'] ?? $emp['unit_name'] ?? '',
-            $emp['designation'] ?? '',
-            $emp['department'] ?? '',
-            $emp['worker_category'] ?? '',
-            $emp['employment_type'] ?? '',
-            $emp['date_of_joining'] ?? '',
-            $emp['date_of_leaving'] ?? '',
-            $emp['status'] ?? '',
-            !empty($emp['pf_applicable']) ? 'Yes' : 'No',
-            !empty($emp['esi_applicable']) ? 'Yes' : 'No',
-            $emp['basic_da'] ?? '',
-            $emp['gross_salary'] ?? '',
-            $emp['nominee_name'] ?? '',
-            $emp['nominee_relationship'] ?? '',
-            $emp['emergency_contact_name'] ?? '',
-            $emp['emergency_contact_relation'] ?? ''
+
+    if (!empty($exportData)) {
+        // Build headers from the first row's keys. Rename some for
+        // readability (e.g. 'client_name_display' → 'Client Name').
+        $firstRow = $exportData[0];
+        $headers = [];
+        $headerMap = [
+            'client_name_display' => 'Client Name',
+            'unit_name_display'  => 'Unit Name',
+            'profile_pic_url'    => 'Profile Pic URL',
+            'profile_pic_cropped_url' => 'Profile Pic Cropped URL',
+            'aadhaar_front_url'  => 'Aadhaar Front URL',
+            'aadhaar_back_url'    => 'Aadhaar Back URL',
+            'bank_document_url'   => 'Bank Document URL',
+            'pf_applicable'       => 'PF Applicable',
+            'esi_applicable'      => 'ESI Applicable',
+            'pt_applicable'       => 'PT Applicable',
+            'whatsapp_opted_in'   => 'WhatsApp Opt-in',
         ];
-        fputcsv($output, $row, ',', '"', '\\');
+
+        foreach (array_keys($firstRow) as $col) {
+            // Skip internal/system columns that aren't useful in export
+            if (in_array($col, ['id'], true)) { continue; }
+            // Convert snake_case to Title Case for the header
+            $label = $headerMap[$col] ?? ucwords(str_replace('_', ' ', $col));
+            // Convert Yes/No for boolean flags
+            $headers[] = $label;
+        }
+        fputcsv($output, $headers, ',', '"', '\\');
+
+        foreach ($exportData as $emp) {
+            $row = [];
+            foreach (array_keys($firstRow) as $col) {
+                if ($col === 'id') continue;
+                $val = $emp[$col] ?? '';
+                // Boolean flags → Yes/No for readability in Excel
+                if (in_array($col, ['pf_applicable','esi_applicable','pt_applicable',
+                                     'lwf_applicable','bonus_applicable','gratuity_applicable',
+                                     'overtime_applicable','whatsapp_opted_in'], true)) {
+                    $val = !empty($val) ? 'Yes' : 'No';
+                }
+                // Format dates nicely
+                if (in_array($col, ['date_of_birth','date_of_joining','date_of_leaving',
+                                     'confirmation_date','nominee_dob','created_at','updated_at'], true) && $val) {
+                    $ts = strtotime($val);
+                    if ($ts) { $val = date('Y-m-d', $ts); }
+                }
+                $row[] = $val;
+            }
+            fputcsv($output, $row, ',', '"', '\\');
+        }
+    } else {
+        fputcsv($output, ['No employees found'], ',', '"', '\\');
     }
-    
+
     fclose($output);
     exit;
 }

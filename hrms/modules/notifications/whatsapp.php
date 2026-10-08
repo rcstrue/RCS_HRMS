@@ -998,6 +998,90 @@ Thank you.
                     <div id="waLivePreview" class="mb-3" style="display:none;">
                         <label class="form-label text-success"><i class="bi bi-eye me-1"></i>Message Preview (sample data)</label>
                         <div id="waPreviewContent" class="border rounded p-3" style="background:#dcf8c6;max-height:350px;overflow-y:auto;min-height:100px;white-space:pre-wrap;font-family:inherit;font-size:14px;border:1px solid #a5d6a7;"></div>
+                        <?php
+                        // Inject the first real recipient's data so the live
+                        // preview shows an actual personalised message instead
+                        // of the hardcoded "EMP-1042" sample. If no preview has
+                        // been built yet, waRenderPreview() falls back to the
+                        // hardcoded sample.
+                        if ($preview && !empty($preview['recipients'])):
+                            $pr = $preview['recipients'][0];
+                            $prDob = $pr['date_of_birth'] ?? '';
+                            $prDobFmt = ''; $prBirthYear = '';
+                            if ($prDob) { try { $d = new DateTime($prDob); $prDobFmt = $d->format('d/m/Y'); $prBirthYear = $d->format('Y'); } catch(Exception $e) {} }
+                            $prDoj = $pr['date_of_joining'] ?? ''; $prDojFmt = '';
+                            if ($prDoj) { try { $prDojFmt = (new DateTime($prDoj))->format('d/m/Y'); } catch(Exception $e) {} }
+                            $prGross = !empty($pr['gross_salary']) ? number_format((float)$pr['gross_salary'], 2) : '';
+                        ?>
+                        <script>
+                        window.waPreviewSample = {
+                            '{{name}}': <?php echo json_encode($pr['full_name'] ?? ''); ?>,
+                            '{{Name}}': <?php echo json_encode($pr['full_name'] ?? ''); ?>,
+                            '{{mobile}}': <?php echo json_encode($pr['mobile_number'] ?? ''); ?>,
+                            '{{Mobile}}': <?php echo json_encode($pr['mobile_number'] ?? ''); ?>,
+                            '{{dob}}': <?php echo json_encode($prDobFmt); ?>,
+                            '{{DOB}}': <?php echo json_encode($prDobFmt); ?>,
+                            '{{birthyear}}': <?php echo json_encode($prBirthYear); ?>,
+                            '{{BirthYear}}': <?php echo json_encode($prBirthYear); ?>,
+                            '{{email}}': <?php echo json_encode($pr['email'] ?? ''); ?>,
+                            '{{Email}}': <?php echo json_encode($pr['email'] ?? ''); ?>,
+                            '{{father_name}}': <?php echo json_encode($pr['father_name'] ?? ''); ?>,
+                            '{{Father_Name}}': <?php echo json_encode($pr['father_name'] ?? ''); ?>,
+                            '{{gender}}': <?php echo json_encode($pr['gender'] ?? ''); ?>,
+                            '{{Gender}}': <?php echo json_encode($pr['gender'] ?? ''); ?>,
+                            '{{blood_group}}': <?php echo json_encode($pr['blood_group'] ?? ''); ?>,
+                            '{{Blood_Group}}': <?php echo json_encode($pr['blood_group'] ?? ''); ?>,
+                            '{{marital_status}}': <?php echo json_encode($pr['marital_status'] ?? ''); ?>,
+                            '{{Marital_Status}}': <?php echo json_encode($pr['marital_status'] ?? ''); ?>,
+                            '{{doj}}': <?php echo json_encode($prDojFmt); ?>,
+                            '{{DOJ}}': <?php echo json_encode($prDojFmt); ?>,
+                            '{{unit}}': <?php echo json_encode($pr['unit_name'] ?? ''); ?>,
+                            '{{Unit}}': <?php echo json_encode($pr['unit_name'] ?? ''); ?>,
+                            '{{site}}': <?php echo json_encode($pr['site_name'] ?? $pr['unit_name'] ?? ''); ?>,
+                            '{{Site}}': <?php echo json_encode($pr['site_name'] ?? $pr['unit_name'] ?? ''); ?>,
+                            '{{client}}': <?php echo json_encode($pr['client_name'] ?? ''); ?>,
+                            '{{Client}}': <?php echo json_encode($pr['client_name'] ?? ''); ?>,
+                            '{{designation}}': <?php echo json_encode($pr['designation'] ?? ''); ?>,
+                            '{{Designation}}': <?php echo json_encode($pr['designation'] ?? ''); ?>,
+                            '{{department}}': <?php echo json_encode($pr['department'] ?? ''); ?>,
+                            '{{Department}}': <?php echo json_encode($pr['department'] ?? ''); ?>,
+                            '{{code}}': <?php echo json_encode($pr['employee_code'] ?? ''); ?>,
+                            '{{Code}}': <?php echo json_encode($pr['employee_code'] ?? ''); ?>,
+                            '{{employment_type}}': <?php echo json_encode($pr['employment_type'] ?? ''); ?>,
+                            '{{Employment_Type}}': <?php echo json_encode($pr['employment_type'] ?? ''); ?>,
+                            '{{worker_category}}': <?php echo json_encode($pr['worker_category'] ?? ''); ?>,
+                            '{{Worker_Category}}': <?php echo json_encode($pr['worker_category'] ?? ''); ?>,
+                            '{{emp_status}}': <?php echo json_encode($pr['emp_status'] ?? $pr['status'] ?? ''); ?>,
+                            '{{Emp_Status}}': <?php echo json_encode($pr['emp_status'] ?? $pr['status'] ?? ''); ?>,
+                            '{{uan}}': <?php echo json_encode($pr['uan_number'] ?? ''); ?>,
+                            '{{UAN}}': <?php echo json_encode($pr['uan_number'] ?? ''); ?>,
+                            '{{esic}}': <?php echo json_encode($pr['esic_number'] ?? ''); ?>,
+                            '{{ESIC}}': <?php echo json_encode($pr['esic_number'] ?? ''); ?>,
+                            '{{gross_salary}}': <?php echo json_encode($prGross); ?>,
+                            '{{Gross_Salary}}': <?php echo json_encode($prGross); ?>,
+                            '{{address}}': <?php echo json_encode($pr['address'] ?? ''); ?>,
+                            '{{Address}}': <?php echo json_encode($pr['address'] ?? ''); ?>,
+                            '{{pin_code}}': <?php echo json_encode($pr['pin_code'] ?? ''); ?>,
+                            '{{Pin_Code}}': <?php echo json_encode($pr['pin_code'] ?? ''); ?>,
+                            '{{state}}': <?php echo json_encode($pr['state'] ?? ''); ?>,
+                            '{{State}}': <?php echo json_encode($pr['state'] ?? ''); ?>,
+                            '{{district}}': <?php echo json_encode($pr['district'] ?? ''); ?>,
+                            '{{District}}': <?php echo json_encode($pr['district'] ?? ''); ?>,
+                            '{{bank_name}}': <?php echo json_encode($pr['bank_name'] ?? ''); ?>,
+                            '{{Bank_Name}}': <?php echo json_encode($pr['bank_name'] ?? ''); ?>,
+                            '{{ifsc_code}}': <?php echo json_encode($pr['ifsc_code'] ?? ''); ?>,
+                            '{{IFSC_Code}}': <?php echo json_encode($pr['ifsc_code'] ?? ''); ?>,
+                            '{{account_holder}}': <?php echo json_encode($pr['account_holder_name'] ?? ''); ?>,
+                            '{{Account_Holder}}': <?php echo json_encode($pr['account_holder_name'] ?? ''); ?>,
+                            '{{alt_mobile}}': <?php echo json_encode($pr['alternate_mobile'] ?? ''); ?>,
+                            '{{Alt_Mobile}}': <?php echo json_encode($pr['alternate_mobile'] ?? ''); ?>,
+                            '{{emergency_contact}}': <?php echo json_encode($pr['emergency_contact_name'] ?? ''); ?>,
+                            '{{Emergency_Contact}}': <?php echo json_encode($pr['emergency_contact_name'] ?? ''); ?>,
+                            '{{nominee_name}}': <?php echo json_encode($pr['nominee_name'] ?? ''); ?>,
+                            '{{Nominee_Name}}': <?php echo json_encode($pr['nominee_name'] ?? ''); ?>
+                        };
+                        </script>
+                        <?php endif; ?>
                     </div>
 
                     <!-- Quick Templates -->
@@ -1412,10 +1496,19 @@ function waTogglePreview() {
 }
 
 // Render preview with sample data
+// If a preview has been built (recipients exist in session), use the FIRST
+// real recipient's data so the preview reflects an actual message. Otherwise
+// fall back to the hardcoded sample. This fixes the bug where the preview
+// always showed the same fake employee (EMP-1042) regardless of who was
+// actually selected.
 function waRenderPreview() {
     const body = document.getElementById('waMessage');
     if (!body) return;
-    const sample = {
+
+    // Real recipient data is injected by PHP below (if a preview exists)
+    const realSample = window.waPreviewSample || null;
+
+    const fallback = {
         '{{name}}': 'Rajesh Kumar', '{{Name}}': 'Rajesh Kumar',
         '{{mobile}}': '9876543210', '{{Mobile}}': '9876543210',
         '{{dob}}': '15/08/1990', '{{DOB}}': '15/08/1990',
@@ -1449,6 +1542,8 @@ function waRenderPreview() {
         '{{emergency_contact}}': 'Suresh Kumar', '{{Emergency_Contact}}': 'Suresh Kumar',
         '{{nominee_name}}': 'Meena Kumari', '{{Nominee_Name}}': 'Meena Kumari'
     };
+
+    const sample = realSample || fallback;
     let rendered = body.value;
     for (const [key, val] of Object.entries(sample)) {
         rendered = rendered.split(key).join(val);
@@ -1709,6 +1804,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'retry
                         <?php if ($retryableCount > 0): ?>
                         <span class="badge bg-danger ms-1"><?php echo $retryableCount; ?></span>
                         <?php endif; ?>
+                    </button>
+                </form>
+
+                <!-- Resume Queue — clears drain-cap pause (when the worker
+                     stops after N sends on one connection) or admin pause.
+                     Calls the bot's /api/queue/resume endpoint via a PHP proxy.
+                     Always enabled — clicking when nothing is paused is harmless. -->
+                <form method="POST" action="index.php?page=api/whatsapp-queue-resume" style="display:inline;"
+                      onsubmit="return confirm('Resume the WhatsApp queue? This clears any drain-cap or admin pause. The bot will start sending queued messages again.');">
+                    <?php echo getCSRFTokenField(); ?>
+                    <button type="submit" class="btn btn-sm btn-success"
+                            title="Resume the queue after a drain-cap pause or admin pause">
+                        <i class="bi bi-play-circle me-1"></i>Resume Queue
                     </button>
                 </form>
             </div>
