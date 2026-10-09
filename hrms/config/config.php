@@ -58,7 +58,7 @@ if (!defined('SESSION_NAME')) {
     define('SESSION_NAME', 'rcs_hrms_session');
 }
 if (!defined('SESSION_LIFETIME')) {
-    define('SESSION_LIFETIME', 345600); // 4 days
+    define('SESSION_LIFETIME', 2592000); // 30 days
 }
 
 // Pagination
@@ -175,7 +175,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 
     // Idle session timeout — 8 hours of inactivity logs the user out (Round 6).
-    // Was 345600 (4 days) which was far too long for an HRMS handling PII +
+    // Was 2592000 (30 days) which was far too long for an HRMS handling PII +
     // payroll data. 8h aligns with a standard workday; adjust via
     // SESSION_IDLE_TIMEOUT if a different window is needed.
     $idleLimit = defined('SESSION_IDLE_TIMEOUT') ? SESSION_IDLE_TIMEOUT : 28800;
