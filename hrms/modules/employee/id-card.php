@@ -68,8 +68,8 @@ if (isset($_GET['preview']) && (isset($_GET['code']) || isset($_GET['employee_id
     
     $bgPath = null;
     $possibleBgPaths = [
-        $webRoot . '/upload/Id card format.jpeg',
-        $webRoot . '/upload/id_card.jpeg',
+        $webRoot . '/images/Id card format.jpeg',
+        $webRoot . '/images/id_card.jpeg',
         APP_ROOT . '/upload/Id card format.jpeg',
     ];
     foreach ($possibleBgPaths as $path) {

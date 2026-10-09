@@ -103,8 +103,8 @@ if (isset($_GET['generate']) && (isset($_GET['code']) || isset($_GET['employee_i
     $bgPath = null;
     $webRoot = dirname(APP_ROOT);
     $possibleBgPaths = [
-        $webRoot . '/upload/Id card format.jpeg',
-        $webRoot . '/upload/id_card.jpeg',
+        $webRoot . '/images/Id card format.jpeg',
+        $webRoot . '/images/id_card.jpeg',
     ];
     
     foreach ($possibleBgPaths as $path) {
