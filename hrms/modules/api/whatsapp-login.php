@@ -35,5 +35,15 @@ $ch = curl_init(); curl_setopt_array($ch,[
 ]);
 $res = curl_exec($ch); $code = curl_getinfo($ch,CURLINFO_HTTP_CODE); curl_close($ch);
 
-if ($code!==200) { http_response_code(502); echo json_encode(['success'=>false,'error'=>'Bot unreachable or not responding']); exit; }
-echo $res; // Pass bot response through directly (contains success/connected/message)
+// Pass the bot's response through in all cases — the bot returns a JSON
+// body with an 'error' field even for 429 (cooldown) and 409 (already
+// connecting) responses. The JS in showLoginWA() reads the error field
+// and displays the right message. Only when the bot is completely
+// unreachable (curl error, empty response) do we substitute our own
+// 'unreachable' error.
+if ($code === 0 || empty($res)) {
+    http_response_code(502);
+    echo json_encode(['success'=>false,'error'=>'Bot unreachable or not responding']);
+    exit;
+}
+echo $res; // Pass bot response through (contains success/connected/error/message)

@@ -499,35 +499,144 @@ $q = $queueStatus['data'] ?? [];
 
 <script>
 // WhatsApp Login / Logout / QR Polling (client-side only; server proxies all calls via PHP)
+//
+// QR login flow improvements:
+//  - Handles the 429 post-block cooldown response (shows the wait message
+//    instead of polling forever)
+//  - Polls every 1500ms (was 2500ms) for faster QR detection
+//  - 90-second timeout: if no connection after 90s, shows "QR expired" and
+//    stops polling (Baileys QRs expire after ~20s; the bot auto-regenerates
+//    but the user needs to know to re-scan)
+//  - Shows "Connecting..." state after the QR disappears (Baileys is
+//    doing the initial sync — this takes 5-15 seconds and the user must
+//    NOT close the modal during this phase)
+//  - Detects QR refresh (new QR string) and shows a brief "QR refreshed"
+//    flash so the user knows to re-scan
+let waLoginStartTime = 0;
+let waLastQrString = null;
+let waScanDetected = false;
+
 function showLoginWA() {
     document.getElementById('wa-login-modal').style.display = 'block';
     document.getElementById('wa-login-modal').classList.add('show');
-    // Call PHP proxy to trigger /api/login server-side (does not expose bot URL/key to browser)
-    fetch('index.php?page=api/whatsapp-login', {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'csrf_token='+document.querySelector('input[name="csrf_token"]')?.value||''}).catch(()=>{});
     document.getElementById('wa-qr-area').innerHTML = '<div class="spinner-border spinner-border-sm text-success"></div> <span>Waiting for QR...</span>';
     document.getElementById('wa-modal-status').textContent = 'Starting WhatsApp authentication...';
-    // Start polling for QR
-    window.waPollInterval = setInterval(pollQR, 2500);
-    pollQR();
+    document.getElementById('wa-modal-status').className = 'small mb-2 text-info';
+
+    // Call PHP proxy to trigger /api/login server-side. We now AWAIT the
+    // response so we can detect a 429 cooldown and show the right message
+    // instead of polling forever.
+    const csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
+    fetch('index.php?page=api/whatsapp-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'csrf_token=' + csrfToken
+    }).then(r => {
+        // Accept 200 (success), 429 (cooldown), 409 (already connecting),
+        // and 502 (bot unreachable but PHP proxy returned our error JSON).
+        // Other statuses (403, 500) are real errors.
+        if (!r.ok && r.status !== 502 && r.status !== 429 && r.status !== 409) {
+            throw new Error('Login request failed (HTTP ' + r.status + ')');
+        }
+        return r.text().then(text => {
+            try { return JSON.parse(text); }
+            catch { return { success: false, error: 'Bad response from bot' }; }
+        });
+    }).then(data => {
+        // If the login was refused (e.g. cooldown active, bot unreachable),
+        // show the error and DON'T start polling.
+        if (data && data.error && data.error.includes('blocked')) {
+            // Cooldown message from the bot
+            document.getElementById('wa-qr-area').innerHTML = '<div class="text-warning"><i class="bi bi-shield-lock me-1"></i>Post-block cooldown active</div>';
+            document.getElementById('wa-modal-status').innerHTML = data.error;
+            document.getElementById('wa-modal-status').className = 'small mb-2 text-warning';
+            return;
+        }
+        if (data && data.error && data.error.includes('unreachable')) {
+            document.getElementById('wa-qr-area').innerHTML = '<div class="text-danger"><i class="bi bi-x-circle me-1"></i>Bot unreachable</div>';
+            document.getElementById('wa-modal-status').innerHTML = 'Could not reach the WhatsApp bot. Check that PM2 is running: <code>pm2 status whatsapp-bot</code>';
+            document.getElementById('wa-modal-status').className = 'small mb-2 text-danger';
+            return;
+        }
+        // Login started OK — begin polling for QR
+        waLoginStartTime = Date.now();
+        waLastQrString = null;
+        waScanDetected = false;
+        window.waPollInterval = setInterval(pollQR, 1500);
+        pollQR();
+    }).catch(err => {
+        document.getElementById('wa-qr-area').innerHTML = '<div class="text-danger"><i class="bi bi-x-circle me-1"></i>Request failed</div>';
+        document.getElementById('wa-modal-status').textContent = err.message || 'Could not start login.';
+        document.getElementById('wa-modal-status').className = 'small mb-2 text-danger';
+    });
 }
-function closeLoginWA() { clearInterval(window.waPollInterval); document.getElementById('wa-login-modal').style.display='none'; document.getElementById('wa-login-modal').classList.remove('show'); }
+
+function closeLoginWA() {
+    clearInterval(window.waPollInterval);
+    document.getElementById('wa-login-modal').style.display = 'none';
+    document.getElementById('wa-login-modal').classList.remove('show');
+    waLastQrString = null;
+    waScanDetected = false;
+}
 
 function pollQR() {
+    // Timeout check — after 90 seconds, stop polling and tell the user
+    // the QR expired. Baileys auto-regenerates QRs, but if the connection
+    // hasn't succeeded in 90s something is wrong.
+    if (waLoginStartTime > 0 && (Date.now() - waLoginStartTime) > 90000) {
+        clearInterval(window.waPollInterval);
+        document.getElementById('wa-qr-area').innerHTML = '<div class="text-warning"><i class="bi bi-clock me-1"></i>QR expired</div>';
+        document.getElementById('wa-modal-status').innerHTML = 'QR login timed out after 90 seconds. Click "Refresh QR" to generate a new one.';
+        document.getElementById('wa-modal-status').className = 'small mb-2 text-warning';
+        return;
+    }
+
     Promise.all([
         fetch('index.php?page=api/whatsapp-qr').then(r=>r.json()),
         fetch('index.php?page=api/whatsapp-status').then(r=>r.json())
     ]).then(([qr, status])=>{
+        // Connection succeeded!
         if (status.success && status.connected) {
-            closeLoginWA();
-            location.reload();
+            clearInterval(window.waPollInterval);
+            document.getElementById('wa-qr-area').innerHTML = '<div class="text-success"><i class="bi bi-check-circle-fill" style="font-size:2rem;"></i></div>';
+            document.getElementById('wa-modal-status').innerHTML = '<strong class="text-success">WhatsApp connected successfully!</strong> Reloading page...';
+            document.getElementById('wa-modal-status').className = 'small mb-2 text-success';
+            setTimeout(() => { closeLoginWA(); location.reload(); }, 1500);
             return;
         }
+
+        // Detect scan: if we had a QR but now it's gone AND we're not
+        // connected, the user likely scanned it and Baileys is doing the
+        // initial sync. This phase takes 5-15 seconds — the user must NOT
+        // close the modal.
+        if (waLastQrString && (!qr.success || !qr.available) && !waScanDetected) {
+            waScanDetected = true;
+            document.getElementById('wa-qr-area').innerHTML = '<div class="spinner-border text-success" style="width:3rem;height:3rem;"></div>';
+            document.getElementById('wa-modal-status').innerHTML = '<strong class="text-success">Scan detected!</strong> Connecting to WhatsApp... <small class="text-muted">(do not close this window — initial sync takes 5-15 seconds)</small>';
+            document.getElementById('wa-modal-status').className = 'small mb-2 text-success';
+            return;
+        }
+
         if (qr.success && qr.available && qr.qr) {
+            // New QR — either first one or a refresh (Baileys regenerates
+            // after ~20s if not scanned). If the QR string changed, show
+            // a brief "QR refreshed" flash.
+            if (waLastQrString && waLastQrString !== qr.qr) {
+                const statusEl = document.getElementById('wa-modal-status');
+                const oldHTML = statusEl.innerHTML;
+                statusEl.innerHTML = '<strong class="text-warning">QR refreshed — scan the new one</strong>';
+                setTimeout(() => { if (statusEl.innerHTML.includes('QR refreshed')) statusEl.innerHTML = oldHTML; }, 2000);
+            }
+            waLastQrString = qr.qr;
             // Convert QR string to image using qrserver (no bot key exposed)
             document.getElementById('wa-qr-area').innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data='+encodeURIComponent(qr.qr)+'" alt="WhatsApp QR" style="max-width:220px;">';
-            document.getElementById('wa-modal-status').textContent = 'Scan this QR with WhatsApp → Linked Devices';
-        } else {
-            document.getElementById('wa-modal-status').textContent = 'Waiting for new QR...';
+            if (!waScanDetected) {
+                document.getElementById('wa-modal-status').textContent = 'Open WhatsApp → Settings → Linked Devices → Link a Device → Scan QR';
+                document.getElementById('wa-modal-status').className = 'small mb-2 text-info';
+            }
+        } else if (!waScanDetected) {
+            document.getElementById('wa-modal-status').textContent = 'Waiting for QR code from bot...';
+            document.getElementById('wa-modal-status').className = 'small mb-2 text-info';
         }
     }).catch(()=>{ document.getElementById('wa-modal-status').textContent = 'Polling connection status...'; });
 }
