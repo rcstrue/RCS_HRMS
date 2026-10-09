@@ -214,13 +214,16 @@ async function createSocket() {
 
       // Status code 515 (Stream Errored) is a TEMPORARY issue — Baileys
       // drops the WebSocket when WhatsApp's servers restart or when
-      // there's a transient network blip. It is NOT a device-removal or
-      // a ban. The bot should auto-reconnect and NOT trigger the 24h
-      // post-block cooldown. Treating 515 as a hard-stop (which we did
-      // before this fix) meant every transient Stream Errored left the
-      // bot in a state where login was refused for 24h — even though
-      // WhatsApp hadn't actually blocked anything.
-      const isStreamError = statusCode === 515 || errMsg.toLowerCase().includes('stream errored');
+      // there's a transient network blip. The bot should auto-reconnect
+      // and NOT trigger the 24h post-block cooldown.
+      //
+      // IMPORTANT: A 401 with "Stream Errored (conflict)" in the message
+      // is NOT a temporary stream error — it's a permanent device-removal.
+      // The "conflict" means another session took over (user scanned QR
+      // elsewhere, or WhatsApp removed the device). Only statusCode === 515
+      // is treated as temporary; a 401 is ALWAYS permanent regardless of
+      // what the message says.
+      const isStreamError = statusCode === 515;
       const shouldHardStop = isDeviceRemoved && !isStreamError;
 
       connected = false;
