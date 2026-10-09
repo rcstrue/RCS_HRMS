@@ -212,6 +212,17 @@ async function createSocket() {
       const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
       const isDeviceRemoved = isLoggedOut || isPermanentDisconnect(lastDisconnect?.error);
 
+      // Status code 515 (Stream Errored) is a TEMPORARY issue — Baileys
+      // drops the WebSocket when WhatsApp's servers restart or when
+      // there's a transient network blip. It is NOT a device-removal or
+      // a ban. The bot should auto-reconnect and NOT trigger the 24h
+      // post-block cooldown. Treating 515 as a hard-stop (which we did
+      // before this fix) meant every transient Stream Errored left the
+      // bot in a state where login was refused for 24h — even though
+      // WhatsApp hadn't actually blocked anything.
+      const isStreamError = statusCode === 515 || errMsg.toLowerCase().includes('stream errored');
+      const shouldHardStop = isDeviceRemoved && !isStreamError;
+
       connected = false;
       currentPhone = null;
       currentName = null;
@@ -223,18 +234,22 @@ async function createSocket() {
 
       // Immediately stop queue processing. Unsent rows stay queued in the DB.
       // No message may be marked 'sent' while disconnected.
-      if (isDeviceRemoved) {
+      if (shouldHardStop) {
         stopWorkerHard(`connection closed: ${statusCode || 'unknown'} ${errMsg}`.trim());
       } else {
+        // Temporary disconnect (515 / network blip / QR expiry) — pause the
+        // queue but allow auto-reconnect. Do NOT set hardStopReason or
+        // blockCooldownUntil — those are for permanent device-removal only.
         queuePaused = true;
-        console.log('[QUEUE] Connection closed — queue paused, remaining messages stay queued');
+        console.log(`[QUEUE] Connection closed (statusCode ${statusCode}, temporary) — queue paused, will auto-reconnect`);
       }
 
-      console.log('[CONN] Connection closed. statusCode:', statusCode, 'logout/removed?', isDeviceRemoved);
+      console.log('[CONN] Connection closed. statusCode:', statusCode, 'logout/removed?', isDeviceRemoved, 'streamError?', isStreamError, 'hardStop?', shouldHardStop);
 
-      // Do NOT auto-reconnect after device removal / logout / 401.
-      // Those require a deliberate /api/login by an operator.
-      if (!isDeviceRemoved) {
+      // Auto-reconnect for temporary disconnects (515, network blips, QR
+      // expiry). Do NOT auto-reconnect after permanent device-removal /
+      // logout / 401 — those require a deliberate /api/login by an operator.
+      if (!shouldHardStop) {
         setTimeout(() => {
           if (!connected && !connecting && !hardStopReason) createSocket();
         }, 5000);
@@ -344,10 +359,13 @@ async function getQueueConfig(force = false) {
 function isPermanentDisconnect(err) {
   const msg = String(err?.message || err || '').toLowerCase();
   const code = err?.output?.statusCode || err?.statusCode;
+  // 515 (Stream Errored) is temporary — NOT a permanent disconnect.
+  // Baileys fires this when WhatsApp's servers restart or there's a
+  // transient network issue. The bot should auto-reconnect, not hard-stop.
+  if (code === 515 || msg.includes('stream errored')) return false;
   if (code === 401) return true;
   return ['device_removed', 'device removed', 'logged out', 'loggedout',
-          'conflict', 'bad session', 'replaced', 'stream errored',
-          'connection closed', 'connection terminated'].some(n => msg.includes(n));
+          'conflict', 'bad session', 'replaced'].some(n => msg.includes(n));
 }
 
 function stopWorkerHard(reason) {
@@ -371,9 +389,14 @@ function stopWorkerHard(reason) {
 
 // Detect device_removed / 401 / conflict from a reason string (vs the
 // err object that isPermanentDisconnect(err) uses).
+// Note: 'stream errored' is intentionally EXCLUDED here — a 515 Stream
+// Errored is a temporary issue, not a permanent device-removal. The
+// cooldown must NOT activate for stream errors.
 function isPermanentDisconnectString(reason) {
   if (!reason) return false;
   const r = String(reason).toLowerCase();
+  // Exclude stream errored — it's temporary
+  if (r.includes('stream errored') || r.includes('515')) return false;
   return ['device_removed', 'device removed', 'logged out', 'loggedout',
           'conflict', 'bad session', 'replaced', '401',
           'connection closed: 401', 'connection terminated'].some(n => r.includes(n));
