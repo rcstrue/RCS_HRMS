@@ -1698,10 +1698,12 @@ document.addEventListener('DOMContentLoaded', function() { waUpdateCounts(); });
 
 <?php
 // Counts for the action buttons (queued + retry_wait both retryable;
-// failed can be re-queued with the retry-failed admin action).
+// failed can be re-queued with the retry-failed admin action;
+// cancelled can be re-queued with the retry-cancelled admin action).
 $queuedCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'queued'");
 $retryWaitCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'retry_wait'");
 $failedCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'failed'");
+$cancelledCount = (int)$db->fetchColumn("SELECT COUNT(*) FROM whatsapp_logs WHERE status = 'cancelled' AND DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)");
 $retryableCount = $queuedCount + $retryWaitCount;
 
 // Active campaigns (for the Cancel Campaign dropdown) — campaigns with
@@ -1754,6 +1756,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'retry
     );
     redirect('index.php?page=notifications/whatsapp&tab=history');
 }
+
+// Handle Retry Cancelled action (re-queues rows cancelled via Purge Queue
+// or Cancel Campaign, so they can be sent after the bot is healthy again).
+// Only re-queues cancelled rows from the last 7 days (avoids ancient rows).
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'retry_cancelled') {
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        setFlash('error', 'Invalid request. Please refresh the page and try again.');
+        redirect('index.php?page=notifications/whatsapp&tab=history');
+    }
+    $requeued = waQueueRetryCancelled();
+    setFlash($requeued > 0 ? 'success' : 'info',
+        $requeued > 0
+            ? "Re-queued {$requeued} cancelled message(s) for delivery. They will be sent gradually by the bot's worker."
+            : 'No cancelled messages to re-queue (only rows from the last 7 days are eligible).'
+    );
+    redirect('index.php?page=notifications/whatsapp&tab=history');
+}
 ?>
 
 <!-- Live queue status mini-panel (same shape as Bulk tab, condensed) -->
@@ -1771,6 +1790,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'retry
             <div class="col border-start">
                 <div class="text-muted">Failed</div>
                 <strong class="text-danger fs-5"><?php echo number_format($failedCount); ?></strong>
+            </div>
+            <div class="col border-start">
+                <div class="text-muted">Cancelled</div>
+                <strong class="text-dark fs-5"><?php echo number_format($cancelledCount); ?></strong>
             </div>
             <div class="col border-start">
                 <div class="text-muted">Sent Today</div>
@@ -1831,6 +1854,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'retry
                         <i class="bi bi-arrow-repeat me-1"></i>Retry Failed
                         <?php if ($failedCount > 0): ?>
                         <span class="badge bg-danger ms-1"><?php echo $failedCount; ?></span>
+                        <?php endif; ?>
+                    </button>
+                </form>
+
+                <!-- Retry Cancelled (re-queues rows cancelled via Purge Queue
+                     or Cancel Campaign, so they can be sent after the bot is
+                     healthy again. Only affects cancelled rows from the last
+                     7 days.) -->
+                <form method="POST" style="display:inline;" onsubmit="return confirm('Re-queue all <?php echo (int)$cancelledCount; ?> cancelled message(s) for delivery?\n\nThey will be sent gradually by the bot at the configured pace (20-45s apart, batch of 25).');">
+                    <?php echo getCSRFTokenField(); ?>
+                    <input type="hidden" name="tab" value="history">
+                    <input type="hidden" name="action" value="retry_cancelled">
+                    <button type="submit" class="btn btn-sm btn-outline-dark" <?php echo $cancelledCount > 0 ? '' : 'disabled'; ?>>
+                        <i class="bi bi-arrow-repeat me-1"></i>Retry Cancelled
+                        <?php if ($cancelledCount > 0): ?>
+                        <span class="badge bg-dark ms-1"><?php echo $cancelledCount; ?></span>
                         <?php endif; ?>
                     </button>
                 </form>

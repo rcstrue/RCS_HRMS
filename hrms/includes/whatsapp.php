@@ -867,9 +867,29 @@ if (!function_exists('waQueueCancelAllPending')) {
 }
 
 // Admin-triggered re-queue of permanently failed rows (resets attempt counter).
+// Also logs each re-queued row to the JSONL audit trail.
 if (!function_exists('waQueueRetryFailed')) {
     function waQueueRetryFailed(?string $campaignId = null): int {
         $db = Database::getInstance();
+
+        // Fetch rows to re-queue so we can log each transition
+        if ($campaignId) {
+            $toRetry = $db->fetchAll(
+                "SELECT id, mobile, employee_id, campaign_id, attempts, max_attempts, message
+                 FROM whatsapp_logs
+                 WHERE status = 'failed' AND campaign_id = :cid",
+                [':cid' => $campaignId]
+            );
+        } else {
+            $toRetry = $db->fetchAll(
+                "SELECT id, mobile, employee_id, campaign_id, attempts, max_attempts, message
+                 FROM whatsapp_logs
+                 WHERE status = 'failed' AND DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
+            );
+        }
+
+        if (empty($toRetry)) { return 0; }
+
         if ($campaignId) {
             $stmt = $db->query(
                 "UPDATE whatsapp_logs
@@ -884,7 +904,83 @@ if (!function_exists('waQueueRetryFailed')) {
                  WHERE status = 'failed' AND DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
             );
         }
-        return $stmt ? $stmt->rowCount() : 0;
+        $count = $stmt ? $stmt->rowCount() : 0;
+
+        // Audit log: each re-queued row
+        foreach ($toRetry as $row) {
+            waLogTransition((int)$row['id'], 'failed', 'queued', [
+                'campaign_id' => $row['campaign_id'] ?? null,
+                'mobile'       => $row['mobile'] ?? null,
+                'employee_id' => $row['employee_id'] ?? null,
+                'attempts'     => 0,
+                'max_attempts' => (int)($row['max_attempts'] ?? 4),
+                'message'      => $row['message'] ?? null,
+                'trigger'      => 'admin',
+            ]);
+        }
+
+        return $count;
+    }
+}
+
+// Admin-triggered re-queue of cancelled rows (Purge Queue / Cancel Campaign).
+// Resets status to 'queued', clears the error, sets available_at = NOW().
+// Used when an operator cancels a batch (e.g. before re-linking) and then
+// wants to re-queue them after the bot is healthy again.
+if (!function_exists('waQueueRetryCancelled')) {
+    function waQueueRetryCancelled(?string $campaignId = null): int {
+        $db = Database::getInstance();
+
+        // Fetch cancelled rows to re-queue so we can log each transition
+        if ($campaignId) {
+            $toRetry = $db->fetchAll(
+                "SELECT id, mobile, employee_id, campaign_id, attempts, max_attempts, message
+                 FROM whatsapp_logs
+                 WHERE status = 'cancelled' AND campaign_id = :cid",
+                [':cid' => $campaignId]
+            );
+        } else {
+            // Default: re-queue cancelled rows from the last 7 days
+            // (avoids re-queueing ancient cancelled rows from months ago)
+            $toRetry = $db->fetchAll(
+                "SELECT id, mobile, employee_id, campaign_id, attempts, max_attempts, message
+                 FROM whatsapp_logs
+                 WHERE status = 'cancelled' AND DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
+            );
+        }
+
+        if (empty($toRetry)) { return 0; }
+
+        if ($campaignId) {
+            $stmt = $db->query(
+                "UPDATE whatsapp_logs
+                 SET status = 'queued', attempts = 0, error = NULL, available_at = NOW(), updated_at = NOW()
+                 WHERE status = 'cancelled' AND campaign_id = :cid",
+                [':cid' => $campaignId]
+            );
+        } else {
+            $stmt = $db->query(
+                "UPDATE whatsapp_logs
+                 SET status = 'queued', attempts = 0, error = NULL, available_at = NOW(), updated_at = NOW()
+                 WHERE status = 'cancelled' AND DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
+            );
+        }
+        $count = $stmt ? $stmt->rowCount() : 0;
+
+        // Audit log: each re-queued row
+        foreach ($toRetry as $row) {
+            waLogTransition((int)$row['id'], 'cancelled', 'queued', [
+                'campaign_id' => $row['campaign_id'] ?? null,
+                'mobile'       => $row['mobile'] ?? null,
+                'employee_id' => $row['employee_id'] ?? null,
+                'attempts'     => 0,
+                'max_attempts' => (int)($row['max_attempts'] ?? 4),
+                'message'      => $row['message'] ?? null,
+                'trigger'      => 'admin',
+            ]);
+        }
+
+        return $count;
     }
 }
 
