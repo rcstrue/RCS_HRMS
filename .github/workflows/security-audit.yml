@@ -120,8 +120,10 @@ jobs:
           # Hardcoded passwords / secrets — scan PHP, JS, and TS files.
           # Previously only scanned *.php, which missed the hardcoded
           # WhatsApp API key in wa.js. Now covers all server-side code.
+          # Excludes: example files, config.local, placeholders, process.env
+          # (runtime env var reads), CSRF_TOKEN (runtime-generated per-session).
           MATCHES=$(grep -rniP '(password|secret|api_key|apikey|token)\s*=\s*["\x27][^"\x27]{4,}["\x27]' hrms/ api/ wa.js --include="*.php" --include="*.js" \
-                    | grep -v 'example\.' | grep -v 'config\.local' | grep -v 'placeholder' | grep -iv 'your_' | grep -v 'process\.env' | grep -v 'import\.meta' || true)
+                    | grep -v 'example\.' | grep -v 'config\.local' | grep -v 'placeholder' | grep -iv 'your_' | grep -v 'process\.env' | grep -v 'import\.meta' | grep -vi 'csrf_token\|CSRF_TOKEN' || true)
           if [ -n "$MATCHES" ]; then
             echo "::error::Possible hardcoded secrets found:"
             echo "$MATCHES"
