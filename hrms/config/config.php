@@ -3,8 +3,14 @@
  * RCS HRMS Pro - Configuration File
  * Company: RCS TRUE FACILITIES PVT LTD
  *
- * This file loads database credentials from config.local.php
- * config.local.php is NOT tracked in git - your credentials are safe
+ * Credential loading order (first match wins):
+ *   1. Real environment variables (Docker, PM2)
+ *   2. /home/rcsfaxhz/.env file (PREFERRED — single source of truth)
+ *   3. config.local.php (LEGACY — backward compatibility)
+ *   4. Safe defaults defined below
+ *
+ * To set up: copy .env.example to /home/rcsfaxhz/.env and fill in real values.
+ * The .env file is OUTSIDE public_html and gitignored.
  */
 
 // Prevent direct access
@@ -20,27 +26,49 @@ if (!defined('APP_ROOT')) {
 // Include constants file (for centralized constants) - must be after APP_ROOT is defined
 require_once APP_ROOT . '/includes/constants.php';
 
-// Load local configuration if exists (this file is NOT in git)
+// ── Load centralized .env helper ────────────────────────────────────────────
+// This provides env() / envDefine() functions that read from
+// /home/rcsfaxhz/.env (preferred) or fall back to config.local.php.
+require_once APP_ROOT . '/includes/load-env.php';
+
+// ── Load credentials from .env ──────────────────────────────────────────────
+// These calls check .env first, then fall back to config.local.php values
+// (loaded below for backward compat), then to the safe defaults.
+
+// Database credentials
+envDefine('DB_HOST', 'DB_HOST', 'localhost');
+envDefine('DB_NAME', 'DB_NAME', 'rcs_hrms');
+envDefine('DB_USER', 'DB_USER', 'root');
+envDefine('DB_PASS', 'DB_PASS', '');
+if (!defined('DB_CHARSET')) {
+    define('DB_CHARSET', 'utf8mb4');
+}
+
+// Application encryption key (used for encrypting sensitive PII)
+envDefine('ENCRYPTION_KEY', 'APP_ENCRYPTION_KEY', '');
+
+// SMTP / Email settings
+envDefine('SMTP_HOST', 'SMTP_HOST', 'smtp.gmail.com');
+envDefine('SMTP_PORT', 'SMTP_PORT', '587');
+envDefine('SMTP_USER', 'SMTP_USER', '');
+envDefine('SMTP_PASS', 'SMTP_PASS', '');
+envDefine('SMTP_FROM', 'SMTP_FROM', 'noreply@rcsfacility.com');
+envDefine('SMTP_FROM_NAME', 'SMTP_FROM_NAME', 'RCS HRMS Pro');
+
+// ── LEGACY: Load config.local.php if .env didn't define everything ───────────
+// This provides backward compatibility for servers that still use
+// config.local.php. If a credential was already set from .env above,
+// envDefine() skipped it (idempotent), so config.local.php only fills gaps.
 if (file_exists(__DIR__ . '/config.local.php')) {
     require_once __DIR__ . '/config.local.php';
 }
 
-// Database Settings (set defaults if not defined in config.local.php)
-if (!defined('DB_HOST')) {
-    define('DB_HOST', 'localhost');
-}
-if (!defined('DB_NAME')) {
-    define('DB_NAME', 'rcs_hrms');
-}
-if (!defined('DB_USER')) {
-    define('DB_USER', 'root');
-}
-if (!defined('DB_PASS')) {
-    define('DB_PASS', '');
-}
-if (!defined('DB_CHARSET')) {
-    define('DB_CHARSET', 'utf8mb4');
-}
+// ── Final fallback defaults (only if neither .env nor config.local.php set them) ──
+if (!defined('DB_HOST')) define('DB_HOST', 'localhost');
+if (!defined('DB_NAME')) define('DB_NAME', 'rcs_hrms');
+if (!defined('DB_USER')) define('DB_USER', 'root');
+if (!defined('DB_PASS')) define('DB_PASS', '');
+if (!defined('DB_CHARSET')) define('DB_CHARSET', 'utf8mb4');
 
 // Application Settings
 if (!defined('APP_NAME')) {
