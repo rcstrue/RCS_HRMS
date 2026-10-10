@@ -1,5 +1,35 @@
 parameters:
 	ignoreErrors:
+
+		-
+			message: '#^Constant API_KEY not found\.$#'
+			identifier: constant.notFound
+			count: 2
+			path: api/ess/example.config.php
+
+		-
+			message: '#^Constant JWT_SECRET not found\.$#'
+			identifier: constant.notFound
+			count: 2
+			path: api/ess/example.config.php
+
+		-
+			message: '#^Constant JWT_EXPIRY not found\.$#'
+			identifier: constant.notFound
+			count: 4
+			path: api/ess/login.php
+
+		-
+			message: '#^Constant JWT_EXPIRY not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: api/ess/refresh.php
+
+		-
+			message: '#^Constant API_KEY not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: api/ess/refresh.php
 		-
 			message: '#^Strict comparison using \=\=\= between mixed and null will always evaluate to false\.$#'
 			identifier: identical.alwaysFalse
