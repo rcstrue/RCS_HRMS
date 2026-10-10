@@ -50,9 +50,28 @@ test
 prompt
 
 server.log
+
 # WhatsApp auth session — NEVER commit sensitive session credentials
 auth_info_baileys/
 /home/rcsfaxhz/auth_info_baileys/
+
+# ── Secret / config files — NEVER commit real credentials ──────────────
+# These are managed manually on the server and excluded from FTP deploy.
+# Listed explicitly here as a safety net in case someone runs `git add -f`.
+hrms/config/config.local.php
+api/ess/config.php
+api/ess/.htaccess
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+wa_block_cooldown_until
+whatsapp-bulk-queue.jsonl
+
+# PM2 ecosystem config (contains env vars with secrets)
+ecosystem.config.js
+ecosystem.config.json
 
 # Skills directory
 /skills/tool-results/

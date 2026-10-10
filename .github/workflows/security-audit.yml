@@ -117,12 +117,24 @@ jobs:
             FAIL=$((FAIL + 1))
           fi
 
-          # Hardcoded passwords / secrets
-          MATCHES=$(grep -rniP '(password|secret|api_key)\s*=\s*["\x27][^"\x27]{4,}["\x27]' hrms/ api/ --include="*.php" \
-                    | grep -v 'example\.' | grep -v 'config\.local' | grep -v 'placeholder' | grep -iv 'your_' || true)
+          # Hardcoded passwords / secrets — scan PHP, JS, and TS files.
+          # Previously only scanned *.php, which missed the hardcoded
+          # WhatsApp API key in wa.js. Now covers all server-side code.
+          MATCHES=$(grep -rniP '(password|secret|api_key|apikey|token)\s*=\s*["\x27][^"\x27]{4,}["\x27]' hrms/ api/ wa.js --include="*.php" --include="*.js" \
+                    | grep -v 'example\.' | grep -v 'config\.local' | grep -v 'placeholder' | grep -iv 'your_' | grep -v 'process\.env' | grep -v 'import\.meta' || true)
           if [ -n "$MATCHES" ]; then
             echo "::error::Possible hardcoded secrets found:"
             echo "$MATCHES"
+            FAIL=$((FAIL + 1))
+          fi
+
+          # Also scan TypeScript/TSX files for hardcoded secrets (frontend code
+          # must NEVER contain secrets — they're visible in the browser bundle).
+          TS_MATCHES=$(grep -rniP '(api_key|apikey|secret|token|password)\s*[:=]\s*["\x27][^"\x27]{8,}["\x27]' RCS_ESS/src/ --include="*.ts" --include="*.tsx" \
+                       | grep -v 'import\.meta' | grep -v 'process\.env' | grep -v 'VITE_' | grep -v 'example' || true)
+          if [ -n "$TS_MATCHES" ]; then
+            echo "::error::Possible hardcoded secrets in frontend code:"
+            echo "$TS_MATCHES"
             FAIL=$((FAIL + 1))
           fi
 
