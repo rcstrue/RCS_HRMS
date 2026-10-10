@@ -40,17 +40,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// API Key
-$API_KEY = $_ENV['API_KEY'] ?? 'your_api_key_here';
+// ── Load centralized .env helper ────────────────────────────────────────────
+// Reads from /home/rcsfaxhz/.env (single source of truth for all credentials).
+// Falls back to $_ENV / getenv() / placeholder defaults.
+$envHelperPath = dirname(__DIR__) . '/hrms/includes/load-env.php';
+if (file_exists($envHelperPath)) {
+    require_once $envHelperPath;
+} else {
+    // Inline fallback if the HRMS helper isn't deployed yet
+    if (!function_exists('env')) {
+        function env(string $key, ?string $default = null): ?string {
+            $val = $_ENV[$key] ?? getenv($key);
+            if ($val === false || $val === '') return $default;
+            return $val;
+        }
+    }
+}
 
-// Database config - UPDATE THESE ON PRODUCTION
-$DB_HOST = $_ENV['DB_HOST'] ?? 'localhost';
-$DB_USER = $_ENV['DB_USER'] ?? 'db user';
-$DB_PASS = $_ENV['DB_PASS'] ?? 'db password';
-$DB_NAME = $_ENV['DB_NAME'] ?? 'db name';
+// API Key — must match the ESS_API_KEY in .env (shared with the ESS app)
+$API_KEY = env('ESS_API_KEY', $_ENV['API_KEY'] ?? 'your_api_key_here');
 
-// JWT Secret
-$JWT_SECRET = $_ENV['JWT_SECRET'] ?? 'your_jwt_secret_key_here';
+// Database config — from .env, fallback to $_ENV / placeholders
+$DB_HOST = env('DB_HOST', 'localhost');
+$DB_USER = env('DB_USER', 'db_user');
+$DB_PASS = env('DB_PASS', 'db_password');
+$DB_NAME = env('DB_NAME', 'db_name');
+
+// JWT Secret — from .env, fallback to $_ENV / placeholder
+$JWT_SECRET = env('ESS_JWT_SECRET', $_ENV['JWT_SECRET'] ?? 'your_jwt_secret_key_here');
 
 // Upload directory - files should be accessible at https://join.rcsfacility.com/uploads/
 $UPLOAD_DIR = dirname(__DIR__) . '/uploads/';
@@ -87,7 +104,7 @@ file_put_contents($rateCountFile, $requestCount + 1);
 $headers = getallheaders();
 $apiKey = $headers['X-API-KEY'] ?? $headers['x-api-key'] ?? $_SERVER['HTTP_X_API_KEY'] ?? ($_GET['key'] ?? '');
 
-if ($apiKey !== API_KEY) {
+if ($apiKey !== $API_KEY) {
     http_response_code(403);
     echo json_encode(['error' => 'Unauthorized: Invalid API key']);
     exit;
