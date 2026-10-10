@@ -22,14 +22,14 @@ parameters:
 		-
 			message: '#^Constant JWT_EXPIRY not found\.$#'
 			identifier: constant.notFound
-			count: 1
+			count: 2
 			path: api/ess/refresh.php
 
 		-
 			message: '#^Constant API_KEY not found\.$#'
 			identifier: constant.notFound
 			count: 1
-			path: api/ess/refresh.php
+			path: api/ess/upload-base64.php
 		-
 			message: '#^Strict comparison using \=\=\= between mixed and null will always evaluate to false\.$#'
 			identifier: identical.alwaysFalse
