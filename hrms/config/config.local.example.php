@@ -1,8 +1,19 @@
 <?php
 /**
- * RCS HRMS Pro - Local Configuration
- * 
- * This file contains database credentials and sensitive settings.
+ * RCS HRMS Pro - Local Configuration (LEGACY)
+ *
+ * DEPRECATED: The preferred method is to use /home/rcsfaxhz/.env
+ * (see .env.example in the repo root). The .env file is the SINGLE source
+ * of truth for all credentials and lives OUTSIDE public_html.
+ *
+ * This file is kept for backward compatibility. If /home/rcsfaxhz/.env
+ * exists, its values take priority over anything defined here.
+ *
+ * To migrate from config.local.php to .env:
+ *   1. Copy your real values from this file to /home/rcsfaxhz/.env
+ *   2. Delete this file (config.local.php) — the .env loader handles everything
+ *   3. Verify HRMS still works (it should — .env is checked first)
+ *
  * This file is NOT tracked in git - add your actual credentials here.
  */
 

@@ -1,0 +1,2371 @@
+parameters:
+	ignoreErrors:
+
+		-
+			message: '#^Constant API_KEY not found\.$#'
+			identifier: constant.notFound
+			count: 2
+			path: api/ess/example.config.php
+
+		-
+			message: '#^Constant JWT_SECRET not found\.$#'
+			identifier: constant.notFound
+			count: 2
+			path: api/ess/example.config.php
+
+		-
+			message: '#^Constant JWT_EXPIRY not found\.$#'
+			identifier: constant.notFound
+			count: 4
+			path: api/ess/login.php
+
+		-
+			message: '#^Constant JWT_EXPIRY not found\.$#'
+			identifier: constant.notFound
+			count: 2
+			path: api/ess/refresh.php
+
+		-
+			message: '#^Constant API_KEY not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: api/ess/upload-base64.php
+		-
+			message: '#^Strict comparison using \=\=\= between mixed and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: api/ess/change-requests.php
+
+		-
+			message: '#^Result of \|\| is always true\.$#'
+			identifier: booleanOr.alwaysTrue
+			count: 1
+			path: api/ess/example.config.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''your_api_key_here'' and ''your_api_key_here'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: api/ess/example.config.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''your_jwt_secret_here'' and ''your_jwt_secret_here'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: api/ess/example.config.php
+
+		-
+			message: '#^Variable \$params in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: api/ess/example.config.php
+
+		-
+			message: '#^Comparison operation "\<\=" between 86400\|null and 86400 is always true\.$#'
+			identifier: smallerOrEqual.alwaysTrue
+			count: 1
+			path: api/ess/health.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''your_api_key_here'' and ''your_api_key_here'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: api/ess/health.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''your_jwt_secret_here'' and ''your_jwt_secret_here'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: api/ess/health.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between ''category''\|''description''\|''priority''\|''resolution''\|''resolved_by''\|''status''\|''subject'' and ''id'' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: api/ess/helpdesk.php
+
+		-
+			message: '#^Variable \$allParams in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: api/ess/helpers.php
+
+		-
+			message: '#^Variable \$dailyParams in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: api/ess/manpower-status.php
+
+		-
+			message: '#^Variable \$params in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: api/ess/manpower-status.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and false will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: api/ess/push-vapid.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: api/ess/salary-upload.php
+
+		-
+			message: '#^Variable \$dataValues in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: api/ess/salary-upload.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between ''assigned_to''\|''deadline''\|''description''\|''priority''\|''status''\|''title''\|''unit_id'' and ''id'' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: api/ess/tasks.php
+
+		-
+			message: '#^Offset ''image/gif''\|''image/jpeg''\|''image/png''\|''image/webp'' on array\{''image/jpeg''\: ''jpg'', ''image/png''\: ''png'', ''image/gif''\: ''gif'', ''image/webp''\: ''webp''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/ess/upload-base64.php
+
+		-
+			message: '#^Variable \$subject on left side of \?\? is never defined\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: api/ess/visit-email.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 2
+			path: hrms/config/config.local.example.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 2
+			path: hrms/config/config.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''production'' and ''development'' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: hrms/config/config.php
+
+		-
+			message: '#^Variable \$appUrl in empty\(\) always exists and is always falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: hrms/config/config.php
+
+		-
+			message: '#^Anonymous function has an unused use \$lwfApplicable\.$#'
+			identifier: closure.unusedUse
+			count: 1
+			path: hrms/includes/SalaryCalculator.php
+
+		-
+			message: '#^Offset 0\|1\|2\|3 on array\{''Level 0\: Basic\+DA…'', ''Level 1\: \+ Bonus'', ''Level 2\: \+ Leave'', ''Level 3\: \+ HRA''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: hrms/includes/SalaryCalculator.php
+
+		-
+			message: '#^Property SimpleXLSX\:\:\$workbook is unused\.$#'
+			identifier: property.unused
+			count: 1
+			path: hrms/includes/SimpleXLSX.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/includes/class.attendance.php
+
+		-
+			message: '#^Method Employee\:\:generateSecureToken\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: hrms/includes/class.employee.php
+
+		-
+			message: '#^Access to property \$Body on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 2
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Access to property \$Host on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 2
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Access to property \$Password on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 2
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Access to property \$Port on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 2
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Access to property \$SMTPAuth on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 2
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Access to property \$SMTPSecure on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 2
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Access to property \$Subject on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 2
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Access to property \$Username on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 2
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Call to method addAddress\(\) on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 1
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Call to method addAttachment\(\) on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 1
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Call to method isHTML\(\) on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 1
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Call to method isSMTP\(\) on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 1
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Call to method send\(\) on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 1
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Call to method setFrom\(\) on an unknown class PHPMailer\\PHPMailer\\PHPMailer\.$#'
+			identifier: class.notFound
+			count: 1
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 2
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Instantiated class PHPMailer\\PHPMailer\\PHPMailer not found\.$#'
+			identifier: class.notFound
+			count: 1
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Property Notification\:\:\$smsProvider is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: hrms/includes/class.notification.php
+
+		-
+			message: '#^Default value of the parameter \#3 \$excludeHeld \(true\) of method Payroll\:\:markAsPaid\(\) is incompatible with type array\.$#'
+			identifier: parameter.defaultValue
+			count: 1
+			path: hrms/includes/class.payroll.php
+
+		-
+			message: '#^Property XlsxReader\:\:\$sheets is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: hrms/includes/xlsx_reader.php
+
+		-
+			message: '#^Variable \$rowData in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: hrms/includes/xlsx_reader.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 4
+			path: hrms/index.php
+
+		-
+			message: '#^Offset 0 on non\-empty\-list\<string\> in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 2
+			path: hrms/index.php
+
+		-
+			message: '#^Offset 0 on non\-empty\-list\<string\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 3
+			path: hrms/index.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 1
+			path: hrms/index.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between int\<1, max\>\|false and 0 will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: hrms/index.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: hrms/index.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/index.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/announcement/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/announcement/list.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/modules/api/crop-save.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/api/crop-save.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 10
+			path: hrms/modules/api/designation.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/api/employee-search.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''POST'' and ''POST'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: hrms/modules/api/ess/change-requests.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between mixed and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: hrms/modules/api/ess/change-requests.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/modules/api/expense-api.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 15
+			path: hrms/modules/api/expense-api.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/modules/api/image-tool.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/api/manager-units.php
+
+		-
+			message: '#^Variable \$auth might not be defined\.$#'
+			identifier: variable.undefined
+			count: 8
+			path: hrms/modules/api/menu-permissions.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/modules/api/minimum-wage-sync.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/api/minimum-wage-sync.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/api/mw-zones.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/api/next-unit-code.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: hrms/modules/api/payroll-save-row.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 29
+			path: hrms/modules/api/payroll-save-row.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/api/payroll-update.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: hrms/modules/api/save-filter.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/api/units.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/api/whatsapp-salary.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/api/zones.php
+
+		-
+			message: '#^Comparison operation "\<" between int\<1, max\> and 1 is always false\.$#'
+			identifier: smaller.alwaysFalse
+			count: 1
+			path: hrms/modules/assets/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/assets/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 11
+			path: hrms/modules/assets/issue.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/assets/list.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 11
+			path: hrms/modules/attendance/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/attendance/report.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 2
+			path: hrms/modules/attendance/upload.php
+
+		-
+			message: '#^Function formatDate invoked with 2 parameters, 1 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: hrms/modules/attendance/upload.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 7
+			path: hrms/modules/attendance/upload.php
+
+		-
+			message: '#^Function formatDate invoked with 2 parameters, 1 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: hrms/modules/attendance/view.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/attendance/view.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/audit/list.php
+
+		-
+			message: '#^Variable \$auth might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/auth/login.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 11
+			path: hrms/modules/billing/create.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 7
+			path: hrms/modules/billing/edit.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: hrms/modules/billing/gst-invoice.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/billing/gst-invoice.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/billing/list.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/billing/print.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/billing/view.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 3
+			path: hrms/modules/bulk-upload/salary.php
+
+		-
+			message: '#^If condition is always false\.$#'
+			identifier: if.alwaysFalse
+			count: 1
+			path: hrms/modules/bulk-upload/salary.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 14
+			path: hrms/modules/bulk-upload/salary.php
+
+		-
+			message: '#^Variable \$client might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/client/list.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 8
+			path: hrms/modules/client/visit-checklist.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/compliance/add_filing.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/compliance/calendar.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/compliance/dashboard.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/compliance/ecr.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 9
+			path: hrms/modules/compliance/esi-return.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/compliance/esi.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/compliance/filings.php
+
+		-
+			message: '#^Right side of \|\| is always true\.$#'
+			identifier: booleanOr.rightAlwaysTrue
+			count: 1
+			path: hrms/modules/compliance/minimum-wage-check.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/compliance/minimum-wage-check.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/compliance/minimum-wage-sync.php
+
+		-
+			message: '#^Variable \$compliance might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/compliance/minimum-wages.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/compliance/minimum-wages.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/compliance/pf.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 9
+			path: hrms/modules/compliance/pt-challan.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/compliance/pt.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/contract/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/contract/list.php
+
+		-
+			message: '#^Variable \$attendance might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/dashboard/index.php
+
+		-
+			message: '#^Variable \$compliance might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/dashboard/index.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/dashboard/index.php
+
+		-
+			message: '#^Variable \$employee might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/dashboard/index.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/deployment/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/deployment/list.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/modules/employee/add.php
+
+		-
+			message: '#^Offset ''basic_salary'' on array\{full_name\: mixed, father_name\: mixed, mobile_number\: mixed, alternate_mobile\: mixed, email\: mixed, gender\: mixed, date_of_birth\: non\-falsy\-string\|null, marital_status\: mixed, \.\.\.\} in empty\(\) does not exist\.$#'
+			identifier: empty.offset
+			count: 1
+			path: hrms/modules/employee/add.php
+
+		-
+			message: '#^Path in include_once\(\) "modules/settings/image\-tool\-lite\.php" is not a file or it does not exist\.$#'
+			identifier: includeOnce.fileNotFound
+			count: 1
+			path: hrms/modules/employee/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/employee/add.php
+
+		-
+			message: '#^Variable \$employee might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/employee/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/employee/bulk-edit.php
+
+		-
+			message: '#^Variable \$employee might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/employee/bulk-edit.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between '''' and '''' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: hrms/modules/employee/change-requests.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/employee/code-assign.php
+
+		-
+			message: '#^Variable \$employee might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/employee/code-assign.php
+
+		-
+			message: '#^Offset ''id_type'' on array\{label\: ''Employees'', id_col\: ''id'', id_type\: ''int'', name_col\: ''full_name'', code_col\: ''employee_code'', code_type\: ''int'', where\: ''t\.status \= …'', alias\: ''t'', \.\.\.\}\|array\{label\: ''EPFO Members'', id_col\: ''uan'', id_type\: ''string'', name_col\: ''name'', code_col\: ''uan'', where\: ''1\=1'', alias\: ''t'', match_fields\: array\{uan\: ''uan'', mobile\: ''mobile'', aadhaar\: ''aadhaar'', pan\: ''pan'', bank_account\: ''bank_account'', ifsc\: ''ifsc_code'', email\: ''email''\}\}\|array\{label\: ''ESIC IP Master'', id_col\: ''id'', id_type\: ''int'', name_col\: ''ip_name'', code_col\: ''ip_number'', where\: ''1\=1'', alias\: ''t'', match_fields\: array\{uan\: ''uan'', mobile\: ''mobile'', esic\: ''ip_number'', bank_account\: ''account_number'', ifsc\: ''ifsc_code''\}\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: hrms/modules/employee/data-sync/ajax.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between mixed and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 3
+			path: hrms/modules/employee/data-sync/ajax.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 7
+			path: hrms/modules/employee/data-sync/ajax.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/employee/delete.php
+
+		-
+			message: '#^Variable \$employee might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/employee/delete.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/employee/designation.php
+
+		-
+			message: '#^Constant BASE_URL not found\.$#'
+			identifier: constant.notFound
+			count: 2
+			path: hrms/modules/employee/documents.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/employee/documents.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/employee/esic-import.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 11
+			path: hrms/modules/employee/esic-import/ajax.php
+
+		-
+			message: '#^Variable \$row in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: hrms/modules/employee/esic-import/ajax.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/employee/exit.php
+
+		-
+			message: '#^Variable \$employee might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/employee/exit.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 5
+			path: hrms/modules/employee/id-card-fixed.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 10
+			path: hrms/modules/employee/id-card-fixed.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 8
+			path: hrms/modules/employee/id-card.php
+
+		-
+			message: '#^Path in include_once\(\) "modules/settings/image\-tool\-lite\.php" is not a file or it does not exist\.$#'
+			identifier: includeOnce.fileNotFound
+			count: 1
+			path: hrms/modules/employee/id-card.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 12
+			path: hrms/modules/employee/id-card.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/modules/employee/import-epfo.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''success'' and ''success'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: hrms/modules/employee/import-epfo.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/employee/import-epfo.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/modules/employee/import.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/employee/import.php
+
+		-
+			message: '#^Variable \$employee might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/employee/import.php
+
+		-
+			message: '#^Variable \$row in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: hrms/modules/employee/import.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/employee/index.php
+
+		-
+			message: '#^Ternary operator condition is always false\.$#'
+			identifier: ternary.alwaysFalse
+			count: 20
+			path: hrms/modules/employee/list.php
+
+		-
+			message: '#^Ternary operator condition is always true\.$#'
+			identifier: ternary.alwaysTrue
+			count: 13
+			path: hrms/modules/employee/list.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/employee/list.php
+
+		-
+			message: '#^Variable \$employee might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/employee/list.php
+
+		-
+			message: '#^Cannot instantiate class Database via private constructor Database\:\:__construct\(\)\.$#'
+			identifier: new.privateConstructor
+			count: 1
+			path: hrms/modules/employee/run-designation-migration.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/employee/run-designation-migration.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 5
+			path: hrms/modules/employee/view.php
+
+		-
+			message: '#^Path in include_once\(\) "modules/settings/image\-tool\-lite\.php" is not a file or it does not exist\.$#'
+			identifier: includeOnce.fileNotFound
+			count: 1
+			path: hrms/modules/employee/view.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 8
+			path: hrms/modules/employee/view.php
+
+		-
+			message: '#^Variable \$emp might not be defined\.$#'
+			identifier: variable.undefined
+			count: 23
+			path: hrms/modules/employee/view.php
+
+		-
+			message: '#^Variable \$employee might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/employee/view.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 13
+			path: hrms/modules/entry/leave-entry.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 2
+			path: hrms/modules/entry/muster-entry.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 13
+			path: hrms/modules/entry/muster-entry.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: hrms/modules/entry/overtime-entry.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 15
+			path: hrms/modules/entry/overtime-entry.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: hrms/modules/entry/quick-salary.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 15
+			path: hrms/modules/entry/quick-salary.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: hrms/modules/entry/salary-entry.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 13
+			path: hrms/modules/entry/salary-entry.php
+
+		-
+			message: '#^Variable \$flashMsg in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: hrms/modules/expense/allocations.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between '''' and '''' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: hrms/modules/expense/approvals.php
+
+		-
+			message: '#^Variable \$cat on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: hrms/modules/expense/approvals.php
+
+		-
+			message: '#^Variable \$categoryColExists might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/expense/approvals.php
+
+		-
+			message: '#^Variable \$managerIdColExists might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/expense/approvals.php
+
+		-
+			message: '#^Variable \$monthColExists might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/expense/approvals.php
+
+		-
+			message: '#^Variable \$type on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: hrms/modules/expense/approvals.php
+
+		-
+			message: '#^Array has 2 duplicate keys with value 7 \(\\UPLOAD_ERR_CANT_WRITE, 7\)\.$#'
+			identifier: array.duplicateKey
+			count: 1
+			path: hrms/modules/expense/bulk-upload-handler.php
+
+		-
+			message: '#^Comparison operation "\>\=" between int\<0, max\> and 0 is always true\.$#'
+			identifier: greaterOrEqual.alwaysTrue
+			count: 1
+			path: hrms/modules/expense/bulk-upload-handler.php
+
+		-
+			message: '#^Variable \$baseUrl might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/expense/bulk-upload-handler.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed~\(0\|0\.0\|''''\|''0''\|array\{\}\|false\|null\) and '''' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: hrms/modules/expense/dashboard.php
+
+		-
+			message: '#^Variable \$categoryColExists might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/expense/dashboard.php
+
+		-
+			message: '#^Variable \$managerIdColExists might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/expense/dashboard.php
+
+		-
+			message: '#^Variable \$monthColExists might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/expense/dashboard.php
+
+		-
+			message: '#^Result of && is always true\.$#'
+			identifier: booleanAnd.alwaysTrue
+			count: 1
+			path: hrms/modules/expense/ledger.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed~\(''''\|''0''\) and '''' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: hrms/modules/expense/ledger.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed~\(''''\|''0''\) and ''0'' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: hrms/modules/expense/ledger.php
+
+		-
+			message: '#^Offset ''no ledger''\|''open''\|''overdrawn'' on array\{settled\: ''Settled'', open\: ''Open'', overdrawn\: ''Overdrawn'', ''no ledger''\: ''No Ledger''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: hrms/modules/expense/reports.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between float and 0 will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: hrms/modules/expense/reports.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/forms/appointment.php
+
+		-
+			message: '#^Variable \$employee might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/forms/appointment.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/forms/experience.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/forms/form-f2.php
+
+		-
+			message: '#^Variable \$compliance might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/forms/form-v.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/forms/form-v.php
+
+		-
+			message: '#^Variable \$compliance might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/forms/form-xvi.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/forms/form-xvi.php
+
+		-
+			message: '#^Variable \$compliance might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/forms/form-xvii.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/forms/form-xvii.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/forms/labour/annexure-a.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/forms/labour/employment-card.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/forms/labour/form-24.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 7
+			path: hrms/modules/forms/labour/form-32.php
+
+		-
+			message: '#^Cannot unset offset ''created_at'' on array\{contractor_name\: mixed, contractor_address\: mixed, registration_number\: mixed, date_of_registration\: mixed, contractor_pan\: mixed, establishment_name\: mixed, establishment_address\: mixed, nature_of_work\: mixed, \.\.\.\}\.$#'
+			identifier: unset.offset
+			count: 1
+			path: hrms/modules/forms/labour/form-a.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 9
+			path: hrms/modules/forms/labour/form-a.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/forms/labour/form-iv.php
+
+		-
+			message: '#^Negated boolean expression is always true\.$#'
+			identifier: booleanNot.alwaysTrue
+			count: 1
+			path: hrms/modules/forms/labour/form-xx.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 7
+			path: hrms/modules/forms/labour/form-xxi.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/forms/labour/form-xxii.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/forms/nomination.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/forms/nomination_esi.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/forms/nomination_gratuity.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/forms/nomination_pf.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/forms/relieving.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/forms/service_certificate.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 8
+			path: hrms/modules/helpdesk/add.php
+
+		-
+			message: '#^Variable \$flashMsg in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: hrms/modules/helpdesk/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 7
+			path: hrms/modules/helpdesk/list.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed~''LWP'' and ''LWP'' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: hrms/modules/leave/apply.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 15
+			path: hrms/modules/leave/apply.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/leave/balance.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/loan/list.php
+
+		-
+			message: '#^Offset ''Current''\|''Future''\|''Paid''\|''Pending'' on array\{Paid\: ''success'', Pending\: ''danger'', Current\: ''info'', Future\: ''secondary''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: hrms/modules/loan/view.php
+
+		-
+			message: '#^Right side of \|\| is always false\.$#'
+			identifier: booleanOr.rightAlwaysFalse
+			count: 1
+			path: hrms/modules/notifications/announcements.php
+
+		-
+			message: '#^Loose comparison using \=\= between ''all''\|''sent'' and ''failed'' will always evaluate to false\.$#'
+			identifier: equal.alwaysFalse
+			count: 2
+			path: hrms/modules/notifications/bulk-email.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 10
+			path: hrms/modules/notifications/bulk-email.php
+
+		-
+			message: '#^Function formatDate invoked with 2 parameters, 1 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: hrms/modules/notifications/center.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 8
+			path: hrms/modules/notifications/center.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/modules/notifications/push-generate-keys.php
+
+		-
+			message: '#^Loose comparison using \=\= between ''all''\|''sent'' and ''failed'' will always evaluate to false\.$#'
+			identifier: equal.alwaysFalse
+			count: 2
+			path: hrms/modules/notifications/whatsapp.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 18
+			path: hrms/modules/notifications/whatsapp.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 14
+			path: hrms/modules/payroll/arrears.php
+
+		-
+			message: '#^Variable \$clientName might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/payroll/bank-advice.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/payroll/bank-advice.php
+
+		-
+			message: '#^Constant BONUS_PAGE_URL not found\.$#'
+			identifier: constant.notFound
+			count: 5
+			path: hrms/modules/payroll/bonus.php
+
+		-
+			message: '#^Variable \$bonusRate might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/payroll/bonus.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 20
+			path: hrms/modules/payroll/bonus.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/payroll/payslips.php
+
+		-
+			message: '#^Invalid array key type float\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 3
+			path: hrms/modules/payroll/print_payslip.php
+
+		-
+			message: '#^Invalid array key type float\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 3
+			path: hrms/modules/payroll/print_payslips.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/payroll/print_payslips.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 16
+			path: hrms/modules/payroll/process-edit.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: hrms/modules/payroll/process.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 25
+			path: hrms/modules/payroll/process.php
+
+		-
+			message: '#^Variable \$payroll might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/payroll/process.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/modules/payroll/salary-revision.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 26
+			path: hrms/modules/payroll/salary-revision.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/payroll/view.php
+
+		-
+			message: '#^If condition is always false\.$#'
+			identifier: if.alwaysFalse
+			count: 1
+			path: hrms/modules/portal/login.php
+
+		-
+			message: '#^Invalid array key type float\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 3
+			path: hrms/modules/portal/payslip_view.php
+
+		-
+			message: '#^Variable \$periodId might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/portal/payslip_view.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 9
+			path: hrms/modules/portal/profile.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/profile/settings.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/ratecard/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/ratecard/list.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/recruitment/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/recruitment/list.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/report/attendance.php
+
+		-
+			message: '#^Variable \$sql might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/report/attendance.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/bonus-register.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/report/compliance.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/custom.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/report/department-salary-register.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/employee.php
+
+		-
+			message: '#^Variable \$sql might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/report/employee.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/report/esi-reports.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/esi/cover-exempt.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/esi/form-3.php
+
+		-
+			message: '#^Offset int\<1, 12\> on array\{1\: ''January'', 2\: ''February'', 3\: ''March'', 4\: ''April'', 5\: ''May'', 6\: ''June'', 7\: ''July'', 8\: ''August'', \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: hrms/modules/report/esi/form-5.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/report/esi/form-5.php
+
+		-
+			message: '#^Offset int\<1, 12\> on array\{1\: ''Jan'', 2\: ''Feb'', 3\: ''Mar'', 4\: ''Apr'', 5\: ''May'', 6\: ''Jun'', 7\: ''Jul'', 8\: ''Aug'', \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: hrms/modules/report/esi/inspection-report.php
+
+		-
+			message: '#^Offset int\<1, 12\> on array\{1\: ''January'', 2\: ''February'', 3\: ''March'', 4\: ''April'', 5\: ''May'', 6\: ''June'', 7\: ''July'', 8\: ''August'', \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: hrms/modules/report/esi/inspection-report.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/report/esi/inspection-report.php
+
+		-
+			message: '#^Variable \$totEE might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/esi/inspection-report.php
+
+		-
+			message: '#^Variable \$totER might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/esi/inspection-report.php
+
+		-
+			message: '#^Variable \$totIPs might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/report/esi/inspection-report.php
+
+		-
+			message: '#^Variable \$totNCP might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/report/esi/inspection-report.php
+
+		-
+			message: '#^Variable \$totWages might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/esi/inspection-report.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/report/esi/rcc-report.php
+
+		-
+			message: '#^Comparison operation "\>" between 0 and 0 is always false\.$#'
+			identifier: greater.alwaysFalse
+			count: 4
+			path: hrms/modules/report/form-er1.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/form-er1.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/gratuity-form-f.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 8
+			path: hrms/modules/report/gumastadhara-fine-register.php
+
+		-
+			message: '#^Variable \$successMsg might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/report/gumastadhara-fine-register.php
+
+		-
+			message: '#^Offset ''leave_applications'' on array\{employee_code\: mixed, full_name\: mixed, designation\: mixed, client_name\: mixed, unit_name\: mixed, total_paid_days\: mixed, total_present\: mixed, total_wo\: mixed, \.\.\.\} in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.offset
+			count: 2
+			path: hrms/modules/report/gumastadhara-form-d.php
+
+		-
+			message: '#^Offset ''total_paid_days'' on array\{employee_code\: mixed, full_name\: mixed, designation\: mixed, client_name\: mixed, unit_name\: mixed, total_paid_days\: mixed, total_present\: 0\|0\.0\|''''\|''0''\|array\{\}\|false, total_wo\: mixed, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: hrms/modules/report/gumastadhara-form-d.php
+
+		-
+			message: '#^Offset ''total_present'' on array\{employee_code\: mixed, full_name\: mixed, designation\: mixed, client_name\: mixed, unit_name\: mixed, total_paid_days\: mixed, total_present\: mixed, total_wo\: mixed, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: hrms/modules/report/gumastadhara-form-d.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/gumastadhara-form-d.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/report/gumastadhara-muster-roll.php
+
+		-
+			message: '#^Comparison operation "\>" between int\<1, max\> and 0 is always true\.$#'
+			identifier: greater.alwaysTrue
+			count: 1
+			path: hrms/modules/report/gumastadhara-ot-register.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/report/gumastadhara-ot-register.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/gumastadhara-salary-register.php
+
+		-
+			message: '#^Offset ''leaves'' on array\{employee\: mixed, leaves\: non\-empty\-array\<array\{opening\: 0\|float, earned\: 0\|float, used\: float\|int\<0, max\>, closing\: 0\|float, months\: array\{1\: int\<0, max\>, 2\: int\<0, max\>, 3\: int\<0, max\>, 4\: int\<0, max\>, 5\: int\<0, max\>, 6\: int\<0, max\>, 7\: int\<0, max\>, 8\: int\<0, max\>, \.\.\.\}\}\>\} in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.offset
+			count: 3
+			path: hrms/modules/report/leave-register.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between mixed~''all'' and ''all'' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: hrms/modules/report/leave-register.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/report/leave-register.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/lwf-report.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/report/mis-reports.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/mis/advance-report.php
+
+		-
+			message: '#^Variable \$grandAdv1 might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/report/mis/advance-report.php
+
+		-
+			message: '#^Variable \$grandAdv2 might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/report/mis/advance-report.php
+
+		-
+			message: '#^Variable \$grandDress might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/report/mis/advance-report.php
+
+		-
+			message: '#^Variable \$grandOffice might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/report/mis/advance-report.php
+
+		-
+			message: '#^Variable \$grandTotal might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/report/mis/advance-report.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/mis/cheque-print.php
+
+		-
+			message: '#^Variable \$period might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/report/mis/cheque-print.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/mis/form-16.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/mis/increment-report.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/mis/loan-ledger.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: hrms/modules/report/mis/salary-certificate.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/report/mis/salary-certificate.php
+
+		-
+			message: '#^Offset 0\|1\|2\|3\|4\|5\|6 on array\{''Sun'', ''Mon'', ''Tue'', ''Wed'', ''Thu'', ''Fri'', ''Sat''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: hrms/modules/report/muster-roll.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/report/muster-roll.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/payroll.php
+
+		-
+			message: '#^Variable \$sql might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/report/payroll.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 8
+			path: hrms/modules/report/pf-reports.php
+
+		-
+			message: '#^Comparison operation "\>" between int\<1, max\> and 0 is always true\.$#'
+			identifier: greater.alwaysTrue
+			count: 1
+			path: hrms/modules/report/pf/cover-exempt.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between mixed and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 2
+			path: hrms/modules/report/pf/cover-exempt.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 8
+			path: hrms/modules/report/pf/cover-exempt.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 7
+			path: hrms/modules/report/pf/dues-remitted.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/report/pf/form-10.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/pf/form-10c.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: hrms/modules/report/pf/form-12a.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/pf/form-13.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/pf/form-19.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/pf/form-2-revised.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 11
+			path: hrms/modules/report/pf/form-5.php
+
+		-
+			message: '#^Offset ''month'' on array\{month\: int, year\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: hrms/modules/report/pf/form-9.php
+
+		-
+			message: '#^Offset ''year'' on array\{month\: int, year\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: hrms/modules/report/pf/form-9.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/pf/form-9.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/report/pt/employee-wise.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/pt/form-5.php
+
+		-
+			message: '#^Variable \$stateWhere might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/report/pt/form-5.php
+
+		-
+			message: '#^Offset int\<1, 12\> on array\{1\: ''January'', 2\: ''February'', 3\: ''March'', 4\: ''April'', 5\: ''May'', 6\: ''June'', 7\: ''July'', 8\: ''August'', \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: hrms/modules/report/pt/summary.php
+
+		-
+			message: '#^Variable \$annualTotal might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/report/pt/summary.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/pt/summary.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/salary-register.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/report/stipend-register.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/report/summary-reports.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/requisition/add.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/requisition/list.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/settings/company.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/settings/holidays.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 19
+			path: hrms/modules/settings/manager-allocation.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/modules/settings/notifications.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 7
+			path: hrms/modules/settings/payslip-templates.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 13
+			path: hrms/modules/settings/roles.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 9
+			path: hrms/modules/settings/statutory.php
+
+		-
+			message: '#^Function formatDate invoked with 2 parameters, 1 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: hrms/modules/settings/users.php
+
+		-
+			message: '#^Variable \$auth might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/settings/users.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: hrms/modules/settings/users.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 9
+			path: hrms/modules/settlement/list.php
+
+		-
+			message: '#^Invalid array key type float\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 1
+			path: hrms/modules/settlement/view.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/settlement/view.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 10
+			path: hrms/modules/timesheet/create.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/modules/timesheet/list.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 8
+			path: hrms/modules/unit/list.php
+
+		-
+			message: '#^Variable \$unit might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/modules/unit/list.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: hrms/modules/unit/salary-templates.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/scripts/cron-auto-notifications.php
+
+		-
+			message: '#^Undefined variable\: \$month$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/scripts/cron-auto-notifications.php
+
+		-
+			message: '#^Undefined variable\: \$year$#'
+			identifier: variable.undefined
+			count: 3
+			path: hrms/scripts/cron-auto-notifications.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/scripts/cron-auto-notifications.php
+
+		-
+			message: '#^Variable \$now on left side of \?\? is never defined\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: hrms/scripts/cron-auto-notifications.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 2
+			path: hrms/scripts/cron-push-notifications.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 14
+			path: hrms/scripts/cron-push-notifications.php
+
+		-
+			message: '#^Variable \$isLoggedIn might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/templates/footer.php
+
+		-
+			message: '#^Array has 2 duplicate keys with value ''attendance/add'' \(''attendance/add'', ''attendance/add''\)\.$#'
+			identifier: array.duplicateKey
+			count: 1
+			path: hrms/templates/header.php
+
+		-
+			message: '#^Array has 2 duplicate keys with value ''report/payroll'' \(''report/payroll'', ''report/payroll''\)\.$#'
+			identifier: array.duplicateKey
+			count: 1
+			path: hrms/templates/header.php
+
+		-
+			message: '#^Constant APP_ROOT not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: hrms/templates/header.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 5
+			path: hrms/templates/header.php
+
+		-
+			message: '#^Offset ''advance''\|''announcement''\|''assets''\|''attendance''\|''audit''\|''billing''\|''compliance''\|''contract''\|''entry''\|''expense''\|''feedback''\|''forms''\|''leave''\|''loan''\|''ratecard''\|''settlement''\|''timesheet'' on array\{dashboard\: ''Dashboard'', employee\: ''Employees'', attendance\: ''Attendance'', advance\: ''Advance'', expense\: ''Expenses'', entry\: ''Salary & Entries'', payroll\: ''Payroll'', compliance\: ''Compliance'', \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: hrms/templates/header.php
+
+		-
+			message: '#^Offset 0 on non\-empty\-list\<string\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: hrms/templates/header.php
+
+		-
+			message: '#^Variable \$auth might not be defined\.$#'
+			identifier: variable.undefined
+			count: 20
+			path: hrms/templates/header.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 7
+			path: hrms/templates/header.php
+
+		-
+			message: '#^Variable \$isLoggedIn might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/templates/header.php
+
+		-
+			message: '#^Variable \$page might not be defined\.$#'
+			identifier: variable.undefined
+			count: 20
+			path: hrms/templates/header.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: hrms/wa-delivery-callback.php
+
+		-
+			message: '#^Variable \$db might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: hrms/wa-queue.php

@@ -5,21 +5,72 @@ declare(strict_types=1);
  * ESS API — Shared Configuration & Utilities
  * Employee Self Service application backend
  *
- * SETUP: Copy this file to config.php and update the values below.
+ * SETUP (preferred method):
+ *   1. Copy .env.example to /home/rcsfaxhz/.env
+ *   2. Fill in real values (DB creds, API key, JWT secret, etc.)
+ *   3. chmod 600 /home/rcsfaxhz/.env
+ *   4. Delete this file's dependency on config.php — the .env loader
+ *      handles everything.
+ *
+ * SETUP (legacy method — still supported for backward compat):
+ *   1. Copy this file to config.php
+ *   2. Update the values below
  */
 
-// ─── Database Constants ───────────────────────────────────────────────────────
-define('DB_HOST', 'localhost');
-define('DB_USER', 'your_db_user');
-define('DB_PASS', 'your_db_password');
-define('DB_NAME', 'your_db_name');
+// ── Load centralized .env helper (shared with HRMS) ───────────────────────
+// The helper is at hrms/includes/load-env.php and provides env() / envDefine().
+// If it can't find it (e.g. HRMS not deployed on this server), fall back to
+// the inline loader below.
+$envHelperPath = dirname(__DIR__, 2) . '/hrms/includes/load-env.php';
+if (file_exists($envHelperPath)) {
+    require_once $envHelperPath;
+} else {
+    // Inline fallback — same logic as load-env.php but self-contained
+    if (!function_exists('env')) {
+        function env(string $key, ?string $default = null): ?string {
+            $realVal = getenv($key);
+            if ($realVal !== false && $realVal !== '') return $realVal;
+            // Try .env file
+            $envPath = '/home/rcsfaxhz/.env';
+            if (file_exists($envPath) && is_readable($envPath)) {
+                $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                foreach ($lines as $line) {
+                    $line = trim($line);
+                    if ($line === '' || $line[0] === '#') continue;
+                    $eq = strpos($line, '=');
+                    if ($eq === false) continue;
+                    $k = trim(substr($line, 0, $eq));
+                    if ($k === $key) {
+                        $v = trim(substr($line, $eq + 1));
+                        // Strip quotes
+                        if (strlen($v) >= 2 && in_array($v[0], ['"', "'"]) && $v[strlen($v)-1] === $v[0]) {
+                            $v = substr($v, 1, -1);
+                        }
+                        return $v;
+                    }
+                }
+            }
+            return $default;
+        }
+        function envDefine(string $constantName, string $envKey, string $default = ''): void {
+            if (defined($constantName)) return;
+            define($constantName, env($envKey, $default));
+        }
+    }
+}
 
-// ─── Security Constants ──────────────────────────────────────────────────────
-define('API_KEY', 'your_api_key_here');
-define('JWT_SECRET', 'your_jwt_secret_here');
+// ── Database Constants (from .env, fallback to legacy defines) ──────────
+envDefine('DB_HOST', 'DB_HOST', 'localhost');
+envDefine('DB_USER', 'DB_USER', 'your_db_user');
+envDefine('DB_PASS', 'DB_PASS', 'your_db_password');
+envDefine('DB_NAME', 'DB_NAME', 'your_db_name');
+
+// ── Security Constants (from .env, fallback to legacy defines) ───────────
+envDefine('API_KEY', 'ESS_API_KEY', 'your_api_key_here');
+envDefine('JWT_SECRET', 'ESS_JWT_SECRET', 'your_jwt_secret_here');
 // JWT expiry reduced from 345600 (4 days) to 86400 (24h) per hardening review.
 // Combined with refresh-token grace this limits a stolen token's usefulness.
-define('JWT_EXPIRY', 86400); // 24 hours
+envDefine('JWT_EXPIRY', 'ESS_JWT_EXPIRY', '86400');
 
 // ─── Runtime secret guard ────────────────────────────────────────────────────
 // Refuse to serve any endpoint if the operator forgot to replace the placeholder

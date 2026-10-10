@@ -9,10 +9,20 @@ const { makeWASocket, useMultiFileAuthState, DisconnectReason, delay, isValidPho
 const fs = require('fs');
 const path = require('path');
 
-// Configuration from server (read-only, do NOT change)
-const SESSION_DIR = '/home/rcsfaxhz/auth_info_baileys';
-const API_KEY = process.env.WA_API_KEY || 'RCS_HRMS_SECURE_KEY_982374982374';
-const PORT = 3001;
+// Configuration from environment variables (NEVER hardcode secrets in source).
+// The WA_API_KEY must be set in the PM2 ecosystem config or .env file on the
+// server. The bot refuses to start if it's missing — this prevents the old
+// "hardcoded fallback key in git" security issue.
+const SESSION_DIR = process.env.WA_SESSION_DIR || '/home/rcsfaxhz/auth_info_baileys';
+const API_KEY = process.env.WA_API_KEY;
+const PORT = parseInt(process.env.WA_PORT || '3001', 10);
+
+if (!API_KEY) {
+  console.error('[FATAL] WA_API_KEY environment variable is not set.');
+  console.error('       Set it in the PM2 ecosystem config or /home/rcsfaxhz/.env');
+  console.error('       The bot refuses to start without a proper API key.');
+  process.exit(1);
+}
 
 // Delivery-callback config for HRMS (server-side only; never exposed to browser)
 const HRMS_BASE = process.env.HRMS_BASE_URL || 'https://join.rcsfacility.com/hrms';
